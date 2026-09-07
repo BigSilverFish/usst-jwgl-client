@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- M3 Dark Mode Brand & Core Colors (USST Crimson Dark Palette) -->
+    <color name="primary">#FFB4AB</color>
+    <color name="on_primary">#561D22</color>
+    <color name="primary_container">#732B30</color>
+    <color name="on_primary_container">#FFDAD8</color>
+    <color name="primary_dark">#FFB4AB</color>
+
+    <color name="secondary">#E7BDBA</color>
+    <color name="on_secondary">#442928</color>
+    <color name="secondary_container">#5D3F3E</color>
+    <color name="on_secondary_container">#FFDAD7</color>
+
+    <color name="tertiary">#E5C18D</color>
+    <color name="tertiary_container">#5B4219</color>
+    <color name="on_tertiary_container">#FEDFA6</color>
+
+    <!-- Dark Surface Hierarchy (OLED-friendly yet low eye-strain M3 grays) -->
+    <color name="background">#121316</color>
+    <color name="surface">#1B1C20</color>
+    <color name="surface_variant">#24262C</color>
+    <color name="surface_container">#2C2F36</color>
+    <color name="surface_container_high">#353942</color>
+
+    <color name="text_primary">#F1F5F9</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_tertiary">#64748B</color>
+
+    <color name="border">#2E333D</color>
+    <color name="card_stroke">#2E333D</color>
+    <color name="badge_bg">#4A1B20</color>
+    <color name="badge_text">#FFB4AB</color>
+
+    <!-- M3 Grade Tier Colors in Dark Mode -->
+    <color name="grade_green_bg">#143823</color>
+    <color name="grade_green_text">#86EFAC</color>
+    <color name="grade_blue_bg">#1E3050</color>
+    <color name="grade_blue_text">#93C5FD</color>
+    <color name="grade_purple_bg">#361E48</color>
+    <color name="grade_purple_text">#D8B4FE</color>
+    <color name="grade_orange_bg">#3D2708</color>
+    <color name="grade_orange_text">#FDE047</color>
+    <color name="grade_red_bg">#421619</color>
+    <color name="grade_red_text">#FCA5A5</color>
+
+    <color name="color_today_bg">#4A1B20</color>
+    <color name="color_today_text">#FFB4AB</color>
+
+    <!-- Cumulative Hero Card Colors in Dark Mode -->
+    <color name="hero_card_bg">#3E1217</color>
+    <color name="hero_card_title">#E7BDBA</color>
+    <color name="hero_card_val">#F1F5F9</color>
+    <color name="hero_card_divider">#5C1E26</color>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_timetable"
+        android:icon="@drawable/ic_nav_timetable"
+        android:title="课程表" />
+    <item
+        android:id="@+id/nav_grades"
+        android:icon="@drawable/ic_nav_grades"
+        android:title="成绩与绩点" />
+    <item
+        android:id="@+id/nav_profile"
+        android:icon="@drawable/ic_nav_profile"
+        android:title="学籍档案" />
+</menu>
