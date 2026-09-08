@@ -297,7 +297,7 @@ object JwglClient {
             val semesterGroups = linkedMapOf<String, MutableList<cn.edu.usst.jwgl.data.model.CourseGrade>>()
 
             for (i in 0 until itemsArray.length()) {
-                val item = itemsArray.getJSONObject(i)
+                val item = itemsArray.optJSONObject(i) ?: continue
                 val courseName = item.optString("kcmc", "")
                 val courseId = item.optString("kch", "")
                 val examType = item.optString("khfsmc", "").trim()
@@ -439,7 +439,7 @@ object JwglClient {
             var nextColor = 0
 
             for (i in 0 until kbList.length()) {
-                val item = kbList.getJSONObject(i)
+                val item = kbList.optJSONObject(i) ?: continue
                 val courseName = item.optString("kcmc", "").trim()
                 if (courseName.isEmpty()) continue
 

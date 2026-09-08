@@ -355,7 +355,7 @@ class TimetableView @JvmOverloads constructor(
         gridContainer.addView(dinnerDivider)
 
         val totalWidth = gridContainer.width
-        val colWidth = totalWidth / columnCount
+        val colWidth = if (columnCount > 0) totalWidth / columnCount else dp2px(40)
 
         // 4. Highlight column for today if applicable
         highlightDayOfWeek?.let { day ->
@@ -438,10 +438,10 @@ class TimetableView @JvmOverloads constructor(
                         maxOf(startSection, oStart) <= minOf(endSection, oEnd)
                     }
 
-                    val overlapCount = overlapping.size
+                    val overlapCount = overlapping.size.coerceAtLeast(1)
                     val overlapIndex = overlapping.indexOf(item).coerceAtLeast(0)
 
-                    val itemWidth = colWidth / overlapCount
+                    val itemWidth = (colWidth / overlapCount).coerceAtLeast(1)
                     val itemLeft = (dayOfWeek - 1) * colWidth + overlapIndex * itemWidth
 
                     val margin = dp2px(2)

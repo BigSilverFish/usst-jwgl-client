@@ -43,8 +43,15 @@ import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.ThemeManager
+import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.chip.ChipGroup
+import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.android.material.materialswitch.MaterialSwitch
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -75,7 +82,7 @@ class MainActivity : AppCompatActivity() {
     ) { isGranted ->
         if (isGranted) {
             binding.switchCourseReminder.isChecked = true
-            CourseReminderManager.setReminderEnabled(this, true, currentDisplayCourses)
+            CourseReminderManager.setReminderEnabled(this, true)
             Toast.makeText(this, "已开启上课前 15 分钟通知提醒", Toast.LENGTH_SHORT).show()
         } else {
             binding.switchCourseReminder.isChecked = false
@@ -350,6 +357,21 @@ class MainActivity : AppCompatActivity() {
             showFontSizeDialog()
         }
 
+        // Schedule Manager Dialog (WakeUP style)
+        binding.btnScheduleManager.setOnClickListener {
+            showScheduleManagerDialog()
+        }
+
+        binding.btnSetActiveSemester.setOnClickListener {
+            val semKey = "${currentXnm}_${currentXqm}"
+            CourseReminderManager.setActiveSemesterKey(this, semKey)
+            updateHistoricalBanner()
+            if (CourseReminderManager.isReminderEnabled(this)) {
+                CourseReminderManager.scheduleUpcomingReminders(this)
+            }
+            Toast.makeText(this, "已将当前学期设为生效主课表", Toast.LENGTH_SHORT).show()
+        }
+
         // Add Course Dialog
         binding.btnAddCourse.setOnClickListener {
             showAddCourseDialog()
@@ -393,7 +415,7 @@ class MainActivity : AppCompatActivity() {
                         return@setOnCheckedChangeListener
                     }
                 }
-                CourseReminderManager.setReminderEnabled(this, true, currentDisplayCourses)
+                CourseReminderManager.setReminderEnabled(this, true)
                 Toast.makeText(this, "已开启上课前 15 分钟通知提醒", Toast.LENGTH_SHORT).show()
             } else {
                 CourseReminderManager.setReminderEnabled(this, false)
@@ -436,7 +458,7 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
-            .show()
+            .safeShow()
     }
 
     private fun showSemesterPickerDialog() {
@@ -459,7 +481,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("取消", null)
-            .show()
+            .safeShow()
     }
 
     private fun showFontSizeDialog() {
@@ -484,7 +506,7 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "字体大小已设置为：${scales[which].first}", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("取消", null)
-            .show()
+            .safeShow()
     }
 
     private fun showOrLoadTimetable(xnm: String, xqm: String) {
@@ -545,6 +567,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateHistoricalBanner() {
+        val semKey = "${currentXnm}_${currentXqm}"
+        val activeSemKey = CourseReminderManager.getActiveSemesterKey(this)
+        if (semKey != activeSemKey) {
+            binding.layoutHistoricalBanner.visibility = View.VISIBLE
+            val parts = activeSemKey.split("_")
+            val aXnm = parts.getOrNull(0) ?: "2026"
+            val aXqm = parts.getOrNull(1) ?: "3"
+            val aEnd = (aXnm.toIntOrNull() ?: 2026) + 1
+            val aSemNum = if (aXqm == "3") "1" else "2"
+            binding.tvHistoricalBannerText.text = "正在浏览非生效课表 (生效课表: ${aXnm}-${aEnd} 第${aSemNum}学期)"
+        } else {
+            binding.layoutHistoricalBanner.visibility = View.GONE
+        }
+    }
+
     private fun refreshCoursesList(data: TimetableData) {
         val semKey = "${currentXnm}_${currentXqm}"
         val deletedIds = customCourseManager.getDeletedCourseIds(semKey)
@@ -562,28 +600,36 @@ class MainActivity : AppCompatActivity() {
             }
         }
         currentDisplayCourses.addAll(customCourses.filter { !deletedIds.contains(it.id) })
-        if (CourseReminderManager.isReminderEnabled(this)) {
-            CourseReminderManager.scheduleUpcomingReminders(this, currentDisplayCourses)
+
+        val activeSemKey = CourseReminderManager.getActiveSemesterKey(this)
+        if (semKey == activeSemKey && CourseReminderManager.isReminderEnabled(this)) {
+            CourseReminderManager.scheduleUpcomingReminders(this)
         }
     }
 
     private fun displayTimetable(data: TimetableData) {
         binding.tvTimetableSemester.text = data.semesterTitle
-        val realCurrentWeek = RemoteConfigManager.getCurrentWeek()
+        val semKey = "${currentXnm}_${currentXqm}"
         val semConfig = RemoteConfigManager.getSemesterConfig()
-        if (currentWeek !in 1..20) {
+        val customWeek1 = customCourseManager.getCustomWeek1Monday(semKey) ?: semConfig.week1Monday
+        val customTotalWeeks = customCourseManager.getCustomTotalWeeks(semKey, semConfig.totalWeeks)
+        val realCurrentWeek = SemesterHelper.calculateCurrentWeek(customWeek1, customTotalWeeks)
+        if (currentWeek !in 1..customTotalWeeks) {
             currentWeek = realCurrentWeek
         }
         val isCurrent = (currentWeek == realCurrentWeek)
         binding.tvCurrentWeekIndicator.text = if (isCurrent) "第 $currentWeek 周 (本周)" else "第 $currentWeek 周"
 
+        // Update historical banner
+        updateHistoricalBanner()
+
         // Update timetable header dates & today column highlight
-        binding.timetableHeader.setDateInfo(semConfig.week1Monday, currentWeek)
+        binding.timetableHeader.setDateInfo(customWeek1, currentWeek)
         binding.timetableView.setHighlightDayOfWeek(if (isCurrent) getTodayDayOfWeek() else null)
 
-        // Setup Week Chips (Weeks 1 to 20)
+        // Setup Week Chips (Weeks 1 to customTotalWeeks)
         binding.weekChipGroup.removeAllViews()
-        for (w in 1..20) {
+        for (w in 1..customTotalWeeks) {
             val chip = Chip(this).apply {
                 text = if (w == realCurrentWeek) "第${w}周 (本周)" else "第${w}周"
                 isCheckable = true
@@ -591,7 +637,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener {
                     currentWeek = w
                     binding.tvCurrentWeekIndicator.text = if (w == realCurrentWeek) "第 $w 周 (本周)" else "第 $w 周"
-                    binding.timetableHeader.setDateInfo(semConfig.week1Monday, w)
+                    binding.timetableHeader.setDateInfo(customWeek1, w)
                     binding.timetableView.setHighlightDayOfWeek(if (w == realCurrentWeek) getTodayDayOfWeek() else null)
                     binding.timetableView.setWeek(w)
                 }
@@ -614,6 +660,366 @@ class MainActivity : AppCompatActivity() {
             dp.toFloat(),
             resources.displayMetrics
         ).toInt()
+    }
+
+    private fun showScheduleManagerDialog() {
+        val semKey = "${currentXnm}_${currentXqm}"
+        val activeSemKey = CourseReminderManager.getActiveSemesterKey(this)
+        val isActive = (semKey == activeSemKey)
+
+        val dialog = BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.dialog_schedule_manager, null)
+        dialog.setContentView(view)
+
+        val btnClose = view.findViewById<MaterialButton>(R.id.btnCloseScheduleManager)
+        val toggleTabs = view.findViewById<MaterialButtonToggleGroup>(R.id.toggleScheduleTabs)
+        val tabSettings = view.findViewById<MaterialButton>(R.id.tabScheduleSettings)
+        val tabLibrary = view.findViewById<MaterialButton>(R.id.tabCourseLibrary)
+        val layoutSettings = view.findViewById<LinearLayout>(R.id.layoutScheduleSettings)
+        val layoutLibrary = view.findViewById<LinearLayout>(R.id.layoutCourseLibrary)
+
+        toggleTabs.check(R.id.tabScheduleSettings)
+        toggleTabs.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                when (checkedId) {
+                    R.id.tabScheduleSettings -> {
+                        layoutSettings.visibility = View.VISIBLE
+                        layoutLibrary.visibility = View.GONE
+                    }
+                    R.id.tabCourseLibrary -> {
+                        layoutSettings.visibility = View.GONE
+                        layoutLibrary.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+
+        btnClose.setOnClickListener { dialog.dismiss() }
+
+        // --- Settings Tab ---
+        val tvSemesterTitle = view.findViewById<TextView>(R.id.tvManagerSemesterTitle)
+        val tvActiveDesc = view.findViewById<TextView>(R.id.tvActiveScheduleDesc)
+        val switchActive = view.findViewById<MaterialSwitch>(R.id.switchActiveSchedule)
+
+        val endYear = (currentXnm.toIntOrNull() ?: 2026) + 1
+        val semNumber = if (currentXqm == "3") "1" else "2"
+        tvSemesterTitle.text = "${currentXnm}-${endYear}学年 第${semNumber}学期"
+
+        switchActive.isChecked = isActive
+        tvActiveDesc.text = if (isActive) "当前生效主课表 · 课前提醒以此为准" else "非当前生效课表 · 开启后以此课表进行提醒"
+
+        switchActive.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                CourseReminderManager.setActiveSemesterKey(this, semKey)
+                tvActiveDesc.text = "当前生效主课表 · 课前提醒以此为准"
+                updateHistoricalBanner()
+                if (CourseReminderManager.isReminderEnabled(this)) {
+                    CourseReminderManager.scheduleUpcomingReminders(this)
+                }
+                Toast.makeText(this, "已将当前学期设为主课表", Toast.LENGTH_SHORT).show()
+            } else {
+                val (defXnm, defXqm) = SemesterHelper.getCurrentSemester()
+                val defKey = "${defXnm}_${defXqm}"
+                CourseReminderManager.setActiveSemesterKey(this, defKey)
+                tvActiveDesc.text = "非当前生效课表 · 开启后以此课表进行提醒"
+                updateHistoricalBanner()
+                if (CourseReminderManager.isReminderEnabled(this)) {
+                    CourseReminderManager.scheduleUpcomingReminders(this)
+                }
+                Toast.makeText(this, "已恢复默认当前学期为主课表", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Calendar Week 1 Date
+        val tvWeek1Val = view.findViewById<TextView>(R.id.tvWeek1MondayVal)
+        val btnPickDate = view.findViewById<MaterialButton>(R.id.btnPickWeek1Date)
+        val btnResetDate = view.findViewById<MaterialButton>(R.id.btnResetWeek1Date)
+
+        fun updateWeek1Display() {
+            val customWeek1 = customCourseManager.getCustomWeek1Monday(semKey)
+            if (customWeek1 != null) {
+                tvWeek1Val.text = "$customWeek1 (自定义)"
+            } else {
+                val defWeek1 = RemoteConfigManager.getSemesterConfig().week1Monday
+                tvWeek1Val.text = "$defWeek1 (系统预设)"
+            }
+        }
+        updateWeek1Display()
+
+        btnPickDate.setOnClickListener {
+            val datePicker = MaterialDatePicker.Builder.datePicker()
+                .setTitleText("选择第 1 周周一日期")
+                .setSelection(MaterialDatePicker.todayInUtcMilliseconds())
+                .build()
+
+            datePicker.addOnPositiveButtonClickListener { utcMillis ->
+                val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                    timeInMillis = utcMillis
+                }
+                val localCal = Calendar.getInstance().apply {
+                    set(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val dayOfWeek = localCal.get(Calendar.DAY_OF_WEEK)
+                val diff = if (dayOfWeek == Calendar.SUNDAY) -6 else Calendar.MONDAY - dayOfWeek
+                localCal.add(Calendar.DAY_OF_MONTH, diff)
+
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val mondayStr = sdf.format(localCal.time)
+
+                customCourseManager.setCustomWeek1Monday(semKey, mondayStr)
+                updateWeek1Display()
+
+                val cached = cacheManager.getTimetable(currentXnm, currentXqm)
+                if (cached != null) {
+                    displayTimetable(cached)
+                }
+                if (CourseReminderManager.getActiveSemesterKey(this) == semKey && CourseReminderManager.isReminderEnabled(this)) {
+                    CourseReminderManager.scheduleUpcomingReminders(this)
+                }
+                Toast.makeText(this, "第 1 周周一已设定为: $mondayStr", Toast.LENGTH_SHORT).show()
+            }
+
+            if (!isFinishing && !isDestroyed) {
+                datePicker.show(supportFragmentManager, "week1_date_picker")
+            }
+        }
+
+        btnResetDate.setOnClickListener {
+            customCourseManager.setCustomWeek1Monday(semKey, null)
+            updateWeek1Display()
+            val cached = cacheManager.getTimetable(currentXnm, currentXqm)
+            if (cached != null) {
+                displayTimetable(cached)
+            }
+            if (CourseReminderManager.getActiveSemesterKey(this) == semKey && CourseReminderManager.isReminderEnabled(this)) {
+                CourseReminderManager.scheduleUpcomingReminders(this)
+            }
+            Toast.makeText(this, "已重置为系统预设开学日期", Toast.LENGTH_SHORT).show()
+        }
+
+        // Total Weeks
+        val chipGroupWeeks = view.findViewById<ChipGroup>(R.id.chipGroupTotalWeeks)
+        val curTotalWeeks = customCourseManager.getCustomTotalWeeks(semKey, RemoteConfigManager.getSemesterConfig().totalWeeks)
+        when (curTotalWeeks) {
+            16 -> chipGroupWeeks.check(R.id.chipWeeks16)
+            18 -> chipGroupWeeks.check(R.id.chipWeeks18)
+            20 -> chipGroupWeeks.check(R.id.chipWeeks20)
+            24 -> chipGroupWeeks.check(R.id.chipWeeks24)
+            else -> chipGroupWeeks.check(R.id.chipWeeks16)
+        }
+
+        chipGroupWeeks.setOnCheckedStateChangeListener { _, checkedIds ->
+            val checkedId = checkedIds.firstOrNull() ?: return@setOnCheckedStateChangeListener
+            val selectedWeeks = when (checkedId) {
+                R.id.chipWeeks16 -> 16
+                R.id.chipWeeks18 -> 18
+                R.id.chipWeeks20 -> 20
+                R.id.chipWeeks24 -> 24
+                else -> 16
+            }
+            customCourseManager.setCustomTotalWeeks(semKey, selectedWeeks)
+            val cached = cacheManager.getTimetable(currentXnm, currentXqm)
+            if (cached != null) {
+                displayTimetable(cached)
+            }
+            if (CourseReminderManager.getActiveSemesterKey(this) == semKey && CourseReminderManager.isReminderEnabled(this)) {
+                CourseReminderManager.scheduleUpcomingReminders(this)
+            }
+            Toast.makeText(this, "已设置学期总教学周数为 $selectedWeeks 周", Toast.LENGTH_SHORT).show()
+        }
+
+        // Reminders Switch
+        val switchReminder = view.findViewById<MaterialSwitch>(R.id.switchReminderManager)
+        switchReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
+        switchReminder.setOnCheckedChangeListener { _, isChecked ->
+            binding.switchCourseReminder.isChecked = isChecked
+        }
+
+        // --- Course Library Tab ---
+        val tvCount = view.findViewById<TextView>(R.id.tvCourseCountSummary)
+        val btnRestore = view.findViewById<MaterialButton>(R.id.btnRestoreDeleted)
+        val btnAdd = view.findViewById<MaterialButton>(R.id.btnAddCourseFromManager)
+        val layoutContainer = view.findViewById<LinearLayout>(R.id.layoutManageCoursesList)
+
+        fun updateTimetableDisplay() {
+            val cached = cacheManager.getTimetable(currentXnm, currentXqm)
+            if (cached != null) {
+                refreshCoursesList(cached)
+                displayTimetable(cached)
+            } else {
+                timetableData?.let {
+                    refreshCoursesList(it)
+                    displayTimetable(it)
+                }
+            }
+        }
+
+        fun refreshCourseLibraryUI() {
+            layoutContainer.removeAllViews()
+
+            val cachedData = cacheManager.getTimetable(currentXnm, currentXqm)
+            val deletedIds = customCourseManager.getDeletedCourseIds(semKey)
+            val customCourses = customCourseManager.getCustomCourses(semKey)
+
+            val allRaw = mutableListOf<CourseItem>()
+            cachedData?.courses?.let { allRaw.addAll(it) }
+            allRaw.addAll(customCourses)
+
+            val courseGroups = allRaw.groupBy { "${it.name}_${it.courseCode}" }
+
+            val totalActive = courseGroups.count { entry -> entry.value.any { !deletedIds.contains(it.id) } }
+            tvCount.text = "共 ${totalActive} 门课程 · ${allRaw.filter { !deletedIds.contains(it.id) }.size} 个时段"
+
+            val hasDeleted = deletedIds.isNotEmpty() || allRaw.any { customCourseManager.getExcludedWeeks(semKey, it.id).isNotEmpty() }
+            btnRestore.visibility = if (hasDeleted) View.VISIBLE else View.GONE
+            btnRestore.text = "恢复已删/停课 (${deletedIds.size})"
+
+            for ((_, group) in courseGroups) {
+                val nonDeletedSlots = group.filter { !deletedIds.contains(it.id) }
+                if (nonDeletedSlots.isEmpty()) continue
+
+                val mainCourse = nonDeletedSlots.first()
+                val cardView = layoutInflater.inflate(R.layout.item_manage_course, layoutContainer, false)
+
+                val vColor = cardView.findViewById<View>(R.id.viewManageColor)
+                val tvName = cardView.findViewById<TextView>(R.id.tvManageCourseName)
+                val tvCode = cardView.findViewById<TextView>(R.id.tvManageCourseCode)
+                val tvExam = cardView.findViewById<TextView>(R.id.tvManageExamType)
+                val tvCredit = cardView.findViewById<TextView>(R.id.tvManageCredit)
+                val tvTeacher = cardView.findViewById<TextView>(R.id.tvManageTeacher)
+                val btnDeleteEntire = cardView.findViewById<MaterialButton>(R.id.btnManageDeleteEntireCourse)
+                val layoutSlots = cardView.findViewById<LinearLayout>(R.id.layoutManageSlots)
+
+                val isNight = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                val paletteItem = TimetableView.getCardColor(mainCourse.colorIndex, isNight)
+                vColor.setBackgroundColor(paletteItem.stroke)
+
+                tvName.text = mainCourse.name
+                tvCode.text = mainCourse.courseCode.ifEmpty { "00000000" }
+                tvExam.text = mainCourse.examType.ifEmpty { "考查" }
+                tvCredit.text = "${mainCourse.credit}学分"
+                tvTeacher.text = if (mainCourse.teacher.isNotEmpty()) "任课教师: ${mainCourse.teacher}" else "任课教师: 暂无"
+
+                btnDeleteEntire.setOnClickListener {
+                    if (!isFinishing && !isDestroyed) {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("删除课程")
+                            .setMessage("确定要删除课程【${mainCourse.name}】及其所有上课时段吗？\n(可在课程库中随时点击【恢复】)")
+                            .setPositiveButton("删除") { _, _ ->
+                                val idsToDelete = group.map { it.id }
+                                customCourseManager.markMultipleCoursesDeleted(semKey, idsToDelete)
+                                updateTimetableDisplay()
+                                refreshCourseLibraryUI()
+                                Toast.makeText(this, "课程【${mainCourse.name}】已删除", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .safeShow()
+                    }
+                }
+
+                for (slot in nonDeletedSlots) {
+                    val days = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                    val dayStr = days.getOrElse(slot.dayOfWeek - 1) { "周${slot.dayOfWeek}" }
+                    val endSec = slot.startSection + slot.step - 1
+                    val secStr = "第${slot.startSection}-${endSec}节"
+                    val roomStr = if (slot.classroom.isNotEmpty()) "@ ${slot.classroom}" else ""
+                    val weekStr = slot.rawWeeks.ifEmpty { "${slot.weeks.minOrNull() ?: 1}-${slot.weeks.maxOrNull() ?: 16}周" }
+
+                    val slotLayout = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            setMargins(0, dp2px(4), 0, dp2px(4))
+                        }
+                    }
+
+                    val tvSlotInfo = TextView(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        text = "$dayStr $secStr ($weekStr) $roomStr"
+                        textSize = 12f
+                        setTextColor(getColor(R.color.text_primary))
+                    }
+                    slotLayout.addView(tvSlotInfo)
+
+                    val isExcludedThisWeek = customCourseManager.getExcludedWeeks(semKey, slot.id).contains(currentWeek)
+                    val btnPauseSlot = MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp2px(32))
+                        setPadding(dp2px(6), 0, dp2px(6), 0)
+                        textSize = 11f
+                        minWidth = 0
+                        minHeight = 0
+                        text = if (isExcludedThisWeek) "恢复第${currentWeek}周" else "本周停课"
+                        setTextColor(if (isExcludedThisWeek) getColor(R.color.grade_green_text) else getColor(R.color.primary))
+                        setOnClickListener {
+                            if (isExcludedThisWeek) {
+                                customCourseManager.restoreExcludedWeek(semKey, slot.id, currentWeek)
+                                Toast.makeText(this@MainActivity, "已恢复第${currentWeek}周课程", Toast.LENGTH_SHORT).show()
+                            } else {
+                                customCourseManager.excludeWeekFromCourse(semKey, slot.id, currentWeek)
+                                Toast.makeText(this@MainActivity, "第${currentWeek}周已临时停课", Toast.LENGTH_SHORT).show()
+                            }
+                            updateTimetableDisplay()
+                            refreshCourseLibraryUI()
+                        }
+                    }
+                    slotLayout.addView(btnPauseSlot)
+
+                    val btnDeleteSlot = MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp2px(32))
+                        setPadding(dp2px(6), 0, dp2px(6), 0)
+                        textSize = 11f
+                        minWidth = 0
+                        minHeight = 0
+                        text = "删时段"
+                        setTextColor(getColor(R.color.grade_red_text))
+                        setOnClickListener {
+                            customCourseManager.markCourseDeleted(semKey, slot.id)
+                            updateTimetableDisplay()
+                            refreshCourseLibraryUI()
+                            Toast.makeText(this@MainActivity, "已删除该上课时段", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    slotLayout.addView(btnDeleteSlot)
+
+                    layoutSlots.addView(slotLayout)
+                }
+
+                layoutContainer.addView(cardView)
+            }
+        }
+
+        btnRestore.setOnClickListener {
+            if (!isFinishing && !isDestroyed) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("恢复全部已删/停课课程")
+                    .setMessage("确定要恢复该学期中被删除的所有课程和临时停课时段吗？")
+                    .setPositiveButton("一键恢复") { _, _ ->
+                        customCourseManager.restoreAllDeletedCourses(semKey)
+                        val cachedData = cacheManager.getTimetable(currentXnm, currentXqm)
+                        cachedData?.courses?.forEach {
+                            customCourseManager.clearExcludedWeeks(semKey, it.id)
+                        }
+                        updateTimetableDisplay()
+                        refreshCourseLibraryUI()
+                        Toast.makeText(this, "已恢复全部已删课程与停课时段", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("取消", null)
+                    .safeShow()
+            }
+        }
+
+        btnAdd.setOnClickListener {
+            dialog.dismiss()
+            showAddCourseDialog()
+        }
+
+        refreshCourseLibraryUI()
+
+        dialog.safeShow()
     }
 
     private fun showAddCourseDialog() {
@@ -774,7 +1180,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "课程【$name】已添加 (共 ${newCourses.size} 个上课时段)", Toast.LENGTH_SHORT).show()
         }
 
-        dialog.show()
+        dialog.safeShow()
     }
 
     private fun showCourseDetail(course: CourseItem, allCoursesInSlot: List<CourseItem>) {
@@ -961,14 +1367,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 .setNegativeButton("取消", null)
-                .show()
+                .safeShow()
         }
 
         btnClose.setOnClickListener {
             dialog.dismiss()
         }
 
-        dialog.show()
+        dialog.safeShow()
     }
 
     private fun showRescheduleDialog(course: CourseItem) {
@@ -1066,7 +1472,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "调课成功！", Toast.LENGTH_SHORT).show()
         }
 
-        dialog.show()
+        dialog.safeShow()
     }
 
     private fun showOrLoadGrades() {
@@ -1243,6 +1649,26 @@ class MainActivity : AppCompatActivity() {
         } else {
             dialog.setCancelable(false)
         }
-        dialog.show()
+        dialog.safeShow()
+    }
+
+    private fun BottomSheetDialog.safeShow() {
+        if (!this@MainActivity.isFinishing && !this@MainActivity.isDestroyed) {
+            try {
+                show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun MaterialAlertDialogBuilder.safeShow() {
+        if (!this@MainActivity.isFinishing && !this@MainActivity.isDestroyed) {
+            try {
+                show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 }

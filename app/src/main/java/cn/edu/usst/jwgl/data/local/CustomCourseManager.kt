@@ -17,7 +17,7 @@ class CustomCourseManager(context: Context) {
         try {
             val jsonArray = JSONArray(jsonStr)
             for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
+                val obj = jsonArray.optJSONObject(i) ?: continue
                 val weeksList = mutableListOf<Int>()
                 val weeksArr = obj.optJSONArray("weeks")
                 if (weeksArr != null) {
@@ -123,6 +123,16 @@ class CustomCourseManager(context: Context) {
         saveCustomCourses(semesterKey, current)
     }
 
+    fun restoreDeletedCourse(semesterKey: String, courseId: String) {
+        val set = getDeletedCourseIds(semesterKey).toMutableSet()
+        set.remove(courseId)
+        prefs.edit().putStringSet("deleted_courses_$semesterKey", set).apply()
+    }
+
+    fun restoreAllDeletedCourses(semesterKey: String) {
+        prefs.edit().remove("deleted_courses_$semesterKey").apply()
+    }
+
     fun getExcludedWeeks(semesterKey: String, courseId: String): Set<Int> {
         val raw = prefs.getString("excluded_weeks_${semesterKey}_$courseId", "") ?: ""
         if (raw.isEmpty()) return emptySet()
@@ -133,6 +143,41 @@ class CustomCourseManager(context: Context) {
         val current = getExcludedWeeks(semesterKey, courseId).toMutableSet()
         current.add(week)
         prefs.edit().putString("excluded_weeks_${semesterKey}_$courseId", current.joinToString(",")).apply()
+    }
+
+    fun restoreExcludedWeek(semesterKey: String, courseId: String, week: Int) {
+        val current = getExcludedWeeks(semesterKey, courseId).toMutableSet()
+        current.remove(week)
+        if (current.isEmpty()) {
+            clearExcludedWeeks(semesterKey, courseId)
+        } else {
+            prefs.edit().putString("excluded_weeks_${semesterKey}_$courseId", current.joinToString(",")).apply()
+        }
+    }
+
+    fun clearExcludedWeeks(semesterKey: String, courseId: String) {
+        prefs.edit().remove("excluded_weeks_${semesterKey}_$courseId").apply()
+    }
+
+    // --- Schedule customization per semester (WakeUP style) ---
+    fun getCustomWeek1Monday(semesterKey: String): String? {
+        return prefs.getString("custom_week1_monday_$semesterKey", null)
+    }
+
+    fun setCustomWeek1Monday(semesterKey: String, dateStr: String?) {
+        if (dateStr == null) {
+            prefs.edit().remove("custom_week1_monday_$semesterKey").apply()
+        } else {
+            prefs.edit().putString("custom_week1_monday_$semesterKey", dateStr).apply()
+        }
+    }
+
+    fun getCustomTotalWeeks(semesterKey: String, defaultWeeks: Int = 16): Int {
+        return prefs.getInt("custom_total_weeks_$semesterKey", defaultWeeks)
+    }
+
+    fun setCustomTotalWeeks(semesterKey: String, totalWeeks: Int) {
+        prefs.edit().putInt("custom_total_weeks_$semesterKey", totalWeeks).apply()
     }
 
     fun getFontScale(): Float {

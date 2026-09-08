@@ -17,6 +17,7 @@ object CourseReminderManager {
     private const val TAG = "CourseReminderManager"
     private const val PREF_NAME = "usst_reminder_pref"
     private const val KEY_REMINDER_ENABLED = "reminder_enabled"
+    private const val KEY_ACTIVE_SEMESTER = "active_semester_key"
 
     // Official USST Section start times (Hour, Minute)
     val SECTION_START_TIMES = mapOf(
@@ -40,46 +41,106 @@ object CourseReminderManager {
         return sp.getBoolean(KEY_REMINDER_ENABLED, false)
     }
 
-    fun setReminderEnabled(context: Context, enabled: Boolean, courses: List<CourseItem>? = null) {
+    fun getActiveSemesterKey(context: Context): String {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val saved = sp.getString(KEY_ACTIVE_SEMESTER, null)
+        if (!saved.isNullOrBlank()) {
+            return saved
+        }
+        val (calcXnm, calcXqm) = SemesterHelper.getCurrentSemester()
+        return "${calcXnm}_${calcXqm}"
+    }
+
+    fun setActiveSemesterKey(context: Context, semKey: String) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putString(KEY_ACTIVE_SEMESTER, semKey).apply()
+        // Reschedule reminders for the new active semester
+        if (isReminderEnabled(context)) {
+            scheduleUpcomingReminders(context)
+        }
+    }
+
+    fun setReminderEnabled(context: Context, enabled: Boolean) {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         sp.edit().putBoolean(KEY_REMINDER_ENABLED, enabled).apply()
 
         if (enabled) {
-            scheduleUpcomingReminders(context, courses)
+            scheduleUpcomingReminders(context)
         } else {
             cancelAllReminders(context)
         }
     }
 
-    fun scheduleUpcomingReminders(context: Context, courses: List<CourseItem>? = null) {
+    /**
+     * Schedules reminders STRICTLY for the single active semester.
+     * Always cancels all existing alarms first to avoid orphan alarms across semesters.
+     */
+    fun scheduleUpcomingReminders(context: Context, ignoredCourses: List<CourseItem>? = null) {
         if (!isReminderEnabled(context)) {
+            cancelAllReminders(context)
             return
         }
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
-        // If courses not provided, load from cache
-        val courseList = courses ?: run {
-            val cacheManager = DataCacheManager(context)
-            val (xnm, xqm) = SemesterHelper.getCurrentSemester()
-            cacheManager.getTimetable(xnm, xqm)?.courses ?: emptyList()
+        // Step 1: ALWAYS flush all prior reminders first so no old/orphan alarms remain!
+        cancelAllReminders(context)
+
+        // Step 2: Strictly load courses for the active semester
+        val activeKey = getActiveSemesterKey(context)
+        val parts = activeKey.split("_")
+        val activeXnm = parts.getOrNull(0) ?: "2026"
+        val activeXqm = parts.getOrNull(1) ?: "3"
+
+        val cacheManager = DataCacheManager(context)
+        val customCourseManager = cn.edu.usst.jwgl.data.local.CustomCourseManager(context)
+
+        val cachedData = cacheManager.getTimetable(activeXnm, activeXqm)
+        val deletedIds = customCourseManager.getDeletedCourseIds(activeKey)
+        val customList = customCourseManager.getCustomCourses(activeKey)
+
+        val courseList = mutableListOf<CourseItem>()
+        if (cachedData != null) {
+            for (c in cachedData.courses) {
+                if (deletedIds.contains(c.id)) continue
+                val excluded = customCourseManager.getExcludedWeeks(activeKey, c.id)
+                if (excluded.isNotEmpty()) {
+                    val remainingWeeks = c.weeks.filter { !excluded.contains(it) }
+                    courseList.add(c.copy(weeks = remainingWeeks))
+                } else {
+                    courseList.add(c)
+                }
+            }
         }
+        courseList.addAll(customList.filter { !deletedIds.contains(it.id) })
 
         if (courseList.isEmpty()) {
-            Log.d(TAG, "No courses available to schedule reminders.")
+            Log.d(TAG, "No courses in active semester ($activeKey) to schedule reminders.")
             return
         }
 
         val semConfig = RemoteConfigManager.getSemesterConfig()
-        val currentWeek = RemoteConfigManager.getCurrentWeek()
-        val weekDates = SemesterHelper.getDatesForWeek(semConfig.week1Monday, currentWeek)
+        val week1Monday = customCourseManager.getCustomWeek1Monday(activeKey) ?: semConfig.week1Monday
+        val totalWeeks = customCourseManager.getCustomTotalWeeks(activeKey, semConfig.totalWeeks)
+        val currentWeek = SemesterHelper.calculateCurrentWeek(week1Monday, totalWeeks)
+        if (currentWeek !in 1..totalWeeks) {
+            Log.d(TAG, "Current week ($currentWeek) is out of semester teaching weeks (1..$totalWeeks).")
+            return
+        }
 
+        val weekDates = SemesterHelper.getDatesForWeek(week1Monday, currentWeek)
         val now = System.currentTimeMillis()
+
+        val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
 
         // Iterate through each day of the current week (dayOfWeek 1 to 7)
         for (dayIndex in 0..6) {
             val dayOfWeek = dayIndex + 1
-            val dayCal = weekDates[dayIndex]
+            val dayCal = weekDates.getOrNull(dayIndex) ?: continue
 
             val dayCourses = courseList.filter { it.dayOfWeek == dayOfWeek && it.isInWeek(currentWeek) }
 
@@ -117,22 +178,38 @@ object CourseReminderManager {
                     )
 
                     try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            alarmManager.setExactAndAllowWhileIdle(
-                                AlarmManager.RTC_WAKEUP,
-                                reminderTimeMillis,
-                                pendingIntent
-                            )
+                        if (canScheduleExact) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                alarmManager.setExactAndAllowWhileIdle(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderTimeMillis,
+                                    pendingIntent
+                                )
+                            } else {
+                                alarmManager.setExact(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderTimeMillis,
+                                    pendingIntent
+                                )
+                            }
                         } else {
-                            alarmManager.setExact(
-                                AlarmManager.RTC_WAKEUP,
-                                reminderTimeMillis,
-                                pendingIntent
-                            )
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                alarmManager.setAndAllowWhileIdle(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderTimeMillis,
+                                    pendingIntent
+                                )
+                            } else {
+                                alarmManager.set(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderTimeMillis,
+                                    pendingIntent
+                                )
+                            }
                         }
-                        Log.d(TAG, "Scheduled reminder for ${course.name} at ${reminderCal.time}")
-                    } catch (e: SecurityException) {
-                        Log.e(TAG, "Cannot schedule exact alarm: ${e.message}")
+                        Log.d(TAG, "Scheduled reminder for ${course.name} ($activeKey) at ${reminderCal.time}")
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "Failed to schedule alarm for ${course.name}: ${e.message}")
                     }
                 }
             }
@@ -152,8 +229,12 @@ object CourseReminderManager {
                     PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
                 )
                 if (pendingIntent != null) {
-                    alarmManager.cancel(pendingIntent)
-                    pendingIntent.cancel()
+                    try {
+                        alarmManager.cancel(pendingIntent)
+                        pendingIntent.cancel()
+                    } catch (e: Throwable) {
+                        // Safe cancel
+                    }
                 }
             }
         }
@@ -183,10 +264,27 @@ object CourseReminderManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-        } else {
-            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+        try {
+            val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                alarmManager.canScheduleExactAlarms()
+            } else {
+                true
+            }
+            if (canExact) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                }
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to schedule test reminder: ${e.message}")
         }
     }
 }
