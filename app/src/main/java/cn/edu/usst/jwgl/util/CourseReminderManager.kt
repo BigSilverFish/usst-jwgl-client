@@ -86,49 +86,16 @@ object CourseReminderManager {
         // Step 1: ALWAYS flush all prior reminders first so no old/orphan alarms remain!
         cancelAllReminders(context)
 
-        // Step 2: Strictly load courses for the active semester
-        val activeKey = getActiveSemesterKey(context)
-        val parts = activeKey.split("_")
-        val activeXnm = parts.getOrNull(0) ?: "2026"
-        val activeXqm = parts.getOrNull(1) ?: "3"
-
-        val cacheManager = DataCacheManager(context)
-        val customCourseManager = cn.edu.usst.jwgl.data.local.CustomCourseManager(context)
-
-        val cachedData = cacheManager.getTimetable(activeXnm, activeXqm)
-        val deletedIds = customCourseManager.getDeletedCourseIds(activeKey)
-        val customList = customCourseManager.getCustomCourses(activeKey)
-
-        val courseList = mutableListOf<CourseItem>()
-        if (cachedData != null) {
-            for (c in cachedData.courses) {
-                if (deletedIds.contains(c.id)) continue
-                val excluded = customCourseManager.getExcludedWeeks(activeKey, c.id)
-                if (excluded.isNotEmpty()) {
-                    val remainingWeeks = c.weeks.filter { !excluded.contains(it) }
-                    courseList.add(c.copy(weeks = remainingWeeks))
-                } else {
-                    courseList.add(c)
-                }
-            }
-        }
-        courseList.addAll(customList.filter { !deletedIds.contains(it.id) })
-
-        if (courseList.isEmpty()) {
-            Log.d(TAG, "No courses in active semester ($activeKey) to schedule reminders.")
+        // Step 2: Strictly load courses for the active table in AppDatabase
+        val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context)
+        val activeTable = db.tableDao.getDefaultTable()
+        val curWeek = cn.edu.usst.jwgl.data.wakeup.CourseUtils.countWeek(activeTable.startDate)
+        if (curWeek !in 1..activeTable.maxWeek) {
+            Log.d(TAG, "Current week ($curWeek) is outside active table maxWeek (${activeTable.maxWeek}).")
             return
         }
 
-        val semConfig = RemoteConfigManager.getSemesterConfig()
-        val week1Monday = customCourseManager.getCustomWeek1Monday(activeKey) ?: semConfig.week1Monday
-        val totalWeeks = customCourseManager.getCustomTotalWeeks(activeKey, semConfig.totalWeeks)
-        val currentWeek = SemesterHelper.calculateCurrentWeek(week1Monday, totalWeeks)
-        if (currentWeek !in 1..totalWeeks) {
-            Log.d(TAG, "Current week ($currentWeek) is out of semester teaching weeks (1..$totalWeeks).")
-            return
-        }
-
-        val weekDates = SemesterHelper.getDatesForWeek(week1Monday, currentWeek)
+        val times = db.timeDetailDao.getTimeDetails(activeTable.timeTable)
         val now = System.currentTimeMillis()
 
         val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -137,36 +104,48 @@ object CourseReminderManager {
             true
         }
 
-        // Iterate through each day of the current week (dayOfWeek 1 to 7)
-        for (dayIndex in 0..6) {
-            val dayOfWeek = dayIndex + 1
-            val dayCal = weekDates.getOrNull(dayIndex) ?: continue
+        val weekCal = Calendar.getInstance()
+        weekCal.firstDayOfWeek = if (activeTable.sundayFirst) Calendar.SUNDAY else Calendar.MONDAY
+        while (weekCal.get(Calendar.DAY_OF_WEEK) != weekCal.firstDayOfWeek) {
+            weekCal.add(Calendar.DAY_OF_MONTH, -1)
+        }
 
-            val dayCourses = courseList.filter { it.dayOfWeek == dayOfWeek && it.isInWeek(currentWeek) }
+        for (dayIdx in 0..6) {
+            val dayNumber = if (activeTable.sundayFirst) (if (dayIdx == 0) 7 else dayIdx) else (dayIdx + 1)
+            val dayCal = (weekCal.clone() as Calendar).apply {
+                add(Calendar.DAY_OF_MONTH, dayIdx)
+            }
+
+            val weekType = if (curWeek % 2 != 0) 1 else 2
+            val dayCourses = db.courseBaseDao.getCourseByDayAndWeekOfTable(dayNumber, curWeek, weekType, activeTable.id)
 
             for (course in dayCourses) {
-                val startSection = course.startSection.coerceIn(1, 13)
-                val timePair = SECTION_START_TIMES[startSection] ?: Pair(8, 0)
+                val node = course.startNode
+                val timeItem = times.find { it.node == node }
+                val (hour, minute) = if (timeItem != null) {
+                    val parts = timeItem.startTime.split(":")
+                    Pair(parts.getOrNull(0)?.toIntOrNull() ?: 8, parts.getOrNull(1)?.toIntOrNull() ?: 0)
+                } else {
+                    Pair(8, 0)
+                }
 
                 val reminderCal = (dayCal.clone() as Calendar).apply {
-                    set(Calendar.HOUR_OF_DAY, timePair.first)
-                    set(Calendar.MINUTE, timePair.second)
+                    set(Calendar.HOUR_OF_DAY, hour)
+                    set(Calendar.MINUTE, minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
                     add(Calendar.MINUTE, -15) // Exactly 15 minutes before class
                 }
 
                 val reminderTimeMillis = reminderCal.timeInMillis
-
-                // Only schedule future reminders
                 if (reminderTimeMillis > now) {
-                    val requestCode = dayOfWeek * 100 + startSection
+                    val requestCode = dayNumber * 100 + node
                     val intent = Intent(context, CourseReminderReceiver::class.java).apply {
-                        putExtra(CourseReminderReceiver.EXTRA_COURSE_NAME, course.name)
-                        putExtra(CourseReminderReceiver.EXTRA_CLASSROOM, course.classroom)
-                        putExtra(CourseReminderReceiver.EXTRA_TEACHER, course.teacher)
-                        putExtra(CourseReminderReceiver.EXTRA_START_TIME, String.format("%02d:%02d", timePair.first, timePair.second))
-                        putExtra(CourseReminderReceiver.EXTRA_SECTION, "第${startSection}节")
+                        putExtra(CourseReminderReceiver.EXTRA_COURSE_NAME, course.courseName)
+                        putExtra(CourseReminderReceiver.EXTRA_CLASSROOM, course.room ?: "")
+                        putExtra(CourseReminderReceiver.EXTRA_TEACHER, course.teacher ?: "")
+                        putExtra(CourseReminderReceiver.EXTRA_START_TIME, String.format("%02d:%02d", hour, minute))
+                        putExtra(CourseReminderReceiver.EXTRA_SECTION, "第${node}节")
                         putExtra(CourseReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode)
                     }
 
@@ -207,9 +186,9 @@ object CourseReminderManager {
                                 )
                             }
                         }
-                        Log.d(TAG, "Scheduled reminder for ${course.name} ($activeKey) at ${reminderCal.time}")
+                        Log.d(TAG, "Scheduled reminder for ${course.courseName} at ${reminderCal.time}")
                     } catch (e: Throwable) {
-                        Log.e(TAG, "Failed to schedule alarm for ${course.name}: ${e.message}")
+                        Log.e(TAG, "Failed to schedule alarm for ${course.courseName}: ${e.message}")
                     }
                 }
             }

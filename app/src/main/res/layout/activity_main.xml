@@ -676,17 +676,6 @@
                     app:singleSelection="true" />
             </HorizontalScrollView>
 
-            <!-- STICKY Day Header (Pinned to top, aligns perfectly with timetable grid!) -->
-            <cn.edu.usst.jwgl.ui.view.TimetableHeaderView
-                android:id="@+id/timetableHeader"
-                android:layout_width="match_parent"
-                android:layout_height="48dp" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/border" />
-
             <ProgressBar
                 android:id="@+id/timetableProgressBar"
                 android:layout_width="wrap_content"
@@ -695,26 +684,12 @@
                 android:layout_margin="32dp"
                 android:visibility="gone" />
 
-            <!-- Scrollable Timetable View with SwipeRefreshLayout -->
-            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                android:id="@+id/swipeRefreshTimetable"
+            <!-- WakeUP Multi-Week ViewPager2 -->
+            <androidx.viewpager2.widget.ViewPager2
+                android:id="@+id/vpSchedule"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1">
-
-                <androidx.core.widget.NestedScrollView
-                    android:id="@+id/scrollTimetable"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:fillViewport="true">
-
-                    <cn.edu.usst.jwgl.ui.view.TimetableView
-                        android:id="@+id/timetableView"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
-                </androidx.core.widget.NestedScrollView>
-
-            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+                android:layout_weight="1" />
 
         </LinearLayout>
 

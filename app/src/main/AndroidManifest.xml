@@ -37,6 +37,12 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
+        <activity
+            android:name=".ui.wakeup.AddCourseActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+
         <!-- 15-min Course Reminder Receiver -->
         <receiver
             android:name=".receiver.CourseReminderReceiver"

@@ -73,6 +73,21 @@ class DataCacheManager(context: Context) {
         return prefs.getLong(PREFIX_TIMETABLE_TIME + key, 0L)
     }
 
+    fun getAllCachedTimetables(): List<TimetableData> {
+        val list = mutableListOf<TimetableData>()
+        for ((k, v) in prefs.all) {
+            if (k.startsWith(PREFIX_TIMETABLE_JSON) && v is String) {
+                try {
+                    val data = gson.fromJson(v, TimetableData::class.java)
+                    if (data != null) list.add(data)
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+        }
+        return list
+    }
+
     // --- Grades Cache ---
     fun saveGrades(report: GradeReport) {
         val json = gson.toJson(report)
