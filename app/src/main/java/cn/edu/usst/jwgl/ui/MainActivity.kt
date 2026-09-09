@@ -214,6 +214,10 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("extra_show_download_dialog", false)) {
             showDownloadGradeReportsDialog()
         }
+
+        if (intent.getBooleanExtra("extra_show_week_picker", false)) {
+            showWeekPickerDialog()
+        }
     }
 
     private fun initWakeupSchedule() {
@@ -318,20 +322,6 @@ class MainActivity : AppCompatActivity() {
 
         scheduleAdapter?.updateConfig(table.maxWeek, table.id)
 
-        // Populate Week Chips
-        binding.weekChipGroup.removeAllViews()
-        for (w in 1..table.maxWeek) {
-            val chip = Chip(this).apply {
-                text = if (w == realCurrentWeek) "第${w}周 (本周)" else "第${w}周"
-                isCheckable = true
-                isChecked = (w == currentWeek)
-                setOnClickListener {
-                    binding.vpSchedule.setCurrentItem(w - 1, true)
-                }
-            }
-            binding.weekChipGroup.addView(chip)
-        }
-
         binding.vpSchedule.setCurrentItem(currentWeek - 1, false)
         updateWeekSelectionUI(currentWeek)
 
@@ -343,17 +333,6 @@ class MainActivity : AppCompatActivity() {
         val realCurrentWeek = CourseUtils.countWeek(table.startDate)
         val isCurrent = (week == realCurrentWeek)
         binding.tvCurrentWeekIndicator.text = if (isCurrent) "第 $week 周 (本周)" else "第 $week 周"
-
-        for (i in 0 until binding.weekChipGroup.childCount) {
-            val chip = binding.weekChipGroup.getChildAt(i) as? Chip
-            chip?.isChecked = (i + 1 == week)
-        }
-        binding.hsvWeekChips.post {
-            val child = binding.weekChipGroup.getChildAt(week - 1)
-            if (child != null) {
-                binding.hsvWeekChips.smoothScrollTo(child.left - 50, 0)
-            }
-        }
     }
 
     private fun setupViews() {
@@ -399,6 +378,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnSelectSemester.setOnClickListener(openScheduleManager)
         binding.btnScheduleManager.setOnClickListener(openScheduleManager)
+        binding.btnSelectWeek.setOnClickListener { showWeekPickerDialog() }
 
         // Add Course (WakeUP course add / edit activity)
         binding.btnAddCourse.setOnClickListener {
@@ -533,6 +513,39 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, "课表联网同步失败: ${error.message}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun showWeekPickerDialog() {
+        val table = currentTable ?: return
+        val realCurrentWeek = CourseUtils.countWeek(table.startDate)
+        val maxWeek = table.maxWeek
+        val options = Array(maxWeek) { i ->
+            val w = i + 1
+            if (w == realCurrentWeek) "第 $w 周 (本周)" else "第 $w 周"
+        }
+        val currentIdx = (currentWeek - 1).coerceIn(0, maxWeek - 1)
+
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle("切换周次 (共 ${maxWeek} 周)")
+            .setSingleChoiceItems(options, currentIdx) { dialog, which ->
+                val targetWeek = which + 1
+                currentWeek = targetWeek
+                binding.vpSchedule.setCurrentItem(targetWeek - 1, true)
+                updateWeekSelectionUI(targetWeek)
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+
+        if (currentWeek != realCurrentWeek && realCurrentWeek in 1..maxWeek) {
+            builder.setNeutralButton("回到本周") { dialog, _ ->
+                currentWeek = realCurrentWeek
+                binding.vpSchedule.setCurrentItem(realCurrentWeek - 1, true)
+                updateWeekSelectionUI(realCurrentWeek)
+                dialog.dismiss()
+            }
+        }
+
+        builder.safeShow()
     }
 
     private fun showFontSizeDialog() {

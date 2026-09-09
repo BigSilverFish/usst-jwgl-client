@@ -573,17 +573,35 @@
                             app:tint="@color/text_secondary" />
                     </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/tvCurrentWeekIndicator"
+                    <!-- Clickable Week Selector Capsule Button -->
+                    <LinearLayout
+                        android:id="@+id/btnSelectWeek"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:background="@drawable/badge_bg"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="3dp"
-                        android:text="第 3 周 (本周)"
-                        android:textColor="@color/primary"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
+                        android:background="@drawable/badge_bg_clickable"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="9dp"
+                        android:paddingVertical="4dp">
+
+                        <TextView
+                            android:id="@+id/tvCurrentWeekIndicator"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="第 1 周 (本周)"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <ImageView
+                            android:layout_width="14dp"
+                            android:layout_height="14dp"
+                            android:layout_marginStart="2dp"
+                            android:src="@drawable/ic_arrow_drop_down"
+                            app:tint="@color/primary" />
+                    </LinearLayout>
 
                     <!-- Schedule Manager Button (WakeUP style) -->
                     <com.google.android.material.button.MaterialButton
@@ -729,22 +747,7 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Week Chips Horizontal Strip -->
-            <HorizontalScrollView
-                android:id="@+id/hsvWeekChips"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:scrollbars="none"
-                android:background="@color/surface"
-                android:paddingBottom="4dp"
-                android:paddingHorizontal="10dp">
 
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/weekChipGroup"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    app:singleSelection="true" />
-            </HorizontalScrollView>
 
             <ProgressBar
                 android:id="@+id/timetableProgressBar"
