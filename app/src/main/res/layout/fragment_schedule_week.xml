@@ -51,7 +51,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingBottom="88dp"
+        android:paddingBottom="16dp"
         android:fillViewport="true">
 
         <LinearLayout
@@ -90,8 +90,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:paddingTop="16dp"
-                android:paddingBottom="24dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp"
                 android:text="GitHub@BigSilverFish"
                 android:textColor="#C0C0C0"
                 android:textSize="11sp" />
