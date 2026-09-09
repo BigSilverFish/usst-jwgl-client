@@ -14,6 +14,12 @@
   },
   "semesters": [
     {
+      "semester_id": "2026-2027-2",
+      "semester_title": "2026-2027学年 第2学期",
+      "start_date": "2027-02-22",
+      "max_week": 20
+    },
+    {
       "semester_id": "2026-2027-1",
       "semester_title": "2026-2027学年 第1学期",
       "start_date": "2026-09-07",
