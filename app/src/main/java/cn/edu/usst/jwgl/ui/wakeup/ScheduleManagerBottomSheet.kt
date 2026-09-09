@@ -44,7 +44,9 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
         fun reloadList() {
             val context = context ?: return
             val db = AppDatabase.getDatabase(context)
-            val tables = db.tableDao.getAllTables()
+            val tables = db.tableDao.getAllTables().sortedWith { t1, t2 ->
+                cn.edu.usst.jwgl.data.wakeup.CourseUtils.compareSemestersDescending(t1, t2)
+            }
 
             rvScheduleList.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
                 override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {

@@ -360,7 +360,7 @@ class AppDatabase private constructor(context: Context) {
         fun getAllTables(): List<TableBean> {
             val list = mutableListOf<TableBean>()
             val db = dbHelper.readableDatabase
-            val cursor = db.query("TableBean", null, null, null, null, null, "id ASC")
+            val cursor = db.query("TableBean", null, null, null, null, null, "startDate DESC, id DESC")
             cursor.use {
                 while (it.moveToNext()) {
                     list.add(cursorToTableBean(it))
@@ -374,7 +374,7 @@ class AppDatabase private constructor(context: Context) {
             val list = mutableListOf<TableSelectBean>()
             val db = dbHelper.readableDatabase
             val cursor = db.rawQuery(
-                "SELECT id, tableName, background, maxWeek, nodes, type FROM TableBean ORDER BY id ASC",
+                "SELECT id, tableName, background, maxWeek, nodes, type FROM TableBean ORDER BY startDate DESC, id DESC",
                 null
             )
             cursor.use {

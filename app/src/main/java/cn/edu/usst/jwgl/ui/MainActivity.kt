@@ -167,14 +167,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun initWakeupSchedule() {
         db.ensureLatestTimeTableAndDefaults()
-        val table = db.tableDao.getDefaultTable()
-        currentTable = table
-        val realInitWeek = CourseUtils.countWeek(table.startDate)
-        currentWeek = if (realInitWeek in 1..table.maxWeek) realInitWeek else 1
+        val defaultT = db.tableDao.getDefaultTable()
 
         // Seamless auto-import of pre-existing cached timetables into WakeUP database
         val cachedList = cacheManager.getAllCachedTimetables()
-        if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(table.id).isEmpty()) {
+        if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
             val semConfig = RemoteConfigManager.getSemesterConfig()
             val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
             for (cached in cachedList) {
@@ -182,10 +179,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val updatedTable = db.tableDao.getDefaultTable()
-        currentTable = updatedTable
+        // Auto determine active semester & week on startup:
+        // Locate to current semester current week, or next semester week 1 if currently in vacation
+        val allTables = db.tableDao.getAllTables()
+        val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
+        val targetTable = autoTarget?.table ?: db.tableDao.getDefaultTable()
+        val targetWeek = autoTarget?.week ?: 1
 
-        scheduleAdapter = SchedulePagerAdapter(this, updatedTable.maxWeek, updatedTable.id)
+        db.tableDao.setDefaultTable(targetTable.id)
+        currentTable = targetTable
+        currentWeek = targetWeek
+
+        scheduleAdapter = SchedulePagerAdapter(this, targetTable.maxWeek, targetTable.id)
         binding.vpSchedule.adapter = scheduleAdapter
 
         binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
@@ -575,6 +580,13 @@ class MainActivity : AppCompatActivity() {
                 // Calibrate all local tables' start dates and weeks
                 val calibrated = RemoteConfigManager.calibrateTablesAndSync(this@MainActivity, config)
                 if (calibrated) {
+                    val allTables = db.tableDao.getAllTables()
+                    val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
+                    if (autoTarget != null) {
+                        db.tableDao.setDefaultTable(autoTarget.table.id)
+                        currentTable = autoTarget.table
+                        currentWeek = autoTarget.week
+                    }
                     reloadTimetableFromDb()
                 } else {
                     scheduleAdapter?.refreshAllFragments()
