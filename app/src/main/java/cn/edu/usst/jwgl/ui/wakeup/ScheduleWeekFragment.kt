@@ -234,24 +234,49 @@ class ScheduleWeekFragment : Fragment() {
             }
 
             val displayList = mutableListOf<Pair<CourseBean, Boolean>>()
+            val occupiedNodes = mutableSetOf<Int>()
+
+            // 1. Add all active courses first (they take highest priority for this week)
             for (c in activeCourses) {
                 displayList.add(Pair(c, true))
+                for (n in c.startNode until (c.startNode + c.step)) {
+                    occupiedNodes.add(n)
+                }
             }
 
+            // 2. Add non-current week courses without overlapping, prioritizing the course closest in time
             if (table.showOtherWeekCourse && !resolved.isSwapped) {
                 val inactiveCourses = dayCourses.filter { !activeCourses.contains(it) }
-                for (c in inactiveCourses) {
-                    // Only show upcoming courses, do not show already ended courses
-                    if (c.endWeek < week) continue
 
-                    // Do not overlap an already active course slot
-                    val cEnd = c.startNode + c.step - 1
-                    val overlapsWithActive = activeCourses.any { a ->
-                        val aEnd = a.startNode + a.step - 1
-                        !(cEnd < a.startNode || c.startNode > aEnd)
+                // Lower score means closer in time to the current displayed week
+                fun getDistanceScore(c: CourseBean): Double {
+                    return when {
+                        // Alternate week (单双周) within valid range
+                        week in c.startWeek..c.endWeek -> 0.5
+                        // Upcoming in future weeks
+                        c.startWeek > week -> (c.startWeek - week).toDouble()
+                        // Past ended weeks: penalty so upcoming courses are preferred
+                        else -> (week - c.endWeek).toDouble() + 50.0
                     }
-                    if (!overlapsWithActive) {
+                }
+
+                // Sort candidates: closest distance first, then earlier startWeek, then longer step, then id
+                val sortedCandidates = inactiveCourses.sortedWith(
+                    compareBy(
+                        { getDistanceScore(it) },
+                        { it.startWeek },
+                        { -it.step },
+                        { it.id }
+                    )
+                )
+
+                for (c in sortedCandidates) {
+                    val courseNodes = c.startNode until (c.startNode + c.step)
+                    // Only add if none of this course's section nodes are already occupied
+                    val hasOverlap = courseNodes.any { it in occupiedNodes }
+                    if (!hasOverlap) {
                         displayList.add(Pair(c, false))
+                        occupiedNodes.addAll(courseNodes)
                     }
                 }
             }
