@@ -275,6 +275,22 @@ object CourseUtils {
         }
         return result
     }
+
+    /**
+     * 判断课表是否属于 2025-2026学年第2学期 之前的旧学期。
+     * 旧学期使用 12 节课时表，2025-2026-2 及之后使用 13 节课时表。
+     */
+    fun isBefore2025_2026_2(semesterTitle: String): Boolean {
+        val regex = Regex("""(\d{4})[^\d]+(\d{4})[^\d]+(?:第)?(\d)[^\d]*""")
+        val match = regex.find(semesterTitle) ?: return false
+        val startYear = match.groupValues[1].toIntOrNull() ?: return false
+        val term = match.groupValues[3].toIntOrNull() ?: 1
+        return when {
+            startYear < 2025 -> true
+            startYear == 2025 -> term < 2
+            else -> false
+        }
+    }
 }
 
 data class WeekBean(

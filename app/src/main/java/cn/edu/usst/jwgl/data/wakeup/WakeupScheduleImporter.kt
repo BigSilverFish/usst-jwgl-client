@@ -17,12 +17,17 @@ object WakeupScheduleImporter {
         // Find or create table
         val existingTables = db.tableDao.getAllTables()
         var targetTable = existingTables.find { it.tableName == tableName }
+        val isOldSemester = CourseUtils.isBefore2025_2026_2(tableName)
+        val targetNodes = if (isOldSemester) 12 else 13
+        val targetTimeTable = if (isOldSemester) 2 else 1
+
         if (targetTable == null) {
             val newTable = TableBean(
                 tableName = tableName,
                 startDate = startDate,
                 maxWeek = 20,
-                nodes = 13,
+                nodes = targetNodes,
+                timeTable = targetTimeTable,
                 showSat = hasWeekend,
                 showSun = hasWeekend,
                 type = 1
@@ -31,7 +36,8 @@ object WakeupScheduleImporter {
             targetTable = newTable.copy(id = newId)
         } else {
             targetTable.startDate = startDate
-            targetTable.nodes = 13
+            targetTable.nodes = targetNodes
+            targetTable.timeTable = targetTimeTable
             targetTable.maxWeek = 20
             targetTable.showSat = hasWeekend
             targetTable.showSun = hasWeekend

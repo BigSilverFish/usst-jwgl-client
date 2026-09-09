@@ -36,6 +36,7 @@ import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.ExamHelper
 import cn.edu.usst.jwgl.util.SemesterHelper
 import cn.edu.usst.jwgl.util.ThemeManager
+import cn.edu.usst.jwgl.util.TimetableSettingHelper
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
@@ -187,6 +188,49 @@ class MainActivity : AppCompatActivity() {
                 currentWeek = week
                 binding.vpSchedule.setCurrentItem(week - 1, false)
                 updateWeekSelectionUI(week)
+            }
+        }
+
+        if (intent.getBooleanExtra("extra_scroll_bottom", false)) {
+            binding.scrollProfile.postDelayed({
+                binding.scrollProfile.fullScroll(View.FOCUS_DOWN)
+            }, 200)
+        }
+
+        if (intent.getBooleanExtra("extra_scroll_timetable_bottom", false)) {
+            binding.vpSchedule.postDelayed({
+                val frag = supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
+                    .find { it.arguments?.getInt(cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment.ARG_WEEK) == currentWeek }
+                frag?.scrollToBottom()
+            }, 300)
+        }
+
+        if (intent.hasExtra("extra_day_parts")) {
+            val enabled = intent.getBooleanExtra("extra_day_parts", true)
+            TimetableSettingHelper.setDayPartDividersEnabled(this, enabled)
+            binding.switchDayPartDividers.isChecked = enabled
+            scheduleAdapter?.refreshAllFragments()
+        }
+
+        val tableIdExtra = intent.getIntExtra("extra_table_id", -1)
+        if (tableIdExtra > 0) {
+            val target = db.tableDao.getTableById(tableIdExtra)
+            if (target != null) {
+                db.tableDao.setDefaultTable(target.id)
+                currentTable = target
+                currentWeek = 1
+                reloadTimetableFromDb()
+            }
+        }
+
+        val tableNameExtra = intent.getStringExtra("extra_table_name")
+        if (!tableNameExtra.isNullOrBlank()) {
+            val target = db.tableDao.getAllTables().find { it.tableName == tableNameExtra }
+            if (target != null) {
+                db.tableDao.setDefaultTable(target.id)
+                currentTable = target
+                currentWeek = 1
+                reloadTimetableFromDb()
             }
         }
 
@@ -472,6 +516,18 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "已关闭考前提醒", Toast.LENGTH_SHORT).show()
             }
         }
+
+        // Day-part Dividers (上午/下午/晚上) Row & Switch
+        binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
+        binding.rowDayPartDividers.setOnClickListener {
+            binding.switchDayPartDividers.toggle()
+        }
+        binding.switchDayPartDividers.setOnCheckedChangeListener { _, isChecked ->
+            TimetableSettingHelper.setDayPartDividersEnabled(this, isChecked)
+            scheduleAdapter?.refreshAllFragments()
+            val msg = if (isChecked) "已开启时段区分 (上午/下午/晚上)" else "已关闭时段区分"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun loadTimetableFromNetwork() {
@@ -589,6 +645,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(ThemeManager.getThemeMode(this))
         binding.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
         binding.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
+        binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         updateReminderSubtitles()
 
         if (profile == null) return

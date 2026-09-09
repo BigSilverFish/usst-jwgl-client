@@ -25,6 +25,7 @@ import cn.edu.usst.jwgl.data.wakeup.ResolvedDaySchedule
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.TimeDetailBean
 import cn.edu.usst.jwgl.util.ExamHelper
+import cn.edu.usst.jwgl.util.TimetableSettingHelper
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class ScheduleWeekFragment : Fragment() {
@@ -74,6 +75,13 @@ class ScheduleWeekFragment : Fragment() {
         }
     }
 
+    fun scrollToBottom() {
+        val sv = view?.findViewById<androidx.core.widget.NestedScrollView>(R.id.svScheduleContent)
+        sv?.post {
+            sv.fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
     private fun renderSchedule() {
         val context = context ?: return
         val db = AppDatabase.getDatabase(context)
@@ -99,6 +107,11 @@ class ScheduleWeekFragment : Fragment() {
         val itemHeightPx = dpToPx(table.itemHeight.toFloat())
         val examSessionHeightPx = dpToPx(105f)
         val marTopPx = dpToPx(2f)
+
+        val showDayParts = !isExamWeek && TimetableSettingHelper.isDayPartDividersEnabled(context)
+        val morningEndNode = 5
+        val afternoonEndNode = if (table.nodes <= 12) 9 else 10
+        val eveningStartNode = afternoonEndNode + 1
 
         // 1. Month Header
         tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
@@ -214,9 +227,26 @@ class ScheduleWeekFragment : Fragment() {
                     gravity = Gravity.CENTER
                 }
 
+                if (showDayParts && (node == 1 || node == 6 || node == eveningStartNode)) {
+                    val tagText = when (node) {
+                        1 -> "上午"
+                        6 -> "下午"
+                        else -> "晚上"
+                    }
+                    val tvTag = TextView(context).apply {
+                        text = tagText
+                        textSize = 8f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(ContextCompat.getColor(context, R.color.primary))
+                        gravity = Gravity.CENTER
+                        setPadding(0, 0, 0, dpToPx(1f))
+                    }
+                    nodeLayout.addView(tvTag)
+                }
+
                 val tvNode = TextView(context).apply {
                     text = node.toString()
-                    textSize = 12f
+                    textSize = if (showDayParts && (node == 1 || node == 6 || node == eveningStartNode)) 11f else 11.5f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
                     gravity = Gravity.CENTER
@@ -226,12 +256,26 @@ class ScheduleWeekFragment : Fragment() {
                 if (table.showTime && node <= times.size) {
                     val timeItem = times[node - 1]
                     val tvTime = TextView(context).apply {
-                        text = timeItem.startTime
-                        textSize = 9.5f
+                        text = "${timeItem.startTime}\n${timeItem.endTime}"
+                        textSize = 8.5f
                         setTextColor(ContextCompat.getColor(context, R.color.text_tertiary))
                         gravity = Gravity.CENTER
+                        setLineSpacing(0f, 0.95f)
                     }
                     nodeLayout.addView(tvTime)
+                }
+
+                if (showDayParts && (node == morningEndNode || node == afternoonEndNode)) {
+                    val divider = View(context).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            dpToPx(1f)
+                        ).apply {
+                            topMargin = dpToPx(1f)
+                        }
+                        setBackgroundColor(0x331E88E5.toInt())
+                    }
+                    nodeLayout.addView(divider)
                 }
 
                 llSidebarNodes.addView(nodeLayout)
@@ -320,6 +364,50 @@ class ScheduleWeekFragment : Fragment() {
                 }
                 llWeekColumnsContainer.addView(dayColumn)
                 continue
+            }
+
+            if (showDayParts) {
+                // Divider line between morning and afternoon
+                val noonDividerY = morningEndNode * (itemHeightPx + marTopPx)
+                val noonDivider = View(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dpToPx(1f)
+                    ).apply {
+                        topMargin = noonDividerY
+                    }
+                    setBackgroundColor(0x331E88E5.toInt())
+                }
+                dayColumn.addView(noonDivider)
+
+                // Divider line between afternoon and evening
+                val eveningDividerY = afternoonEndNode * (itemHeightPx + marTopPx)
+                val eveningDivider = View(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dpToPx(1f)
+                    ).apply {
+                        topMargin = eveningDividerY
+                    }
+                    setBackgroundColor(0x331E88E5.toInt())
+                }
+                dayColumn.addView(eveningDivider)
+
+                // Subtle evening tint background
+                val eveningTop = afternoonEndNode * (itemHeightPx + marTopPx) + marTopPx
+                val eveningHeight = (table.nodes - afternoonEndNode) * (itemHeightPx + marTopPx)
+                if (eveningHeight > 0) {
+                    val eveningBg = View(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            eveningHeight
+                        ).apply {
+                            topMargin = eveningTop
+                        }
+                        setBackgroundColor(0x06000000.toInt())
+                    }
+                    dayColumn.addView(eveningBg)
+                }
             }
 
             val dayCourses = resolved.courses
@@ -495,8 +583,8 @@ class ScheduleWeekFragment : Fragment() {
     }
 
     companion object {
-        private const val ARG_WEEK = "arg_week"
-        private const val ARG_TABLE_ID = "arg_table_id"
+        const val ARG_WEEK = "arg_week"
+        const val ARG_TABLE_ID = "arg_table_id"
 
         fun newInstance(week: Int, tableId: Int = -1): ScheduleWeekFragment {
             return ScheduleWeekFragment().apply {

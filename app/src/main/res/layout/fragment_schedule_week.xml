@@ -18,7 +18,7 @@
         <!-- Month Box (Matches Sidebar Width) -->
         <TextView
             android:id="@+id/tvMonthHeader"
-            android:layout_width="36dp"
+            android:layout_width="40dp"
             android:layout_height="match_parent"
             android:gravity="center"
             android:textSize="11sp"
@@ -44,12 +44,14 @@
         android:layout_height="1dp"
         android:background="@color/border" />
 
-    <!-- Scrollable Timetable Grid -->
+    <!-- Scrollable Timetable Grid with draggable bottom space -->
     <androidx.core.widget.NestedScrollView
         android:id="@+id/svScheduleContent"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="88dp"
         android:fillViewport="true">
 
         <LinearLayout
@@ -61,7 +63,7 @@
             <!-- Sidebar (Nodes 1..13) -->
             <LinearLayout
                 android:id="@+id/llSidebarNodes"
-                android:layout_width="36dp"
+                android:layout_width="40dp"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
                 <!-- Nodes injected dynamically -->
