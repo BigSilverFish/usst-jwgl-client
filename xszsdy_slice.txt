@@ -1,0 +1,220 @@
+141: 			return false ;
+142: 		}
+143: 		if($("#xxdm").val()=="13983" && (cpt=="13983-zw-xsxxwh-xjzm") && data[0].sfyxj!=1 && $("#isxs").val()!='0'){
+144: 			$.alert('您没有学籍，无权限打印！');
+145: 			return false ;
+146: 		}
+147: 		if($("#xxdm").val()=="10252" && (cpt=="10252-xsxxwh-xxzm") && data[0].sfyxx!=1){
+148: 			$.alert('您没有休学，无权限打印！');
+149: 			return false ;
+150: 		}
+151: 		if($("#xxdm").val()=="10252" && (cpt=="10252-xsxxwh-xlzsdy" || cpt=="10252-xsxxwh-xwzsdy") && data[0].xjzt!="毕业"){
+152: 			$.alert('学籍状态为毕业才可以打印此证书！');
+153: 			return false ;
+154: 		}
+155: 		if($("#xxdm").val()=="11446"){
+156: 			if ((cpt=="11446-zw-xsxxwh-xlzm") && data[0].xjzt!="毕业"){
+157: 				$.alert('学籍状态为毕业才可以打印此证书！');
+158: 				return false ;
+159: 			}
+160: 			if ( cpt=="11446-zw-xsxxwh-zdzm" && data[0].xjzt!="在读" && data[0].xjzt.indexOf("派出学习")==-1 ){
+161: 				$.alert('学籍状态为在读、派出学习（国内/国外）才可以打印此证书！');
+162: 				return false ;
+163: 			}
+164: 			if ( cpt=="11446-zw-xsxxwh-yjbyszm" && data[0].sfbyoneyear!="1"){
+165: 				$.alert('预计毕业时间在一年内的可以打印！');
+166: 				return false ;
+167: 			}
+168: 		}
+169: 		if($("#xxdm").val()=="14483" && (cpt=="xjzm_xsd.cpt") && data[0].sfyxj!=1){
+170: 			$.alert('您没有学籍，无权限打印！');
+171: 			return false ;
+172: 		}
+173: 
+174: 
+175: 		if (data[0].sfzx != 1) {
+176: 			if ($("#xxdm").val() === "11629") {
+177: 				$.alert('您不在校，无权限打印！')
+178: 				return false
+179: 			} else if ($("#xxdm").val() === "14483" && cpt == "zxzm_xsd.cpt") {
+180: 				$.alert('您不在校，无权限打印！');
+181: 				return false;
+182: 			}
+183: 			if('13339' == $("#xxdm").val() && ('13339-zw-xsxxwh-xjzm'==cpt || '13339-zw-xsxxwh-yljhxjzm' == cpt)){
+184: 				$.alert('您不是在校生，不能打印此证明！');
+185: 				return false;
+186: 			}
+187: 		}
+188: 
+189: 		if($("#xxdm").val()=="10295"){
+190: 	        var fxYzUrl = _path + '/xszsdy/xszsdy_cxXssfxz.html?gsdm=' + cpt;
+191: 	        var flag = true;
+192: 	        jQuery.ajaxSetup({async: false});
+193: 	        $.post(fxYzUrl, function (count) {
+194: 	            if (count > 0) {
+195: 	                flag = false;
+196: 	            }
+197: 	        }, 'json');
+198: 	        jQuery.ajaxSetup({async: true});
+199: 	        if (!flag) {
+200: 	        	$.alert('已被管理员禁止打印！');
+201: 	            return false;
+202: 	        }
+203: 		}
+204: 		if($("#xxdm").val()=="13329" && (cpt=="byxwsyzm.cpt" || cpt=="cjzm.cpt") && data[0].xjzt!="毕业"){
+205: 			$.alert('学籍状态为毕业才可以打印此证书！');
+206: 			return false ;
+207: 		}
+208: 
+209: 		if ($("#xxdm").val() === "11629" && data[0]['sfzbysfzxxb'] !== '1') {
+210: 			if ($('#gsdm').val() === '11629-xsxxwh-ybysxjzm') {
+211: 				$.alert('不在预毕业生名单内，无法打印，请联系学校管理员！');
+212: 				return false;
+213: 			}
+214: 		}
+215: 
+216: 		// 以下为帆软报表打印
+217: 		if($("#xxdm").val()=="13986" && cpt=="13986-zw-xsxxwh-zdzm" ){
+218: 			if(data[0].sfzzb=="1"){
+219: 				cpt = '13986-zw-xsxxwh-zdzmzsb';
+220: 			}else{
+221: 				cpt = '13986-zw-xsxxwh-zdzmfbyb';
+222: 			}
+223: 			
+224: 		}
+225: 		if ($("#xxdm").val()=="10743") {
+226: 			if(cpt.indexOf(".cpt") > -1){
+227: 				$.openReport({
+228: 					"reportID" : cpt,
+229: 					"jmid": ids.join(",")
+230: 				});
+231: 			}else if(cpt.indexOf("xsxxwh") > -1){
+232: 				var xhIds = [];
+233: 				$.each(ids,function(index,item){
+234: 					var row = jQuery("#tabGrid").jqGrid('getRowData', item);
+235: 					xhIds.push(row["xh_id"]);
+236: 				});
+237: 				var origin = "xsxxwh";
+238: 				cjdySingle(cpt, xhIds, origin);
+239: 			}else{
+240: 				$("#progressbar").data("finished", false);
+241: 				
+242: 				var parameterMap = {
+243: 					"gsdygx": cpt,
+244: 					"ids": jQuery("#tabGrid").jqGrid('getRowData', ids[0])["xh_id"]
+245: 				};
+246: 				$.post(_path + '/bysxxcx/xscjzbdy_dyListxszm.html', parameterMap, function (filePath) {
+247: 					if (filePath.indexOf("成功") > -1) {
+248: 						//判断是否ie，打开方式不同
+249: 						//楼上也没说为什么打开方式有区别，目前发现用pdfjs打印会模糊
+250: 						if (isIE()) {
+251: 							checkIEhasPdfReader();
+252: 							window.open(filePath.split("#")[0]);
+253: 						}
+254: 						window.open(filePath.split("#")[0]);
+255: 					} else {
+256: 						$.alert(filePath);
+257: 					}
+258: 				}, "json", {
+259: 					//显示提交进度的状态条元素
+260: 					progressElement: "#progressbar",
+261: 					//进度处理完成后进度归零延时时间；单位毫秒，默认2000
+262: 					progressDelay: 2000,
+263: 					//定时请求处理进度Ajax执行周期；单位毫秒，默认400
+264: 					progressPeriod: 400,
+265: 					//进度回调请求URL【该路径为通用路径，必须传参数key= 指定的值 】
+266: 					progressURL: _path + "/xtgl/progress_cxProgressStatus.html?key=score_print_processed"
+267: 				});
+268: 			}
+269: 		}else if("10417" == $("#xxdm").val() && (cpt == "10417-zw-xsxxwh-cet4" || cpt == "10417-yw-xsxxwh-cet4")){
+270: 			if(data[0].cet4cj==""){
+271: 				$.alert("大学英语四级成绩为空！");
+272: 				return false;
+273: 			}else if(data[0].cet4cj*1<425){
+274: 				$.alert("大学英语四级成绩不合格！");
+275: 				return false;
+276: 			}else{
+277: 				var origin = "xsxxwh";
+278: 				cjdySingle(cpt, xhIds, origin);
+279: 			}
+280: 		}else if("10417" == $("#xxdm").val() && (cpt == "10417-zw-xsxxwh-cet6" || cpt == "10417-yw-xsxxwh-cet6")){
+281: 			if(data[0].cet6cj==""){
+282: 				$.alert("大学英语六级成绩为空！");
+283: 				return false;
+284: 			}else if(data[0].cet6cj*1<425){
+285: 				$.alert("大学英语六级成绩不合格！");
+286: 				return false;
+287: 			}else{
+288: 				var origin = "xsxxwh";
+289: 				cjdySingle(cpt, xhIds, origin);
+290: 			}
+291: 		}else if("11054" == $("#xxdm").val()){
+292: 			var origin = "xsxxwh";
+293: 			cjdySingle(cpt, xhIds, origin);
+294: 		}else{
+295: 			if(cpt.indexOf("xsxxwh") > -1){
+296: 			var xhIds = [];
+297: 			$.each(ids,function(index,item){
+298: 				var row = jQuery("#tabGrid").jqGrid('getRowData', item);
+299: 				xhIds.push(row["xh_id"]);
+300: 			});
+301: 			var origin = "xsxxwh";
+302: 			cjdySingle(cpt, xhIds, origin);
+303: 			}else {
+304: 				//有打印功能时，一定要添加report_dy,report_sc按钮，不过不显示
+305: 				$.openReport({
+306: 					"reportID": cpt,
+307: 					"jmid": ids.join(",")
+308: 				});
+309: 			}
+310: 		}
+311: 	};
+312: 	
+313: 	$("#btn_xlzmdy").click(function () {
+314: 		var ids = $("#tabGrid").getKeys();
+315: 		var data = $("#tabGrid").getSelectedRows();
+316: 		var dataModel = data[0].byzsh;
+317: 
+318: 		if(dataModel.length<1){
+319: 			$.alert("您没有学历证书，无权限打印！");
+320: 			return false;
+321: 		}
+322: 		$.openReport({
+323: 			"reportID" 		: 'xlzm_zdy.cpt',
+324: 			"jmid"		 : ids.join(",")
+325: 		});
+326: 	});
+327: 	
+328: 	$("#btn_xwzmdy").click(function () {
+329: 		var ids = $("#tabGrid").getKeys();
+330: 		var data = $("#tabGrid").getSelectedRows();
+331: 		var dataModel = data[0].xwzsh;
+332: 
+333: 		if(dataModel.length<1){
+334: 			$.alert("您没有学位证书，无权限打印！");
+335: 			return false;
+336: 		}
+337: 		$.openReport({
+338: 			"reportID" 		: 'xwzm_zdy.cpt',
+339: 			"jmid"		 : ids.join(",")
+340: 		});
+341: 	});
+342: 	
+343: 	
+344: 	function isIE(){  //判断是否ie浏览器，ie浏览器直接打开,非ie浏览器调用pdf.js插件
+345: 		return /msie/.test(navigator.userAgent.toLowerCase());
+346: 	};
+347: 	
+348: 	function paramMap(){
+349: 		var map = {
+350: 				"njdm_id": jQuery("#njdm_id_cx").val(),
+351: 				"jg_id"  : jQuery('#jg_id_cx').val(),
+352: 				"zyh_id" : jQuery("#zyh_id_cx").val(),
+353: 				"bh_id"  : jQuery("#bh_id_cx").val(),
+354: 				"pyccdm"   : jQuery("#pyccdm").val(),
+355: 				"xjztdm"   : jQuery("#xjztdm_cx").val(),
+356: 				"sfzx"   : jQuery("#sfzx_cx").val(),
+357: 				"xh"   : jQuery("#xh_cx").val()
+358: 			};
+359: 		
+360: 		return map;

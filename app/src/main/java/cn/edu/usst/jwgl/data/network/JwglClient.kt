@@ -668,61 +668,24 @@ object JwglClient {
             }
 
             // 1. Determine endpoints and form parameters according to document type
-            val (endpoint, formParams) = when (docType) {
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> {
-                    "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020" to mapOf(
-                        "xh_id" to effectiveStudentId,
-                        "ids" to effectiveStudentId,
-                        "gsdygx" to "10252-zw-gdcjd",
-                        "dyfs" to "1",
-                        "cjdylx" to "1",
-                        "wjlx" to "pdf"
-                    )
-                }
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> {
-                    "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020" to mapOf(
-                        "xh_id" to effectiveStudentId,
-                        "ids" to effectiveStudentId,
-                        "gsdygx" to "10252-yw-gdcjd",
-                        "dyfs" to "1",
-                        "cjdylx" to "2",
-                        "wjlx" to "pdf"
-                    )
-                }
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_WEIGHTED_SCORE -> {
-                    "/xszsdy/xszsdy_dyXszsdy.html?gnmkdm=N109835" to mapOf(
-                        "xh" to effectiveStudentId,
-                        "ids" to effectiveStudentId,
-                        "zslx" to "jqf",
-                        "zmdm" to "10252-zw-jqf",
-                        "xxdm" to "10252",
-                        "isxs" to "1",
-                        "dyfs" to "1"
-                    )
-                }
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_WEIGHTED_SCORE -> {
-                    "/xszsdy/xszsdy_dyXszsdy.html?gnmkdm=N109835" to mapOf(
-                        "xh" to effectiveStudentId,
-                        "ids" to effectiveStudentId,
-                        "zslx" to "ywjqf",
-                        "zmdm" to "10252-yw-jqf",
-                        "xxdm" to "10252",
-                        "isxs" to "1",
-                        "dyfs" to "1"
-                    )
-                }
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> {
-                    "/xszsdy/xszsdy_dyXszsdy.html?gnmkdm=N109835" to mapOf(
-                        "xh" to effectiveStudentId,
-                        "ids" to effectiveStudentId,
-                        "zslx" to "pmzm",
-                        "zmdm" to "10252-zw-pmzm",
-                        "xxdm" to "10252",
-                        "isxs" to "1",
-                        "dyfs" to "1"
-                    )
-                }
+            // In USST (code 10252), transcripts and certificates are compiled and generated via xscjzbdy_dyList.html
+            val (gsdygx, cjdylx) = when (docType) {
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> "10252-zw-gdcjd" to "1"
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> "10252-yw-gdcjd" to "2"
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_WEIGHTED_SCORE -> "10252-zw-jqf" to "1"
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_WEIGHTED_SCORE -> "10252-yw-jqf" to "2"
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> "10252-zw-pmzm" to "1"
             }
+
+            val formParams = mapOf(
+                "xh_id" to effectiveStudentId,
+                "ids" to effectiveStudentId,
+                "gsdygx" to gsdygx,
+                "dyfs" to "1",
+                "cjdylx" to cjdylx,
+                "wjlx" to "pdf"
+            )
+            val endpoint = "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020"
 
             // 2. Perform POST request
             val formBuilder = FormBody.Builder()
@@ -733,7 +696,7 @@ object JwglClient {
             val request = Request.Builder()
                 .url("https://jwgl.usst.edu.cn/jwglxt$endpoint")
                 .header("User-Agent", USER_AGENT)
-                .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html")
+                .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/bysxxcx/xscjzbdy_cxXscjzbdyIndex.html?gnmkdm=N558020")
                 .header("Accept", "application/pdf,application/octet-stream,text/html,application/json,*/*")
                 .post(formBuilder.build())
                 .build()
@@ -757,26 +720,50 @@ object JwglClient {
             }
 
             if (bodyBytes != null && bodyBytes.isNotEmpty()) {
-                // If the response is directly a PDF (starts with "%PDF")
+                // If the response is directly a binary PDF (starts with "%PDF")
                 if (bodyBytes.size > 4 && bodyBytes[0] == '%'.code.toByte() && bodyBytes[1] == 'P'.code.toByte() && bodyBytes[2] == 'D'.code.toByte() && bodyBytes[3] == 'F'.code.toByte()) {
                     destinationFile.outputStream().use { it.write(bodyBytes) }
                     Log.d(TAG, "Successfully downloaded binary PDF from server: ${destinationFile.absolutePath} (${bodyBytes.size} bytes)")
                     return@withContext Result.success(destinationFile)
                 }
 
-                // If the response is a relative or absolute URL in text/JSON
+                // If the server returns a path (e.g. "\/jwglxt\/templete\/scorePrint\/score_...pdf#成功") or JSON
                 val resString = String(bodyBytes, Charsets.UTF_8).trim()
-                if (resString.startsWith("{") && resString.contains(".pdf")) {
-                    val jsonObj = org.json.JSONObject(resString)
-                    val remoteFilePath = jsonObj.optString("filePath", jsonObj.optString("url", ""))
+                Log.d(TAG, "Server response for document generation: $resString")
+                if (resString.contains(".pdf")) {
+                    var remoteFilePath = ""
+                    if (resString.startsWith("{")) {
+                        try {
+                            val jsonObj = org.json.JSONObject(resString)
+                            remoteFilePath = jsonObj.optString("filePath", jsonObj.optString("url", ""))
+                        } catch (_: Exception) {}
+                    }
+                    if (remoteFilePath.isEmpty()) {
+                        // Strip quotes and split "#" delimiter (e.g. "/jwglxt/templete/scorePrint/...pdf#成功")
+                        val clean = resString.trim('"', '\'', ' ', '\r', '\n')
+                        val part = clean.split("#")[0].replace("\\/", "/")
+                        if (part.contains(".pdf")) {
+                            remoteFilePath = part
+                        }
+                    }
+
                     if (remoteFilePath.isNotEmpty()) {
                         val fullUrl = if (remoteFilePath.startsWith("http")) remoteFilePath else "https://jwgl.usst.edu.cn$remoteFilePath"
-                        val getReq = Request.Builder().url(fullUrl).header("User-Agent", USER_AGENT).build()
+                        Log.d(TAG, "Fetching official PDF from: $fullUrl")
+                        kotlinx.coroutines.delay(600) // allow server report compiler to finish writing file
+                        val getReq = Request.Builder()
+                            .url(fullUrl)
+                            .header("User-Agent", USER_AGENT)
+                            .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/bysxxcx/xscjzbdy_cxXscjzbdyIndex.html?gnmkdm=N558020")
+                            .build()
                         val getResp = client.newCall(getReq).execute()
                         val pdfBytes = getResp.body?.bytes()
-                        if (pdfBytes != null && pdfBytes.isNotEmpty()) {
+                        if (pdfBytes != null && pdfBytes.size > 4 && pdfBytes[0] == '%'.code.toByte() && pdfBytes[1] == 'P'.code.toByte()) {
                             destinationFile.outputStream().use { it.write(pdfBytes) }
+                            Log.d(TAG, "Successfully downloaded official USST PDF: ${destinationFile.absolutePath} (${pdfBytes.size} bytes)")
                             return@withContext Result.success(destinationFile)
+                        } else {
+                            Log.w(TAG, "Official PDF fetch returned non-PDF or empty: size=${pdfBytes?.size}")
                         }
                     }
                 }
