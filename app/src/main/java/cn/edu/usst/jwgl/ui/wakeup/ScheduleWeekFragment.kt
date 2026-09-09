@@ -15,6 +15,8 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.DataCacheManager
+import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.wakeup.CourseAdjustmentResolver
 import cn.edu.usst.jwgl.data.wakeup.CourseBean
@@ -22,6 +24,8 @@ import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.data.wakeup.ResolvedDaySchedule
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.TimeDetailBean
+import cn.edu.usst.jwgl.util.ExamHelper
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class ScheduleWeekFragment : Fragment() {
 
@@ -85,11 +89,19 @@ class ScheduleWeekFragment : Fragment() {
         val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)
         val todayWeekday = CourseUtils.getTodayWeekdayInt() // 1..7 (1=Mon..7=Sun)
 
+        val isExamWeek = ExamHelper.isExamWeek(table.tableName, week)
+        val cachedExams = if (isExamWeek) {
+            DataCacheManager(context).getAllCachedExams()
+        } else {
+            emptyList()
+        }
+
         val itemHeightPx = dpToPx(table.itemHeight.toFloat())
+        val examSessionHeightPx = dpToPx(105f)
         val marTopPx = dpToPx(2f)
 
         // 1. Month Header
-        tvMonthHeader.text = "${dateStrings[0]}\n月"
+        tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
 
         // 2. Day Headers
         llDayHeaderContainer.removeAllViews()
@@ -105,7 +117,13 @@ class ScheduleWeekFragment : Fragment() {
             val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
             val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
 
-            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty()
+            val dayExams = if (isExamWeek) {
+                cachedExams.filter { it.getDateString() == fullDateStr }
+            } else {
+                emptyList()
+            }
+
+            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
             if (!table.showSat && dayNumber == 6 && !hasContent) continue
             if (!table.showSun && dayNumber == 7 && !hasContent) continue
 
@@ -124,6 +142,7 @@ class ScheduleWeekFragment : Fragment() {
                 val badge = when {
                     resolved.isHolidayOff -> " [休]"
                     resolved.isSwapped -> " [补]"
+                    isExamWeek && dayExams.isNotEmpty() -> " [考]"
                     else -> ""
                 }
                 text = "${daysArray[i]}$badge"
@@ -148,39 +167,75 @@ class ScheduleWeekFragment : Fragment() {
 
         // 3. Sidebar Nodes
         llSidebarNodes.removeAllViews()
-        for (node in 1..table.nodes) {
-            val nodeLayout = LinearLayout(context).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    itemHeightPx
-                ).apply {
-                    topMargin = marTopPx
-                }
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-            }
-
-            val tvNode = TextView(context).apply {
-                text = node.toString()
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
-                gravity = Gravity.CENTER
-            }
-            nodeLayout.addView(tvNode)
-
-            if (table.showTime && node <= times.size) {
-                val timeItem = times[node - 1]
-                val tvTime = TextView(context).apply {
-                    text = timeItem.startTime
-                    textSize = 9.5f
-                    setTextColor(ContextCompat.getColor(context, R.color.text_tertiary))
+        if (isExamWeek) {
+            // 考试周时刻表：三场制 (09:00-11:00, 13:00-15:00, 15:30-17:30)
+            for (session in ExamHelper.SESSIONS) {
+                val nodeLayout = LinearLayout(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        examSessionHeightPx
+                    ).apply {
+                        topMargin = marTopPx
+                    }
+                    orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                 }
-                nodeLayout.addView(tvTime)
-            }
 
-            llSidebarNodes.addView(nodeLayout)
+                val tvNode = TextView(context).apply {
+                    text = "场次${session.index}"
+                    textSize = 10.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(ContextCompat.getColor(context, R.color.primary))
+                    gravity = Gravity.CENTER
+                }
+                nodeLayout.addView(tvNode)
+
+                val tvTime = TextView(context).apply {
+                    text = "${session.startTime}\n${session.endTime}"
+                    textSize = 9.5f
+                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                    gravity = Gravity.CENTER
+                    setLineSpacing(0f, 1.1f)
+                }
+                nodeLayout.addView(tvTime)
+
+                llSidebarNodes.addView(nodeLayout)
+            }
+        } else {
+            for (node in 1..table.nodes) {
+                val nodeLayout = LinearLayout(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        itemHeightPx
+                    ).apply {
+                        topMargin = marTopPx
+                    }
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                }
+
+                val tvNode = TextView(context).apply {
+                    text = node.toString()
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                    gravity = Gravity.CENTER
+                }
+                nodeLayout.addView(tvNode)
+
+                if (table.showTime && node <= times.size) {
+                    val timeItem = times[node - 1]
+                    val tvTime = TextView(context).apply {
+                        text = timeItem.startTime
+                        textSize = 9.5f
+                        setTextColor(ContextCompat.getColor(context, R.color.text_tertiary))
+                        gravity = Gravity.CENTER
+                    }
+                    nodeLayout.addView(tvTime)
+                }
+
+                llSidebarNodes.addView(nodeLayout)
+            }
         }
 
         // 4. Week Columns and Course Cards
@@ -191,7 +246,13 @@ class ScheduleWeekFragment : Fragment() {
             val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
             val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
 
-            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty()
+            val dayExams = if (isExamWeek) {
+                cachedExams.filter { it.getDateString() == fullDateStr }
+            } else {
+                emptyList()
+            }
+
+            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
             if (!table.showSat && dayNumber == 6 && !hasContent) continue
             if (!table.showSun && dayNumber == 7 && !hasContent) continue
 
@@ -217,6 +278,46 @@ class ScheduleWeekFragment : Fragment() {
                     setLineSpacing(0f, 1.2f)
                 }
                 dayColumn.addView(tvHoliday)
+                llWeekColumnsContainer.addView(dayColumn)
+                continue
+            }
+
+            if (isExamWeek) {
+                for (exam in dayExams) {
+                    val sessionIdx = exam.getSessionIndex().coerceIn(1, 3)
+                    val cardTopMargin = (sessionIdx - 1) * (examSessionHeightPx + marTopPx) + marTopPx
+
+                    val examCard = TextView(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            examSessionHeightPx
+                        ).apply {
+                            topMargin = cardTopMargin
+                        }
+                        textSize = 10f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(dpToPx(4f), dpToPx(4f), dpToPx(4f), dpToPx(4f))
+                        gravity = Gravity.CENTER
+                        setLineSpacing(0f, 1.15f)
+
+                        val bgDrawable = (ContextCompat.getDrawable(context, R.drawable.course_item_bg)!!.mutate()) as GradientDrawable
+                        bgDrawable.setStroke(dpToPx(1.5f), 0xFF1565C0.toInt())
+                        bgDrawable.setColor(0xEE1E88E5.toInt())
+                        background = bgDrawable
+                        setTextColor(Color.WHITE)
+
+                        val loc = if (exam.location.isNotBlank()) "@${exam.location}" else "@考场待定"
+                        val seat = if (exam.seatNumber.isNotBlank()) "座号:${exam.seatNumber}" else exam.examMethod.ifBlank { "考试" }
+                        val timeStr = exam.getTimeRangeString()
+
+                        text = "📝 ${exam.courseName}\n$loc\n$seat\n$timeStr"
+
+                        setOnClickListener {
+                            showExamDetailDialog(exam)
+                        }
+                    }
+                    dayColumn.addView(examCard)
+                }
                 llWeekColumnsContainer.addView(dayColumn)
                 continue
             }
@@ -356,6 +457,36 @@ class ScheduleWeekFragment : Fragment() {
 
             llWeekColumnsContainer.addView(dayColumn)
         }
+    }
+
+    private fun showExamDetailDialog(exam: ExamItem) {
+        val context = context ?: return
+        val sb = StringBuilder()
+        sb.append("📅 考试时间：").append(exam.examTime).append("\n\n")
+        sb.append("🏫 考场地点：").append(exam.location.ifBlank { "待定" })
+        if (exam.building.isNotBlank() && !exam.location.contains(exam.building)) {
+            sb.append(" (").append(exam.building).append(")")
+        }
+        sb.append("\n\n")
+        sb.append("🪑 考试座号：").append(exam.seatNumber.ifBlank { "未指定" }).append("\n\n")
+        if (exam.examName.isNotBlank()) {
+            sb.append("📌 考试类别：").append(exam.examName).append("\n\n")
+        }
+        sb.append("📋 考核方式：").append(exam.examMethod.ifBlank { "笔试(闭卷)" })
+        if (exam.examNature.isNotBlank()) {
+            sb.append(" · ").append(exam.examNature)
+        }
+        sb.append("\n\n")
+        sb.append("🎓 课程学分：").append(exam.credit).append(" 学分")
+        if (exam.remarks.isNotBlank()) {
+            sb.append("\n\n💡 备注：").append(exam.remarks)
+        }
+
+        MaterialAlertDialogBuilder(context)
+            .setTitle(exam.courseName)
+            .setMessage(sb.toString())
+            .setPositiveButton("我知道了", null)
+            .show()
     }
 
     private fun dpToPx(dp: Float): Int {

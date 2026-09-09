@@ -1,6 +1,7 @@
 package cn.edu.usst.jwgl.data.network
 
 import android.util.Log
+import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.StudentProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,6 +22,7 @@ object JwglClient {
     private const val QUICK_INFO_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_cxYhxxIndex.html?xt=jw&localeKey=zh_CN&gnmkdm=index"
     private const val GRADE_URL = "https://jwgl.usst.edu.cn/jwglxt/cjcx/cjcx_cxXsfxcjIndex.html?doType=query"
     private const val TIMETABLE_URL = "https://jwgl.usst.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151"
+    private const val EXAM_URL = "https://jwgl.usst.edu.cn/jwglxt/kwgl/kscx_cxXsksxxIndex.html?doType=query&gnmkdm=N358105"
 
     private val cookieJar = MemoryCookieJar()
 
@@ -538,6 +540,118 @@ object JwglClient {
             }
         }
         return result.sorted()
+    }
+
+    /**
+     * 查询学生考试日程列表
+     * @param xnm 学年，如 "2026"，空字符串表示所有或当前
+     * @param xqm 学期，如 "3" (第1学期) / "12" (第2学期)，空字符串表示所有
+     */
+    suspend fun fetchExams(
+        xnm: String = "",
+        xqm: String = "",
+        context: android.content.Context? = null
+    ): Result<List<ExamItem>> = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Fetching exams for xnm=$xnm, xqm=$xqm from $EXAM_URL...")
+            val formBody = FormBody.Builder()
+                .add("xnm", xnm)
+                .add("xqm", xqm)
+                .add("ksmcdm", "")
+                .add("kspmc", "")
+                .add("_search", "false")
+                .add("nd", System.currentTimeMillis().toString())
+                .add("queryModel.showCount", "500")
+                .add("queryModel.currentPage", "1")
+                .add("queryModel.sortName", "kssj")
+                .add("queryModel.sortOrder", "asc")
+                .add("time", "0")
+                .build()
+
+            val req = Request.Builder()
+                .url(EXAM_URL)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/kwgl/kscx_cxXsksxxIndex.html?gnmkdm=N358105")
+                .post(formBody)
+                .build()
+
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            Log.d(TAG, "Exams response status: ${resp.code}, len: ${body.length}")
+
+            // 会话失效检测与静默自动重连
+            if (body.contains("authserver") || !body.trimStart().startsWith("{")) {
+                if (context != null) {
+                    val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
+                    val id = auth.getStudentId()
+                    val pwd = auth.getPassword()
+                    if (id.isNotEmpty() && pwd.isNotEmpty()) {
+                        Log.d(TAG, "Session expired, attempting silent re-login for exams...")
+                        val loginRes = login(id, pwd)
+                        if (loginRes.isSuccess) {
+                            return@withContext fetchExams(xnm, xqm, null)
+                        }
+                    }
+                }
+                return@withContext Result.failure(IOException("未获取到有效的考试数据，会话可能已失效"))
+            }
+
+            val json = org.json.JSONObject(body)
+            val itemsArray = json.optJSONArray("items") ?: org.json.JSONArray()
+            val examList = mutableListOf<ExamItem>()
+
+            for (i in 0 until itemsArray.length()) {
+                val item = itemsArray.optJSONObject(i) ?: continue
+                val courseName = item.optString("kcmc", "").trim()
+                if (courseName.isEmpty()) continue
+
+                val courseCode = item.optString("kch", item.optString("kch_id", "")).trim()
+                val examName = item.optString("ksmc", "").trim()
+                val examTime = item.optString("kssj", item.optString("kssj_str", "")).trim()
+                val location = item.optString("cdmc", item.optString("jsmc", "")).trim()
+                val building = item.optString("jzwmc", "").trim()
+                val seatNumber = item.optString("zwh", item.optString("zw", "")).trim()
+                val session = item.optString("ccmc", item.optString("kccc", "")).trim()
+                val examNature = item.optString("ksxz", "").trim()
+                val examMethod = item.optString("khfs", item.optString("ksfs", "")).trim()
+                val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
+                val yearName = item.optString("xnmmc", "")
+                val semesterName = item.optString("xqmmc", "")
+                val remarks = item.optString("bz", "").trim()
+
+                val semTitle = if (yearName.isNotEmpty() && semesterName.isNotEmpty()) {
+                    "${yearName}学年 第${semesterName}学期"
+                } else {
+                    ""
+                }
+
+                examList.add(
+                    ExamItem(
+                        courseName = courseName,
+                        courseCode = courseCode,
+                        examName = examName,
+                        examTime = examTime,
+                        location = location,
+                        building = building,
+                        seatNumber = seatNumber,
+                        session = session,
+                        examNature = examNature,
+                        examMethod = examMethod,
+                        credit = credit,
+                        yearName = yearName,
+                        semesterName = semesterName,
+                        semesterTitle = semTitle,
+                        remarks = remarks
+                    )
+                )
+            }
+
+            Log.d(TAG, "Successfully parsed ${examList.size} exam items")
+            Result.success(examList)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching exams", e)
+            Result.failure(e)
+        }
     }
 }
 

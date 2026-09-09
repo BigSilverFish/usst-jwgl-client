@@ -2,6 +2,7 @@ package cn.edu.usst.jwgl.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
 import cn.edu.usst.jwgl.data.model.TimetableData
@@ -23,6 +24,9 @@ class DataCacheManager(context: Context) {
 
         private const val PREFIX_TIMETABLE_JSON = "cache_timetable_json_"
         private const val PREFIX_TIMETABLE_TIME = "cache_timetable_time_"
+
+        private const val PREFIX_EXAM_JSON = "cache_exam_json_"
+        private const val PREFIX_EXAM_TIME = "cache_exam_time_"
 
         private const val KEY_GRADES_JSON = "cache_grades_json"
         private const val KEY_GRADES_TIME = "cache_grades_time"
@@ -107,6 +111,44 @@ class DataCacheManager(context: Context) {
     }
 
     fun getGradesUpdateTime(): Long = prefs.getLong(KEY_GRADES_TIME, 0L)
+
+    // --- Exams Cache ---
+    fun saveExams(xnm: String, xqm: String, exams: List<ExamItem>) {
+        val key = "${xnm}_${xqm}"
+        val json = gson.toJson(exams)
+        prefs.edit()
+            .putString(PREFIX_EXAM_JSON + key, json)
+            .putLong(PREFIX_EXAM_TIME + key, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getExams(xnm: String, xqm: String): List<ExamItem> {
+        val key = "${xnm}_${xqm}"
+        val json = prefs.getString(PREFIX_EXAM_JSON + key, null) ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<ExamItem>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun getAllCachedExams(): List<ExamItem> {
+        val all = prefs.all
+        val list = mutableListOf<ExamItem>()
+        for ((k, v) in all) {
+            if (k.startsWith(PREFIX_EXAM_JSON) && v is String) {
+                try {
+                    val type = object : com.google.gson.reflect.TypeToken<List<ExamItem>>() {}.type
+                    val items = gson.fromJson<List<ExamItem>>(v, type)
+                    if (items != null) list.addAll(items)
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+        }
+        return list.distinctBy { "${it.courseName}_${it.examTime}_${it.location}" }
+    }
 
     // --- Format update time helper ---
     fun formatUpdateTime(timestamp: Long): String {

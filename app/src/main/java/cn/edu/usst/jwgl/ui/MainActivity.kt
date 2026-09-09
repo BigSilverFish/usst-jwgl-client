@@ -17,6 +17,7 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.data.model.AppVersionInfo
+import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
 import cn.edu.usst.jwgl.data.network.JwglClient
@@ -31,6 +32,7 @@ import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
 import cn.edu.usst.jwgl.util.CourseReminderManager
+import cn.edu.usst.jwgl.util.ExamHelper
 import cn.edu.usst.jwgl.util.SemesterHelper
 import cn.edu.usst.jwgl.util.ThemeManager
 import com.google.android.material.chip.Chip
@@ -177,6 +179,44 @@ class MainActivity : AppCompatActivity() {
             for (cached in cachedList) {
                 WakeupScheduleImporter.importTimetableData(db, cached, startDate)
             }
+        }
+
+        // Auto-seed sample exam schedule in debug mode if empty for previewing exam weeks
+        if (BuildConfig.DEBUG && cacheManager.getAllCachedExams().isEmpty()) {
+            cacheManager.saveExams("2026", "3", listOf(
+                ExamItem(
+                    courseName = "高等数学A(1)",
+                    courseCode = "1001001",
+                    examName = "期末考试",
+                    examTime = "2027-01-13 09:00-11:00",
+                    location = "一教301",
+                    building = "第一教学楼",
+                    seatNumber = "25",
+                    session = "第一场",
+                    examNature = "正常",
+                    examMethod = "笔试(闭卷)",
+                    credit = 5.0,
+                    yearName = "2026-2027",
+                    semesterName = "1",
+                    remarks = "请携带学生证和身份证"
+                ),
+                ExamItem(
+                    courseName = "大学物理B",
+                    courseCode = "1002002",
+                    examName = "期末考试",
+                    examTime = "2027-01-14 13:00-15:00",
+                    location = "二教205",
+                    building = "第二教学楼",
+                    seatNumber = "12",
+                    session = "第二场",
+                    examNature = "正常",
+                    examMethod = "笔试(闭卷)",
+                    credit = 4.0,
+                    yearName = "2026-2027",
+                    semesterName = "1",
+                    remarks = "可携带科学计算器"
+                )
+            ))
         }
 
         // Auto determine active semester & week on startup:
@@ -380,10 +420,27 @@ class MainActivity : AppCompatActivity() {
                 val startDate = semConfig.week1Monday.ifBlank { currentTable?.startDate ?: "2026-09-07" }
                 val importedTable = WakeupScheduleImporter.importTimetableData(db, data, startDate)
                 currentTable = importedTable
+
+                // Check if current week is within exam sync window:
+                // "在考试周开始4周前至考试周结束时，刷新同步课表自动同步考试周"
+                val curWeek = CourseUtils.countWeek(importedTable.startDate)
+                var examSyncMsg = ""
+                if (ExamHelper.isExamSyncWindow(importedTable.tableName, curWeek)) {
+                    val examRes = JwglClient.fetchExams(xnm, xqm, context = this@MainActivity)
+                    examRes.onSuccess { exams ->
+                        cacheManager.saveExams(xnm, xqm, exams)
+                        if (exams.isNotEmpty()) {
+                            examSyncMsg = "，同步 ${exams.size} 门考试"
+                        }
+                    }.onFailure { e ->
+                        Log.w("MainActivity", "Failed to sync exams", e)
+                    }
+                }
+
                 reloadTimetableFromDb()
                 binding.tvTimetableSyncTime.text = "已联网同步 · 刚刚"
                 CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
-                Toast.makeText(this@MainActivity, "${data.semesterTitle} 课表导入成功", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "${data.semesterTitle} 课表导入成功$examSyncMsg", Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
                 Toast.makeText(this@MainActivity, "课表联网同步失败: ${error.message}", Toast.LENGTH_SHORT).show()
             }
