@@ -93,6 +93,23 @@ object CourseUtils {
         return if (weekDay == Calendar.SUNDAY) 7 else weekDay - 1
     }
 
+    fun getFullDateForWeekDay(startDateStr: String, targetWeek: Int, dayIndex: Int, sundayFirst: Boolean): String {
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+            val cal = Calendar.getInstance()
+            cal.time = sdf.parse(startDateStr) ?: Date()
+            cal.firstDayOfWeek = if (sundayFirst) Calendar.SUNDAY else Calendar.MONDAY
+            while (cal.get(Calendar.DAY_OF_WEEK) != cal.firstDayOfWeek) {
+                cal.add(Calendar.DAY_OF_MONTH, -1)
+            }
+            cal.add(Calendar.WEEK_OF_YEAR, targetWeek - 1)
+            cal.add(Calendar.DAY_OF_MONTH, dayIndex)
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     fun courseBean2DetailBean(c: CourseBean): CourseDetailBean {
         return CourseDetailBean(
             id = c.id,

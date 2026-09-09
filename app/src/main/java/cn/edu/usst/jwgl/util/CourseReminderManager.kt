@@ -110,14 +110,36 @@ object CourseReminderManager {
             weekCal.add(Calendar.DAY_OF_MONTH, -1)
         }
 
+        val allCourses = db.courseBaseDao.getCourseOfTable(activeTable.id)
+        val sdfDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
+
         for (dayIdx in 0..6) {
             val dayNumber = if (activeTable.sundayFirst) (if (dayIdx == 0) 7 else dayIdx) else (dayIdx + 1)
             val dayCal = (weekCal.clone() as Calendar).apply {
                 add(Calendar.DAY_OF_MONTH, dayIdx)
             }
 
-            val weekType = if (curWeek % 2 != 0) 1 else 2
-            val dayCourses = db.courseBaseDao.getCourseByDayAndWeekOfTable(dayNumber, curWeek, weekType, activeTable.id)
+            val dateStr = sdfDate.format(dayCal.time)
+            val resolved = cn.edu.usst.jwgl.data.wakeup.CourseAdjustmentResolver.resolve(
+                db,
+                activeTable.id,
+                dateStr,
+                curWeek,
+                dayNumber,
+                allCourses
+            )
+
+            if (resolved.isHolidayOff) {
+                Log.d(TAG, "Skipping reminders for $dateStr due to holiday: ${resolved.holidayName}")
+                continue
+            }
+
+            val dayCourses = if (resolved.isSwapped) {
+                resolved.courses
+            } else {
+                val weekType = if (curWeek % 2 != 0) 1 else 2
+                db.courseBaseDao.getCourseByDayAndWeekOfTable(dayNumber, curWeek, weekType, activeTable.id)
+            }
 
             for (course in dayCourses) {
                 val node = course.startNode

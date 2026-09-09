@@ -16,8 +16,10 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
+import cn.edu.usst.jwgl.data.wakeup.CourseAdjustmentResolver
 import cn.edu.usst.jwgl.data.wakeup.CourseBean
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
+import cn.edu.usst.jwgl.data.wakeup.ResolvedDaySchedule
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.TimeDetailBean
 
@@ -100,9 +102,12 @@ class ScheduleWeekFragment : Fragment() {
         val totalDays = 7
         for (i in 0 until totalDays) {
             val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
-            // Skip weekend if not shown
-            if (!table.showSat && dayNumber == 6) continue
-            if (!table.showSun && dayNumber == 7) continue
+            val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
+            val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
+
+            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty()
+            if (!table.showSat && dayNumber == 6 && !hasContent) continue
+            if (!table.showSun && dayNumber == 7 && !hasContent) continue
 
             val isToday = (dayNumber == todayWeekday && week == curWeek)
 
@@ -116,10 +121,15 @@ class ScheduleWeekFragment : Fragment() {
             }
 
             val tvDayName = TextView(context).apply {
-                text = daysArray[i]
-                textSize = 12f
+                val badge = when {
+                    resolved.isHolidayOff -> " [休]"
+                    resolved.isSwapped -> " [补]"
+                    else -> ""
+                }
+                text = "${daysArray[i]}$badge"
+                textSize = if (badge.isNotEmpty()) 10.5f else 12f
                 typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                setTextColor(if (isToday) ContextCompat.getColor(context, R.color.primary) else ContextCompat.getColor(context, R.color.text_primary))
+                setTextColor(if (isToday) ContextCompat.getColor(context, R.color.primary) else if (resolved.isHolidayOff) 0xFF4CAF50.toInt() else ContextCompat.getColor(context, R.color.text_primary))
                 gravity = Gravity.CENTER
             }
 
@@ -178,8 +188,12 @@ class ScheduleWeekFragment : Fragment() {
 
         for (i in 0 until totalDays) {
             val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
-            if (!table.showSat && dayNumber == 6) continue
-            if (!table.showSun && dayNumber == 7) continue
+            val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
+            val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
+
+            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty()
+            if (!table.showSat && dayNumber == 6 && !hasContent) continue
+            if (!table.showSun && dayNumber == 7 && !hasContent) continue
 
             val dayColumn = FrameLayout(context).apply {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
@@ -188,12 +202,35 @@ class ScheduleWeekFragment : Fragment() {
                 }
             }
 
-            val dayCourses = allCourses.filter { it.day == dayNumber }
+            if (resolved.isHolidayOff) {
+                val tvHoliday = TextView(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = dpToPx(90f)
+                    }
+                    text = "🎉\n${resolved.holidayName}\n放假停课"
+                    textSize = 11.5f
+                    gravity = Gravity.CENTER
+                    setTextColor(0xFF888888.toInt())
+                    setLineSpacing(0f, 1.2f)
+                }
+                dayColumn.addView(tvHoliday)
+                llWeekColumnsContainer.addView(dayColumn)
+                continue
+            }
+
+            val dayCourses = resolved.courses
 
             // Partition into active courses and inactive courses
-            val activeCourses = dayCourses.filter { course ->
-                (week >= course.startWeek && week <= course.endWeek) &&
-                (course.type == 0 || (course.type == 1 && week % 2 != 0) || (course.type == 2 && week % 2 == 0))
+            val activeCourses = if (resolved.isSwapped) {
+                dayCourses
+            } else {
+                dayCourses.filter { course ->
+                    (week >= course.startWeek && week <= course.endWeek) &&
+                    (course.type == 0 || (course.type == 1 && week % 2 != 0) || (course.type == 2 && week % 2 == 0))
+                }
             }
 
             val displayList = mutableListOf<Pair<CourseBean, Boolean>>()
@@ -201,7 +238,7 @@ class ScheduleWeekFragment : Fragment() {
                 displayList.add(Pair(c, true))
             }
 
-            if (table.showOtherWeekCourse) {
+            if (table.showOtherWeekCourse && !resolved.isSwapped) {
                 val inactiveCourses = dayCourses.filter { !activeCourses.contains(it) }
                 for (c in inactiveCourses) {
                     // Only show upcoming courses, do not show already ended courses
@@ -268,7 +305,9 @@ class ScheduleWeekFragment : Fragment() {
                         textBuilder.append("\n@$room")
                     }
 
-                    if (!isWeekActive) {
+                    if (resolved.isSwapped) {
+                        textBuilder.append("\n[${resolved.swapRemark ?: "调休"}]")
+                    } else if (!isWeekActive) {
                         when (course.type) {
                             1 -> textBuilder.append("\n单周[非本周]")
                             2 -> textBuilder.append("\n双周[非本周]")

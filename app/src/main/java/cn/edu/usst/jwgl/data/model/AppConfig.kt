@@ -7,8 +7,53 @@ data class AppConfig(
     val appVersion: AppVersionInfo = AppVersionInfo(),
     @SerializedName("semester_config")
     val semesterConfig: SemesterRemoteConfig = SemesterRemoteConfig(),
+    @SerializedName("semesters")
+    val semesters: List<SemesterConfigItem> = emptyList(),
+    @SerializedName("adjustments")
+    val adjustments: List<ScheduleAdjustment> = emptyList(),
     @SerializedName("announcement")
     val announcement: AnnouncementInfo? = null
+)
+
+data class SemesterConfigItem(
+    @SerializedName("semester_id")
+    val semesterId: String = "",
+    @SerializedName("semester_title")
+    val semesterTitle: String = "",
+    @SerializedName("start_date")
+    val startDate: String = "",
+    @SerializedName("max_week")
+    val maxWeek: Int = 20
+)
+
+data class ScheduleAdjustment(
+    @SerializedName("id")
+    val id: String = "",
+    @SerializedName("semester_id")
+    val semesterId: String = "",
+    @SerializedName("name")
+    val name: String = "",
+    @SerializedName("type")
+    val type: String = "HOLIDAY_OFF", // "HOLIDAY_OFF" or "SWAP_WEEKDAY"
+    @SerializedName("dates")
+    val dates: List<String> = emptyList(),
+    @SerializedName("date_range")
+    val dateRange: DateRange? = null,
+    @SerializedName("date")
+    val date: String? = null,
+    @SerializedName("target_weekday")
+    val targetWeekday: Int? = null,
+    @SerializedName("target_week")
+    val targetWeek: Int? = null,
+    @SerializedName("remark")
+    val remark: String = ""
+)
+
+data class DateRange(
+    @SerializedName("start")
+    val start: String = "",
+    @SerializedName("end")
+    val end: String = ""
 )
 
 data class AppVersionInfo(

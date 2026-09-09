@@ -569,10 +569,21 @@ class MainActivity : AppCompatActivity() {
                 val semConfig = config.semesterConfig
                 binding.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
 
+                // Calibrate all local tables' start dates and weeks
+                val calibrated = RemoteConfigManager.calibrateTablesAndSync(this@MainActivity, config)
+                if (calibrated) {
+                    reloadTimetableFromDb()
+                } else {
+                    scheduleAdapter?.refreshAllFragments()
+                }
+
+                // Update reminders according to holidays & adjustments
+                CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
+
                 if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
                     showUpdateDialog(config.appVersion)
                 } else if (isManual) {
-                    Toast.makeText(this@MainActivity, "已是最新版本 (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "校历与调休配置已成功同步", Toast.LENGTH_SHORT).show()
                 }
             }.onFailure {
                 if (isManual) {

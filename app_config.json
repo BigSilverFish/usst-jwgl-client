@@ -1,0 +1,74 @@
+﻿{
+  "app_version": {
+    "version_code": 1,
+    "version_name": "1.0.0",
+    "release_date": "2026-09-09",
+    "release_notes": "重构全新课程表架构，支持多时段管理与官方作息时间校准。",
+    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases",
+    "force_update": false
+  },
+  "semester_config": {
+    "current_semester": "2026-2027-1",
+    "week1_monday": "2026-09-07",
+    "total_weeks": 20
+  },
+  "semesters": [
+    {
+      "semester_id": "2026-2027-1",
+      "semester_title": "2026-2027学年 第1学期",
+      "start_date": "2026-09-07",
+      "max_week": 20
+    },
+    {
+      "semester_id": "2025-2026-2",
+      "semester_title": "2025-2026学年 第2学期",
+      "start_date": "2026-02-23",
+      "max_week": 20
+    },
+    {
+      "semester_id": "2025-2026-1",
+      "semester_title": "2025-2026学年 第1学期",
+      "start_date": "2025-09-08",
+      "max_week": 20
+    }
+  ],
+  "adjustments": [
+    {
+      "id": "2026_mid_autumn",
+      "semester_id": "2026-2027-1",
+      "name": "中秋节",
+      "type": "HOLIDAY_OFF",
+      "dates": [
+        "2026-09-25"
+      ],
+      "remark": "中秋节放假停课"
+    },
+    {
+      "id": "2026_national_day_holiday",
+      "semester_id": "2026-2027-1",
+      "name": "国庆节",
+      "type": "HOLIDAY_OFF",
+      "date_range": {
+        "start": "2026-10-01",
+        "end": "2026-10-07"
+      },
+      "remark": "国庆长假停课"
+    },
+    {
+      "id": "2026_national_day_swap",
+      "semester_id": "2026-2027-1",
+      "name": "国庆调休",
+      "type": "SWAP_WEEKDAY",
+      "date": "2026-10-10",
+      "target_weekday": 4,
+      "target_week": 5,
+      "remark": "10月10日(周六)上第5周周四的课"
+    }
+  ],
+  "announcement": {
+    "id": 1,
+    "title": "欢迎使用上理课表",
+    "content": "课表已支持校历开学日期与放假调休自动更正。",
+    "show_dialog": false
+  }
+}

@@ -21,10 +21,10 @@ object RemoteConfigManager {
     private const val KEY_CACHED_JSON = "cached_config_json"
     private const val KEY_LAST_SYNC_TIME = "last_sync_time"
 
-    // Primary & backup config URLs (can be hosted on GitHub, Gitee, Cloudflare, etc.)
+    // Primary & backup config URLs (hosted on BigSilverFish/usst-jwgl-client GitHub repository)
     private val CONFIG_URLS = listOf(
-        "https://fastly.jsdelivr.net/gh/usst-app/config@main/app_config.json",
-        "https://raw.githubusercontent.com/usst-app/config/main/app_config.json"
+        "https://fastly.jsdelivr.net/gh/BigSilverFish/usst-jwgl-client@main/app_config.json",
+        "https://raw.githubusercontent.com/BigSilverFish/usst-jwgl-client/main/app_config.json"
     )
 
     private val gson = Gson()
@@ -112,6 +112,51 @@ object RemoteConfigManager {
     fun getLastSyncTime(context: Context): Long {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         return prefs.getLong(KEY_LAST_SYNC_TIME, 0L)
+    }
+
+    fun getAdjustments(): List<cn.edu.usst.jwgl.data.model.ScheduleAdjustment> = cachedConfig.adjustments
+
+    fun getSemesters(): List<cn.edu.usst.jwgl.data.model.SemesterConfigItem> = cachedConfig.semesters
+
+    /**
+     * Calibrates all local tables' startDate and maxWeek according to remote semesters list
+     * Returns true if any table was updated
+     */
+    fun calibrateTablesAndSync(context: Context, config: AppConfig): Boolean {
+        var anyChanged = false
+        val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context)
+        val localTables = db.tableDao.getAllTables()
+
+        for (remoteSem in config.semesters) {
+            val semId = remoteSem.semesterId.trim()
+            val semTitle = remoteSem.semesterTitle.trim()
+            val parts = semId.split("-")
+
+            for (table in localTables) {
+                val matches = (semId.isNotBlank() && table.tableName.contains(semId)) ||
+                              (semTitle.isNotBlank() && table.tableName.contains(semTitle)) ||
+                              (parts.size >= 3 && table.tableName.contains(parts[0]) && table.tableName.contains("第${parts[2]}学期"))
+
+                if (matches) {
+                    var tableChanged = false
+                    if (remoteSem.startDate.isNotBlank() && table.startDate != remoteSem.startDate) {
+                        Log.i(TAG, "Calibrating ${table.tableName} startDate from ${table.startDate} to ${remoteSem.startDate}")
+                        table.startDate = remoteSem.startDate
+                        tableChanged = true
+                    }
+                    if (remoteSem.maxWeek > 0 && table.maxWeek != remoteSem.maxWeek) {
+                        Log.i(TAG, "Calibrating ${table.tableName} maxWeek from ${table.maxWeek} to ${remoteSem.maxWeek}")
+                        table.maxWeek = remoteSem.maxWeek
+                        tableChanged = true
+                    }
+                    if (tableChanged) {
+                        db.tableDao.updateTable(table)
+                        anyChanged = true
+                    }
+                }
+            }
+        }
+        return anyChanged
     }
 
     /**
