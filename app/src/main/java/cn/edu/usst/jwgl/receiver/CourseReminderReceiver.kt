@@ -26,30 +26,31 @@ class CourseReminderReceiver : BroadcastReceiver() {
         const val EXTRA_START_TIME = "extra_start_time"
         const val EXTRA_SECTION = "extra_section"
         const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
+        const val EXTRA_ADVANCE_MINUTES = "extra_advance_minutes"
 
         fun createNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-                // Course Reminder Channel (15 mins before class)
+                // Course Reminder Channel
                 val channelCourse = NotificationChannel(
                     CHANNEL_ID,
                     "上课前提醒",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "上课前 15 分钟自动提醒即将开始的课程"
+                    description = "课程开始前根据设置自动提醒即将开始的课程"
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 250, 200, 250)
                 }
                 notificationManager.createNotificationChannel(channelCourse)
 
-                // Exam Reminder Channel (30 mins before exam)
+                // Exam Reminder Channel
                 val channelExam = NotificationChannel(
                     EXAM_CHANNEL_ID,
                     "考试日程提醒",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "考试开始前 30 分钟提醒考场、座号与时间"
+                    description = "考试开始前提醒考场、座号与时间"
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 300, 200, 300, 200, 300)
                 }
@@ -68,6 +69,8 @@ class CourseReminderReceiver : BroadcastReceiver() {
         val examNature = intent.getStringExtra(EXTRA_EXAM_NATURE) ?: "考试"
         val seatNumber = intent.getStringExtra(EXTRA_SEAT_NUMBER) ?: ""
         val notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 10001)
+        val advanceMins = intent.getIntExtra(EXTRA_ADVANCE_MINUTES, if (isExam) 30 else 15)
+        val advanceText = cn.edu.usst.jwgl.util.CourseReminderManager.formatAdvanceMinutes(advanceMins)
 
         createNotificationChannel(context)
 
@@ -91,7 +94,7 @@ class CourseReminderReceiver : BroadcastReceiver() {
             val content = "${roomText}${seatText} | 时间：$startTime"
             NotificationCompat.Builder(context, EXAM_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("📝 考试提醒：还有 30 分钟开始【$courseName】")
+                .setContentTitle("📝 考试提醒：还有 $advanceText 开始【$courseName】")
                 .setContentText(content)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "科目：$courseName ($examNature)\n考场地点：$classroom\n座位号：${seatNumber.ifEmpty { "见考场公布栏" }}\n考试时间：$startTime\n请备齐学生证/身份证与考试文具，提前到达考场签到！"
@@ -106,7 +109,7 @@ class CourseReminderReceiver : BroadcastReceiver() {
             val content = "${startTime}开始 (${section}) | ${roomText}${teacherText}"
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("🔔 还有 15 分钟上课：$courseName")
+                .setContentTitle("🔔 还有 $advanceText 上课：$courseName")
                 .setContentText(content)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${content}\n请带齐课件与学习用品，准时到达教室。"))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

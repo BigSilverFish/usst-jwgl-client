@@ -66,18 +66,47 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private enum class ReminderType { COURSE, EXAM }
+    private var pendingReminderType: ReminderType? = null
+
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            binding.switchCourseReminder.isChecked = true
-            CourseReminderManager.setReminderEnabled(this, true)
-            Toast.makeText(this, "已开启上课前 15 分钟通知提醒", Toast.LENGTH_SHORT).show()
+            when (pendingReminderType) {
+                ReminderType.COURSE -> {
+                    binding.switchCourseReminder.isChecked = true
+                    CourseReminderManager.setReminderEnabled(this, true)
+                    updateReminderSubtitles()
+                    val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getCourseReminderAdvanceMinutes(this))
+                    Toast.makeText(this, "已开启课前 $text 提醒", Toast.LENGTH_SHORT).show()
+                }
+                ReminderType.EXAM -> {
+                    binding.switchExamReminder.isChecked = true
+                    CourseReminderManager.setExamReminderEnabled(this, true)
+                    updateReminderSubtitles()
+                    val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
+                    Toast.makeText(this, "已开启考前 $text 提醒", Toast.LENGTH_SHORT).show()
+                }
+                null -> {}
+            }
         } else {
-            binding.switchCourseReminder.isChecked = false
-            CourseReminderManager.setReminderEnabled(this, false)
-            Toast.makeText(this, "需要通知权限才能发送上课提醒", Toast.LENGTH_LONG).show()
+            when (pendingReminderType) {
+                ReminderType.COURSE -> {
+                    binding.switchCourseReminder.isChecked = false
+                    CourseReminderManager.setReminderEnabled(this, false)
+                    updateReminderSubtitles()
+                }
+                ReminderType.EXAM -> {
+                    binding.switchExamReminder.isChecked = false
+                    CourseReminderManager.setExamReminderEnabled(this, false)
+                    updateReminderSubtitles()
+                }
+                null -> {}
+            }
+            Toast.makeText(this, "需要通知权限才能发送提醒通知", Toast.LENGTH_LONG).show()
         }
+        pendingReminderType = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -416,20 +445,51 @@ class MainActivity : AppCompatActivity() {
         // Dark Mode
         binding.rowDarkMode.setOnClickListener { showDarkModeDialog() }
 
-        // Course Reminder Switch
+        // Course Reminder Row & Switch
+        binding.rowCourseReminder.setOnClickListener {
+            showCourseReminderAdvanceDialog()
+        }
         binding.switchCourseReminder.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        pendingReminderType = ReminderType.COURSE
                         requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                         return@setOnCheckedChangeListener
                     }
                 }
                 CourseReminderManager.setReminderEnabled(this, true)
-                Toast.makeText(this, "已开启上课前 15 分钟通知提醒", Toast.LENGTH_SHORT).show()
+                updateReminderSubtitles()
+                val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getCourseReminderAdvanceMinutes(this))
+                Toast.makeText(this, "已开启课前 $text 提醒", Toast.LENGTH_SHORT).show()
             } else {
                 CourseReminderManager.setReminderEnabled(this, false)
-                Toast.makeText(this, "已关闭上课提醒", Toast.LENGTH_SHORT).show()
+                updateReminderSubtitles()
+                Toast.makeText(this, "已关闭课前提醒", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Exam Reminder Row & Switch
+        binding.rowExamReminder.setOnClickListener {
+            showExamReminderAdvanceDialog()
+        }
+        binding.switchExamReminder.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        pendingReminderType = ReminderType.EXAM
+                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        return@setOnCheckedChangeListener
+                    }
+                }
+                CourseReminderManager.setExamReminderEnabled(this, true)
+                updateReminderSubtitles()
+                val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
+                Toast.makeText(this, "已开启考前 $text 提醒", Toast.LENGTH_SHORT).show()
+            } else {
+                CourseReminderManager.setExamReminderEnabled(this, false)
+                updateReminderSubtitles()
+                Toast.makeText(this, "已关闭考前提醒", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -515,6 +575,8 @@ class MainActivity : AppCompatActivity() {
 
         binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(ThemeManager.getThemeMode(this))
         binding.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
+        binding.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
+        updateReminderSubtitles()
 
         if (profile == null) return
 
@@ -538,6 +600,80 @@ class MainActivity : AppCompatActivity() {
             .setSingleChoiceItems(options, currentMode) { dialog, which ->
                 ThemeManager.setThemeMode(this, which)
                 binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(which)
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun updateReminderSubtitles() {
+        val courseMins = CourseReminderManager.getCourseReminderAdvanceMinutes(this)
+        val courseMinsStr = CourseReminderManager.formatAdvanceMinutes(courseMins)
+        binding.tvCourseReminderSubtitle.text = if (CourseReminderManager.isReminderEnabled(this)) {
+            "提前 $courseMinsStr · 点击修改"
+        } else {
+            "已关闭 · 点击可设置提前时长"
+        }
+
+        val examMins = CourseReminderManager.getExamReminderAdvanceMinutes(this)
+        val examMinsStr = CourseReminderManager.formatAdvanceMinutes(examMins)
+        binding.tvExamReminderSubtitle.text = if (CourseReminderManager.isExamReminderEnabled(this)) {
+            "提前 $examMinsStr · 点击修改"
+        } else {
+            "已关闭 · 点击可设置提前时长"
+        }
+    }
+
+    private fun showCourseReminderAdvanceDialog() {
+        val options = arrayOf(
+            "提前 5 分钟",
+            "提前 10 分钟",
+            "提前 15 分钟 (推荐)",
+            "提前 20 分钟",
+            "提前 30 分钟",
+            "提前 45 分钟",
+            "提前 1 小时"
+        )
+        val values = intArrayOf(5, 10, 15, 20, 30, 45, 60)
+        val currentMins = CourseReminderManager.getCourseReminderAdvanceMinutes(this)
+        var selectedIdx = values.indexOf(currentMins).let { if (it >= 0) it else 2 }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("课前提醒时间")
+            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
+                val chosenMins = values[which]
+                CourseReminderManager.setCourseReminderAdvanceMinutes(this, chosenMins)
+                updateReminderSubtitles()
+                val text = CourseReminderManager.formatAdvanceMinutes(chosenMins)
+                Toast.makeText(this, "已设置课前 $text 提醒", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showExamReminderAdvanceDialog() {
+        val options = arrayOf(
+            "提前 15 分钟",
+            "提前 30 分钟 (推荐)",
+            "提前 45 分钟",
+            "提前 1 小时",
+            "提前 2 小时",
+            "提前 3 小时",
+            "提前 1 天 (24小时)"
+        )
+        val values = intArrayOf(15, 30, 45, 60, 120, 180, 1440)
+        val currentMins = CourseReminderManager.getExamReminderAdvanceMinutes(this)
+        var selectedIdx = values.indexOf(currentMins).let { if (it >= 0) it else 1 }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("考前提醒时间")
+            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
+                val chosenMins = values[which]
+                CourseReminderManager.setExamReminderAdvanceMinutes(this, chosenMins)
+                updateReminderSubtitles()
+                val text = CourseReminderManager.formatAdvanceMinutes(chosenMins)
+                Toast.makeText(this, "已设置考前 $text 提醒", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)

@@ -1,4 +1,4 @@
-﻿package cn.edu.usst.jwgl.ui.exam
+package cn.edu.usst.jwgl.ui.exam
 
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -64,6 +64,13 @@ class ExamQueryBottomSheet : BottomSheetDialogFragment() {
             tvTitle.text = "$semesterTitle 考试日程"
         }
 
+        if (CourseReminderManager.isExamReminderEnabled(requireContext())) {
+            val adv = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(requireContext()))
+            tvSubtitle.text = "支持期末、期中、补考与缓考 · 考前 $adv 自动提醒"
+        } else {
+            tvSubtitle.text = "支持期末、期中、补考与缓考 · 考前提醒未开启"
+        }
+
         val cacheManager = DataCacheManager(requireContext())
         rvExamList.layoutManager = LinearLayoutManager(context)
 
@@ -113,7 +120,12 @@ class ExamQueryBottomSheet : BottomSheetDialogFragment() {
                     CourseReminderManager.scheduleExamReminders(requireContext(), exams)
                     updateList(exams)
                     val msg = if (exams.isNotEmpty()) {
-                        "已同步 ${exams.size} 门考试，考前 30 分钟将自动提醒"
+                        if (CourseReminderManager.isExamReminderEnabled(requireContext())) {
+                            val adv = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(requireContext()))
+                            "已同步 ${exams.size} 门考试，考前 $adv 将自动提醒"
+                        } else {
+                            "已同步 ${exams.size} 门考试（考前提醒未开启）"
+                        }
                     } else {
                         "当前学期教务系统暂无考试发布"
                     }
@@ -186,8 +198,15 @@ class ExamQueryBottomSheet : BottomSheetDialogFragment() {
                 tvReminderStatus.setTextColor(Color.parseColor("#98A2B3"))
             } else {
                 tvCountdown.setTextColor(Color.parseColor("#8C1D27"))
-                tvReminderStatus.text = "🔔 考前 30 分钟已设提醒"
-                tvReminderStatus.setTextColor(Color.parseColor("#14532D"))
+                val context = itemView.context
+                if (CourseReminderManager.isExamReminderEnabled(context)) {
+                    val adv = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(context))
+                    tvReminderStatus.text = "🔔 考前 $adv 已设提醒"
+                    tvReminderStatus.setTextColor(Color.parseColor("#14532D"))
+                } else {
+                    tvReminderStatus.text = "🔕 考前提醒未开启"
+                    tvReminderStatus.setTextColor(Color.parseColor("#667085"))
+                }
             }
 
             val locText = if (exam.building.isNotEmpty() || exam.location.isNotEmpty()) {

@@ -17,6 +17,9 @@ object CourseReminderManager {
     private const val TAG = "CourseReminderManager"
     private const val PREF_NAME = "usst_reminder_pref"
     private const val KEY_REMINDER_ENABLED = "reminder_enabled"
+    private const val KEY_COURSE_ADVANCE_MINS = "course_advance_mins"
+    private const val KEY_EXAM_REMINDER_ENABLED = "exam_reminder_enabled"
+    private const val KEY_EXAM_ADVANCE_MINS = "exam_advance_mins"
     private const val KEY_ACTIVE_SEMESTER = "active_semester_key"
 
     // Official USST Section start times (Hour, Minute)
@@ -41,6 +44,69 @@ object CourseReminderManager {
         return sp.getBoolean(KEY_REMINDER_ENABLED, false)
     }
 
+    fun setReminderEnabled(context: Context, enabled: Boolean) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putBoolean(KEY_REMINDER_ENABLED, enabled).apply()
+
+        if (enabled) {
+            scheduleUpcomingReminders(context)
+        } else {
+            cancelAllReminders(context)
+        }
+    }
+
+    fun getCourseReminderAdvanceMinutes(context: Context): Int {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getInt(KEY_COURSE_ADVANCE_MINS, 15) // Default 15 minutes
+    }
+
+    fun setCourseReminderAdvanceMinutes(context: Context, minutes: Int) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putInt(KEY_COURSE_ADVANCE_MINS, minutes).apply()
+        if (isReminderEnabled(context)) {
+            scheduleUpcomingReminders(context)
+        }
+    }
+
+    fun isExamReminderEnabled(context: Context): Boolean {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getBoolean(KEY_EXAM_REMINDER_ENABLED, true) // Default enabled
+    }
+
+    fun setExamReminderEnabled(context: Context, enabled: Boolean) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putBoolean(KEY_EXAM_REMINDER_ENABLED, enabled).apply()
+        if (enabled) {
+            val exams = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getAllCachedExams()
+            scheduleExamReminders(context, exams)
+        } else {
+            cancelAllExamReminders(context)
+        }
+    }
+
+    fun getExamReminderAdvanceMinutes(context: Context): Int {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getInt(KEY_EXAM_ADVANCE_MINS, 30) // Default 30 minutes
+    }
+
+    fun setExamReminderAdvanceMinutes(context: Context, minutes: Int) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putInt(KEY_EXAM_ADVANCE_MINS, minutes).apply()
+        if (isExamReminderEnabled(context)) {
+            val exams = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getAllCachedExams()
+            scheduleExamReminders(context, exams)
+        }
+    }
+
+    fun formatAdvanceMinutes(minutes: Int): String {
+        return when {
+            minutes >= 1440 && minutes % 1440 == 0 -> "${minutes / 1440} 天"
+            minutes >= 60 && minutes % 60 == 0 -> "${minutes / 60} 小时"
+            minutes >= 60 -> "${minutes / 60} 小时 ${minutes % 60} 分钟"
+            else -> "${minutes} 分钟"
+        }
+    }
+
     fun getActiveSemesterKey(context: Context): String {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val saved = sp.getString(KEY_ACTIVE_SEMESTER, null)
@@ -57,17 +123,6 @@ object CourseReminderManager {
         // Reschedule reminders for the new active semester
         if (isReminderEnabled(context)) {
             scheduleUpcomingReminders(context)
-        }
-    }
-
-    fun setReminderEnabled(context: Context, enabled: Boolean) {
-        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        sp.edit().putBoolean(KEY_REMINDER_ENABLED, enabled).apply()
-
-        if (enabled) {
-            scheduleUpcomingReminders(context)
-        } else {
-            cancelAllReminders(context)
         }
     }
 
@@ -96,6 +151,7 @@ object CourseReminderManager {
         }
 
         val times = db.timeDetailDao.getTimeDetails(activeTable.timeTable)
+        val advanceMins = getCourseReminderAdvanceMinutes(context)
         val now = System.currentTimeMillis()
 
         val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -156,7 +212,7 @@ object CourseReminderManager {
                     set(Calendar.MINUTE, minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
-                    add(Calendar.MINUTE, -15) // Exactly 15 minutes before class
+                    add(Calendar.MINUTE, -advanceMins)
                 }
 
                 val reminderTimeMillis = reminderCal.timeInMillis
@@ -169,6 +225,7 @@ object CourseReminderManager {
                         putExtra(CourseReminderReceiver.EXTRA_START_TIME, String.format("%02d:%02d", hour, minute))
                         putExtra(CourseReminderReceiver.EXTRA_SECTION, "第${node}节")
                         putExtra(CourseReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode)
+                        putExtra(CourseReminderReceiver.EXTRA_ADVANCE_MINUTES, advanceMins)
                     }
 
                     val pendingIntent = PendingIntent.getBroadcast(
@@ -290,9 +347,14 @@ object CourseReminderManager {
     }
 
     /**
-     * 为考试日程安排考前 30 分钟提醒
+     * 为考试日程安排考前提醒（根据用户配置的提前时长）
      */
     fun scheduleExamReminders(context: Context, exams: List<cn.edu.usst.jwgl.data.model.ExamItem>) {
+        if (!isExamReminderEnabled(context)) {
+            cancelAllExamReminders(context)
+            return
+        }
+
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             alarmManager.canScheduleExactAlarms()
@@ -300,10 +362,11 @@ object CourseReminderManager {
             true
         }
 
+        val advanceMins = getExamReminderAdvanceMinutes(context)
         val now = System.currentTimeMillis()
         for ((idx, exam) in exams.withIndex()) {
             val startMillis = exam.getExamStartTimeMillis() ?: continue
-            val reminderMillis = startMillis - 30 * 60 * 1000L // 30 minutes before exam
+            val reminderMillis = startMillis - advanceMins * 60 * 1000L
             if (reminderMillis > now) {
                 val requestCode = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
                 val intent = Intent(context, CourseReminderReceiver::class.java).apply {
@@ -314,6 +377,7 @@ object CourseReminderManager {
                     putExtra(CourseReminderReceiver.EXTRA_SEAT_NUMBER, exam.seatNumber.ifEmpty { "未指定" })
                     putExtra(CourseReminderReceiver.EXTRA_START_TIME, exam.getTimeRangeString())
                     putExtra(CourseReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode)
+                    putExtra(CourseReminderReceiver.EXTRA_ADVANCE_MINUTES, advanceMins)
                 }
 
                 val pendingIntent = PendingIntent.getBroadcast(
@@ -337,11 +401,35 @@ object CourseReminderManager {
                             alarmManager.set(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
                         }
                     }
-                    Log.d(TAG, "Scheduled 30-min exam reminder for ${exam.courseName} at $reminderMillis (starts at $startMillis)")
+                    Log.d(TAG, "Scheduled exam reminder for ${exam.courseName} ($advanceMins mins before) at $reminderMillis (starts at $startMillis)")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to schedule exam reminder for ${exam.courseName}", e)
                 }
             }
         }
+    }
+
+    fun cancelAllExamReminders(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val cachedExams = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getAllCachedExams()
+        for ((idx, exam) in cachedExams.withIndex()) {
+            val requestCode = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
+            val intent = Intent(context, CourseReminderReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                try {
+                    alarmManager.cancel(pendingIntent)
+                    pendingIntent.cancel()
+                } catch (e: Throwable) {
+                    // Safe cancel
+                }
+            }
+        }
+        Log.d(TAG, "Cancelled all exam reminders.")
     }
 }
