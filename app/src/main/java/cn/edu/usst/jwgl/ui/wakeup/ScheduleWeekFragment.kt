@@ -37,6 +37,7 @@ class ScheduleWeekFragment : Fragment() {
     private lateinit var llDayHeaderContainer: LinearLayout
     private lateinit var llSidebarNodes: LinearLayout
     private lateinit var llWeekColumnsContainer: LinearLayout
+    private lateinit var flScheduleContent: FrameLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +57,7 @@ class ScheduleWeekFragment : Fragment() {
         llDayHeaderContainer = view.findViewById(R.id.llDayHeaderContainer)
         llSidebarNodes = view.findViewById(R.id.llSidebarNodes)
         llWeekColumnsContainer = view.findViewById(R.id.llWeekColumnsContainer)
+        flScheduleContent = view.findViewById(R.id.flScheduleContent)
         return view
     }
 
@@ -265,19 +267,6 @@ class ScheduleWeekFragment : Fragment() {
                     nodeLayout.addView(tvTime)
                 }
 
-                if (showDayParts && (node == morningEndNode || node == afternoonEndNode)) {
-                    val divider = View(context).apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            dpToPx(1f)
-                        ).apply {
-                            topMargin = dpToPx(1f)
-                        }
-                        setBackgroundColor(0x331E88E5.toInt())
-                    }
-                    nodeLayout.addView(divider)
-                }
-
                 llSidebarNodes.addView(nodeLayout)
             }
         }
@@ -367,32 +356,6 @@ class ScheduleWeekFragment : Fragment() {
             }
 
             if (showDayParts) {
-                // Divider line between morning and afternoon
-                val noonDividerY = morningEndNode * (itemHeightPx + marTopPx)
-                val noonDivider = View(context).apply {
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        dpToPx(1f)
-                    ).apply {
-                        topMargin = noonDividerY
-                    }
-                    setBackgroundColor(0x331E88E5.toInt())
-                }
-                dayColumn.addView(noonDivider)
-
-                // Divider line between afternoon and evening
-                val eveningDividerY = afternoonEndNode * (itemHeightPx + marTopPx)
-                val eveningDivider = View(context).apply {
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        dpToPx(1f)
-                    ).apply {
-                        topMargin = eveningDividerY
-                    }
-                    setBackgroundColor(0x331E88E5.toInt())
-                }
-                dayColumn.addView(eveningDivider)
-
                 // Subtle evening tint background
                 val eveningTop = afternoonEndNode * (itemHeightPx + marTopPx) + marTopPx
                 val eveningHeight = (table.nodes - afternoonEndNode) * (itemHeightPx + marTopPx)
@@ -544,6 +507,52 @@ class ScheduleWeekFragment : Fragment() {
             }
 
             llWeekColumnsContainer.addView(dayColumn)
+        }
+
+        // 5. Full-width Day-part Divider Lines (Morning/Afternoon and Afternoon/Evening)
+        // Remove existing dividers from flScheduleContent first
+        for (idx in flScheduleContent.childCount - 1 downTo 0) {
+            val child = flScheduleContent.getChildAt(idx)
+            if (child.id == R.id.flScheduleContent || child == view?.findViewById(R.id.llContentContainer)) {
+                continue
+            }
+            if (child.tag == "day_part_divider") {
+                flScheduleContent.removeViewAt(idx)
+            }
+        }
+
+        if (showDayParts) {
+            val primaryColor = ContextCompat.getColor(context, R.color.primary)
+            val dividerColor = (primaryColor and 0x00FFFFFF) or (0xB0 shl 24)
+            val dividerHeightPx = dpToPx(1.5f).coerceAtLeast(2)
+
+            // Noon Divider (between morning and afternoon)
+            val noonY = morningEndNode * (itemHeightPx + marTopPx) + (marTopPx - dividerHeightPx) / 2
+            val noonLine = View(context).apply {
+                tag = "day_part_divider"
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dividerHeightPx
+                ).apply {
+                    topMargin = noonY
+                }
+                setBackgroundColor(dividerColor)
+            }
+            flScheduleContent.addView(noonLine)
+
+            // Evening Divider (between afternoon and evening)
+            val eveningY = afternoonEndNode * (itemHeightPx + marTopPx) + (marTopPx - dividerHeightPx) / 2
+            val eveningLine = View(context).apply {
+                tag = "day_part_divider"
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dividerHeightPx
+                ).apply {
+                    topMargin = eveningY
+                }
+                setBackgroundColor(dividerColor)
+            }
+            flScheduleContent.addView(eveningLine)
         }
     }
 

@@ -81,6 +81,7 @@ class JwglWebActivity : AppCompatActivity() {
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            databaseEnabled = true
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(true)
@@ -115,7 +116,18 @@ class JwglWebActivity : AppCompatActivity() {
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                Log.d(TAG, "onPageStarted: ")
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
                 binding.layoutLoading.visibility = View.GONE
+                Log.d(TAG, "onPageFinished: ")
+
+                // If redirected to login page despite cookie injection, perform JS autofill fallback
+                if (url != null && (url.contains("authserver/login") || url.contains("login_slogin.html") || url.contains("sso/jziotlogin"))) {
+                    autoFillCredentialsIfPresent()
+                }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -124,41 +136,62 @@ class JwglWebActivity : AppCompatActivity() {
         }
     }
 
+    private fun autoFillCredentialsIfPresent() {
+        val authPrefs = AuthPreferences(this)
+        val studentId = authPrefs.getStudentId()
+        val password = authPrefs.getPassword()
+        if (studentId.isNotEmpty() && password.isNotEmpty()) {
+            val safeId = studentId.replace("'", "\\'")
+            val safePwd = password.replace("'", "\\'")
+            val js = """
+                (function() {
+                    try {
+                        var u = document.getElementById('username') || document.querySelector('input[name=username]') || document.getElementById('yhm');
+                        var p = document.getElementById('password') || document.querySelector('input[name=password]') || document.getElementById('mm');
+                        if (u && p) {
+                            u.value = '$safeId';
+                            p.value = '$safePwd';
+                            u.dispatchEvent(new Event('input', { bubbles: true }));
+                            p.dispatchEvent(new Event('input', { bubbles: true }));
+                            var btn = document.getElementById('login_sub') || document.querySelector('button[type=submit]') || document.querySelector('.auth_login_btn') || document.getElementById('dl');
+                            if (btn && !window.__auto_submitted) {
+                                window.__auto_submitted = true;
+                                setTimeout(function() { btn.click(); }, 300);
+                            }
+                        }
+                    } catch(e) {}
+                })();
+            """.trimIndent()
+            binding.webView.evaluateJavascript(js, null)
+        }
+    }
+
     private fun prepareAndLoad(targetUrl: String) {
         val authPrefs = AuthPreferences(this)
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
 
-        // If we already have active cookies in JwglClient, sync directly
-        if (JwglClient.hasValidSession()) {
-            syncCookiesToWebView()
-            binding.webView.loadUrl(targetUrl)
-            return
-        }
-
-        // If credentials are saved, auto-login first then sync cookies
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
             binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMessage.text = "正在同步认证教务系统会话..."
+            binding.tvLoadingMessage.text = "正在为网页版认证教务系统会话..."
 
             lifecycleScope.launch {
+                // Always refresh CAS SSO session via OkHttp first to guarantee 100% fresh ticket
                 val loginResult = withContext(Dispatchers.IO) {
                     JwglClient.login(studentId, password)
                 }
-
-                binding.layoutLoading.visibility = View.GONE
 
                 loginResult.onSuccess {
                     syncCookiesToWebView()
                     binding.webView.loadUrl(targetUrl)
                 }.onFailure { e ->
-                    Log.w(TAG, "Auto-login before opening webview failed", e)
-                    Toast.makeText(this@JwglWebActivity, "自动登录失败，请在网页中手动输入密码", Toast.LENGTH_SHORT).show()
-                    binding.webView.loadUrl("https://jwgl.usst.edu.cn/sso/jziotlogin")
+                    Log.w(TAG, "CAS login refresh failed", e)
+                    // If login failed, sync existing cookies and try direct load; JS fallback handles page
+                    syncCookiesToWebView()
+                    binding.webView.loadUrl(targetUrl)
                 }
             }
         } else {
-            // No credentials saved, just load the SSO entry
             binding.webView.loadUrl("https://jwgl.usst.edu.cn/sso/jziotlogin")
         }
     }
@@ -166,12 +199,28 @@ class JwglWebActivity : AppCompatActivity() {
     private fun syncCookiesToWebView() {
         val cookieManager = CookieManager.getInstance()
         val cookies = JwglClient.getCookies()
+        val targetDomains = listOf(
+            "https://jwgl.usst.edu.cn",
+            "https://ids6.usst.edu.cn",
+            "https://ehall.usst.edu.cn",
+            "https://usst.edu.cn"
+        )
+
         for (cookie in cookies) {
             val domain = cookie.domain
-            val cookieString = "${cookie.name}=${cookie.value}; Domain=${domain}; Path=${cookie.path}"
+            val cookieString = "${cookie.name}=${cookie.value}; Domain=${domain}; Path=${cookie.path}; Secure"
+            val rawString = "${cookie.name}=${cookie.value}; Path=${cookie.path}"
+
             val url = if (domain.startsWith(".")) "https://${domain.substring(1)}" else "https://${domain}"
             cookieManager.setCookie(url, cookieString)
-            cookieManager.setCookie("https://jwgl.usst.edu.cn", cookieString)
+            cookieManager.setCookie(url, rawString)
+
+            for (target in targetDomains) {
+                if (target.contains(domain.trimStart('.'))) {
+                    cookieManager.setCookie(target, cookieString)
+                    cookieManager.setCookie(target, rawString)
+                }
+            }
         }
         cookieManager.flush()
         Log.d(TAG, "Synced ${cookies.size} cookies to Android WebView")

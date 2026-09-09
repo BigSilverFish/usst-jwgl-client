@@ -578,7 +578,11 @@ class MainActivity : AppCompatActivity() {
                 val semConfig = RemoteConfigManager.getSemesterConfig()
                 val startDate = semConfig.week1Monday.ifBlank { currentTable?.startDate ?: "2026-09-07" }
                 val importedTable = WakeupScheduleImporter.importTimetableData(db, data, startDate)
+                withContext(Dispatchers.IO) {
+                    db.tableDao.setDefaultTable(importedTable.id)
+                }
                 currentTable = importedTable
+                scheduleAdapter?.updateConfig(importedTable.maxWeek, importedTable.id)
 
                 // Check if current week is within exam sync window:
                 // "在考试周开始4周前至考试周结束时，刷新同步课表自动同步考试周"

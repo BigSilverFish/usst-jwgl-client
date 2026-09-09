@@ -59,32 +59,39 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <LinearLayout
-                android:id="@+id/llContentContainer"
+            <FrameLayout
+                android:id="@+id/flScheduleContent"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:layout_height="wrap_content">
 
-                <!-- Sidebar (Nodes 1..13) -->
                 <LinearLayout
-                    android:id="@+id/llSidebarNodes"
-                    android:layout_width="40dp"
+                    android:id="@+id/llContentContainer"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
-                    <!-- Nodes injected dynamically -->
-                </LinearLayout>
-
-                <!-- 7 Day Columns -->
-                <LinearLayout
-                    android:id="@+id/llWeekColumnsContainer"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
                     android:orientation="horizontal">
-                    <!-- 7 FrameLayout columns injected dynamically -->
+
+                    <!-- Sidebar (Nodes 1..13) -->
+                    <LinearLayout
+                        android:id="@+id/llSidebarNodes"
+                        android:layout_width="40dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+                        <!-- Nodes injected dynamically -->
+                    </LinearLayout>
+
+                    <!-- 7 Day Columns -->
+                    <LinearLayout
+                        android:id="@+id/llWeekColumnsContainer"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:orientation="horizontal">
+                        <!-- 7 FrameLayout columns injected dynamically -->
+                    </LinearLayout>
+
                 </LinearLayout>
 
-            </LinearLayout>
+            </FrameLayout>
 
             <TextView
                 android:layout_width="match_parent"

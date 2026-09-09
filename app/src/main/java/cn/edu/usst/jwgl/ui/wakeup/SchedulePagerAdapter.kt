@@ -5,10 +5,10 @@ import androidx.fragment.app.FragmentActivity
 import androidx.viewpager2.adapter.FragmentStateAdapter
 
 class SchedulePagerAdapter(
-    fragmentActivity: FragmentActivity,
+    private val activity: FragmentActivity,
     private var maxWeek: Int = 25,
     private var tableId: Int = -1
-) : FragmentStateAdapter(fragmentActivity) {
+) : FragmentStateAdapter(activity) {
 
     private val fragmentMap = mutableMapOf<Int, ScheduleWeekFragment>()
 
@@ -33,15 +33,24 @@ class SchedulePagerAdapter(
     }
 
     fun updateConfig(newMaxWeek: Int, newTableId: Int) {
+        val changed = (this.maxWeek != newMaxWeek || this.tableId != newTableId)
         this.maxWeek = newMaxWeek
         this.tableId = newTableId
-        fragmentMap.clear()
-        notifyDataSetChanged()
+        if (changed) {
+            notifyDataSetChanged()
+        }
     }
 
     fun refreshAllFragments() {
-        for (fragment in fragmentMap.values) {
-            fragment.refresh()
+        for (fragment in activity.supportFragmentManager.fragments) {
+            if (fragment is ScheduleWeekFragment && fragment.isAdded) {
+                fragment.refresh()
+            }
+            for (child in fragment.childFragmentManager.fragments) {
+                if (child is ScheduleWeekFragment && child.isAdded) {
+                    child.refresh()
+                }
+            }
         }
     }
 }
