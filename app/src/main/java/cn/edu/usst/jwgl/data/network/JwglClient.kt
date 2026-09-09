@@ -667,7 +667,7 @@ object JwglClient {
                 auth.getStudentId()
             }
 
-            if (docType == cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT_HD) {
+            if (docType == cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT) {
                 val cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(context)
                 val profile = cacheManager.getProfile() ?: cn.edu.usst.jwgl.data.model.StudentProfile(studentId = effectiveStudentId)
                 val grades = cacheManager.getGrades() ?: fetchGrades(context).getOrNull()
@@ -724,19 +724,6 @@ object JwglClient {
                     formParams["gsdygx"] = "10252-xsxxwh-zypmzm"
                     formParams["lx"] = "xsxxwh"
                 }
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> {
-                    formParams["gsdygx"] = "10252-zw-gdcjd"
-                    formParams["cjdylx"] = "1"
-                    formParams["sfgz"] = "1"
-                    formParams["whetherTheProfessionalShows"] = "1"
-                    formParams["whetherTheClassIsDisplayed"] = "1"
-                    formParams["whetherTheCreditsAreDisplayed"] = "1"
-                    formParams["whetherTheGradePointIsDisplayed"] = "1"
-                    formParams["whetherTheIDNumberIsDisplayed"] = "1"
-                    formParams["showAllGradeControl"] = "1"
-                    formParams["sfzx"] = "1"
-                    formParams["sfby_dm"] = "0"
-                }
                 cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> {
                     formParams["gsdygx"] = "10252-yw-gdcjd"
                     formParams["cjdylx"] = "2"
@@ -750,7 +737,7 @@ object JwglClient {
                     formParams["sfzx"] = "1"
                     formParams["sfby_dm"] = "0"
                 }
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT_HD -> {
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> {
                     // Handled above
                 }
             }

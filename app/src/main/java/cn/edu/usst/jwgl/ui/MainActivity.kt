@@ -174,6 +174,10 @@ class MainActivity : AppCompatActivity() {
             gradeReport?.let { updateGradesUI(it) }
         }
 
+        if (intent.getBooleanExtra("extra_open_exam", false)) {
+            showExamQueryBottomSheet()
+        }
+
         if (intent.getBooleanExtra("extra_show_grade_picker", false)) {
             showGradeSemesterPicker()
         }
@@ -388,6 +392,11 @@ class MainActivity : AppCompatActivity() {
             scheduleAdapter?.refreshAllFragments()
         }
 
+        // Exam Query Button
+        binding.btnExamQuery.setOnClickListener {
+            showExamQueryBottomSheet()
+        }
+
         // Refresh / Sync from USST JWGL
         binding.btnRefreshTimetable.setOnClickListener {
             loadTimetableFromNetwork()
@@ -447,6 +456,7 @@ class MainActivity : AppCompatActivity() {
                     val examRes = JwglClient.fetchExams(xnm, xqm, context = this@MainActivity)
                     examRes.onSuccess { exams ->
                         cacheManager.saveExams(xnm, xqm, exams)
+                        CourseReminderManager.scheduleExamReminders(this@MainActivity, exams)
                         if (exams.isNotEmpty()) {
                             examSyncMsg = "，同步 ${exams.size} 门考试"
                         }
@@ -582,13 +592,36 @@ class MainActivity : AppCompatActivity() {
                 val profile = JwglClient.fetchStudentProfile(auth.getStudentId())
                 cacheManager.saveProfile(profile)
                 displayProfile(profile)
-                Toast.makeText(this@MainActivity, "学籍档案已更新", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "个人信息与档案已更新", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, "档案更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "个人信息更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 binding.layoutProfile.isRefreshing = false
             }
         }
+    }
+
+    private fun showExamQueryBottomSheet() {
+        val table = currentTable
+        val (calcXnm, calcXqm) = SemesterHelper.getCurrentSemester()
+        var targetXnm = calcXnm
+        var targetXqm = calcXqm
+        var targetTitle = table?.tableName ?: ""
+
+        if (table != null) {
+            val semType = ExamHelper.getSemesterType(table.tableName)
+            val yearMatch = Regex("(\\d{4})[-–—](\\d{4})").find(table.tableName)
+            if (yearMatch != null) {
+                targetXnm = yearMatch.groupValues[1]
+            }
+            if (semType == 1) targetXqm = "3"
+            else if (semType == 2) targetXqm = "12"
+        }
+
+        val sheet = cn.edu.usst.jwgl.ui.exam.ExamQueryBottomSheet().apply {
+            setSemester(targetXnm, targetXqm, targetTitle)
+        }
+        sheet.show(supportFragmentManager, "ExamQueryBottomSheet")
     }
 
     private fun showGradeSemesterPicker() {

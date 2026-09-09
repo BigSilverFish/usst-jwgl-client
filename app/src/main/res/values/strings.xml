@@ -5,7 +5,7 @@
     <string name="student_id_hint">学号 / 工号</string>
     <string name="password_hint">密码</string>
     <string name="btn_login">登 录</string>
-    <string name="logging_in">正在登录并同步学籍信息...</string>
+    <string name="logging_in">正在登录并同步个人与学籍信息...</string>
     <string name="login_failed">登录失败，请检查学号与密码</string>
     <string name="profile_title">学生个人信息</string>
     <string name="logout">退出登录</string>

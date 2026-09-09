@@ -7,9 +7,9 @@
     <item
         android:id="@+id/nav_grades"
         android:icon="@drawable/ic_nav_grades"
-        android:title="成绩与绩点" />
+        android:title="学业情况查询" />
     <item
         android:id="@+id/nav_profile"
         android:icon="@drawable/ic_nav_profile"
-        android:title="学籍档案" />
+        android:title="个人与设置" />
 </menu>

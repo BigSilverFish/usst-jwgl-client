@@ -288,4 +288,60 @@ object CourseReminderManager {
             Log.e(TAG, "Failed to schedule test reminder: ${e.message}")
         }
     }
+
+    /**
+     * 为考试日程安排考前 30 分钟提醒
+     */
+    fun scheduleExamReminders(context: Context, exams: List<cn.edu.usst.jwgl.data.model.ExamItem>) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+
+        val now = System.currentTimeMillis()
+        for ((idx, exam) in exams.withIndex()) {
+            val startMillis = exam.getExamStartTimeMillis() ?: continue
+            val reminderMillis = startMillis - 30 * 60 * 1000L // 30 minutes before exam
+            if (reminderMillis > now) {
+                val requestCode = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
+                val intent = Intent(context, CourseReminderReceiver::class.java).apply {
+                    putExtra(CourseReminderReceiver.EXTRA_IS_EXAM, true)
+                    putExtra(CourseReminderReceiver.EXTRA_COURSE_NAME, exam.courseName)
+                    putExtra(CourseReminderReceiver.EXTRA_EXAM_NATURE, exam.examNature.ifEmpty { exam.examName })
+                    putExtra(CourseReminderReceiver.EXTRA_CLASSROOM, "${exam.building} ${exam.location}".trim())
+                    putExtra(CourseReminderReceiver.EXTRA_SEAT_NUMBER, exam.seatNumber.ifEmpty { "未指定" })
+                    putExtra(CourseReminderReceiver.EXTRA_START_TIME, exam.getTimeRangeString())
+                    putExtra(CourseReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode)
+                }
+
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    requestCode,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                try {
+                    if (canScheduleExact) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
+                        } else {
+                            alarmManager.setExact(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
+                        }
+                    } else {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
+                        } else {
+                            alarmManager.set(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
+                        }
+                    }
+                    Log.d(TAG, "Scheduled 30-min exam reminder for ${exam.courseName} at $reminderMillis (starts at $startMillis)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to schedule exam reminder for ${exam.courseName}", e)
+                }
+            }
+        }
+    }
 }

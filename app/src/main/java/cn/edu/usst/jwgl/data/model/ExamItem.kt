@@ -1,4 +1,4 @@
-﻿package cn.edu.usst.jwgl.data.model
+package cn.edu.usst.jwgl.data.model
 
 import java.io.Serializable
 import java.text.SimpleDateFormat
@@ -69,6 +69,64 @@ data class ExamItem(
             2 -> "13:00-15:00"
             3 -> "15:30-17:30"
             else -> "09:00-11:00"
+        }
+    }
+
+    /**
+     * 计算该场考试开始的绝对毫秒级时间戳
+     */
+    fun getExamStartTimeMillis(): Long? {
+        val date = getDateString()
+        if (date.isEmpty()) return null
+        val timeMatch = Regex("(\\d{1,2}):(\\d{2})").find(examTime)
+        val hour = timeMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: when (getSessionIndex()) {
+            1 -> 9
+            2 -> 13
+            3 -> 15
+            else -> 9
+        }
+        val minute = timeMatch?.groupValues?.getOrNull(2)?.toIntOrNull() ?: when (getSessionIndex()) {
+            3 -> 30
+            else -> 0
+        }
+        return try {
+            val cal = java.util.Calendar.getInstance(Locale.CHINA).apply {
+                val parts = date.split("-")
+                set(java.util.Calendar.YEAR, parts[0].toInt())
+                set(java.util.Calendar.MONTH, parts[1].toInt() - 1)
+                set(java.util.Calendar.DAY_OF_MONTH, parts[2].toInt())
+                set(java.util.Calendar.HOUR_OF_DAY, hour)
+                set(java.util.Calendar.MINUTE, minute)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            cal.timeInMillis
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 获取距离开考的倒计时展示文本
+     */
+    fun getCountdownString(): String {
+        val startMillis = getExamStartTimeMillis() ?: return ""
+        val now = System.currentTimeMillis()
+        val diff = startMillis - now
+        if (diff < 0) {
+            if (diff > -2 * 3600 * 1000L) {
+                return "考试进行中"
+            }
+            return "已结束"
+        }
+        val days = (diff / (1000 * 60 * 60 * 24)).toInt()
+        val hours = ((diff / (1000 * 60 * 60)) % 24).toInt()
+        val minutes = ((diff / (1000 * 60)) % 60).toInt()
+        return when {
+            days > 0 -> "还有 ${days} 天"
+            hours > 0 -> "还有 ${hours} 小时"
+            minutes > 0 -> "还有 ${minutes} 分钟"
+            else -> "即将开考"
         }
     }
 }

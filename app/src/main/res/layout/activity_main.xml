@@ -100,7 +100,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="学籍与学业档案"
+                            android:text="个人与学籍档案"
                             android:textColor="@color/text_primary"
                             android:textSize="16sp"
                             android:textStyle="bold" />
@@ -596,6 +596,23 @@
                         android:text="本地缓存 · 刚刚更新"
                         android:textColor="@color/text_tertiary"
                         android:textSize="11sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnExamQuery"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginEnd="6dp"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="0dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:text="考试查询"
+                        android:textSize="11sp"
+                        app:icon="@drawable/ic_exam"
+                        app:iconSize="14dp"
+                        app:iconPadding="4dp"
+                        app:iconTint="@color/primary" />
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chipFilterOnlyCurrentWeek"
