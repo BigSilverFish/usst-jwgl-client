@@ -12,7 +12,7 @@ class AppDatabase private constructor(context: Context) {
 
     companion object {
         private const val DATABASE_NAME = "wakeup.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
@@ -64,15 +64,15 @@ class AppDatabase private constructor(context: Context) {
                     background TEXT NOT NULL DEFAULT '',
                     timeTable INTEGER NOT NULL DEFAULT 1,
                     startDate TEXT NOT NULL DEFAULT '2026-09-07',
-                    maxWeek INTEGER NOT NULL DEFAULT 25,
+                    maxWeek INTEGER NOT NULL DEFAULT 20,
                     itemHeight INTEGER NOT NULL DEFAULT 56,
                     itemAlpha INTEGER NOT NULL DEFAULT 75,
                     itemTextSize INTEGER NOT NULL DEFAULT 11,
                     strokeColor INTEGER NOT NULL DEFAULT 0x40ffffff,
                     textColor INTEGER NOT NULL DEFAULT 0xff1f2937,
                     courseTextColor INTEGER NOT NULL DEFAULT 0xffffffff,
-                    showSat INTEGER NOT NULL DEFAULT 1,
-                    showSun INTEGER NOT NULL DEFAULT 1,
+                    showSat INTEGER NOT NULL DEFAULT 0,
+                    showSun INTEGER NOT NULL DEFAULT 0,
                     sundayFirst INTEGER NOT NULL DEFAULT 0,
                     showOtherWeekCourse INTEGER NOT NULL DEFAULT 1,
                     showTime INTEGER NOT NULL DEFAULT 1,
@@ -118,19 +118,19 @@ class AppDatabase private constructor(context: Context) {
             db.execSQL("INSERT INTO TimeTableBean (id, name) VALUES (1, '默认作息');")
 
             val usstTimes = arrayOf(
-                Triple(1, "08:00", "08:45"),
-                Triple(2, "08:50", "09:35"),
-                Triple(3, "09:55", "10:40"),
-                Triple(4, "10:45", "11:30"),
-                Triple(5, "11:35", "12:20"),
-                Triple(6, "13:30", "14:15"),
-                Triple(7, "14:20", "15:05"),
-                Triple(8, "15:25", "16:10"),
-                Triple(9, "16:15", "17:00"),
-                Triple(10, "18:00", "18:45"),
-                Triple(11, "18:50", "19:35"),
-                Triple(12, "19:40", "20:25"),
-                Triple(13, "20:30", "21:15")
+                Triple(1, "08:00", "08:40"),
+                Triple(2, "08:45", "09:25"),
+                Triple(3, "09:45", "10:25"),
+                Triple(4, "10:30", "11:10"),
+                Triple(5, "11:15", "11:55"),
+                Triple(6, "13:00", "13:40"),
+                Triple(7, "13:45", "14:25"),
+                Triple(8, "14:45", "15:25"),
+                Triple(9, "15:30", "16:10"),
+                Triple(10, "16:15", "16:55"),
+                Triple(11, "18:00", "18:40"),
+                Triple(12, "18:45", "19:25"),
+                Triple(13, "19:30", "20:10")
             )
 
             for ((node, start, end) in usstTimes) {
@@ -145,14 +145,92 @@ class AppDatabase private constructor(context: Context) {
 
             db.execSQL(
                 """
-                INSERT INTO TableBean (id, tableName, nodes, startDate, maxWeek, type)
-                VALUES (1, '2026-2027学年 第1学期', 13, '2026-09-07', 25, 1);
+                INSERT INTO TableBean (id, tableName, nodes, startDate, maxWeek, showSat, showSun, type)
+                VALUES (1, '2026-2027学年 第1学期', 13, '2026-09-07', 20, 0, 0, 1);
                 """.trimIndent()
             )
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            // Future schema migrations
+            if (oldVersion < 2) {
+                db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
+                val usstTimes = arrayOf(
+                    Triple(1, "08:00", "08:40"),
+                    Triple(2, "08:45", "09:25"),
+                    Triple(3, "09:45", "10:25"),
+                    Triple(4, "10:30", "11:10"),
+                    Triple(5, "11:15", "11:55"),
+                    Triple(6, "13:00", "13:40"),
+                    Triple(7, "13:45", "14:25"),
+                    Triple(8, "14:45", "15:25"),
+                    Triple(9, "15:30", "16:10"),
+                    Triple(10, "16:15", "16:55"),
+                    Triple(11, "18:00", "18:40"),
+                    Triple(12, "18:45", "19:25"),
+                    Triple(13, "19:30", "20:10")
+                )
+                for ((node, start, end) in usstTimes) {
+                    val cv = ContentValues().apply {
+                        put("node", node)
+                        put("startTime", start)
+                        put("endTime", end)
+                        put("timeTable", 1)
+                    }
+                    db.insert("TimeDetailBean", null, cv)
+                }
+                db.execSQL("UPDATE TableBean SET maxWeek = 20 WHERE maxWeek = 25;")
+            }
+        }
+    }
+
+    fun ensureLatestTimeTableAndDefaults() {
+        val times = timeDetailDao.getTimeDetails(1)
+        val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
+        if (needsTimeUpdate) {
+            val db = dbHelper.writableDatabase
+            db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
+            val usstTimes = arrayOf(
+                Triple(1, "08:00", "08:40"),
+                Triple(2, "08:45", "09:25"),
+                Triple(3, "09:45", "10:25"),
+                Triple(4, "10:30", "11:10"),
+                Triple(5, "11:15", "11:55"),
+                Triple(6, "13:00", "13:40"),
+                Triple(7, "13:45", "14:25"),
+                Triple(8, "14:45", "15:25"),
+                Triple(9, "15:30", "16:10"),
+                Triple(10, "16:15", "16:55"),
+                Triple(11, "18:00", "18:40"),
+                Triple(12, "18:45", "19:25"),
+                Triple(13, "19:30", "20:10")
+            )
+            for ((node, start, end) in usstTimes) {
+                val cv = ContentValues().apply {
+                    put("node", node)
+                    put("startTime", start)
+                    put("endTime", end)
+                    put("timeTable", 1)
+                }
+                db.insert("TimeDetailBean", null, cv)
+            }
+        }
+
+        // Also check if active table has maxWeek == 25 or needs weekend update
+        val defaultTable = tableDao.getDefaultTable()
+        var updated = false
+        if (defaultTable.maxWeek == 25) {
+            defaultTable.maxWeek = 20
+            updated = true
+        }
+        val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
+        val hasWeekend = allCourses.any { it.day == 6 || it.day == 7 }
+        if (!hasWeekend && (defaultTable.showSat || defaultTable.showSun)) {
+            defaultTable.showSat = false
+            defaultTable.showSun = false
+            updated = true
+        }
+        if (updated) {
+            tableDao.updateTable(defaultTable)
         }
     }
 

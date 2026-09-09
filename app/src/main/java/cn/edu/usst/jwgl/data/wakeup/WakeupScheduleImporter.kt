@@ -12,6 +12,8 @@ object WakeupScheduleImporter {
             "${data.academicYear}学年 第${data.semester}学期"
         }
 
+        val hasWeekend = data.courses.any { it.dayOfWeek == 6 || it.dayOfWeek == 7 }
+
         // Find or create table
         val existingTables = db.tableDao.getAllTables()
         var targetTable = existingTables.find { it.tableName == tableName }
@@ -19,8 +21,10 @@ object WakeupScheduleImporter {
             val newTable = TableBean(
                 tableName = tableName,
                 startDate = startDate,
-                maxWeek = 25,
+                maxWeek = 20,
                 nodes = 13,
+                showSat = hasWeekend,
+                showSun = hasWeekend,
                 type = 1
             )
             val newId = db.tableDao.insertTable(newTable).toInt()
@@ -28,7 +32,9 @@ object WakeupScheduleImporter {
         } else {
             targetTable.startDate = startDate
             targetTable.nodes = 13
-            targetTable.maxWeek = 25
+            targetTable.maxWeek = 20
+            targetTable.showSat = hasWeekend
+            targetTable.showSun = hasWeekend
             db.tableDao.updateTable(targetTable)
         }
 

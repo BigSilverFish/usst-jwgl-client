@@ -140,8 +140,10 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
                     val newTable = TableBean(
                         tableName = name,
                         startDate = "2026-09-07",
-                        maxWeek = 25,
+                        maxWeek = 20,
                         nodes = 13,
+                        showSat = false,
+                        showSun = false,
                         type = 1
                     )
                     val newId = db.tableDao.insertTable(newTable).toInt()

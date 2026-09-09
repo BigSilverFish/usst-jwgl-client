@@ -245,6 +245,15 @@ class AddCourseActivity : AppCompatActivity() {
         db.courseDetailDao.deleteByIdOfTable(courseId, tableId)
         db.courseDetailDao.insertList(details)
 
+        val table = db.tableDao.getTableById(tableId)
+        if (table != null && details.any { it.day == 6 || it.day == 7 }) {
+            if (!table.showSat || !table.showSun) {
+                table.showSat = true
+                table.showSun = true
+                db.tableDao.updateTable(table)
+            }
+        }
+
         Toast.makeText(this, "保存成功", Toast.LENGTH_SHORT).show()
         setResult(RESULT_OK)
         finish()

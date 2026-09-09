@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initWakeupSchedule() {
+        db.ensureLatestTimeTableAndDefaults()
         val table = db.tableDao.getDefaultTable()
         currentTable = table
         currentWeek = CourseUtils.countWeek(table.startDate).coerceIn(1, table.maxWeek)
@@ -197,11 +198,21 @@ class MainActivity : AppCompatActivity() {
         reloadTimetableFromDb()
     }
 
+    private fun formatSemesterTitle(title: String): String {
+        if (title.contains("\n")) return title
+        val regex = Regex("(\\d{4}-\\d{4}学年)\\s*(第\\d+学期)")
+        return if (regex.containsMatchIn(title)) {
+            title.replace(regex, "$1\n$2")
+        } else {
+            title.replace("学年 ", "学年\n").replace("学年第", "学年\n第")
+        }
+    }
+
     private fun reloadTimetableFromDb() {
         val table = db.tableDao.getDefaultTable()
         currentTable = table
 
-        binding.tvTimetableSemester.text = table.tableName
+        binding.tvTimetableSemester.text = formatSemesterTitle(table.tableName)
         binding.chipFilterOnlyCurrentWeek.isChecked = !table.showOtherWeekCourse
 
         val realCurrentWeek = CourseUtils.countWeek(table.startDate)

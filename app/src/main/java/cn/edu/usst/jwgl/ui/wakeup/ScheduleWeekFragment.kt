@@ -259,8 +259,13 @@ class ScheduleWeekFragment : Fragment() {
                     background = bgDrawable
 
                     val textBuilder = StringBuilder(course.courseName)
-                    if (!course.room.isNullOrBlank()) {
-                        textBuilder.append("\n@${course.room}")
+                    val teacher = course.teacher?.trim()
+                    if (!teacher.isNullOrBlank()) {
+                        textBuilder.append("\n$teacher")
+                    }
+                    val room = course.room?.trim()
+                    if (!room.isNullOrBlank()) {
+                        textBuilder.append("\n@$room")
                     }
 
                     if (!isWeekActive) {

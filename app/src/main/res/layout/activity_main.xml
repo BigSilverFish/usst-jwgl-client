@@ -508,9 +508,11 @@
                             android:id="@+id/tvTimetableSemester"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="2026-2027学年 第1学期"
+                            android:text="2026-2027学年&#10;第1学期"
                             android:textColor="@color/text_primary"
-                            android:textSize="14sp"
+                            android:textSize="13.5sp"
+                            android:lineSpacingExtra="1dp"
+                            android:maxLines="2"
                             android:textStyle="bold" />
 
                         <ImageView
