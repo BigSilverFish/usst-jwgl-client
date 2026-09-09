@@ -62,27 +62,27 @@ object CourseUtils {
         return if (during < 0) 1 else during / 7 + 1
     }
 
-    fun getDateStringFromWeek(curWeek: Int, targetWeek: Int, sundayFirst: Boolean): List<String> {
-        val calendar = Calendar.getInstance()
-        if (targetWeek != curWeek) {
-            val amount = targetWeek - curWeek
-            calendar.add(Calendar.WEEK_OF_YEAR, amount)
-        }
-        return getDateStringFromCalendar(calendar, sundayFirst)
-    }
-
-    private fun getDateStringFromCalendar(calendar: Calendar, sundayFirst: Boolean): List<String> {
+    fun getDateStringFromWeek(startDateStr: String, targetWeek: Int, sundayFirst: Boolean): List<String> {
         val dateList = ArrayList<String>()
-        val cal = calendar.clone() as Calendar
-        cal.firstDayOfWeek = if (sundayFirst) Calendar.SUNDAY else Calendar.MONDAY
-        while (cal.get(Calendar.DAY_OF_WEEK) != cal.firstDayOfWeek) {
-            cal.add(Calendar.DAY_OF_MONTH, -1)
-        }
-        // Month (1-based)
-        dateList.add((cal.get(Calendar.MONTH) + 1).toString())
-        for (i in 0..6) {
-            dateList.add(cal.get(Calendar.DAY_OF_MONTH).toString())
-            cal.add(Calendar.DAY_OF_MONTH, 1)
+        try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+            val cal = Calendar.getInstance()
+            cal.time = sdf.parse(startDateStr) ?: Date()
+            cal.firstDayOfWeek = if (sundayFirst) Calendar.SUNDAY else Calendar.MONDAY
+            while (cal.get(Calendar.DAY_OF_WEEK) != cal.firstDayOfWeek) {
+                cal.add(Calendar.DAY_OF_MONTH, -1)
+            }
+            cal.add(Calendar.WEEK_OF_YEAR, targetWeek - 1)
+            // Month of the week (using first day)
+            dateList.add((cal.get(Calendar.MONTH) + 1).toString())
+            for (i in 0..6) {
+                dateList.add(cal.get(Calendar.DAY_OF_MONTH).toString())
+                cal.add(Calendar.DAY_OF_MONTH, 1)
+            }
+        } catch (e: Exception) {
+            dateList.clear()
+            dateList.add("1")
+            for (i in 1..7) dateList.add(i.toString())
         }
         return dateList
     }

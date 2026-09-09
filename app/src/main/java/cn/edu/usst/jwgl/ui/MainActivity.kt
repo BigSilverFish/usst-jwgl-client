@@ -169,7 +169,8 @@ class MainActivity : AppCompatActivity() {
         db.ensureLatestTimeTableAndDefaults()
         val table = db.tableDao.getDefaultTable()
         currentTable = table
-        currentWeek = CourseUtils.countWeek(table.startDate).coerceIn(1, table.maxWeek)
+        val realInitWeek = CourseUtils.countWeek(table.startDate)
+        currentWeek = if (realInitWeek in 1..table.maxWeek) realInitWeek else 1
 
         // Seamless auto-import of pre-existing cached timetables into WakeUP database
         val cachedList = cacheManager.getAllCachedTimetables()
@@ -218,7 +219,7 @@ class MainActivity : AppCompatActivity() {
 
         val realCurrentWeek = CourseUtils.countWeek(table.startDate)
         if (currentWeek !in 1..table.maxWeek) {
-            currentWeek = realCurrentWeek.coerceIn(1, table.maxWeek)
+            currentWeek = if (realCurrentWeek in 1..table.maxWeek) realCurrentWeek else 1
         }
 
         scheduleAdapter?.updateConfig(table.maxWeek, table.id)
@@ -297,6 +298,7 @@ class MainActivity : AppCompatActivity() {
         val openScheduleManager = View.OnClickListener {
             val sheet = ScheduleManagerBottomSheet()
             sheet.setOnScheduleChangedListener {
+                currentWeek = -1
                 reloadTimetableFromDb()
             }
             sheet.show(supportFragmentManager, "ScheduleManagerBottomSheet")

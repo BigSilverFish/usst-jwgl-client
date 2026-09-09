@@ -82,7 +82,7 @@ class ScheduleWeekFragment : Fragment() {
         val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
 
         val curWeek = CourseUtils.countWeek(table.startDate)
-        val dateStrings = CourseUtils.getDateStringFromWeek(curWeek, week, table.sundayFirst)
+        val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)
         val todayWeekday = CourseUtils.getTodayWeekdayInt() // 1..7 (1=Mon..7=Sun)
 
         val itemHeightPx = dpToPx(table.itemHeight.toFloat())
