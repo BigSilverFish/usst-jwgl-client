@@ -23,6 +23,7 @@ object RemoteConfigManager {
 
     // Primary & backup config URLs (hosted on BigSilverFish/usst-jwgl-client GitHub repository)
     private val CONFIG_URLS = listOf(
+        "https://ghproxy.net/https://raw.githubusercontent.com/BigSilverFish/usst-jwgl-client/main/app_config.json",
         "https://fastly.jsdelivr.net/gh/BigSilverFish/usst-jwgl-client@main/app_config.json",
         "https://cdn.jsdelivr.net/gh/BigSilverFish/usst-jwgl-client@main/app_config.json",
         "https://raw.githubusercontent.com/BigSilverFish/usst-jwgl-client/main/app_config.json"
