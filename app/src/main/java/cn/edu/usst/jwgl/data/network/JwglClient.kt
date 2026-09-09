@@ -653,5 +653,154 @@ object JwglClient {
             Result.failure(e)
         }
     }
+
+    suspend fun downloadGradeDocument(
+        context: android.content.Context,
+        docType: cn.edu.usst.jwgl.data.model.GradeDocumentType,
+        destinationFile: java.io.File,
+        studentId: String = ""
+    ): Result<java.io.File> = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Requesting grade document download: ${docType.displayName}")
+            val effectiveStudentId = studentId.ifEmpty {
+                val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
+                auth.getStudentId()
+            }
+
+            // 1. Determine endpoints and form parameters according to document type
+            val (endpoint, formParams) = when (docType) {
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> {
+                    "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020" to mapOf(
+                        "xh_id" to effectiveStudentId,
+                        "ids" to effectiveStudentId,
+                        "gsdygx" to "10252-zw-gdcjd",
+                        "dyfs" to "1",
+                        "cjdylx" to "1",
+                        "wjlx" to "pdf"
+                    )
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> {
+                    "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020" to mapOf(
+                        "xh_id" to effectiveStudentId,
+                        "ids" to effectiveStudentId,
+                        "gsdygx" to "10252-yw-gdcjd",
+                        "dyfs" to "1",
+                        "cjdylx" to "2",
+                        "wjlx" to "pdf"
+                    )
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_WEIGHTED_SCORE -> {
+                    "/xszsdy/xszsdy_dyXszsdy.html?gnmkdm=N109835" to mapOf(
+                        "xh" to effectiveStudentId,
+                        "ids" to effectiveStudentId,
+                        "zslx" to "jqf",
+                        "zmdm" to "10252-zw-jqf",
+                        "xxdm" to "10252",
+                        "isxs" to "1",
+                        "dyfs" to "1"
+                    )
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_WEIGHTED_SCORE -> {
+                    "/xszsdy/xszsdy_dyXszsdy.html?gnmkdm=N109835" to mapOf(
+                        "xh" to effectiveStudentId,
+                        "ids" to effectiveStudentId,
+                        "zslx" to "ywjqf",
+                        "zmdm" to "10252-yw-jqf",
+                        "xxdm" to "10252",
+                        "isxs" to "1",
+                        "dyfs" to "1"
+                    )
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> {
+                    "/xszsdy/xszsdy_dyXszsdy.html?gnmkdm=N109835" to mapOf(
+                        "xh" to effectiveStudentId,
+                        "ids" to effectiveStudentId,
+                        "zslx" to "pmzm",
+                        "zmdm" to "10252-zw-pmzm",
+                        "xxdm" to "10252",
+                        "isxs" to "1",
+                        "dyfs" to "1"
+                    )
+                }
+            }
+
+            // 2. Perform POST request
+            val formBuilder = FormBody.Builder()
+            for ((k, v) in formParams) {
+                formBuilder.add(k, v)
+            }
+
+            val request = Request.Builder()
+                .url("https://jwgl.usst.edu.cn/jwglxt$endpoint")
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html")
+                .header("Accept", "application/pdf,application/octet-stream,text/html,application/json,*/*")
+                .post(formBuilder.build())
+                .build()
+
+            var response = client.newCall(request).execute()
+            var bodyBytes = response.body?.bytes()
+
+            // 3. Check for session expiration / re-login
+            if (response.code in 300..399 || (bodyBytes != null && String(bodyBytes.take(200).toByteArray()).contains("authserver"))) {
+                val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
+                val id = auth.getStudentId()
+                val pwd = auth.getPassword()
+                if (id.isNotEmpty() && pwd.isNotEmpty()) {
+                    Log.d(TAG, "Re-authenticating for download...")
+                    val lRes = login(id, pwd)
+                    if (lRes.isSuccess) {
+                        response = client.newCall(request).execute()
+                        bodyBytes = response.body?.bytes()
+                    }
+                }
+            }
+
+            if (bodyBytes != null && bodyBytes.isNotEmpty()) {
+                // If the response is directly a PDF (starts with "%PDF")
+                if (bodyBytes.size > 4 && bodyBytes[0] == '%'.code.toByte() && bodyBytes[1] == 'P'.code.toByte() && bodyBytes[2] == 'D'.code.toByte() && bodyBytes[3] == 'F'.code.toByte()) {
+                    destinationFile.outputStream().use { it.write(bodyBytes) }
+                    Log.d(TAG, "Successfully downloaded binary PDF from server: ${destinationFile.absolutePath} (${bodyBytes.size} bytes)")
+                    return@withContext Result.success(destinationFile)
+                }
+
+                // If the response is a relative or absolute URL in text/JSON
+                val resString = String(bodyBytes, Charsets.UTF_8).trim()
+                if (resString.startsWith("{") && resString.contains(".pdf")) {
+                    val jsonObj = org.json.JSONObject(resString)
+                    val remoteFilePath = jsonObj.optString("filePath", jsonObj.optString("url", ""))
+                    if (remoteFilePath.isNotEmpty()) {
+                        val fullUrl = if (remoteFilePath.startsWith("http")) remoteFilePath else "https://jwgl.usst.edu.cn$remoteFilePath"
+                        val getReq = Request.Builder().url(fullUrl).header("User-Agent", USER_AGENT).build()
+                        val getResp = client.newCall(getReq).execute()
+                        val pdfBytes = getResp.body?.bytes()
+                        if (pdfBytes != null && pdfBytes.isNotEmpty()) {
+                            destinationFile.outputStream().use { it.write(pdfBytes) }
+                            return@withContext Result.success(destinationFile)
+                        }
+                    }
+                }
+            }
+
+            // Fallback: If server did not directly output raw PDF binary (e.g. outside campus network or print window closed),
+            // generate standard PDF document using Android's native PdfDocument
+            val cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(context)
+            val profile = cacheManager.getProfile() ?: cn.edu.usst.jwgl.data.model.StudentProfile(studentId = effectiveStudentId)
+            val grades = cacheManager.getGrades() ?: fetchGrades(context).getOrNull()
+
+            val generatedFile = cn.edu.usst.jwgl.util.DocumentPdfGenerator.generate(
+                context = context,
+                docType = docType,
+                profile = profile,
+                grades = grades,
+                destinationFile = destinationFile
+            )
+
+            Result.success(generatedFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading grade document", e)
+            Result.failure(e)
+        }
+    }
 }
 

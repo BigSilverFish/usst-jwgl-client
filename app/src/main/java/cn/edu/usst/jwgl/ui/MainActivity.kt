@@ -18,6 +18,7 @@ import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.model.ExamItem
+import cn.edu.usst.jwgl.data.model.GradeDocumentType
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
 import cn.edu.usst.jwgl.data.network.JwglClient
@@ -51,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var db: AppDatabase
     private val gradeAdapter = CourseGradeAdapter()
     private var gradeReport: GradeReport? = null
+    private var selectedGradeSemesterTitle: String = ""
 
     private var currentTable: TableBean? = null
     private var scheduleAdapter: SchedulePagerAdapter? = null
@@ -164,6 +166,20 @@ class MainActivity : AppCompatActivity() {
                 putExtra("tableId", currentTable?.id ?: 1)
             }
             addCourseLauncher.launch(addIntent)
+        }
+
+        val gradeSem = intent.getStringExtra("extra_grade_semester")
+        if (gradeSem != null) {
+            selectedGradeSemesterTitle = if (gradeSem == "ALL") "" else gradeSem
+            gradeReport?.let { updateGradesUI(it) }
+        }
+
+        if (intent.getBooleanExtra("extra_show_grade_picker", false)) {
+            showGradeSemesterPicker()
+        }
+
+        if (intent.getBooleanExtra("extra_show_download_dialog", false)) {
+            showDownloadGradeReportsDialog()
         }
     }
 
@@ -377,10 +393,12 @@ class MainActivity : AppCompatActivity() {
             loadTimetableFromNetwork()
         }
 
-        // Grades Refresh
+        // Grades Actions
         binding.swipeRefreshGrades.setColorSchemeResources(R.color.primary)
         binding.swipeRefreshGrades.setOnRefreshListener { loadGrades(isManual = true) }
         binding.btnRefreshGrades.setOnClickListener { loadGrades(isManual = true) }
+        binding.btnSelectGradeSemester.setOnClickListener { showGradeSemesterPicker() }
+        binding.btnDownloadGradeReports.setOnClickListener { showDownloadGradeReportsDialog() }
 
         // Profile Refresh
         binding.layoutProfile.setColorSchemeResources(R.color.primary)
@@ -573,37 +591,177 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun displayGrades(report: GradeReport) {
-        binding.tvCumulativeCredits.text = String.format("%.1f", report.totalCredits)
-        binding.tvCumulativeAvgScore.text = String.format("%.2f", report.cumulativeWeightedScore)
-        binding.tvCumulativeGpa.text = String.format("%.2f", report.cumulativeGpa)
-
-        binding.semesterChipGroup.removeAllViews()
-
-        val allChip = Chip(this).apply {
-            text = "全部学期 (${report.totalCredits}学分)"
-            isCheckable = true
-            isChecked = true
-            setOnClickListener {
-                val allCourses = report.semesters.flatMap { it.courses }
-                gradeAdapter.submitList(allCourses)
-            }
+    private fun showGradeSemesterPicker() {
+        val report = gradeReport ?: return
+        val semesters = report.semesters
+        if (semesters.isEmpty()) {
+            Toast.makeText(this, "暂无学期成绩数据", Toast.LENGTH_SHORT).show()
+            return
         }
-        binding.semesterChipGroup.addView(allChip)
 
-        for (sem in report.semesters) {
-            val semChip = Chip(this).apply {
-                text = "${sem.semesterTitle} [${sem.totalCredits}学分 | 均分${String.format("%.1f", sem.weightedAverageScore)} | GPA ${String.format("%.2f", sem.weightedGpa)}]"
-                isCheckable = true
-                setOnClickListener {
-                    gradeAdapter.submitList(sem.courses)
+        val options = mutableListOf<String>()
+        options.add("全部学期 (汇总)")
+        for (sem in semesters) {
+            options.add(sem.semesterTitle)
+        }
+
+        val checkedIndex = if (selectedGradeSemesterTitle.isEmpty()) {
+            0
+        } else {
+            val idx = semesters.indexOfFirst { it.semesterTitle == selectedGradeSemesterTitle }
+            if (idx >= 0) idx + 1 else 0
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("选择成绩学期")
+            .setSingleChoiceItems(options.toTypedArray(), checkedIndex) { dialog, which ->
+                if (which == 0) {
+                    selectedGradeSemesterTitle = ""
+                } else {
+                    selectedGradeSemesterTitle = semesters[which - 1].semesterTitle
                 }
+                updateGradesUI(report)
+                dialog.dismiss()
             }
-            binding.semesterChipGroup.addView(semChip)
-        }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
 
-        val allCourses = report.semesters.flatMap { it.courses }
-        gradeAdapter.submitList(allCourses)
+    private fun displayGrades(report: GradeReport) {
+        updateGradesUI(report)
+    }
+
+    private fun updateGradesUI(report: GradeReport) {
+        if (selectedGradeSemesterTitle.isEmpty()) {
+            binding.tvGradeSemester.text = "全部学期\n(汇总)"
+            binding.tvGradeScopeBadge.text = "全部汇总"
+            binding.tvCreditsTitle.text = "累计修读学分"
+            binding.tvAvgScoreTitle.text = "加权平均分"
+            binding.tvGpaTitle.text = "平均学分绩点"
+            binding.tvCumulativeCredits.text = String.format("%.1f", report.totalCredits)
+            binding.tvCumulativeAvgScore.text = String.format("%.2f", report.cumulativeWeightedScore)
+            binding.tvCumulativeGpa.text = String.format("%.2f", report.cumulativeGpa)
+
+            val allCourses = report.semesters.flatMap { it.courses }
+            gradeAdapter.submitList(allCourses)
+            binding.tvGradesCountSummary.text = "共 ${allCourses.size} 门课程"
+        } else {
+            val sem = report.semesters.find { it.semesterTitle == selectedGradeSemesterTitle }
+            if (sem != null) {
+                binding.tvGradeSemester.text = formatSemesterTitle(sem.semesterTitle)
+                val badgeText = if (sem.semesterTitle.contains("第1学期")) "第 1 学期" else if (sem.semesterTitle.contains("第2学期")) "第 2 学期" else "分学期"
+                binding.tvGradeScopeBadge.text = badgeText
+                binding.tvCreditsTitle.text = "学期修读学分"
+                binding.tvAvgScoreTitle.text = "学期加权均分"
+                binding.tvGpaTitle.text = "学期学分绩点"
+                binding.tvCumulativeCredits.text = String.format("%.1f", sem.totalCredits)
+                binding.tvCumulativeAvgScore.text = String.format("%.2f", sem.weightedAverageScore)
+                binding.tvCumulativeGpa.text = String.format("%.2f", sem.weightedGpa)
+
+                gradeAdapter.submitList(sem.courses)
+                binding.tvGradesCountSummary.text = "本学期 ${sem.courses.size} 门课程"
+            } else {
+                selectedGradeSemesterTitle = ""
+                updateGradesUI(report)
+            }
+        }
+    }
+
+    private fun showDownloadGradeReportsDialog() {
+        val docTypes = GradeDocumentType.values()
+        val items = docTypes.map { "${it.displayName}\n${it.description}" }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("学业证明与成绩单下载")
+            .setItems(items) { _, which ->
+                val chosenType = docTypes[which]
+                downloadAndOpenDocument(chosenType)
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun downloadAndOpenDocument(docType: GradeDocumentType) {
+        val progressDialog = MaterialAlertDialogBuilder(this)
+            .setTitle("正在下载 ${docType.displayName}")
+            .setMessage("正在向教务系统请求并生成 PDF 文件，请稍候...")
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        lifecycleScope.launch {
+            try {
+                val targetDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    ?: java.io.File(filesDir, "downloads").apply { mkdirs() }
+                val targetFile = java.io.File(targetDir, docType.defaultFileName)
+
+                val result = JwglClient.downloadGradeDocument(this@MainActivity, docType, targetFile)
+                progressDialog.dismiss()
+
+                result.onSuccess { downloadedFile ->
+                    showDownloadSuccessDialog(docType, downloadedFile)
+                }.onFailure { error ->
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("下载失败")
+                        .setMessage("未能成功下载 ${docType.displayName}：${error.message ?: "网络异常"}")
+                        .setPositiveButton("确定", null)
+                        .safeShow()
+                }
+            } catch (e: Exception) {
+                progressDialog.dismiss()
+                Toast.makeText(this@MainActivity, "下载异常: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showDownloadSuccessDialog(docType: GradeDocumentType, file: java.io.File) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("下载完成")
+            .setMessage("${docType.displayName} 已生成并成功保存！\n\n文件路径: ${file.name}\n大小: ${file.length() / 1024} KB")
+            .setPositiveButton("立即打开") { _, _ ->
+                openPdfFile(file)
+            }
+            .setNeutralButton("分享文件") { _, _ ->
+                sharePdfFile(file)
+            }
+            .setNegativeButton("关闭", null)
+            .safeShow()
+    }
+
+    private fun openPdfFile(file: java.io.File) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(Intent.createChooser(intent, "打开 PDF 文件"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "打开 PDF 失败: ${e.message}，请安装支持 PDF 的阅读器应用", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun sharePdfFile(file: java.io.File) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "分享文件"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun setupListeners() {

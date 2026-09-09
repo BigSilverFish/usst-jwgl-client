@@ -701,187 +701,274 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="16dp"
             android:visibility="gone">
 
-            <!-- Cumulative Statistics Card -->
-            <com.google.android.material.card.MaterialCardView
+            <!-- Controls Header Bar (Matches Timetable Top Bar Style) -->
+            <LinearLayout
+                android:id="@+id/headerGrades"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardBackgroundColor="@color/hero_card_bg"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="2dp">
+                android:orientation="vertical"
+                android:background="@color/surface"
+                android:paddingHorizontal="14dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="6dp">
 
+                <!-- Row 1: Semester Selector + Scope Badge + Action Buttons -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:paddingVertical="18dp"
-                    android:paddingHorizontal="12dp">
+                    android:gravity="center_vertical">
 
-                    <!-- Col 1: Total Credits -->
+                    <!-- Clickable Semester Selector -->
                     <LinearLayout
+                        android:id="@+id/btnSelectGradeSemester"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:gravity="center"
-                        android:orientation="vertical">
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:paddingVertical="4dp">
 
                         <TextView
+                            android:id="@+id/tvGradeSemester"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="累计修读学分"
-                            android:textColor="@color/hero_card_title"
-                            android:textSize="11sp" />
-
-                        <TextView
-                            android:id="@+id/tvCumulativeCredits"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="--"
-                            android:textColor="@color/hero_card_val"
-                            android:textSize="20sp"
+                            android:text="全部学期&#10;(汇总)"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13.5sp"
+                            android:lineSpacingExtra="1dp"
+                            android:maxLines="2"
                             android:textStyle="bold" />
+
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:src="@drawable/ic_arrow_drop_down"
+                            app:tint="@color/text_secondary" />
                     </LinearLayout>
 
-                    <View
-                        android:layout_width="1dp"
+                    <!-- Scope Indicator Badge (e.g. 全部汇总 / 分学期) -->
+                    <TextView
+                        android:id="@+id/tvGradeScopeBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/badge_bg"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="3dp"
+                        android:text="全部汇总"
+                        android:textColor="@color/primary"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <!-- Download Reports & Certificates Button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDownloadGradeReports"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="36dp"
                         android:layout_height="36dp"
-                        android:layout_gravity="center_vertical"
-                        android:background="@color/hero_card_divider" />
+                        android:layout_marginStart="8dp"
+                        android:padding="0dp"
+                        android:contentDescription="下载证明与成绩单"
+                        app:icon="@drawable/ic_download"
+                        app:iconGravity="textStart"
+                        app:iconPadding="0dp"
+                        app:iconSize="20dp"
+                        app:iconTint="@color/primary" />
 
-                    <!-- Col 2: Weighted Average (100-pt) -->
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:gravity="center"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="加权平均分"
-                            android:textColor="@color/hero_card_title"
-                            android:textSize="11sp" />
-
-                        <TextView
-                            android:id="@+id/tvCumulativeAvgScore"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="--"
-                            android:textColor="@color/hero_card_val"
-                            android:textSize="20sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                    <View
-                        android:layout_width="1dp"
+                    <!-- Refresh Grades Button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshGrades"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="36dp"
                         android:layout_height="36dp"
-                        android:layout_gravity="center_vertical"
-                        android:background="@color/hero_card_divider" />
-
-                    <!-- Col 3: Cumulative GPA -->
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:gravity="center"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="平均学分绩点"
-                            android:textColor="@color/hero_card_title"
-                            android:textSize="11sp" />
-
-                        <TextView
-                            android:id="@+id/tvCumulativeGpa"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="--"
-                            android:textColor="@color/hero_card_val"
-                            android:textSize="20sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
+                        android:layout_marginStart="6dp"
+                        android:padding="0dp"
+                        android:contentDescription="刷新成绩"
+                        app:icon="@drawable/ic_refresh"
+                        app:iconGravity="textStart"
+                        app:iconPadding="0dp"
+                        app:iconSize="20dp"
+                        app:iconTint="@color/primary" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
 
-            <!-- Grades Refresh Bar -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvGradesSyncTime"
-                    android:layout_width="0dp"
+                <!-- Row 2: Sync status & Course count summary -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="本地缓存"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
+                    android:layout_marginTop="4dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
 
-                <!-- Refresh Grades Button (Vector Icon) -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnRefreshGrades"
-                    style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:padding="0dp"
-                    android:contentDescription="刷新成绩"
-                    app:icon="@drawable/ic_refresh"
-                    app:iconGravity="textStart"
-                    app:iconPadding="0dp"
-                    app:iconSize="18dp"
-                    app:iconTint="@color/primary" />
+                    <TextView
+                        android:id="@+id/tvGradesSyncTime"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="本地缓存 · 刚刚更新"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/tvGradesCountSummary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="共 -- 门课程"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp" />
+                </LinearLayout>
             </LinearLayout>
 
-            <!-- Semester Summary Chips -->
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="6dp"
-                android:scrollbars="none">
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/semesterChipGroup"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    app:singleSelection="true" />
-            </HorizontalScrollView>
-
-            <ProgressBar
-                android:id="@+id/gradesProgressBar"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_margin="32dp"
-                android:visibility="gone" />
-
-            <!-- Courses RecyclerView with SwipeRefreshLayout -->
-            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                android:id="@+id/swipeRefreshGrades"
+            <!-- Inner Content Area -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1">
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="12dp">
 
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rvGrades"
+                <!-- Dynamic Statistics Overview Card -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardStatisticsOverview"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:clipToPadding="false"
-                    android:paddingBottom="16dp" />
-            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="@color/hero_card_bg"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="2dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingVertical="18dp"
+                        android:paddingHorizontal="12dp">
+
+                        <!-- Col 1: Credits -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvCreditsTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="累计修读学分"
+                                android:textColor="@color/hero_card_title"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvCumulativeCredits"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="--"
+                                android:textColor="@color/hero_card_val"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="1dp"
+                            android:layout_height="36dp"
+                            android:layout_gravity="center_vertical"
+                            android:background="@color/hero_card_divider" />
+
+                        <!-- Col 2: Weighted Average (100-pt) -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvAvgScoreTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="加权平均分"
+                                android:textColor="@color/hero_card_title"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvCumulativeAvgScore"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="--"
+                                android:textColor="@color/hero_card_val"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="1dp"
+                            android:layout_height="36dp"
+                            android:layout_gravity="center_vertical"
+                            android:background="@color/hero_card_divider" />
+
+                        <!-- Col 3: GPA -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvGpaTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="平均学分绩点"
+                                android:textColor="@color/hero_card_title"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvCumulativeGpa"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="--"
+                                android:textColor="@color/hero_card_val"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <ProgressBar
+                    android:id="@+id/gradesProgressBar"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_margin="24dp"
+                    android:visibility="gone" />
+
+                <!-- Courses RecyclerView with SwipeRefreshLayout -->
+                <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                    android:id="@+id/swipeRefreshGrades"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="10dp"
+                    android:layout_weight="1">
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvGrades"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:clipToPadding="false"
+                        android:paddingBottom="16dp" />
+                </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            </LinearLayout>
 
         </LinearLayout>
 
