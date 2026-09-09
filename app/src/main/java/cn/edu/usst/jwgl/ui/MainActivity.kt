@@ -694,8 +694,9 @@ class MainActivity : AppCompatActivity() {
                 val targetDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                     ?: java.io.File(filesDir, "downloads").apply { mkdirs() }
                 val targetFile = java.io.File(targetDir, docType.defaultFileName)
-
-                val result = JwglClient.downloadGradeDocument(this@MainActivity, docType, targetFile)
+                val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(this@MainActivity)
+                val studentId = auth.getStudentId()
+                val result = JwglClient.downloadGradeDocument(this@MainActivity, docType, targetFile, studentId)
                 progressDialog.dismiss()
 
                 result.onSuccess { downloadedFile ->

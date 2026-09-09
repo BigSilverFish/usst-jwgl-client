@@ -704,13 +704,22 @@ object JwglClient {
             var response = client.newCall(request).execute()
             var bodyBytes = response.body?.bytes()
 
-            // 3. Check for session expiration / re-login
-            if (response.code in 300..399 || (bodyBytes != null && String(bodyBytes.take(200).toByteArray()).contains("authserver"))) {
+            fun isValidPdfResponse(bytes: ByteArray?): Boolean {
+                if (bytes == null || bytes.isEmpty()) return false
+                if (bytes.size > 4 && bytes[0] == '%'.code.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'D'.code.toByte() && bytes[3] == 'F'.code.toByte()) {
+                    return true
+                }
+                val str = String(bytes, Charsets.UTF_8)
+                return str.contains(".pdf") && !str.contains("<html", ignoreCase = true)
+            }
+
+            // 3. Check for session expiration / re-login if response was not a PDF or PDF link
+            if (!isValidPdfResponse(bodyBytes)) {
                 val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
-                val id = auth.getStudentId()
+                val id = auth.getStudentId().ifEmpty { effectiveStudentId }
                 val pwd = auth.getPassword()
                 if (id.isNotEmpty() && pwd.isNotEmpty()) {
-                    Log.d(TAG, "Re-authenticating for download...")
+                    Log.d(TAG, "Response was not a PDF (redirected to login or session expired), re-authenticating...")
                     val lRes = login(id, pwd)
                     if (lRes.isSuccess) {
                         response = client.newCall(request).execute()
