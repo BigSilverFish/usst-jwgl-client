@@ -39,4 +39,6 @@ class MemoryCookieJar : CookieJar {
         cookieStore.clear()
         Log.d("MemoryCookieJar", "Cookie store cleared")
     }
+
+    fun getAllCookies(): List<Cookie> = cookieStore.toList()
 }

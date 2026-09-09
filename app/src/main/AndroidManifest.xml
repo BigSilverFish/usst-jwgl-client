@@ -43,6 +43,11 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".ui.JwglWebActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize" />
+
 
         <!-- 15-min Course Reminder Receiver -->
         <receiver

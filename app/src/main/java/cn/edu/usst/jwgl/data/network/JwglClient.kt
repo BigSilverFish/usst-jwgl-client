@@ -78,6 +78,13 @@ object JwglClient {
         cookieJar.clear()
     }
 
+    fun getCookies(): List<okhttp3.Cookie> = cookieJar.getAllCookies()
+
+    fun hasValidSession(): Boolean {
+        val cookies = cookieJar.getAllCookies()
+        return cookies.any { it.name.contains("JSESSIONID", ignoreCase = true) || it.name.contains("CASTGC", ignoreCase = true) }
+    }
+
     suspend fun login(studentId: String, password: String): Result<StudentProfile> = withContext(Dispatchers.IO) {
         try {
             clearSession()

@@ -594,7 +594,7 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="jwgl.usst.edu.cn"
+                                android:text="自动登录网页版"
                                 android:textColor="@color/primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
@@ -602,9 +602,9 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="↗"
-                                android:textColor="@color/primary"
-                                android:textSize="15sp"
+                                android:text="›"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="16sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
 

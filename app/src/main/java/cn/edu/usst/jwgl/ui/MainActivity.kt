@@ -284,6 +284,10 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("extra_show_week_picker", false)) {
             showWeekPickerDialog()
         }
+
+        if (intent.getBooleanExtra("extra_open_jwgl_web", false)) {
+            JwglWebActivity.start(this)
+        }
     }
 
     private fun initWakeupSchedule() {
@@ -1067,13 +1071,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.rowJwglWeb.setOnClickListener {
-            val jwglUrl = "https://jwgl.usst.edu.cn"
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(jwglUrl))
-                startActivity(intent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "无法打开浏览器: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+            JwglWebActivity.start(this)
         }
     }
 
