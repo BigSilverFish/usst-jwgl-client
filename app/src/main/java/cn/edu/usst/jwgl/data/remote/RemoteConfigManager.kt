@@ -152,11 +152,13 @@ object RemoteConfigManager {
             val semId = remoteSem.semesterId.trim()
             val semTitle = remoteSem.semesterTitle.trim()
             val parts = semId.split("-")
+            val acadYear = if (parts.size >= 2) "${parts[0]}-${parts[1]}" else parts.getOrNull(0) ?: ""
+            val semNum = if (parts.size >= 3) parts[2] else ""
 
             for (table in localTables) {
                 val matches = (semId.isNotBlank() && table.tableName.contains(semId)) ||
                               (semTitle.isNotBlank() && table.tableName.contains(semTitle)) ||
-                              (parts.size >= 3 && table.tableName.contains(parts[0]) && table.tableName.contains("第${parts[2]}学期"))
+                              (acadYear.isNotBlank() && semNum.isNotBlank() && table.tableName.contains(acadYear) && table.tableName.contains("第${semNum}学期"))
 
                 if (matches) {
                     var tableChanged = false
