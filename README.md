@@ -60,8 +60,7 @@
 | 安全项 | 实现方式 |
 | :--- | :--- |
 | **密码存储** | 采用 Google Jetpack EncryptedSharedPreferences + Android Keystore 硬件级 AES-256 加密，杜绝明文凭据泄露。 |
-| **网络通信** | 全面禁止明文 HTTP 流量，严格配置 
-etwork_security_config.xml，仅信任官方 HTTPS 通信。 |
+| **网络通信** | 全面禁止明文 HTTP 流量，严格配置network_security_config.xml，仅信任官方 HTTPS 通信。 |
 | **防数据备份泄露** | 禁用 allowBackup，配置 data_extraction_rules.xml，排除一切缓存与本地 SQLite 数据库被外部提取。 |
 | **广播导出防护** | 开机重启 Receiver 绑定 RECEIVE_BOOT_COMPLETED 系统级权限，阻止第三方 App 恶意唤起。 |
 | **存储暴露收窄** | FileProvider 路径严格收缩在私有下载目录，杜绝全目录遍历风险。 |
