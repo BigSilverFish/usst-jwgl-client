@@ -89,7 +89,8 @@ object DocumentPdfGenerator {
             GradeDocumentType.CHINESE_WEIGHTED_SCORE -> "加权平均分与平均学分绩点证明"
             GradeDocumentType.ENGLISH_WEIGHTED_SCORE -> "Certificate of Weighted Average Score & GPA"
             GradeDocumentType.RANKING_CERTIFICATE -> "学 生 成 绩 排 名 证 明"
-            GradeDocumentType.CHINESE_TRANSCRIPT -> "本 科 生 成 绩 总 表"
+            GradeDocumentType.CHINESE_TRANSCRIPT,
+            GradeDocumentType.CHINESE_TRANSCRIPT_HD -> "本 科 生 成 绩 总 表"
             GradeDocumentType.ENGLISH_TRANSCRIPT -> "OFFICIAL ACADEMIC TRANSCRIPT"
         }
         canvas.drawText(docTitle, pageWidth / 2f, y, subtitlePaint)

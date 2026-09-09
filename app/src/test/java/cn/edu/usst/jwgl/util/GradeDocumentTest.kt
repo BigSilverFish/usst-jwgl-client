@@ -14,25 +14,28 @@ class GradeDocumentTest {
     @Test
     fun testGradeDocumentTypesDefined() {
         val types = GradeDocumentType.values()
-        assertEquals(5, types.size)
+        assertEquals(6, types.size)
 
         val zhAvg = GradeDocumentType.CHINESE_WEIGHTED_SCORE
         val enAvg = GradeDocumentType.ENGLISH_WEIGHTED_SCORE
         val rank = GradeDocumentType.RANKING_CERTIFICATE
+        val zhHdTrans = GradeDocumentType.CHINESE_TRANSCRIPT_HD
         val zhTrans = GradeDocumentType.CHINESE_TRANSCRIPT
         val enTrans = GradeDocumentType.ENGLISH_TRANSCRIPT
 
         assertTrue(zhAvg.defaultFileName.endsWith(".pdf"))
         assertTrue(enAvg.defaultFileName.endsWith(".pdf"))
         assertTrue(rank.defaultFileName.endsWith(".pdf"))
+        assertTrue(zhHdTrans.defaultFileName.endsWith(".pdf"))
         assertTrue(zhTrans.defaultFileName.endsWith(".pdf"))
         assertTrue(enTrans.defaultFileName.endsWith(".pdf"))
 
-        assertEquals("中文加权平均分证明", zhAvg.displayName)
-        assertEquals("英文加权平均分证明", enAvg.displayName)
-        assertEquals("专业排名证明", rank.displayName)
-        assertEquals("学生成绩总表 (中文成绩单)", zhTrans.displayName)
-        assertEquals("学生成绩总表 (英文成绩单)", enTrans.displayName)
+        assertTrue(zhAvg.displayName.contains("中文加权平均分证明"))
+        assertTrue(enAvg.displayName.contains("英文加权平均分证明"))
+        assertTrue(rank.displayName.contains("专业排名证明"))
+        assertTrue(zhHdTrans.displayName.contains("高清中文版"))
+        assertTrue(zhTrans.displayName.contains("中文·官方盖章版"))
+        assertTrue(enTrans.displayName.contains("英文·官方盖章版"))
     }
 
     @Test

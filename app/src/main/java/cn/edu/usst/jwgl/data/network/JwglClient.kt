@@ -667,25 +667,93 @@ object JwglClient {
                 auth.getStudentId()
             }
 
-            // 1. Determine endpoints and form parameters according to document type
-            // In USST (code 10252), transcripts and certificates are compiled and generated via xscjzbdy_dyList.html
-            val (gsdygx, cjdylx) = when (docType) {
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> "10252-zw-gdcjd" to "1"
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> "10252-yw-gdcjd" to "2"
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_WEIGHTED_SCORE -> "10252-zw-jqf" to "1"
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_WEIGHTED_SCORE -> "10252-yw-jqf" to "2"
-                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> "10252-zw-pmzm" to "1"
+            if (docType == cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT_HD) {
+                val cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(context)
+                val profile = cacheManager.getProfile() ?: cn.edu.usst.jwgl.data.model.StudentProfile(studentId = effectiveStudentId)
+                val grades = cacheManager.getGrades() ?: fetchGrades(context).getOrNull()
+                val generatedFile = cn.edu.usst.jwgl.util.DocumentPdfGenerator.generate(
+                    context = context,
+                    docType = docType,
+                    profile = profile,
+                    grades = grades,
+                    destinationFile = destinationFile
+                )
+                return@withContext Result.success(generatedFile)
             }
 
-            val formParams = mapOf(
+            // 1. Determine endpoints and form parameters according to document type
+            // USST (code 10252) uses two distinct endpoints:
+            // - N109835 for official certificates (weighted average score, ranking)
+            // - N558020 for academic transcripts (grades archive)
+            val isCertificate = when (docType) {
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_WEIGHTED_SCORE,
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_WEIGHTED_SCORE,
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> true
+                else -> false
+            }
+
+            val endpoint = if (isCertificate) {
+                "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N109835"
+            } else {
+                "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020"
+            }
+
+            val referer = if (isCertificate) {
+                "https://jwgl.usst.edu.cn/jwglxt/xszsdy/xszsdy_cxXszsdyIndex.html?gnmkdm=N109835"
+            } else {
+                "https://jwgl.usst.edu.cn/jwglxt/bysxxcx/xscjzbdy_cxXscjzbdyIndex.html?gnmkdm=N558020"
+            }
+
+            val formParams = mutableMapOf(
                 "xh_id" to effectiveStudentId,
                 "ids" to effectiveStudentId,
-                "gsdygx" to gsdygx,
                 "dyfs" to "1",
-                "cjdylx" to cjdylx,
                 "wjlx" to "pdf"
             )
-            val endpoint = "/bysxxcx/xscjzbdy_dyList.html?gnmkdm=N558020"
+
+            when (docType) {
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_WEIGHTED_SCORE -> {
+                    formParams["gsdygx"] = "10252-xsxxwh-jqpjfzm"
+                    formParams["lx"] = "xsxxwh"
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_WEIGHTED_SCORE -> {
+                    formParams["gsdygx"] = "10252-xsxxwh-ywjqpjfzm"
+                    formParams["lx"] = "xsxxwh"
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> {
+                    formParams["gsdygx"] = "10252-xsxxwh-zypmzm"
+                    formParams["lx"] = "xsxxwh"
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT -> {
+                    formParams["gsdygx"] = "10252-zw-gdcjd"
+                    formParams["cjdylx"] = "1"
+                    formParams["sfgz"] = "1"
+                    formParams["whetherTheProfessionalShows"] = "1"
+                    formParams["whetherTheClassIsDisplayed"] = "1"
+                    formParams["whetherTheCreditsAreDisplayed"] = "1"
+                    formParams["whetherTheGradePointIsDisplayed"] = "1"
+                    formParams["whetherTheIDNumberIsDisplayed"] = "1"
+                    formParams["showAllGradeControl"] = "1"
+                    formParams["sfzx"] = "1"
+                    formParams["sfby_dm"] = "0"
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> {
+                    formParams["gsdygx"] = "10252-yw-gdcjd"
+                    formParams["cjdylx"] = "2"
+                    formParams["sfgz"] = "1"
+                    formParams["whetherTheProfessionalShows"] = "1"
+                    formParams["whetherTheClassIsDisplayed"] = "1"
+                    formParams["whetherTheCreditsAreDisplayed"] = "1"
+                    formParams["whetherTheGradePointIsDisplayed"] = "1"
+                    formParams["whetherTheIDNumberIsDisplayed"] = "1"
+                    formParams["showAllGradeControl"] = "1"
+                    formParams["sfzx"] = "1"
+                    formParams["sfby_dm"] = "0"
+                }
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.CHINESE_TRANSCRIPT_HD -> {
+                    // Handled above
+                }
+            }
 
             // 2. Perform POST request
             val formBuilder = FormBody.Builder()
@@ -696,7 +764,7 @@ object JwglClient {
             val request = Request.Builder()
                 .url("https://jwgl.usst.edu.cn/jwglxt$endpoint")
                 .header("User-Agent", USER_AGENT)
-                .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/bysxxcx/xscjzbdy_cxXscjzbdyIndex.html?gnmkdm=N558020")
+                .header("Referer", referer)
                 .header("Accept", "application/pdf,application/octet-stream,text/html,application/json,*/*")
                 .post(formBuilder.build())
                 .build()
@@ -736,7 +804,7 @@ object JwglClient {
                     return@withContext Result.success(destinationFile)
                 }
 
-                // If the server returns a path (e.g. "\/jwglxt\/templete\/scorePrint\/score_...pdf#成功") or JSON
+                // If the server returns a path (e.g. "\/jwglxt\/templete\/scorePrint\/\/sign_...pdf#成功")
                 val resString = String(bodyBytes, Charsets.UTF_8).trim()
                 Log.d(TAG, "Server response for document generation: $resString")
                 if (resString.contains(".pdf")) {
@@ -748,7 +816,6 @@ object JwglClient {
                         } catch (_: Exception) {}
                     }
                     if (remoteFilePath.isEmpty()) {
-                        // Strip quotes and split "#" delimiter (e.g. "/jwglxt/templete/scorePrint/...pdf#成功")
                         val clean = resString.trim('"', '\'', ' ', '\r', '\n')
                         val part = clean.split("#")[0].replace("\\/", "/")
                         if (part.contains(".pdf")) {
@@ -757,17 +824,18 @@ object JwglClient {
                     }
 
                     if (remoteFilePath.isNotEmpty()) {
-                        val fullUrl = if (remoteFilePath.startsWith("http")) remoteFilePath else "https://jwgl.usst.edu.cn$remoteFilePath"
+                        val normalizedPath = if (remoteFilePath.startsWith("/")) remoteFilePath else "/$remoteFilePath"
+                        val fullUrl = if (remoteFilePath.startsWith("http")) remoteFilePath else "https://jwgl.usst.edu.cn$normalizedPath"
                         Log.d(TAG, "Fetching official PDF from: $fullUrl")
-                        kotlinx.coroutines.delay(600) // allow server report compiler to finish writing file
+                        kotlinx.coroutines.delay(800) // Allow server report compiler to finish writing file
                         val getReq = Request.Builder()
                             .url(fullUrl)
                             .header("User-Agent", USER_AGENT)
-                            .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/bysxxcx/xscjzbdy_cxXscjzbdyIndex.html?gnmkdm=N558020")
+                            .header("Referer", referer)
                             .build()
                         val getResp = client.newCall(getReq).execute()
                         val pdfBytes = getResp.body?.bytes()
-                        if (pdfBytes != null && pdfBytes.size > 4 && pdfBytes[0] == '%'.code.toByte() && pdfBytes[1] == 'P'.code.toByte()) {
+                        if (pdfBytes != null && pdfBytes.size > 1000 && pdfBytes[0] == '%'.code.toByte() && pdfBytes[1] == 'P'.code.toByte()) {
                             destinationFile.outputStream().use { it.write(pdfBytes) }
                             Log.d(TAG, "Successfully downloaded official USST PDF: ${destinationFile.absolutePath} (${pdfBytes.size} bytes)")
                             return@withContext Result.success(destinationFile)
