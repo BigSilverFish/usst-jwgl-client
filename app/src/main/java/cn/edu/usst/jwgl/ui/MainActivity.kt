@@ -39,7 +39,9 @@ import cn.edu.usst.jwgl.util.ThemeManager
 import cn.edu.usst.jwgl.util.TimetableSettingHelper
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 class MainActivity : AppCompatActivity() {
@@ -230,23 +232,27 @@ class MainActivity : AppCompatActivity() {
 
         val tableIdExtra = intent.getIntExtra("extra_table_id", -1)
         if (tableIdExtra > 0) {
-            val target = db.tableDao.getTableById(tableIdExtra)
-            if (target != null) {
-                db.tableDao.setDefaultTable(target.id)
-                currentTable = target
-                currentWeek = 1
-                reloadTimetableFromDb()
+            lifecycleScope.launch {
+                val target = withContext(Dispatchers.IO) { db.tableDao.getTableById(tableIdExtra) }
+                if (target != null) {
+                    withContext(Dispatchers.IO) { db.tableDao.setDefaultTable(target.id) }
+                    currentTable = target
+                    currentWeek = 1
+                    reloadTimetableFromDb()
+                }
             }
         }
 
         val tableNameExtra = intent.getStringExtra("extra_table_name")
         if (!tableNameExtra.isNullOrBlank()) {
-            val target = db.tableDao.getAllTables().find { it.tableName == tableNameExtra }
-            if (target != null) {
-                db.tableDao.setDefaultTable(target.id)
-                currentTable = target
-                currentWeek = 1
-                reloadTimetableFromDb()
+            lifecycleScope.launch {
+                val target = withContext(Dispatchers.IO) { db.tableDao.getAllTables() }.find { it.tableName == tableNameExtra }
+                if (target != null) {
+                    withContext(Dispatchers.IO) { db.tableDao.setDefaultTable(target.id) }
+                    currentTable = target
+                    currentWeek = 1
+                    reloadTimetableFromDb()
+                }
             }
         }
 
@@ -281,81 +287,87 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initWakeupSchedule() {
-        db.ensureLatestTimeTableAndDefaults()
-        val defaultT = db.tableDao.getDefaultTable()
+        lifecycleScope.launch {
+            val initData = withContext(Dispatchers.IO) {
+                db.ensureLatestTimeTableAndDefaults()
+                val defaultT = db.tableDao.getDefaultTable()
 
-        // Seamless auto-import of pre-existing cached timetables into WakeUP database
-        val cachedList = cacheManager.getAllCachedTimetables()
-        if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
-            val semConfig = RemoteConfigManager.getSemesterConfig()
-            val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
-            for (cached in cachedList) {
-                WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                // Seamless auto-import of pre-existing cached timetables into WakeUP database
+                val cachedList = cacheManager.getAllCachedTimetables()
+                if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
+                    val semConfig = RemoteConfigManager.getSemesterConfig()
+                    val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
+                    for (cached in cachedList) {
+                        WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                    }
+                }
+
+                // Auto-seed sample exam schedule in debug mode if empty for previewing exam weeks
+                if (BuildConfig.DEBUG && cacheManager.getAllCachedExams().isEmpty()) {
+                    cacheManager.saveExams("2026", "3", listOf(
+                        ExamItem(
+                            courseName = "高等数学A(1)",
+                            courseCode = "1001001",
+                            examName = "期末考试",
+                            examTime = "2027-01-13 09:00-11:00",
+                            location = "一教301",
+                            building = "第一教学楼",
+                            seatNumber = "25",
+                            session = "第一场",
+                            examNature = "正常",
+                            examMethod = "笔试(闭卷)",
+                            credit = 5.0,
+                            yearName = "2026-2027",
+                            semesterName = "1",
+                            remarks = "请携带学生证和身份证"
+                        ),
+                        ExamItem(
+                            courseName = "大学物理B",
+                            courseCode = "1002002",
+                            examName = "期末考试",
+                            examTime = "2027-01-14 13:00-15:00",
+                            location = "二教205",
+                            building = "第二教学楼",
+                            seatNumber = "12",
+                            session = "第二场",
+                            examNature = "正常",
+                            examMethod = "笔试(闭卷)",
+                            credit = 4.0,
+                            yearName = "2026-2027",
+                            semesterName = "1",
+                            remarks = "可携带科学计算器"
+                        )
+                    ))
+                }
+
+                // Auto determine active semester & week on startup
+                val allTables = db.tableDao.getAllTables()
+                val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
+                val targetTable = autoTarget?.table ?: db.tableDao.getDefaultTable()
+                val targetWeek = autoTarget?.week ?: 1
+
+                db.tableDao.setDefaultTable(targetTable.id)
+                Triple(targetTable, targetWeek, targetTable.maxWeek)
             }
+
+            val (targetTable, targetWeek, maxWeek) = initData
+            currentTable = targetTable
+            currentWeek = targetWeek
+
+            scheduleAdapter = SchedulePagerAdapter(this@MainActivity, maxWeek, targetTable.id)
+            binding.vpSchedule.adapter = scheduleAdapter
+
+            binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageSelected(position: Int) {
+                    super.onPageSelected(position)
+                    val selectedWeek = position + 1
+                    currentWeek = selectedWeek
+                    updateWeekSelectionUI(selectedWeek)
+                }
+            })
+
+            reloadTimetableFromDb()
         }
-
-        // Auto-seed sample exam schedule in debug mode if empty for previewing exam weeks
-        if (BuildConfig.DEBUG && cacheManager.getAllCachedExams().isEmpty()) {
-            cacheManager.saveExams("2026", "3", listOf(
-                ExamItem(
-                    courseName = "高等数学A(1)",
-                    courseCode = "1001001",
-                    examName = "期末考试",
-                    examTime = "2027-01-13 09:00-11:00",
-                    location = "一教301",
-                    building = "第一教学楼",
-                    seatNumber = "25",
-                    session = "第一场",
-                    examNature = "正常",
-                    examMethod = "笔试(闭卷)",
-                    credit = 5.0,
-                    yearName = "2026-2027",
-                    semesterName = "1",
-                    remarks = "请携带学生证和身份证"
-                ),
-                ExamItem(
-                    courseName = "大学物理B",
-                    courseCode = "1002002",
-                    examName = "期末考试",
-                    examTime = "2027-01-14 13:00-15:00",
-                    location = "二教205",
-                    building = "第二教学楼",
-                    seatNumber = "12",
-                    session = "第二场",
-                    examNature = "正常",
-                    examMethod = "笔试(闭卷)",
-                    credit = 4.0,
-                    yearName = "2026-2027",
-                    semesterName = "1",
-                    remarks = "可携带科学计算器"
-                )
-            ))
-        }
-
-        // Auto determine active semester & week on startup:
-        // Locate to current semester current week, or next semester week 1 if currently in vacation
-        val allTables = db.tableDao.getAllTables()
-        val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
-        val targetTable = autoTarget?.table ?: db.tableDao.getDefaultTable()
-        val targetWeek = autoTarget?.week ?: 1
-
-        db.tableDao.setDefaultTable(targetTable.id)
-        currentTable = targetTable
-        currentWeek = targetWeek
-
-        scheduleAdapter = SchedulePagerAdapter(this, targetTable.maxWeek, targetTable.id)
-        binding.vpSchedule.adapter = scheduleAdapter
-
-        binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageSelected(position: Int) {
-                super.onPageSelected(position)
-                val selectedWeek = position + 1
-                currentWeek = selectedWeek
-                updateWeekSelectionUI(selectedWeek)
-            }
-        })
-
-        reloadTimetableFromDb()
     }
 
     private fun formatSemesterTitle(title: String): String {
@@ -369,23 +381,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun reloadTimetableFromDb() {
-        val table = db.tableDao.getDefaultTable()
-        currentTable = table
+        lifecycleScope.launch {
+            val table = withContext(Dispatchers.IO) {
+                db.tableDao.getDefaultTable()
+            }
+            currentTable = table
 
-        binding.tvTimetableSemester.text = formatSemesterTitle(table.tableName)
-        binding.chipFilterOnlyCurrentWeek.isChecked = !table.showOtherWeekCourse
+            binding.tvTimetableSemester.text = formatSemesterTitle(table.tableName)
+            binding.chipFilterOnlyCurrentWeek.isChecked = !table.showOtherWeekCourse
 
-        val realCurrentWeek = CourseUtils.countWeek(table.startDate)
-        if (currentWeek !in 1..table.maxWeek) {
-            currentWeek = if (realCurrentWeek in 1..table.maxWeek) realCurrentWeek else 1
+            val realCurrentWeek = CourseUtils.countWeek(table.startDate)
+            if (currentWeek !in 1..table.maxWeek) {
+                currentWeek = if (realCurrentWeek in 1..table.maxWeek) realCurrentWeek else 1
+            }
+
+            scheduleAdapter?.updateConfig(table.maxWeek, table.id)
+
+            binding.vpSchedule.setCurrentItem(currentWeek - 1, false)
+            updateWeekSelectionUI(currentWeek)
+
+            scheduleAdapter?.refreshAllFragments()
         }
-
-        scheduleAdapter?.updateConfig(table.maxWeek, table.id)
-
-        binding.vpSchedule.setCurrentItem(currentWeek - 1, false)
-        updateWeekSelectionUI(currentWeek)
-
-        scheduleAdapter?.refreshAllFragments()
     }
 
     private fun updateWeekSelectionUI(week: Int) {
@@ -457,7 +473,7 @@ class MainActivity : AppCompatActivity() {
         binding.chipFilterOnlyCurrentWeek.setOnCheckedChangeListener { _, isChecked ->
             val table = currentTable ?: return@setOnCheckedChangeListener
             table.showOtherWeekCourse = !isChecked
-            db.tableDao.updateTable(table)
+            lifecycleScope.launch(Dispatchers.IO) { db.tableDao.updateTable(table) }
             scheduleAdapter?.refreshAllFragments()
         }
 
@@ -1048,6 +1064,16 @@ class MainActivity : AppCompatActivity() {
 
         binding.rowDisclaimer.setOnClickListener {
             showAuthorDisclaimerDialog(allowDismiss = true)
+        }
+
+        binding.rowJwglWeb.setOnClickListener {
+            val jwglUrl = "https://jwgl.usst.edu.cn"
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(jwglUrl))
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "无法打开浏览器: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

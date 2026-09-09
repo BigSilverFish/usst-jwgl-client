@@ -2,6 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="external_download" path="Download" />
     <external-files-path name="external_files_download" path="Download" />
-    <external-cache-path name="external_cache" path="." />
-    <cache-path name="internal_cache" path="." />
+    <external-cache-path name="external_cache_pdf" path="grade_reports/" />
+    <cache-path name="internal_cache_pdf" path="grade_reports/" />
 </paths>

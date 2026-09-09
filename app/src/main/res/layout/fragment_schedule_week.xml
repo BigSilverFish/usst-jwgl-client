@@ -55,29 +55,46 @@
         android:fillViewport="true">
 
         <LinearLayout
-            android:id="@+id/llContentContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="vertical">
 
-            <!-- Sidebar (Nodes 1..13) -->
             <LinearLayout
-                android:id="@+id/llSidebarNodes"
-                android:layout_width="40dp"
+                android:id="@+id/llContentContainer"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-                <!-- Nodes injected dynamically -->
+                android:orientation="horizontal">
+
+                <!-- Sidebar (Nodes 1..13) -->
+                <LinearLayout
+                    android:id="@+id/llSidebarNodes"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <!-- Nodes injected dynamically -->
+                </LinearLayout>
+
+                <!-- 7 Day Columns -->
+                <LinearLayout
+                    android:id="@+id/llWeekColumnsContainer"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:orientation="horizontal">
+                    <!-- 7 FrameLayout columns injected dynamically -->
+                </LinearLayout>
+
             </LinearLayout>
 
-            <!-- 7 Day Columns -->
-            <LinearLayout
-                android:id="@+id/llWeekColumnsContainer"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:orientation="horizontal">
-                <!-- 7 FrameLayout columns injected dynamically -->
-            </LinearLayout>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="16dp"
+                android:paddingBottom="24dp"
+                android:text="GitHub@BigSilverFish"
+                android:textColor="#C0C0C0"
+                android:textSize="11sp" />
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

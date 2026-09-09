@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "usst_jwgl_app"
+rootProject.name = "BigSilverFish-usst-jwgl"
 include(":app")

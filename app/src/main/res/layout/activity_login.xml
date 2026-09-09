@@ -158,7 +158,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
-        android:text="上海理工大学 · 教务处"
+        android:text="GitHub@BigSilverFish"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
         app:layout_constraintBottom_toBottomOf="parent"

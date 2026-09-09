@@ -186,131 +186,138 @@ class AppDatabase private constructor(context: Context) {
     fun ensureLatestTimeTableAndDefaults() {
         val db = dbHelper.writableDatabase
 
-        // Ensure TimeTableBean entries exist for both schedules
-        db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (1, '新课时表(13节)');")
-        db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (2, '老课时表(12节)');")
+        db.beginTransaction()
+        try {
+            // Ensure TimeTableBean entries exist for both schedules
+            db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (1, '新课时表(13节)');")
+            db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (2, '老课时表(12节)');")
 
-        // 1. New Timetable (timeTable = 1, 13 sections for 2025-2026-2 and later)
-        val times = timeDetailDao.getTimeDetails(1)
-        val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
-        if (needsTimeUpdate) {
-            db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
-            val usstTimes = arrayOf(
-                Triple(1, "08:00", "08:40"),
-                Triple(2, "08:45", "09:25"),
-                Triple(3, "09:45", "10:25"),
-                Triple(4, "10:30", "11:10"),
-                Triple(5, "11:15", "11:55"),
-                Triple(6, "13:00", "13:40"),
-                Triple(7, "13:45", "14:25"),
-                Triple(8, "14:45", "15:25"),
-                Triple(9, "15:30", "16:10"),
-                Triple(10, "16:15", "16:55"),
-                Triple(11, "18:00", "18:40"),
-                Triple(12, "18:45", "19:25"),
-                Triple(13, "19:30", "20:10")
-            )
-            for ((node, start, end) in usstTimes) {
-                val cv = ContentValues().apply {
-                    put("node", node)
-                    put("startTime", start)
-                    put("endTime", end)
-                    put("timeTable", 1)
+            // 1. New Timetable (timeTable = 1, 13 sections for 2025-2026-2 and later)
+            val times = timeDetailDao.getTimeDetails(1)
+            val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
+            if (needsTimeUpdate) {
+                db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
+                val usstTimes = arrayOf(
+                    Triple(1, "08:00", "08:40"),
+                    Triple(2, "08:45", "09:25"),
+                    Triple(3, "09:45", "10:25"),
+                    Triple(4, "10:30", "11:10"),
+                    Triple(5, "11:15", "11:55"),
+                    Triple(6, "13:00", "13:40"),
+                    Triple(7, "13:45", "14:25"),
+                    Triple(8, "14:45", "15:25"),
+                    Triple(9, "15:30", "16:10"),
+                    Triple(10, "16:15", "16:55"),
+                    Triple(11, "18:00", "18:40"),
+                    Triple(12, "18:45", "19:25"),
+                    Triple(13, "19:30", "20:10")
+                )
+                for ((node, start, end) in usstTimes) {
+                    val cv = ContentValues().apply {
+                        put("node", node)
+                        put("startTime", start)
+                        put("endTime", end)
+                        put("timeTable", 1)
+                    }
+                    db.insert("TimeDetailBean", null, cv)
                 }
-                db.insert("TimeDetailBean", null, cv)
             }
-        }
 
-        // 2. Old Timetable (timeTable = 2, 12 sections for semesters before 2025-2026-2)
-        val oldTimes = timeDetailDao.getTimeDetails(2)
-        if (oldTimes.isEmpty() || oldTimes.size != 12) {
-            db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 2;")
-            val usstOldTimes = arrayOf(
-                Triple(1, "08:00", "08:45"),
-                Triple(2, "08:50", "09:35"),
-                Triple(3, "09:55", "10:40"),
-                Triple(4, "10:45", "11:30"),
-                Triple(5, "11:35", "12:20"),
-                Triple(6, "13:15", "14:00"),
-                Triple(7, "14:05", "14:50"),
-                Triple(8, "15:05", "15:50"),
-                Triple(9, "15:55", "16:40"),
-                Triple(10, "18:00", "18:45"),
-                Triple(11, "18:50", "19:35"),
-                Triple(12, "19:40", "20:25")
-            )
-            for ((node, start, end) in usstOldTimes) {
-                val cv = ContentValues().apply {
-                    put("node", node)
-                    put("startTime", start)
-                    put("endTime", end)
-                    put("timeTable", 2)
+            // 2. Old Timetable (timeTable = 2, 12 sections for semesters before 2025-2026-2)
+            val oldTimes = timeDetailDao.getTimeDetails(2)
+            if (oldTimes.isEmpty() || oldTimes.size != 12) {
+                db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 2;")
+                val usstOldTimes = arrayOf(
+                    Triple(1, "08:00", "08:45"),
+                    Triple(2, "08:50", "09:35"),
+                    Triple(3, "09:55", "10:40"),
+                    Triple(4, "10:45", "11:30"),
+                    Triple(5, "11:35", "12:20"),
+                    Triple(6, "13:15", "14:00"),
+                    Triple(7, "14:05", "14:50"),
+                    Triple(8, "15:05", "15:50"),
+                    Triple(9, "15:55", "16:40"),
+                    Triple(10, "18:00", "18:45"),
+                    Triple(11, "18:50", "19:35"),
+                    Triple(12, "19:40", "20:25")
+                )
+                for ((node, start, end) in usstOldTimes) {
+                    val cv = ContentValues().apply {
+                        put("node", node)
+                        put("startTime", start)
+                        put("endTime", end)
+                        put("timeTable", 2)
+                    }
+                    db.insert("TimeDetailBean", null, cv)
                 }
-                db.insert("TimeDetailBean", null, cv)
             }
-        }
 
-        // 3. Ensure all existing tables adopt the correct nodes & timeTable matching their semester
-        val allTables = tableDao.getAllTables()
-        for (t in allTables) {
-            val isOld = CourseUtils.isBefore2025_2026_2(t.tableName)
-            val expectedNodes = if (isOld) 12 else 13
-            val expectedTimeTable = if (isOld) 2 else 1
-            var tableChanged = false
-            if (t.nodes != expectedNodes || t.timeTable != expectedTimeTable) {
-                t.nodes = expectedNodes
-                t.timeTable = expectedTimeTable
-                tableChanged = true
+            // 3. Ensure all existing tables adopt the correct nodes & timeTable matching their semester
+            val allTables = tableDao.getAllTables()
+            for (t in allTables) {
+                val isOld = CourseUtils.isBefore2025_2026_2(t.tableName)
+                val expectedNodes = if (isOld) 12 else 13
+                val expectedTimeTable = if (isOld) 2 else 1
+                var tableChanged = false
+                if (t.nodes != expectedNodes || t.timeTable != expectedTimeTable) {
+                    t.nodes = expectedNodes
+                    t.timeTable = expectedTimeTable
+                    tableChanged = true
+                }
+                if (t.maxWeek == 25) {
+                    t.maxWeek = 20
+                    tableChanged = true
+                }
+                if (tableChanged) {
+                    tableDao.updateTable(t)
+                }
             }
-            if (t.maxWeek == 25) {
-                t.maxWeek = 20
-                tableChanged = true
-            }
-            if (tableChanged) {
-                tableDao.updateTable(t)
-            }
-        }
 
-        // 4. Seed sample historical semesters (12 nodes, timeTable = 2) if none exists
-        if (allTables.none { CourseUtils.isLegacy12NodeSemester(it.tableName) }) {
-            val histTable = TableBean(
-                tableName = "2024-2025学年 第2学期",
-                nodes = 12,
-                timeTable = 2,
-                startDate = "2025-02-24",
-                maxWeek = 20,
-                showSat = false,
-                showSun = false,
-                type = 1
-            )
-            tableDao.insertTable(histTable)
-        }
-        if (allTables.none { it.tableName.contains("2025-2026") && it.tableName.contains("2") }) {
-            val table2025_2 = TableBean(
-                tableName = "2025-2026学年 第2学期",
-                nodes = 12,
-                timeTable = 2,
-                startDate = "2026-02-23",
-                maxWeek = 20,
-                showSat = false,
-                showSun = false,
-                type = 1
-            )
-            tableDao.insertTable(table2025_2)
-        }
+            // 4. Seed sample historical semesters (12 nodes, timeTable = 2) if none exists
+            if (allTables.none { CourseUtils.isLegacy12NodeSemester(it.tableName) }) {
+                val histTable = TableBean(
+                    tableName = "2024-2025学年 第2学期",
+                    nodes = 12,
+                    timeTable = 2,
+                    startDate = "2025-02-24",
+                    maxWeek = 20,
+                    showSat = false,
+                    showSun = false,
+                    type = 1
+                )
+                tableDao.insertTable(histTable)
+            }
+            if (allTables.none { it.tableName.contains("2025-2026") && it.tableName.contains("2") }) {
+                val table2025_2 = TableBean(
+                    tableName = "2025-2026学年 第2学期",
+                    nodes = 12,
+                    timeTable = 2,
+                    startDate = "2026-02-23",
+                    maxWeek = 20,
+                    showSat = false,
+                    showSun = false,
+                    type = 1
+                )
+                tableDao.insertTable(table2025_2)
+            }
 
-        // Also check if active table needs weekend update
-        val defaultTable = tableDao.getDefaultTable()
-        var updated = false
-        val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
-        val hasWeekend = allCourses.any { it.day == 6 || it.day == 7 }
-        if (!hasWeekend && (defaultTable.showSat || defaultTable.showSun)) {
-            defaultTable.showSat = false
-            defaultTable.showSun = false
-            updated = true
-        }
-        if (updated) {
-            tableDao.updateTable(defaultTable)
+            // Also check if active table needs weekend update
+            val defaultTable = tableDao.getDefaultTable()
+            var updated = false
+            val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
+            val hasWeekend = allCourses.any { it.day == 6 || it.day == 7 }
+            if (!hasWeekend && (defaultTable.showSat || defaultTable.showSun)) {
+                defaultTable.showSat = false
+                defaultTable.showSun = false
+                updated = true
+            }
+            if (updated) {
+                tableDao.updateTable(defaultTable)
+            }
+
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
     }
 
