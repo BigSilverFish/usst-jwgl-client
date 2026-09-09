@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -585,9 +586,11 @@ class MainActivity : AppCompatActivity() {
                 } else if (isManual) {
                     Toast.makeText(this@MainActivity, "校历与调休配置已成功同步", Toast.LENGTH_SHORT).show()
                 }
-            }.onFailure {
+            }.onFailure { error ->
+                Log.e("MainActivity", "Remote config sync failed", error)
                 if (isManual) {
-                    Toast.makeText(this@MainActivity, "同步云端配置失败，请检查网络", Toast.LENGTH_SHORT).show()
+                    val msg = if (error is com.google.gson.JsonSyntaxException) "云端配置文件格式错误(JSON语法)" else "同步云端配置失败: ${error.message ?: "请检查网络"}"
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
                 }
             }
         }

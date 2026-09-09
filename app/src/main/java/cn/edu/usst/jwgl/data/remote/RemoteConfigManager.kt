@@ -23,8 +23,9 @@ object RemoteConfigManager {
 
     // Primary & backup config URLs (hosted on BigSilverFish/usst-jwgl-client GitHub repository)
     private val CONFIG_URLS = listOf(
+        "https://raw.githubusercontent.com/BigSilverFish/usst-jwgl-client/main/app_config.json",
         "https://fastly.jsdelivr.net/gh/BigSilverFish/usst-jwgl-client@main/app_config.json",
-        "https://raw.githubusercontent.com/BigSilverFish/usst-jwgl-client/main/app_config.json"
+        "https://cdn.jsdelivr.net/gh/BigSilverFish/usst-jwgl-client@main/app_config.json"
     )
 
     private val gson = Gson()
@@ -56,29 +57,49 @@ object RemoteConfigManager {
 
     suspend fun fetchConfig(context: Context): Result<AppConfig> = withContext(Dispatchers.IO) {
         init(context)
-        for (url in CONFIG_URLS) {
+        var lastError: Exception? = null
+        val timestamp = System.currentTimeMillis()
+
+        for (baseUrl in CONFIG_URLS) {
+            val urlWithNoCache = if (baseUrl.contains("?")) "$baseUrl&_t=$timestamp" else "$baseUrl?_t=$timestamp"
             try {
                 val request = Request.Builder()
-                    .url(url)
+                    .url(urlWithNoCache)
                     .header("User-Agent", "USST-JWGL-Android")
+                    .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    .header("Pragma", "no-cache")
                     .build()
                 val response = httpClient.newCall(request).execute()
                 if (response.isSuccessful) {
                     val bodyStr = response.body?.string()
                     if (!bodyStr.isNullOrEmpty()) {
-                        val newConfig = gson.fromJson(bodyStr, AppConfig::class.java)
-                        cachedConfig = newConfig
-                        saveToCache(context, bodyStr)
-                        Log.d(TAG, "Successfully fetched and cached remote config from $url")
-                        return@withContext Result.success(newConfig)
+                        try {
+                            val newConfig = gson.fromJson(bodyStr, AppConfig::class.java)
+                            if (newConfig != null && newConfig.semesters.isNotEmpty()) {
+                                cachedConfig = newConfig
+                                saveToCache(context, bodyStr)
+                                Log.d(TAG, "Successfully fetched and cached remote config from $baseUrl")
+                                return@withContext Result.success(newConfig)
+                            }
+                        } catch (parseEx: Exception) {
+                            Log.e(TAG, "JSON Syntax error in remote config from $baseUrl: ${parseEx.message}", parseEx)
+                            lastError = parseEx
+                            // Continue trying other URLs or fail
+                        }
                     }
+                } else {
+                    Log.w(TAG, "HTTP ${response.code} from $baseUrl")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to fetch remote config from $url: ${e.message}")
+                Log.w(TAG, "Failed to fetch remote config from $baseUrl: ${e.message}")
+                lastError = e
             }
         }
-        // If all remote URLs fail, return currently cached config (graceful fallback)
-        Log.i(TAG, "Using fallback/cached config: week1=${cachedConfig.semesterConfig.week1Monday}")
+        // If all remote URLs fail or parsing failed, return error or fallback
+        if (lastError != null) {
+            Log.e(TAG, "All remote config sources failed. Last error: ${lastError.message}")
+            return@withContext Result.failure(lastError)
+        }
         Result.success(cachedConfig)
     }
 

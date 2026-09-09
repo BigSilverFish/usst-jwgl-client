@@ -1,4 +1,4 @@
-﻿{
+{
   "app_version": {
     "version_code": 1,
     "version_name": "1.0.0",
@@ -30,13 +30,13 @@
       "semester_title": "2025-2026学年 第1学期",
       "start_date": "2025-09-08",
       "max_week": 20
-    }
+    },
     {
       "semester_id": "2024-2025-2",
       "semester_title": "2024-2025学年 第2学期",
       "start_date": "2025-02-17",
       "max_week": 20
-    }
+    },
     {
       "semester_id": "2024-2025-1",
       "semester_title": "2024-2025学年 第1学期",
