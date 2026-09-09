@@ -35,8 +35,30 @@ class LoginActivity : AppCompatActivity() {
         authPrefs = AuthPreferences(this)
         cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(this)
 
-        setupPrefillAndAutoLogin()
+        if (!authPrefs.hasAgreedDisclaimer()) {
+            showDisclaimerDialog {
+                setupPrefillAndAutoLogin()
+            }
+        } else {
+            setupPrefillAndAutoLogin()
+        }
         setupListeners()
+    }
+
+    private fun showDisclaimerDialog(onAgreed: () -> Unit) {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("作者声明")
+            .setMessage("本app非官方项目，仅供开发学习，不上传任何数据，不泄露任何隐私。")
+            .setCancelable(false)
+            .setPositiveButton("同意") { dialog, _ ->
+                authPrefs.setDisclaimerAgreed(true)
+                dialog.dismiss()
+                onAgreed()
+            }
+            .setNegativeButton("不同意并退出") { _, _ ->
+                finishAffinity()
+            }
+            .show()
     }
 
     private fun setupPrefillAndAutoLogin() {

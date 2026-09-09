@@ -9,22 +9,22 @@ import org.junit.Test
 class TimetableFeaturesTest {
 
     @Test
-    fun testIsBefore2025_2026_2() {
-        // Semesters strictly before 2025-2026-2 should be true
-        assertTrue(CourseUtils.isBefore2025_2026_2("2024-2025-1"))
-        assertTrue(CourseUtils.isBefore2025_2026_2("2024-2025-2"))
-        assertTrue(CourseUtils.isBefore2025_2026_2("2024-2025学年 第1学期"))
-        assertTrue(CourseUtils.isBefore2025_2026_2("2024-2025学年 第2学期"))
-        assertTrue(CourseUtils.isBefore2025_2026_2("2025-2026-1"))
-        assertTrue(CourseUtils.isBefore2025_2026_2("2025-2026学年 第1学期"))
+    fun testIsLegacy12NodeSemester() {
+        // Semesters using old 12-slot timetable include 2025-2026-2 and earlier
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2024-2025-1"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2024-2025-2"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2024-2025学年 第1学期"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2024-2025学年 第2学期"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2025-2026-1"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2025-2026学年 第1学期"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2025-2026-2"))
+        assertTrue(CourseUtils.isLegacy12NodeSemester("2025-2026学年 第2学期"))
 
-        // 2025-2026-2 and subsequent semesters should be false
-        assertFalse(CourseUtils.isBefore2025_2026_2("2025-2026-2"))
-        assertFalse(CourseUtils.isBefore2025_2026_2("2025-2026学年 第2学期"))
-        assertFalse(CourseUtils.isBefore2025_2026_2("2026-2027-1"))
-        assertFalse(CourseUtils.isBefore2025_2026_2("2026-2027学年 第1学期"))
-        assertFalse(CourseUtils.isBefore2025_2026_2("2026-2027-2"))
-        assertFalse(CourseUtils.isBefore2025_2026_2("2027-2028-1"))
+        // 2026-2027-1 and subsequent semesters should use new 13-slot timetable
+        assertFalse(CourseUtils.isLegacy12NodeSemester("2026-2027-1"))
+        assertFalse(CourseUtils.isLegacy12NodeSemester("2026-2027学年 第1学期"))
+        assertFalse(CourseUtils.isLegacy12NodeSemester("2026-2027-2"))
+        assertFalse(CourseUtils.isLegacy12NodeSemester("2027-2028-1"))
     }
 
     @Test

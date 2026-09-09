@@ -12,6 +12,13 @@ class AuthPreferences(context: Context) {
         private const val KEY_STUDENT_ID = "pref_student_id"
         private const val KEY_PASSWORD = "pref_password"
         private const val KEY_AUTO_LOGIN = "pref_auto_login"
+        private const val KEY_DISCLAIMER_AGREED = "pref_disclaimer_agreed"
+    }
+
+    fun hasAgreedDisclaimer(): Boolean = prefs.getBoolean(KEY_DISCLAIMER_AGREED, false)
+
+    fun setDisclaimerAgreed(agreed: Boolean) {
+        prefs.edit().putBoolean(KEY_DISCLAIMER_AGREED, agreed).apply()
     }
 
     fun saveCredentials(studentId: String, password: String, autoLogin: Boolean) {

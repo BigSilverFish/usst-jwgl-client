@@ -271,8 +271,8 @@ class AppDatabase private constructor(context: Context) {
             }
         }
 
-        // 4. Seed a sample historical semester (12 nodes, timeTable = 2) if none exists
-        if (allTables.none { CourseUtils.isBefore2025_2026_2(it.tableName) }) {
+        // 4. Seed sample historical semesters (12 nodes, timeTable = 2) if none exists
+        if (allTables.none { CourseUtils.isLegacy12NodeSemester(it.tableName) }) {
             val histTable = TableBean(
                 tableName = "2024-2025学年 第2学期",
                 nodes = 12,
@@ -284,6 +284,19 @@ class AppDatabase private constructor(context: Context) {
                 type = 1
             )
             tableDao.insertTable(histTable)
+        }
+        if (allTables.none { it.tableName.contains("2025-2026") && it.tableName.contains("2") }) {
+            val table2025_2 = TableBean(
+                tableName = "2025-2026学年 第2学期",
+                nodes = 12,
+                timeTable = 2,
+                startDate = "2026-02-23",
+                maxWeek = 20,
+                showSat = false,
+                showSun = false,
+                type = 1
+            )
+            tableDao.insertTable(table2025_2)
         }
 
         // Also check if active table needs weekend update

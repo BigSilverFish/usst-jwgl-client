@@ -70,6 +70,8 @@ class MainActivity : AppCompatActivity() {
     private enum class ReminderType { COURSE, EXAM }
     private var pendingReminderType: ReminderType? = null
 
+    private var activeDisclaimerDialog: androidx.appcompat.app.AlertDialog? = null
+
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -144,6 +146,10 @@ class MainActivity : AppCompatActivity() {
         initWakeupSchedule()
         syncRemoteConfig(isManual = false)
 
+        if (!AuthPreferences(this).hasAgreedDisclaimer()) {
+            showAuthorDisclaimerDialog(allowDismiss = false)
+        }
+
         val initialTab = intent.getIntExtra("extra_tab", 1) // Default to 1 (课程表)
         when (initialTab) {
             0 -> binding.bottomNav.selectedItemId = R.id.nav_profile
@@ -210,6 +216,16 @@ class MainActivity : AppCompatActivity() {
             TimetableSettingHelper.setDayPartDividersEnabled(this, enabled)
             binding.switchDayPartDividers.isChecked = enabled
             scheduleAdapter?.refreshAllFragments()
+        }
+
+        if (intent.getBooleanExtra("extra_set_disclaimer_agreed", false)) {
+            AuthPreferences(this).setDisclaimerAgreed(true)
+            activeDisclaimerDialog?.dismiss()
+            activeDisclaimerDialog = null
+        }
+
+        if (intent.getBooleanExtra("extra_show_disclaimer", false)) {
+            showAuthorDisclaimerDialog(allowDismiss = true)
         }
 
         val tableIdExtra = intent.getIntExtra("extra_table_id", -1)
@@ -1019,6 +1035,45 @@ class MainActivity : AppCompatActivity() {
         binding.btnCheckUpdate.setOnClickListener {
             syncRemoteConfig(isManual = true)
         }
+
+        binding.rowGithubRepo.setOnClickListener {
+            val githubUrl = "https://github.com/BigSilverFish/usst-jwgl-client"
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl))
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "无法打开浏览器: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.rowDisclaimer.setOnClickListener {
+            showAuthorDisclaimerDialog(allowDismiss = true)
+        }
+    }
+
+    private fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) {
+        activeDisclaimerDialog?.dismiss()
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle("作者声明")
+            .setMessage("本app非官方项目，仅供开发学习，不上传任何数据，不泄露任何隐私。")
+            .setCancelable(allowDismiss)
+            .setPositiveButton("同意") { dialog, _ ->
+                AuthPreferences(this).setDisclaimerAgreed(true)
+                activeDisclaimerDialog = null
+                dialog.dismiss()
+            }
+        if (!allowDismiss) {
+            builder.setNegativeButton("不同意并退出") { _, _ ->
+                finishAffinity()
+            }
+        } else {
+            builder.setNegativeButton("关闭") { _, _ ->
+                activeDisclaimerDialog = null
+            }
+        }
+        val dialog = builder.create()
+        activeDisclaimerDialog = dialog
+        dialog.show()
     }
 
     private fun syncRemoteConfig(isManual: Boolean) {
