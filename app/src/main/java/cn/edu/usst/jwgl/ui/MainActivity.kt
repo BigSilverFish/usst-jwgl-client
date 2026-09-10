@@ -4,6 +4,14 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.res.Configuration
+import android.graphics.Color
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import android.view.ViewGroup
+import eightbitlab.com.blurview.BlurView
+import eightbitlab.com.blurview.RenderEffectBlur
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -49,6 +57,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PROFILE = "extra_student_profile"
+        var topBarHeightPx: Int = 0
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -129,8 +138,79 @@ class MainActivity : AppCompatActivity() {
             android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
 
+        // Enable edge-to-edge immersive transparent system bars
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = !isDarkMode
+        insetsController.isAppearanceLightNavigationBars = !isDarkMode
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val density = resources.displayMetrics.density
+
+            // Extend frosted top bar into status bar while keeping control items nicely positioned below
+            binding.headerTimetable.setPadding(
+                binding.headerTimetable.paddingLeft,
+                statusBarInsets.top + (8 * density).toInt(),
+                binding.headerTimetable.paddingRight,
+                (6 * density).toInt()
+            )
+            binding.headerTimetableContainer.post {
+                topBarHeightPx = binding.headerTimetableContainer.height
+            }
+            binding.headerGrades.setPadding(
+                binding.headerGrades.paddingLeft,
+                statusBarInsets.top + (8 * density).toInt(),
+                binding.headerGrades.paddingRight,
+                (6 * density).toInt()
+            )
+            binding.scrollProfile.setPadding(
+                binding.scrollProfile.paddingLeft,
+                statusBarInsets.top,
+                binding.scrollProfile.paddingRight,
+                binding.scrollProfile.paddingBottom
+            )
+
+            // Adjust grades spacing view to match floating header height
+            val gradesHeaderHeight = statusBarInsets.top + (76 * density).toInt()
+            binding.viewGradesHeaderSpacing.layoutParams.height = gradesHeaderHeight
+            binding.viewGradesHeaderSpacing.requestLayout()
+
+            // Extend bottom navigation bar behind navigation bar / gesture bar
+            binding.bottomNav.setPadding(
+                binding.bottomNav.paddingLeft,
+                binding.bottomNav.paddingTop,
+                binding.bottomNav.paddingRight,
+                navBarInsets.bottom
+            )
+
+            insets
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val decorView = window.decorView
+            val rootView = decorView.findViewById<ViewGroup>(android.R.id.content)
+            val windowBackground = decorView.background
+
+            binding.blurViewBottomNav.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+
+            binding.blurViewTopBar.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+
+            binding.blurViewGradesHeader.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+        }
 
         cacheManager = DataCacheManager(this)
         db = AppDatabase.getDatabase(this)
@@ -384,6 +464,7 @@ class MainActivity : AppCompatActivity() {
                     val selectedWeek = position + 1
                     currentWeek = selectedWeek
                     updateWeekSelectionUI(selectedWeek)
+                    updateWeekHeaderDates(selectedWeek)
                 }
             })
 
@@ -420,6 +501,7 @@ class MainActivity : AppCompatActivity() {
 
             binding.vpSchedule.setCurrentItem(currentWeek - 1, false)
             updateWeekSelectionUI(currentWeek)
+            updateWeekHeaderDates(currentWeek)
 
             scheduleAdapter?.refreshAllFragments()
         }
@@ -709,6 +791,79 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .safeShow()
+    }
+
+    private fun updateWeekHeaderDates(week: Int) {
+        val table = currentTable ?: return
+        val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)
+        val todayWeekday = CourseUtils.getTodayWeekdayInt()
+        val curWeek = CourseUtils.countWeek(table.startDate)
+        val isExamWeek = ExamHelper.isExamWeek(table.tableName, week)
+        val cachedExams = if (isExamWeek) cacheManager.getAllCachedExams() else emptyList()
+        val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
+
+        binding.tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
+
+        binding.llDayHeaderContainer.removeAllViews()
+        val daysArray = if (table.sundayFirst) {
+            arrayOf("日", "周一", "周二", "周三", "周四", "周五", "周六")
+        } else {
+            arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+        }
+
+        val totalDays = 7
+        for (i in 0 until totalDays) {
+            val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
+            val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
+            val resolved = cn.edu.usst.jwgl.data.wakeup.CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
+
+            val dayExams = if (isExamWeek) {
+                cachedExams.filter { it.getDateString() == fullDateStr }
+            } else {
+                emptyList()
+            }
+
+            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
+            if (!table.showSat && dayNumber == 6 && !hasContent) continue
+            if (!table.showSun && dayNumber == 7 && !hasContent) continue
+
+            val isToday = (dayNumber == todayWeekday && week == curWeek)
+
+            val dayView = android.widget.LinearLayout(this).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+                orientation = android.widget.LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER
+                if (isToday) {
+                    background = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.badge_bg)
+                }
+            }
+
+            val tvDayName = android.widget.TextView(this).apply {
+                val badge = when {
+                    resolved.isHolidayOff -> " [休]"
+                    resolved.isSwapped -> " [调]"
+                    isExamWeek && dayExams.isNotEmpty() -> " [考]"
+                    else -> ""
+                }
+                text = "${daysArray[i]}$badge"
+                textSize = if (badge.isNotEmpty()) 10.5f else 12f
+                typeface = if (isToday) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                setTextColor(if (isToday) androidx.core.content.ContextCompat.getColor(context, R.color.primary) else if (resolved.isHolidayOff) 0xFF4CAF50.toInt() else androidx.core.content.ContextCompat.getColor(context, R.color.text_primary))
+                gravity = android.view.Gravity.CENTER
+            }
+
+            val tvDayDate = android.widget.TextView(this).apply {
+                val dateStr = if (i + 1 < dateStrings.size) dateStrings[i + 1] else ""
+                text = "$dateStr 日"
+                textSize = 10.5f
+                setTextColor(if (isToday) androidx.core.content.ContextCompat.getColor(context, R.color.primary) else androidx.core.content.ContextCompat.getColor(context, R.color.text_secondary))
+                gravity = android.view.Gravity.CENTER
+            }
+
+            dayView.addView(tvDayName)
+            dayView.addView(tvDayDate)
+            binding.llDayHeaderContainer.addView(dayView)
+        }
     }
 
     private fun displayProfile(profile: StudentProfile?) {

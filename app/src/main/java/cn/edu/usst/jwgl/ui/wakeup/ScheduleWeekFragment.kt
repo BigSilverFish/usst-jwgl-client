@@ -4,6 +4,9 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Build
+import eightbitlab.com.blurview.BlurView
+import eightbitlab.com.blurview.RenderEffectBlur
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -33,8 +36,7 @@ class ScheduleWeekFragment : Fragment() {
     private var week: Int = 1
     private var tableId: Int = -1
 
-    private lateinit var tvMonthHeader: TextView
-    private lateinit var llDayHeaderContainer: LinearLayout
+    private lateinit var svScheduleContent: androidx.core.widget.NestedScrollView
     private lateinit var llSidebarNodes: LinearLayout
     private lateinit var llWeekColumnsContainer: LinearLayout
     private lateinit var flScheduleContent: FrameLayout
@@ -53,8 +55,7 @@ class ScheduleWeekFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_schedule_week, container, false)
-        tvMonthHeader = view.findViewById(R.id.tvMonthHeader)
-        llDayHeaderContainer = view.findViewById(R.id.llDayHeaderContainer)
+        svScheduleContent = view.findViewById(R.id.svScheduleContent)
         llSidebarNodes = view.findViewById(R.id.llSidebarNodes)
         llWeekColumnsContainer = view.findViewById(R.id.llWeekColumnsContainer)
         flScheduleContent = view.findViewById(R.id.flScheduleContent)
@@ -115,69 +116,10 @@ class ScheduleWeekFragment : Fragment() {
         val afternoonEndNode = if (table.nodes <= 12) 9 else 10
         val eveningStartNode = afternoonEndNode + 1
 
-        // 1. Month Header
-        tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
-
-        // 2. Day Headers
-        llDayHeaderContainer.removeAllViews()
-        val daysArray = if (table.sundayFirst) {
-            arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
-        } else {
-            arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-        }
-
-        val totalDays = 7
-        for (i in 0 until totalDays) {
-            val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
-            val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
-            val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
-
-            val dayExams = if (isExamWeek) {
-                cachedExams.filter { it.getDateString() == fullDateStr }
-            } else {
-                emptyList()
-            }
-
-            val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
-            if (!table.showSat && dayNumber == 6 && !hasContent) continue
-            if (!table.showSun && dayNumber == 7 && !hasContent) continue
-
-            val isToday = (dayNumber == todayWeekday && week == curWeek)
-
-            val dayView = LinearLayout(context).apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                if (isToday) {
-                    background = ContextCompat.getDrawable(context, R.drawable.badge_bg)
-                }
-            }
-
-            val tvDayName = TextView(context).apply {
-                val badge = when {
-                    resolved.isHolidayOff -> " [休]"
-                    resolved.isSwapped -> " [补]"
-                    isExamWeek && dayExams.isNotEmpty() -> " [考]"
-                    else -> ""
-                }
-                text = "${daysArray[i]}$badge"
-                textSize = if (badge.isNotEmpty()) 10.5f else 12f
-                typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                setTextColor(if (isToday) ContextCompat.getColor(context, R.color.primary) else if (resolved.isHolidayOff) 0xFF4CAF50.toInt() else ContextCompat.getColor(context, R.color.text_primary))
-                gravity = Gravity.CENTER
-            }
-
-            val tvDayDate = TextView(context).apply {
-                val dateStr = if (i + 1 < dateStrings.size) dateStrings[i + 1] else ""
-                text = "$dateStr 日"
-                textSize = 10.5f
-                setTextColor(if (isToday) ContextCompat.getColor(context, R.color.primary) else ContextCompat.getColor(context, R.color.text_secondary))
-                gravity = Gravity.CENTER
-            }
-
-            dayView.addView(tvDayName)
-            dayView.addView(tvDayDate)
-            llDayHeaderContainer.addView(dayView)
+        // Adjust svScheduleContent padding so content starts right below the floating unified top bar
+        svScheduleContent.post {
+            val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(120f)
+            svScheduleContent.setPadding(0, topPad, 0, 24)
         }
 
         // 3. Sidebar Nodes
@@ -274,6 +216,7 @@ class ScheduleWeekFragment : Fragment() {
         // 4. Week Columns and Course Cards
         llWeekColumnsContainer.removeAllViews()
 
+        val totalDays = 7
         for (i in 0 until totalDays) {
             val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
             val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
@@ -468,7 +411,9 @@ class ScheduleWeekFragment : Fragment() {
                         // Non-current week
                         setTextColor(0xFF555555.toInt())
                         alpha = 0.65f
-                        bgDrawable.setColor(Color.parseColor("#$alphaHex" + "CCCCCC"))
+                        val isDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                        val inactiveHex = if (isDark) "252830" else "CCCCCC"
+                        bgDrawable.setColor(Color.parseColor("#$alphaHex$inactiveHex"))
                     }
                     background = bgDrawable
 

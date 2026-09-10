@@ -9,9 +9,9 @@
         <item name="colorSecondaryContainer">@color/secondary_container</item>
         <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
 
-        <item name="android:statusBarColor">@color/surface</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
         <item name="android:windowBackground">@color/background</item>
 
@@ -23,10 +23,9 @@
     </style>
 
     <style name="Widget.Usst.BottomNavigationView" parent="Widget.Material3.BottomNavigationView">
-        <item name="backgroundTint">@color/surface</item>
+        <item name="android:background">@android:color/transparent</item>
         <item name="itemIconTint">@color/primary</item>
         <item name="itemTextColor">@color/text_primary</item>
-        <item name="itemActiveIndicatorStyle">@style/Widget.Material3.BottomNavigationView.ActiveIndicator</item>
-        <item name="elevation">8dp</item>
+        <item name="elevation">0dp</item>
     </style>
 </resources>

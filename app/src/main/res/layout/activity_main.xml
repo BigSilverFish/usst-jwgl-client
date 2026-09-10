@@ -17,18 +17,22 @@
             android:id="@+id/layoutProfile"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/background"
             android:visibility="visible">
 
             <androidx.core.widget.NestedScrollView
                 android:id="@+id/scrollProfile"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent">
+                android:layout_height="match_parent"
+                android:clipToPadding="false">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="20dp">
+                android:paddingHorizontal="20dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="96dp">
 
                 <!-- Profile Summary Card -->
                 <com.google.android.material.card.MaterialCardView
@@ -688,236 +692,18 @@
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
         <!-- 2. Timetable Section -->
-        <LinearLayout
+        <FrameLayout
             android:id="@+id/layoutTimetable"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical"
+            android:background="@color/background"
             android:visibility="gone">
 
-            <!-- Controls Header Bar -->
-            <LinearLayout
+            <!-- WakeUP Multi-Week ViewPager2 (Full Screen behind floating top bar) -->
+            <androidx.viewpager2.widget.ViewPager2
+                android:id="@+id/vpSchedule"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@color/surface"
-                android:paddingHorizontal="14dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="6dp">
-
-                <!-- Row 1: Semester Selector + Week Badge + Actions -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <!-- Clickable Semester Selector -->
-                    <LinearLayout
-                        android:id="@+id/btnSelectSemester"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:background="?attr/selectableItemBackground"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:paddingVertical="4dp">
-
-                        <TextView
-                            android:id="@+id/tvTimetableSemester"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="2026-2027学年&#10;第1学期"
-                            android:textColor="@color/text_primary"
-                            android:textSize="13.5sp"
-                            android:lineSpacingExtra="1dp"
-                            android:maxLines="2"
-                            android:textStyle="bold" />
-
-                        <ImageView
-                            android:layout_width="18dp"
-                            android:layout_height="18dp"
-                            android:src="@drawable/ic_arrow_drop_down"
-                            app:tint="@color/text_secondary" />
-                    </LinearLayout>
-
-                    <!-- Clickable Week Selector Capsule Button -->
-                    <LinearLayout
-                        android:id="@+id/btnSelectWeek"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/badge_bg_clickable"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingHorizontal="9dp"
-                        android:paddingVertical="4dp">
-
-                        <TextView
-                            android:id="@+id/tvCurrentWeekIndicator"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="第 1 周 (本周)"
-                            android:textColor="@color/primary"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                        <ImageView
-                            android:layout_width="14dp"
-                            android:layout_height="14dp"
-                            android:layout_marginStart="2dp"
-                            android:src="@drawable/ic_arrow_drop_down"
-                            app:tint="@color/primary" />
-                    </LinearLayout>
-
-                    <!-- Schedule Manager Button (WakeUP style) -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnScheduleManager"
-                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:layout_marginStart="6dp"
-                        android:padding="0dp"
-                        android:contentDescription="课表管理"
-                        app:icon="@drawable/ic_tune"
-                        app:iconGravity="textStart"
-                        app:iconPadding="0dp"
-                        app:iconSize="20dp"
-                        app:iconTint="@color/text_secondary" />
-
-                    <!-- Font Size Setting Button (Vector Icon) -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnFontSize"
-                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:layout_marginStart="6dp"
-                        android:padding="0dp"
-                        android:contentDescription="调整字号"
-                        app:icon="@drawable/ic_format_size"
-                        app:iconGravity="textStart"
-                        app:iconPadding="0dp"
-                        app:iconSize="20dp"
-                        app:iconTint="@color/text_secondary" />
-
-                    <!-- Add Course Button (Vector Icon) -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnAddCourse"
-                        style="@style/Widget.Material3.Button.IconButton.Filled"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:layout_marginStart="6dp"
-                        android:padding="0dp"
-                        android:contentDescription="添加课程"
-                        app:icon="@drawable/ic_add"
-                        app:iconGravity="textStart"
-                        app:iconPadding="0dp"
-                        app:iconSize="20dp"
-                        app:iconTint="@color/on_primary" />
-                </LinearLayout>
-
-                <!-- Row 2: Sync status & Filter toggle -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/tvTimetableSyncTime"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="本地缓存 · 刚刚更新"
-                        android:textColor="@color/text_tertiary"
-                        android:textSize="11sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnExamQuery"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:layout_marginEnd="6dp"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="0dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:text="考试查询"
-                        android:textSize="11sp"
-                        app:icon="@drawable/ic_exam"
-                        app:iconSize="14dp"
-                        app:iconPadding="4dp"
-                        app:iconTint="@color/primary" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipFilterOnlyCurrentWeek"
-                        style="@style/Widget.Material3.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:checkable="true"
-                        android:checked="true"
-                        android:text="仅本周课程"
-                        android:textSize="11sp" />
-
-                    <!-- Refresh Button (Vector Icon) -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnRefreshTimetable"
-                        style="@style/Widget.Material3.Button.IconButton"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:padding="0dp"
-                        android:contentDescription="刷新课表"
-                        app:icon="@drawable/ic_refresh"
-                        app:iconGravity="textStart"
-                        app:iconPadding="0dp"
-                        app:iconSize="18dp"
-                        app:iconTint="@color/primary" />
-                </LinearLayout>
-
-                <!-- Row 3: Historical Semester Notification Banner -->
-                <LinearLayout
-                    android:id="@+id/layoutHistoricalBanner"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:background="@drawable/badge_bg"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="5dp"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:id="@+id/tvHistoricalBannerText"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="正在浏览历史学期 (非提醒课表)"
-                        android:textColor="@color/primary"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSetActiveSemester"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:text="设为主课表"
-                        android:textColor="@color/primary"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-            </LinearLayout>
-
-
+                android:layout_height="match_parent" />
 
             <ProgressBar
                 android:id="@+id/timetableProgressBar"
@@ -927,30 +713,462 @@
                 android:layout_margin="32dp"
                 android:visibility="gone" />
 
-            <!-- WakeUP Multi-Week ViewPager2 -->
-            <androidx.viewpager2.widget.ViewPager2
-                android:id="@+id/vpSchedule"
+            <!-- Unified Floating Frosted Glass Top Bar (Controls + Weekdays) -->
+            <eightbitlab.com.blurview.BlurView
+                android:id="@+id/blurViewTopBar"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
+                android:layout_height="wrap_content"
+                android:layout_gravity="top">
 
-        </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/headerTimetableContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_glass_top_bar">
+
+                    <!-- Controls Header Bar -->
+                    <LinearLayout
+                        android:id="@+id/headerTimetable"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="14dp"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="6dp">
+
+                        <!-- Row 1: Semester Selector + Week Badge + Actions -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <!-- Clickable Semester Selector -->
+                            <LinearLayout
+                                android:id="@+id/btnSelectSemester"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:background="?attr/selectableItemBackground"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:paddingVertical="4dp">
+
+                                <TextView
+                                    android:id="@+id/tvTimetableSemester"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="2026-2027学年&#10;第1学期"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="13.5sp"
+                                    android:lineSpacingExtra="1dp"
+                                    android:maxLines="2"
+                                    android:textStyle="bold" />
+
+                                <ImageView
+                                    android:layout_width="18dp"
+                                    android:layout_height="18dp"
+                                    android:src="@drawable/ic_arrow_drop_down"
+                                    app:tint="@color/text_secondary" />
+                            </LinearLayout>
+
+                            <!-- Clickable Week Selector Capsule Button -->
+                            <LinearLayout
+                                android:id="@+id/btnSelectWeek"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:background="@drawable/badge_bg_clickable"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingHorizontal="9dp"
+                                android:paddingVertical="4dp">
+
+                                <TextView
+                                    android:id="@+id/tvCurrentWeekIndicator"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="第 1 周 (本周)"
+                                    android:textColor="@color/primary"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+
+                                <ImageView
+                                    android:layout_width="14dp"
+                                    android:layout_height="14dp"
+                                    android:layout_marginStart="2dp"
+                                    android:src="@drawable/ic_arrow_drop_down"
+                                    app:tint="@color/primary" />
+                            </LinearLayout>
+
+                            <!-- Schedule Manager Button -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnScheduleManager"
+                                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                                android:layout_width="36dp"
+                                android:layout_height="36dp"
+                                android:layout_marginStart="6dp"
+                                android:padding="0dp"
+                                android:contentDescription="课表管理"
+                                app:icon="@drawable/ic_tune"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconSize="20dp"
+                                app:iconTint="@color/text_secondary" />
+
+                            <!-- Font Size Setting Button -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnFontSize"
+                                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                                android:layout_width="36dp"
+                                android:layout_height="36dp"
+                                android:layout_marginStart="6dp"
+                                android:padding="0dp"
+                                android:contentDescription="字号"
+                                app:icon="@drawable/ic_format_size"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconSize="20dp"
+                                app:iconTint="@color/text_secondary" />
+
+                            <!-- Add Course Button -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnAddCourse"
+                                style="@style/Widget.Material3.Button.IconButton.Filled"
+                                android:layout_width="36dp"
+                                android:layout_height="36dp"
+                                android:layout_marginStart="6dp"
+                                android:padding="0dp"
+                                android:contentDescription="添加课程"
+                                app:icon="@drawable/ic_add"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconSize="20dp"
+                                app:iconTint="@color/on_primary" />
+                        </LinearLayout>
+
+                        <!-- Row 2: Sync status & Filter toggle -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:id="@+id/tvTimetableSyncTime"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="本地缓存 · 刚刚更新"
+                                android:textColor="@color/text_tertiary"
+                                android:textSize="11sp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnExamQuery"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="32dp"
+                                android:layout_marginEnd="6dp"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="0dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="考试查询"
+                                android:textSize="11sp"
+                                app:icon="@drawable/ic_exam"
+                                app:iconSize="14dp"
+                                app:iconPadding="4dp"
+                                app:iconTint="@color/primary" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipFilterOnlyCurrentWeek"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="32dp"
+                                android:checkable="true"
+                                android:checked="true"
+                                android:text="仅本周课程"
+                                android:textSize="11sp" />
+
+                            <!-- Refresh Button -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnRefreshTimetable"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="32dp"
+                                android:layout_height="32dp"
+                                android:padding="0dp"
+                                android:contentDescription="刷新课表"
+                                app:icon="@drawable/ic_refresh"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconSize="18dp"
+                                app:iconTint="@color/primary" />
+                        </LinearLayout>
+
+                        <!-- Row 3: Historical Semester Notification Banner -->
+                        <LinearLayout
+                            android:id="@+id/layoutHistoricalBanner"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/badge_bg"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:paddingHorizontal="10dp"
+                            android:paddingVertical="5dp"
+                            android:visibility="gone">
+
+                            <TextView
+                                android:id="@+id/tvHistoricalBannerText"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="历史学期 (只读课表)"
+                                android:textColor="@color/primary"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnSetActiveSemester"
+                                style="@style/Widget.Material3.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="32dp"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:text="设为当前课表"
+                                android:textColor="@color/primary"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Integrated Weekday Date Header Bar -->
+                    <LinearLayout
+                        android:id="@+id/llHeaderBar"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <!-- Month Box (Matches Sidebar Width) -->
+                        <TextView
+                            android:id="@+id/tvMonthHeader"
+                            android:layout_width="40dp"
+                            android:layout_height="match_parent"
+                            android:gravity="center"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_secondary"
+                            android:lineSpacingExtra="1dp"
+                            android:text="9\n月" />
+
+                        <!-- 7 Days Header Containers (Mon - Sun) -->
+                        <LinearLayout
+                            android:id="@+id/llDayHeaderContainer"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:orientation="horizontal" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </eightbitlab.com.blurview.BlurView>
+
+        </FrameLayout>
 
         <!-- 3. Grades Section -->
-        <LinearLayout
+        <FrameLayout
             android:id="@+id/layoutGrades"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical"
+            android:background="@color/background"
             android:visibility="gone">
 
-            <!-- Controls Header Bar (Matches Timetable Top Bar Style) -->
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/swipeRefreshGrades"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <androidx.core.widget.NestedScrollView
+                    android:id="@+id/scrollGrades"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:fillViewport="true"
+                    android:clipToPadding="false"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="96dp">
+
+                    <LinearLayout
+                        android:id="@+id/llGradesContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <!-- Space for floating headerGrades -->
+                        <View
+                            android:id="@+id/viewGradesHeaderSpacing"
+                            android:layout_width="match_parent"
+                            android:layout_height="76dp" />
+
+                        <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardStatisticsOverview"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="@color/hero_card_bg"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="2dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingVertical="18dp"
+                        android:paddingHorizontal="12dp">
+
+                        <!-- Col 1: Credits -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvCreditsTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="累计修读学分"
+                                android:textColor="@color/hero_card_title"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvCumulativeCredits"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="--"
+                                android:textColor="@color/hero_card_val"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="1dp"
+                            android:layout_height="36dp"
+                            android:layout_gravity="center_vertical"
+                            android:background="@color/hero_card_divider" />
+
+                        <!-- Col 2: Weighted Average (100-pt) -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvAvgScoreTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="加权平均分"
+                                android:textColor="@color/hero_card_title"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvCumulativeAvgScore"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="--"
+                                android:textColor="@color/hero_card_val"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="1dp"
+                            android:layout_height="36dp"
+                            android:layout_gravity="center_vertical"
+                            android:background="@color/hero_card_divider" />
+
+                        <!-- Col 3: GPA -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvGpaTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="平均学分绩点"
+                                android:textColor="@color/hero_card_title"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvCumulativeGpa"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="--"
+                                android:textColor="@color/hero_card_val"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                        <ProgressBar
+                            android:id="@+id/gradesProgressBar"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:layout_margin="24dp"
+                            android:visibility="gone" />
+
+                        <!-- Courses RecyclerView -->
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/rvGrades"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:nestedScrollingEnabled="false" />
+
+                    </LinearLayout>
+                </androidx.core.widget.NestedScrollView>
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <!-- Floating Controls Header Bar with BlurView and Progressive Fade -->
+            <LinearLayout
+                android:id="@+id/llGradesHeaderContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_gravity="top">
+
+                <eightbitlab.com.blurview.BlurView
+                    android:id="@+id/blurViewGradesHeader"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <!-- Controls Header Bar (Matches Timetable Top Bar Style) -->
             <LinearLayout
                 android:id="@+id/headerGrades"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@color/surface"
+                android:background="@drawable/bg_glass_top_bar"
                 android:paddingHorizontal="14dp"
                 android:paddingTop="8dp"
                 android:paddingBottom="6dp">
@@ -1063,165 +1281,33 @@
                         android:textSize="11sp" />
                 </LinearLayout>
             </LinearLayout>
+                </eightbitlab.com.blurview.BlurView>
 
-            <!-- Inner Content Area -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="12dp">
-
-                <!-- Dynamic Statistics Overview Card -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/cardStatisticsOverview"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    app:cardBackgroundColor="@color/hero_card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:paddingVertical="18dp"
-                        android:paddingHorizontal="12dp">
-
-                        <!-- Col 1: Credits -->
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:gravity="center"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvCreditsTitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="累计修读学分"
-                                android:textColor="@color/hero_card_title"
-                                android:textSize="11sp" />
-
-                            <TextView
-                                android:id="@+id/tvCumulativeCredits"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="--"
-                                android:textColor="@color/hero_card_val"
-                                android:textSize="20sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="1dp"
-                            android:layout_height="36dp"
-                            android:layout_gravity="center_vertical"
-                            android:background="@color/hero_card_divider" />
-
-                        <!-- Col 2: Weighted Average (100-pt) -->
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:gravity="center"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvAvgScoreTitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="加权平均分"
-                                android:textColor="@color/hero_card_title"
-                                android:textSize="11sp" />
-
-                            <TextView
-                                android:id="@+id/tvCumulativeAvgScore"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="--"
-                                android:textColor="@color/hero_card_val"
-                                android:textSize="20sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="1dp"
-                            android:layout_height="36dp"
-                            android:layout_gravity="center_vertical"
-                            android:background="@color/hero_card_divider" />
-
-                        <!-- Col 3: GPA -->
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:gravity="center"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvGpaTitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="平均学分绩点"
-                                android:textColor="@color/hero_card_title"
-                                android:textSize="11sp" />
-
-                            <TextView
-                                android:id="@+id/tvCumulativeGpa"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="--"
-                                android:textColor="@color/hero_card_val"
-                                android:textSize="20sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <ProgressBar
-                    android:id="@+id/gradesProgressBar"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_margin="24dp"
-                    android:visibility="gone" />
-
-                <!-- Courses RecyclerView with SwipeRefreshLayout -->
-                <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                    android:id="@+id/swipeRefreshGrades"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_weight="1">
-
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/rvGrades"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:clipToPadding="false"
-                        android:paddingBottom="16dp" />
-                </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
             </LinearLayout>
 
-        </LinearLayout>
+        </FrameLayout>
 
     </FrameLayout>
 
-    <!-- M3 Bottom Navigation Bar -->
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottomNav"
-        style="@style/Widget.Usst.BottomNavigationView"
+    <!-- M3 Compact Bottom Navigation Bar with BlurView -->
+    <eightbitlab.com.blurview.BlurView
+        android:id="@+id/blurViewBottomNav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        app:menu="@menu/bottom_nav_menu" />
+        android:layout_gravity="bottom">
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottomNav"
+            style="@style/Widget.Usst.BottomNavigationView"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_glass_bottom_bar"
+            app:elevation="0dp"
+            app:itemPaddingTop="4dp"
+            app:itemPaddingBottom="4dp"
+            app:labelVisibilityMode="labeled"
+            app:menu="@menu/bottom_nav_menu" />
+    </eightbitlab.com.blurview.BlurView>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

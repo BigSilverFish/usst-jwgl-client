@@ -29,3 +29,7 @@
 
 # Keep EncryptedSharedPreferences
 -keep class androidx.security.crypto.** { *; }
+
+# BlurView
+-keep class eightbitlab.com.blurview.** { *; }
+-dontwarn eightbitlab.com.blurview.**

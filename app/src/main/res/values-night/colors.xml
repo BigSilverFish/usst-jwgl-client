@@ -19,6 +19,10 @@
     <!-- Dark Surface Hierarchy (OLED-friendly yet low eye-strain M3 grays) -->
     <color name="background">#121316</color>
     <color name="surface">#1B1C20</color>
+    <color name="surface_glass">#991B1C20</color>
+    <color name="surface_glass_dense">#B31B1C20</color>
+    <color name="surface_glass_translucent">#801B1C20</color>
+    <color name="bottom_nav_glass">#991B1C20</color>
     <color name="surface_variant">#24262C</color>
     <color name="surface_container">#2C2F36</color>
     <color name="surface_container_high">#353942</color>

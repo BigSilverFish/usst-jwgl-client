@@ -1,9 +1,9 @@
 {
   "app_version": {
-    "version_code": 1,
-    "version_name": "1.0.0",
-    "release_date": "2026-09-09",
-    "release_notes": "重构全新课程表架构，支持多时段管理与官方作息时间校准。",
+    "version_code": 2,
+    "version_name": "1.1.0",
+    "release_date": "2026-09-10",
+    "release_notes": "1. 全面升级沉浸式透明状态栏与导航栏\n2. 顶栏全块一体化毛玻璃与无缝视觉重构\n3. 导航底栏收窄优化与课表底部留白精简至24px\n4. 成绩查询总览卡片联动整体流畅划动\n5. 边界内严格渐变平滑过渡与首屏零模糊优化",
     "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases",
     "force_update": false
   },

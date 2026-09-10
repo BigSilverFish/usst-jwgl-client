@@ -18,6 +18,10 @@
 
     <color name="background">#F8F9FA</color>
     <color name="surface">#FFFFFF</color>
+    <color name="surface_glass">#99FFFFFF</color>
+    <color name="surface_glass_dense">#B3FFFFFF</color>
+    <color name="surface_glass_translucent">#80FFFFFF</color>
+    <color name="bottom_nav_glass">#99FFFFFF</color>
     <color name="surface_variant">#F2F4F7</color>
     <color name="surface_container">#EDF0F3</color>
     <color name="surface_container_high">#E4E7EC</color>
