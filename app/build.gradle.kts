@@ -9,11 +9,11 @@ android {
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
-        applicationId = "cn.bigsilverfish.usst.jwgl"
+        applicationId = "bsf.usst.jwgl"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 1
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -116,10 +116,11 @@ class ScheduleWeekFragment : Fragment() {
         val afternoonEndNode = if (table.nodes <= 12) 9 else 10
         val eveningStartNode = afternoonEndNode + 1
 
-        // Adjust svScheduleContent padding so content starts right below the floating unified top bar
+        // Adjust svScheduleContent padding so content starts right below the floating unified top bar and clears bottom bar
         svScheduleContent.post {
             val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(120f)
-            svScheduleContent.setPadding(0, topPad, 0, 24)
+            val bottomPad = (cn.edu.usst.jwgl.ui.MainActivity.bottomBarHeightPx.takeIf { it > 0 } ?: dpToPx(72f)) + 24
+            svScheduleContent.setPadding(0, topPad, 0, bottomPad)
         }
 
         // 3. Sidebar Nodes

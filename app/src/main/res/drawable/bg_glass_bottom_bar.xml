@@ -3,6 +3,6 @@
     android:shape="rectangle">
     <gradient
         android:angle="90"
-        android:startColor="@color/surface_glass_dense"
-        android:endColor="@color/surface_glass_translucent" />
+        android:startColor="@color/bottom_nav_glass_start"
+        android:endColor="@color/bottom_nav_glass_end" />
 </shape>

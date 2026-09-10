@@ -3,14 +3,13 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
+    android:fitsSystemWindows="false"
     android:background="@color/background">
 
     <FrameLayout
         android:id="@+id/mainContentFrame"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_marginBottom="72dp">
+        android:layout_height="match_parent">
 
         <!-- 1. Profile Section -->
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -32,7 +31,7 @@
                 android:orientation="vertical"
                 android:paddingHorizontal="20dp"
                 android:paddingTop="16dp"
-                android:paddingBottom="96dp">
+                android:paddingBottom="24px">
 
                 <!-- Profile Summary Card -->
                 <com.google.android.material.card.MaterialCardView
@@ -659,15 +658,7 @@
                             app:iconPadding="8dp"
                             app:cornerRadius="12dp" />
 
-                        <TextView
-                            android:id="@+id/tvDailySyncHint"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:gravity="center"
-                            android:text="每天首次启动自动拉取更新与调休信息"
-                            android:textColor="@color/text_tertiary"
-                            android:textSize="11sp" />
+
 
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
@@ -978,6 +969,12 @@
                             android:orientation="horizontal" />
                     </LinearLayout>
 
+                    <!-- Bottom Border Line for Timetable Top Bar -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.8dp"
+                        android:background="@color/border" />
+
                 </LinearLayout>
             </eightbitlab.com.blurview.BlurView>
 
@@ -1004,7 +1001,7 @@
                     android:clipToPadding="false"
                     android:paddingHorizontal="16dp"
                     android:paddingTop="12dp"
-                    android:paddingBottom="96dp">
+                    android:paddingBottom="24px">
 
                     <LinearLayout
                         android:id="@+id/llGradesContent"
@@ -1145,6 +1142,18 @@
                             android:layout_marginTop="10dp"
                             android:nestedScrollingEnabled="false" />
 
+                        <TextView
+                            android:id="@+id/tvGradesWatermark"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:layout_marginTop="-9dp"
+                            android:paddingTop="0dp"
+                            android:paddingBottom="0dp"
+                            android:text="GitHub@BigSilverFish"
+                            android:textColor="#C0C0C0"
+                            android:textSize="11sp" />
+
                     </LinearLayout>
                 </androidx.core.widget.NestedScrollView>
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
@@ -1162,16 +1171,22 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <!-- Controls Header Bar (Matches Timetable Top Bar Style) -->
-            <LinearLayout
-                android:id="@+id/headerGrades"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/bg_glass_top_bar"
-                android:paddingHorizontal="14dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="6dp">
+                    <LinearLayout
+                        android:id="@+id/headerGradesContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_glass_top_bar">
+
+                        <!-- Controls Header Bar (Matches Timetable Top Bar Style) -->
+                        <LinearLayout
+                            android:id="@+id/headerGrades"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingHorizontal="14dp"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="6dp">
 
                 <!-- Row 1: Semester Selector + Scope Badge + Action Buttons -->
                 <LinearLayout
@@ -1281,6 +1296,13 @@
                         android:textSize="11sp" />
                 </LinearLayout>
             </LinearLayout>
+
+            <!-- Bottom Border Line for Grades Top Bar (Edge-to-Edge at the very bottom) -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.8dp"
+                android:background="@color/border" />
+        </LinearLayout>
                 </eightbitlab.com.blurview.BlurView>
 
 
@@ -1297,17 +1319,39 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom">
 
-        <com.google.android.material.bottomnavigation.BottomNavigationView
-            android:id="@+id/bottomNav"
-            style="@style/Widget.Usst.BottomNavigationView"
+        <LinearLayout
+            android:id="@+id/llBottomNavContainer"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:background="@drawable/bg_glass_bottom_bar"
-            app:elevation="0dp"
-            app:itemPaddingTop="4dp"
-            app:itemPaddingBottom="4dp"
-            app:labelVisibilityMode="labeled"
-            app:menu="@menu/bottom_nav_menu" />
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_glass_bottom_bar">
+
+            <!-- Top Border Line for Bottom Nav Bar -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.8dp"
+                android:background="@color/border" />
+
+            <com.google.android.material.bottomnavigation.BottomNavigationView
+                android:id="@+id/bottomNav"
+                style="@style/Widget.Usst.BottomNavigationView"
+                android:layout_width="match_parent"
+                android:layout_height="71dp"
+                android:background="@android:color/transparent"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                app:elevation="0dp"
+                app:itemPaddingTop="4dp"
+                app:itemPaddingBottom="2dp"
+                app:labelVisibilityMode="labeled"
+                app:menu="@menu/bottom_nav_menu" />
+
+            <!-- Navigation Bar / Full Screen Gesture Inset Spacer -->
+            <View
+                android:id="@+id/viewNavBarSpacer"
+                android:layout_width="match_parent"
+                android:layout_height="0dp" />
+        </LinearLayout>
     </eightbitlab.com.blurview.BlurView>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -19,6 +19,13 @@
         android:supportsRtl="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.UsstJwgl">
+
+        <meta-data
+            android:name="android.max_aspect"
+            android:value="2.4" />
+        <meta-data
+            android:name="notch.config"
+            android:value="portrait|landscape" />
         
         <activity
             android:name=".ui.LoginActivity"

@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PROFILE = "extra_student_profile"
         var topBarHeightPx: Int = 0
+        var bottomBarHeightPx: Int = 0
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -140,6 +141,14 @@ class MainActivity : AppCompatActivity() {
 
         // Enable edge-to-edge immersive transparent system bars
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -150,9 +159,19 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        )
+
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
             val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val systemBarsInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val tappableInsets = insets.getInsets(WindowInsetsCompat.Type.tappableElement())
+            val mandatoryInsets = insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures())
             val density = resources.displayMetrics.density
 
             // Extend frosted top bar into status bar while keeping control items nicely positioned below
@@ -171,25 +190,70 @@ class MainActivity : AppCompatActivity() {
                 binding.headerGrades.paddingRight,
                 (6 * density).toInt()
             )
-            binding.scrollProfile.setPadding(
-                binding.scrollProfile.paddingLeft,
-                statusBarInsets.top,
-                binding.scrollProfile.paddingRight,
-                binding.scrollProfile.paddingBottom
+
+            // Dynamic bottom safe spacer for full screen gesture bar / 3-button navigation
+            val navBarBottom = maxOf(
+                navBarInsets.bottom,
+                systemBarsInsets.bottom,
+                tappableInsets.bottom,
+                mandatoryInsets.bottom
             )
+            val spacerHeight = maxOf(navBarBottom, (18 * density).toInt())
+            if (binding.viewNavBarSpacer.layoutParams.height != spacerHeight) {
+                binding.viewNavBarSpacer.layoutParams.height = spacerHeight
+                binding.viewNavBarSpacer.requestLayout()
+            }
+
+            // Reset bottomNav internal padding so items are not squashed or spread apart
+            binding.bottomNav.setPadding(0, 0, 0, 0)
+
+            // Shift bottomNav labels down slightly so they don't stick too close to the icons / active indicator
+            val applyBottomNavLabelAdjustment = {
+                val menuView = binding.bottomNav.getChildAt(0) as? ViewGroup
+                if (menuView != null) {
+                    menuView.clipChildren = false
+                    menuView.clipToPadding = false
+                    val shiftPx = 3.5f * density
+                    for (i in 0 until menuView.childCount) {
+                        val item = menuView.getChildAt(i) as? ViewGroup ?: continue
+                        item.clipChildren = false
+                        item.clipToPadding = false
+                        val labelGroup = item.findViewById<View>(com.google.android.material.R.id.navigation_bar_item_labels_group)
+                        labelGroup?.translationY = shiftPx
+                    }
+                }
+            }
+            binding.bottomNav.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                applyBottomNavLabelAdjustment()
+            }
+            binding.bottomNav.post {
+                applyBottomNavLabelAdjustment()
+            }
 
             // Adjust grades spacing view to match floating header height
-            val gradesHeaderHeight = statusBarInsets.top + (76 * density).toInt()
-            binding.viewGradesHeaderSpacing.layoutParams.height = gradesHeaderHeight
-            binding.viewGradesHeaderSpacing.requestLayout()
+            binding.blurViewGradesHeader.post {
+                val gradesHeaderH = binding.blurViewGradesHeader.height
+                if (gradesHeaderH > 0) {
+                    binding.viewGradesHeaderSpacing.layoutParams.height = gradesHeaderH
+                    binding.viewGradesHeaderSpacing.requestLayout()
+                }
+            }
 
-            // Extend bottom navigation bar behind navigation bar / gesture bar
-            binding.bottomNav.setPadding(
-                binding.bottomNav.paddingLeft,
-                binding.bottomNav.paddingTop,
-                binding.bottomNav.paddingRight,
-                navBarInsets.bottom
-            )
+            binding.blurViewBottomNav.post {
+                bottomBarHeightPx = binding.blurViewBottomNav.height
+                binding.scrollProfile.setPadding(
+                    binding.scrollProfile.paddingLeft,
+                    statusBarInsets.top,
+                    binding.scrollProfile.paddingRight,
+                    bottomBarHeightPx
+                )
+                binding.scrollGrades.setPadding(
+                    binding.scrollGrades.paddingLeft,
+                    binding.scrollGrades.paddingTop,
+                    binding.scrollGrades.paddingRight,
+                    bottomBarHeightPx
+                )
+            }
 
             insets
         }
