@@ -5,7 +5,12 @@ import cn.edu.usst.jwgl.data.model.TimetableData
 
 object WakeupScheduleImporter {
 
-    fun importTimetableData(db: AppDatabase, data: TimetableData, startDate: String = "2026-09-07"): TableBean {
+    fun importTimetableData(
+        db: AppDatabase,
+        data: TimetableData,
+        startDate: String = "2026-09-07",
+        setAsDefault: Boolean = true
+    ): TableBean {
         val tableName = if (data.semesterTitle.isNotBlank()) {
             data.semesterTitle
         } else {
@@ -30,7 +35,7 @@ object WakeupScheduleImporter {
                 timeTable = targetTimeTable,
                 showSat = hasWeekend,
                 showSun = hasWeekend,
-                type = 1
+                type = if (setAsDefault) 1 else 0
             )
             val newId = db.tableDao.insertTable(newTable).toInt()
             targetTable = newTable.copy(id = newId)
@@ -44,8 +49,10 @@ object WakeupScheduleImporter {
             db.tableDao.updateTable(targetTable)
         }
 
-        // Set as default
-        db.tableDao.setDefaultTable(targetTable.id)
+        // Set as default if requested
+        if (setAsDefault) {
+            db.tableDao.setDefaultTable(targetTable.id)
+        }
 
         // Clear existing courses in this table to sync fresh data
         val existingCourses = db.courseBaseDao.getCourseOfTable(targetTable.id)

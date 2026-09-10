@@ -19,6 +19,7 @@ class AuthPreferences(context: Context) {
         private const val KEY_PASSWORD = "pref_password"
         private const val KEY_AUTO_LOGIN = "pref_auto_login"
         private const val KEY_DISCLAIMER_AGREED = "pref_disclaimer_agreed"
+        private const val KEY_INITIAL_SYNC_COMPLETED = "pref_initial_sync_completed"
         private const val KEY_MIGRATED = "pref_migrated_to_encrypted"
 
         private fun createSecurePrefs(context: Context): SharedPreferences {
@@ -62,6 +63,12 @@ class AuthPreferences(context: Context) {
 
     fun setDisclaimerAgreed(agreed: Boolean) {
         prefs.edit().putBoolean(KEY_DISCLAIMER_AGREED, agreed).apply()
+    }
+
+    fun hasInitialSyncCompleted(): Boolean = prefs.getBoolean(KEY_INITIAL_SYNC_COMPLETED, false)
+
+    fun setInitialSyncCompleted(completed: Boolean) {
+        prefs.edit().putBoolean(KEY_INITIAL_SYNC_COMPLETED, completed).apply()
     }
 
     fun saveCredentials(studentId: String, password: String, autoLogin: Boolean) {

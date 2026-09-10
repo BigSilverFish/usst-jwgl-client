@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.ActivityLoginBinding
+import cn.edu.usst.jwgl.util.InitialSyncHelper
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -123,17 +124,23 @@ class LoginActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val result = JwglClient.login(studentId, password)
-            setLoadingState(false, false)
 
             result.onSuccess { profile ->
                 cacheManager.saveProfile(profile)
-                Toast.makeText(this@LoginActivity, "登录成功: ${profile.name}", Toast.LENGTH_SHORT).show()
+                if (!authPrefs.hasInitialSyncCompleted()) {
+                    InitialSyncHelper.performInitialSync(this@LoginActivity, studentId) { statusMsg ->
+                        binding.tvLoadingStatus.text = statusMsg
+                    }
+                }
+                setLoadingState(false, false)
+                Toast.makeText(this@LoginActivity, "欢迎回来: ${profile.name}", Toast.LENGTH_SHORT).show()
                 val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
                     putExtra(MainActivity.EXTRA_PROFILE, profile)
                 }
                 startActivity(intent)
                 finish()
             }.onFailure { error ->
+                setLoadingState(false, false)
                 val msg = error.message ?: "登录失败，请检查网络或账号密码"
                 binding.tvError.text = msg
                 binding.tvError.visibility = View.VISIBLE

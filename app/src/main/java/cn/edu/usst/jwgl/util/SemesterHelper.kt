@@ -42,6 +42,60 @@ object SemesterHelper {
         }
     }
 
+    /**
+     * 从课表名称（如 "2025-2026学年 第2学期" 或 "2024-2025-1"）中解析出 xnm 和 xqm
+     * 返回 Pair(xnm, xqm)，如 ("2025", "12")
+     */
+    fun parseSemesterFromTableName(tableName: String?): Pair<String, String>? {
+        if (tableName.isNullOrBlank()) return null
+        val regex = Regex("""(\d{4})[-~](\d{4})[^0-9]*第?\s*([123一二三])""")
+        val match = regex.find(tableName)
+        if (match != null) {
+            val xnm = match.groupValues[1]
+            val semNumStr = match.groupValues[3]
+            val xqm = when (semNumStr) {
+                "1", "一" -> "3"
+                "2", "二" -> "12"
+                "3", "三" -> "16"
+                else -> "3"
+            }
+            return Pair(xnm, xqm)
+        }
+        return null
+    }
+
+    /**
+     * 根据学生的入学年份（如 2024）和当前学期，获取从入学至当前学期的所有学期清单（按时间先后升序排列）
+     */
+    fun getSemestersToSync(enrollmentYear: Int? = null, cal: Calendar = getToday()): List<SemesterInfo> {
+        val (curXnm, curXqm) = getCurrentSemester(cal)
+        val curYear = curXnm.toIntOrNull() ?: 2026
+        // 如果入学年份有效（合理区间为当前年份前6年内），则从入学年开始；否则默认往前推 2 年
+        val startYear = if (enrollmentYear != null && enrollmentYear in (curYear - 6)..curYear) {
+            enrollmentYear
+        } else {
+            (curYear - 2).coerceAtLeast(2020)
+        }
+
+        val result = mutableListOf<SemesterInfo>()
+        for (y in startYear..curYear) {
+            val semMax = if (y == curYear) (if (curXqm == "3") 1 else 2) else 2
+            for (s in 1..semMax) {
+                val xqmVal = if (s == 1) "3" else "12"
+                val isCurrent = (y == curYear && xqmVal == curXqm)
+                result.add(
+                    SemesterInfo(
+                        title = "${y}-${y + 1}学年 第${s}学期",
+                        xnm = y.toString(),
+                        xqm = xqmVal,
+                        isCurrent = isCurrent
+                    )
+                )
+            }
+        }
+        return result
+    }
+
     fun getSemesterList(cal: Calendar = Calendar.getInstance()): List<SemesterInfo> {
         val (curXnm, curXqm) = getCurrentSemester(cal)
         val (nextXnm, nextXqm) = getNextSemester(curXnm, curXqm)

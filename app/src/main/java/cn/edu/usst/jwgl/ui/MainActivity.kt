@@ -34,6 +34,7 @@ import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
 import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.ExamHelper
+import cn.edu.usst.jwgl.util.InitialSyncHelper
 import cn.edu.usst.jwgl.util.SemesterHelper
 import cn.edu.usst.jwgl.util.ThemeManager
 import cn.edu.usst.jwgl.util.TimetableSettingHelper
@@ -160,6 +161,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         handleIntentExtras(intent)
+
+        val authPrefs = AuthPreferences(this)
+        if (!authPrefs.hasInitialSyncCompleted() && authPrefs.getStudentId().isNotEmpty()) {
+            lifecycleScope.launch {
+                binding.timetableProgressBar.visibility = View.VISIBLE
+                val res = InitialSyncHelper.performInitialSync(this@MainActivity, authPrefs.getStudentId())
+                binding.timetableProgressBar.visibility = View.GONE
+                res.onSuccess { count ->
+                    reloadTimetableFromDb()
+                    Toast.makeText(this@MainActivity, "已自动同步过往全部学期课表 ($count 个学期)", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -568,16 +582,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadTimetableFromNetwork() {
         binding.timetableProgressBar.visibility = View.VISIBLE
-        val (xnm, xqm) = SemesterHelper.getCurrentSemester()
+
+        // 动态解析当前正在查看的课表所对应的学年与学期
+        val parsedSem = SemesterHelper.parseSemesterFromTableName(currentTable?.tableName)
+        val (xnm, xqm) = parsedSem ?: SemesterHelper.getCurrentSemester()
+        val semNum = if (xqm == "3") "1" else if (xqm == "12") "2" else "3"
 
         lifecycleScope.launch {
             val result = JwglClient.fetchTimetable(xnm, xqm, context = this@MainActivity)
             binding.timetableProgressBar.visibility = View.GONE
 
             result.onSuccess { data ->
-                val semConfig = RemoteConfigManager.getSemesterConfig()
-                val startDate = semConfig.week1Monday.ifBlank { currentTable?.startDate ?: "2026-09-07" }
-                val importedTable = WakeupScheduleImporter.importTimetableData(db, data, startDate)
+                val remoteSemesters = RemoteConfigManager.getSemesters()
+                val matchedConfig = remoteSemesters.find {
+                    it.semesterId == "$xnm-${(xnm.toIntOrNull() ?: 2025) + 1}-$semNum" ||
+                    (it.semesterId.contains(xnm) && it.semesterId.endsWith(semNum)) ||
+                    it.semesterTitle.contains(data.semesterTitle)
+                }
+
+                val startDate = matchedConfig?.startDate?.takeIf { it.isNotBlank() }
+                    ?: currentTable?.startDate?.takeIf { it.isNotBlank() }
+                    ?: (if (semNum == "1") "$xnm-09-07" else "${(xnm.toIntOrNull() ?: 2025) + 1}-03-01")
+
+                val importedTable = WakeupScheduleImporter.importTimetableData(
+                    db = db,
+                    data = data,
+                    startDate = startDate,
+                    setAsDefault = true
+                )
                 withContext(Dispatchers.IO) {
                     db.tableDao.setDefaultTable(importedTable.id)
                 }
@@ -585,7 +617,6 @@ class MainActivity : AppCompatActivity() {
                 scheduleAdapter?.updateConfig(importedTable.maxWeek, importedTable.id)
 
                 // Check if current week is within exam sync window:
-                // "在考试周开始4周前至考试周结束时，刷新同步课表自动同步考试周"
                 val curWeek = CourseUtils.countWeek(importedTable.startDate)
                 var examSyncMsg = ""
                 if (ExamHelper.isExamSyncWindow(importedTable.tableName, curWeek)) {
@@ -604,7 +635,7 @@ class MainActivity : AppCompatActivity() {
                 reloadTimetableFromDb()
                 binding.tvTimetableSyncTime.text = "已联网同步 · 刚刚"
                 CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
-                Toast.makeText(this@MainActivity, "${data.semesterTitle} 课表导入成功$examSyncMsg", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "${data.semesterTitle} 课表同步成功$examSyncMsg", Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
                 Toast.makeText(this@MainActivity, "课表联网同步失败: ${error.message}", Toast.LENGTH_SHORT).show()
             }
