@@ -231,11 +231,10 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Adjust grades spacing view to match floating header height
-            binding.blurViewGradesHeader.post {
-                val gradesHeaderH = binding.blurViewGradesHeader.height
+            binding.llGradesHeaderContainer.post {
+                val gradesHeaderH = binding.llGradesHeaderContainer.height
                 if (gradesHeaderH > 0) {
-                    binding.viewGradesHeaderSpacing.layoutParams.height = gradesHeaderH
-                    binding.viewGradesHeaderSpacing.requestLayout()
+                    updateGradesHeaderSpacing(gradesHeaderH)
                 }
             }
 
@@ -582,6 +581,20 @@ class MainActivity : AppCompatActivity() {
         binding.rvGrades.layoutManager = LinearLayoutManager(this)
         binding.rvGrades.adapter = gradeAdapter
 
+        binding.headerTimetableContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val h = bottom - top
+            if (h > 0) {
+                topBarHeightPx = h
+            }
+        }
+
+        binding.llGradesHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val h = bottom - top
+            if (h > 0) {
+                updateGradesHeaderSpacing(h)
+            }
+        }
+
         binding.bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_timetable -> {
@@ -595,6 +608,9 @@ class MainActivity : AppCompatActivity() {
                     binding.layoutProfile.visibility = View.GONE
                     binding.layoutTimetable.visibility = View.GONE
                     binding.layoutGrades.visibility = View.VISIBLE
+                    binding.llGradesHeaderContainer.post {
+                        updateGradesHeaderSpacing(binding.llGradesHeaderContainer.height)
+                    }
                     if (gradeReport == null) {
                         showOrLoadGrades()
                     }
@@ -1159,14 +1175,27 @@ class MainActivity : AppCompatActivity() {
             .safeShow()
     }
 
+    private fun updateGradesHeaderSpacing(headerHeightPx: Int) {
+        if (headerHeightPx <= 0) return
+        if (binding.viewGradesHeaderSpacing.layoutParams.height != headerHeightPx) {
+            binding.viewGradesHeaderSpacing.layoutParams.height = headerHeightPx
+            binding.viewGradesHeaderSpacing.requestLayout()
+        }
+        val density = resources.displayMetrics.density
+        binding.swipeRefreshGrades.setProgressViewOffset(
+            false,
+            headerHeightPx,
+            headerHeightPx + (56 * density).toInt()
+        )
+    }
+
     private fun displayGrades(report: GradeReport) {
         updateGradesUI(report)
     }
 
     private fun updateGradesUI(report: GradeReport) {
         if (selectedGradeSemesterTitle.isEmpty()) {
-            binding.tvGradeSemester.text = "全部学期\n(汇总)"
-            binding.tvGradeScopeBadge.text = "全部汇总"
+            binding.tvGradeSemester.text = "全部学期"
             binding.tvCreditsTitle.text = "累计修读学分"
             binding.tvAvgScoreTitle.text = "加权平均分"
             binding.tvGpaTitle.text = "平均学分绩点"
@@ -1181,8 +1210,6 @@ class MainActivity : AppCompatActivity() {
             val sem = report.semesters.find { it.semesterTitle == selectedGradeSemesterTitle }
             if (sem != null) {
                 binding.tvGradeSemester.text = formatSemesterTitle(sem.semesterTitle)
-                val badgeText = if (sem.semesterTitle.contains("第1学期")) "第 1 学期" else if (sem.semesterTitle.contains("第2学期")) "第 2 学期" else "分学期"
-                binding.tvGradeScopeBadge.text = badgeText
                 binding.tvCreditsTitle.text = "学期修读学分"
                 binding.tvAvgScoreTitle.text = "学期加权均分"
                 binding.tvGpaTitle.text = "学期学分绩点"

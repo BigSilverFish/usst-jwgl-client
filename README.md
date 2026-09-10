@@ -108,7 +108,7 @@
 
 请前往 [Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 下载最新发布的 Release APK：
 
-- **最新稳定版**：[v1.0.0 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.0.0)
+- **最新稳定版**：[v1.0.1 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.0.1)
 - **安装要求**：Android 7.0 (API 24) 及以上版本的安卓手机。
 
 ---

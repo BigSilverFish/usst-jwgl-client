@@ -1013,7 +1013,7 @@
                         <View
                             android:id="@+id/viewGradesHeaderSpacing"
                             android:layout_width="match_parent"
-                            android:layout_height="76dp" />
+                            android:layout_height="115dp" />
 
                         <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cardStatisticsOverview"
@@ -1212,9 +1212,9 @@
                             android:id="@+id/tvGradeSemester"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="全部学期&#10;(汇总)"
+                            android:text="全部学期"
                             android:textColor="@color/text_primary"
-                            android:textSize="13.5sp"
+                            android:textSize="14sp"
                             android:lineSpacingExtra="1dp"
                             android:maxLines="2"
                             android:textStyle="bold" />
@@ -1222,22 +1222,10 @@
                         <ImageView
                             android:layout_width="18dp"
                             android:layout_height="18dp"
+                            android:layout_marginStart="2dp"
                             android:src="@drawable/ic_arrow_drop_down"
                             app:tint="@color/text_secondary" />
                     </LinearLayout>
-
-                    <!-- Scope Indicator Badge (e.g. 全部汇总 / 分学期) -->
-                    <TextView
-                        android:id="@+id/tvGradeScopeBadge"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/badge_bg"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="3dp"
-                        android:text="全部汇总"
-                        android:textColor="@color/primary"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
 
                     <!-- Download Reports & Certificates Button -->
                     <com.google.android.material.button.MaterialButton
