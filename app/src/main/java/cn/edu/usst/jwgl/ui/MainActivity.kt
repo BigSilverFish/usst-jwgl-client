@@ -183,6 +183,9 @@ class MainActivity : AppCompatActivity() {
             setTurnScreenOn(true)
         }
         reloadTimetableFromDb()
+        if (RemoteConfigManager.shouldPerformDailySync(this)) {
+            syncRemoteConfig(isManual = false)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -1088,7 +1091,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnCheckUpdate.setOnClickListener {
-            syncRemoteConfig(isManual = true)
+            syncRemoteConfig(isManual = true, force = true)
         }
 
         binding.rowGithubRepo.setOnClickListener {
@@ -1135,46 +1138,70 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun syncRemoteConfig(isManual: Boolean) {
+    private var isSyncingConfig = false
+
+    private fun syncRemoteConfig(isManual: Boolean, force: Boolean = false) {
+        if (isSyncingConfig) return
+        if (!isManual && !force && !RemoteConfigManager.shouldPerformDailySync(this)) {
+            Log.d("MainActivity", "Daily sync already completed today (${RemoteConfigManager.getLastDailySyncDate(this)}), skipping")
+            return
+        }
+
+        isSyncingConfig = true
         lifecycleScope.launch {
-            if (isManual) {
-                Toast.makeText(this@MainActivity, "正在检查更新并同步云端配置...", Toast.LENGTH_SHORT).show()
-            }
-            val result = RemoteConfigManager.fetchConfig(this@MainActivity)
-            result.onSuccess { config ->
-                binding.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
-                val semConfig = config.semesterConfig
-                binding.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
-
-                // Calibrate all local tables' start dates and weeks
-                val calibrated = RemoteConfigManager.calibrateTablesAndSync(this@MainActivity, config)
-                if (calibrated) {
-                    val allTables = db.tableDao.getAllTables()
-                    val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
-                    if (autoTarget != null) {
-                        db.tableDao.setDefaultTable(autoTarget.table.id)
-                        currentTable = autoTarget.table
-                        currentWeek = autoTarget.week
-                    }
-                    reloadTimetableFromDb()
-                } else {
-                    scheduleAdapter?.refreshAllFragments()
-                }
-
-                // Update reminders according to holidays & adjustments
-                CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
-
-                if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
-                    showUpdateDialog(config.appVersion)
-                } else if (isManual) {
-                    Toast.makeText(this@MainActivity, "校历与调休配置已成功同步", Toast.LENGTH_SHORT).show()
-                }
-            }.onFailure { error ->
-                Log.e("MainActivity", "Remote config sync failed", error)
+            try {
                 if (isManual) {
-                    val msg = if (error is com.google.gson.JsonSyntaxException) "云端配置文件格式错误(JSON语法)" else "同步云端配置失败: ${error.message ?: "请检查网络"}"
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "正在检查更新并同步云端配置...", Toast.LENGTH_SHORT).show()
                 }
+                val result = RemoteConfigManager.fetchConfig(this@MainActivity)
+                result.onSuccess { config ->
+                    RemoteConfigManager.markDailySyncCompleted(this@MainActivity)
+                    binding.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
+                    val semConfig = config.semesterConfig
+                    binding.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
+
+                    // Calibrate all local tables' start dates and weeks
+                    val calibrated = RemoteConfigManager.calibrateTablesAndSync(this@MainActivity, config)
+                    if (calibrated) {
+                        val allTables = db.tableDao.getAllTables()
+                        val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
+                        if (autoTarget != null) {
+                            db.tableDao.setDefaultTable(autoTarget.table.id)
+                            currentTable = autoTarget.table
+                            currentWeek = autoTarget.week
+                        }
+                        reloadTimetableFromDb()
+                        Toast.makeText(this@MainActivity, "已根据最新校历与调休安排自动校准课表", Toast.LENGTH_SHORT).show()
+                    } else {
+                        scheduleAdapter?.refreshAllFragments()
+                    }
+
+                    // Update reminders according to holidays & adjustments
+                    CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
+
+                    if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
+                        showUpdateDialog(config.appVersion)
+                    } else if (isManual) {
+                        Toast.makeText(this@MainActivity, "当前已是最新版本，校历与调休配置已同步", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Daily first launch check: if there is an adjustment today, give a friendly reminder
+                        val todayStr = RemoteConfigManager.getTodayDateString()
+                        val todayAdjustments = RemoteConfigManager.getAdjustmentsForDate(todayStr)
+                        if (todayAdjustments.isNotEmpty()) {
+                            val adj = todayAdjustments.first()
+                            val msg = if (adj.type == "HOLIDAY_OFF") "今日【${adj.name}】放假停课" else "今日调休: ${adj.remark}"
+                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }.onFailure { error ->
+                    Log.e("MainActivity", "Remote config sync failed", error)
+                    if (isManual) {
+                        val msg = if (error is com.google.gson.JsonSyntaxException) "云端配置文件格式错误(JSON语法)" else "同步云端配置失败: ${error.message ?: "请检查网络"}"
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                    }
+                }
+            } finally {
+                isSyncingConfig = false
             }
         }
     }

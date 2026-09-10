@@ -655,6 +655,16 @@
                             app:iconPadding="8dp"
                             app:cornerRadius="12dp" />
 
+                        <TextView
+                            android:id="@+id/tvDailySyncHint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center"
+                            android:text="每天首次启动自动拉取更新与调休信息"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="11sp" />
+
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

@@ -9,6 +9,11 @@ import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.ActivityLoginBinding
+import android.net.Uri
+import cn.edu.usst.jwgl.BuildConfig
+import cn.edu.usst.jwgl.data.model.AppVersionInfo
+import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.util.InitialSyncHelper
 import kotlinx.coroutines.launch
 
@@ -39,9 +44,11 @@ class LoginActivity : AppCompatActivity() {
         if (!authPrefs.hasAgreedDisclaimer()) {
             showDisclaimerDialog {
                 setupPrefillAndAutoLogin()
+                checkDailyConfig()
             }
         } else {
             setupPrefillAndAutoLogin()
+            checkDailyConfig()
         }
         setupListeners()
     }
@@ -160,5 +167,38 @@ class LoginActivity : AppCompatActivity() {
             binding.tvError.visibility = View.GONE
             binding.tvLoadingStatus.text = if (isAuto) "检测到已保存账号，正在自动登录..." else "正在登录并同步学籍信息..."
         }
+    }
+
+    private fun checkDailyConfig() {
+        if (!RemoteConfigManager.shouldPerformDailySync(this)) return
+        lifecycleScope.launch {
+            val result = RemoteConfigManager.fetchConfig(this@LoginActivity)
+            result.onSuccess { config ->
+                RemoteConfigManager.markDailySyncCompleted(this@LoginActivity)
+                if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
+                    showUpdateDialog(config.appVersion)
+                }
+            }
+        }
+    }
+
+    private fun showUpdateDialog(versionInfo: AppVersionInfo) {
+        if (isFinishing || isDestroyed) return
+        val notes = if (versionInfo.releaseNotes.isNotBlank()) "\n\n更新说明：\n${versionInfo.releaseNotes}" else ""
+        MaterialAlertDialogBuilder(this)
+            .setTitle("发现新版本 v${versionInfo.versionName}")
+            .setMessage("检测到新版本发布 (发布日期: ${versionInfo.releaseDate})$notes")
+            .setPositiveButton("立即下载更新") { _, _ ->
+                if (versionInfo.downloadUrl.isNotBlank()) {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(versionInfo.downloadUrl))
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "无法打开下载链接: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("稍后再说", null)
+            .show()
     }
 }

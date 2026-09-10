@@ -20,6 +20,7 @@ object RemoteConfigManager {
     private const val PREF_NAME = "usst_remote_config"
     private const val KEY_CACHED_JSON = "cached_config_json"
     private const val KEY_LAST_SYNC_TIME = "last_sync_time"
+    private const val KEY_LAST_DAILY_SYNC_DATE = "last_daily_sync_date"
 
     // Primary & backup config URLs (hosted on BigSilverFish/usst-jwgl-client GitHub repository)
     private val CONFIG_URLS = listOf(
@@ -134,6 +135,59 @@ object RemoteConfigManager {
     fun getLastSyncTime(context: Context): Long {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         return prefs.getLong(KEY_LAST_SYNC_TIME, 0L)
+    }
+
+    /**
+     * Checks whether today's first-launch sync has already been performed.
+     * Returns true if today has NOT performed the sync yet.
+     */
+    fun shouldPerformDailySync(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val lastDate = prefs.getString(KEY_LAST_DAILY_SYNC_DATE, null)
+        val today = getTodayDateString()
+        return lastDate != today
+    }
+
+    /**
+     * Marks today's daily sync as completed.
+     */
+    fun markDailySyncCompleted(context: Context) {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_LAST_DAILY_SYNC_DATE, getTodayDateString())
+            .apply()
+    }
+
+    /**
+     * Returns the date string of the last daily sync (e.g. "2026-09-10"), or null if never synced.
+     */
+    fun getLastDailySyncDate(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_LAST_DAILY_SYNC_DATE, null)
+    }
+
+    fun getTodayDateString(): String {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date())
+    }
+
+    /**
+     * Returns schedule adjustments active for the specified date string (YYYY-MM-DD)
+     */
+    fun getAdjustmentsForDate(dateStr: String): List<cn.edu.usst.jwgl.data.model.ScheduleAdjustment> {
+        if (dateStr.isBlank()) return emptyList()
+        return cachedConfig.adjustments.filter { adj ->
+            when (adj.type) {
+                "HOLIDAY_OFF" -> {
+                    adj.dates.contains(dateStr) ||
+                    (adj.dateRange != null && dateStr >= adj.dateRange.start && dateStr <= adj.dateRange.end)
+                }
+                "SWAP_WEEKDAY" -> {
+                    adj.date == dateStr
+                }
+                else -> false
+            }
+        }
     }
 
     fun getAdjustments(): List<cn.edu.usst.jwgl.data.model.ScheduleAdjustment> = cachedConfig.adjustments
