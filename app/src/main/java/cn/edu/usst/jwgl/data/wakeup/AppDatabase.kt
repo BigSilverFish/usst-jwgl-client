@@ -114,8 +114,9 @@ class AppDatabase private constructor(context: Context) {
                 """.trimIndent()
             )
 
-            // Seed initial data
-            db.execSQL("INSERT INTO TimeTableBean (id, name) VALUES (1, '默认作息');")
+            // Seed initial data (TimeTableBean 1: 13-node new timetable, TimeTableBean 2: 12-node old timetable)
+            db.execSQL("INSERT INTO TimeTableBean (id, name) VALUES (1, '新课时表(13节)');")
+            db.execSQL("INSERT INTO TimeTableBean (id, name) VALUES (2, '老课时表(12节)');")
 
             val usstTimes = arrayOf(
                 Triple(1, "08:00", "08:40"),
@@ -132,13 +133,36 @@ class AppDatabase private constructor(context: Context) {
                 Triple(12, "18:45", "19:25"),
                 Triple(13, "19:30", "20:10")
             )
-
             for ((node, start, end) in usstTimes) {
                 val cv = ContentValues().apply {
                     put("node", node)
                     put("startTime", start)
                     put("endTime", end)
                     put("timeTable", 1)
+                }
+                db.insert("TimeDetailBean", null, cv)
+            }
+
+            val usstOldTimes = arrayOf(
+                Triple(1, "08:00", "08:45"),
+                Triple(2, "08:50", "09:35"),
+                Triple(3, "09:55", "10:40"),
+                Triple(4, "10:45", "11:30"),
+                Triple(5, "11:35", "12:20"),
+                Triple(6, "13:15", "14:00"),
+                Triple(7, "14:05", "14:50"),
+                Triple(8, "15:05", "15:50"),
+                Triple(9, "15:55", "16:40"),
+                Triple(10, "18:00", "18:45"),
+                Triple(11, "18:50", "19:35"),
+                Triple(12, "19:40", "20:25")
+            )
+            for ((node, start, end) in usstOldTimes) {
+                val cv = ContentValues().apply {
+                    put("node", node)
+                    put("startTime", start)
+                    put("endTime", end)
+                    put("timeTable", 2)
                 }
                 db.insert("TimeDetailBean", null, cv)
             }
@@ -273,33 +297,7 @@ class AppDatabase private constructor(context: Context) {
                 }
             }
 
-            // 4. Seed sample historical semesters (12 nodes, timeTable = 2) if none exists
-            if (allTables.none { CourseUtils.isLegacy12NodeSemester(it.tableName) }) {
-                val histTable = TableBean(
-                    tableName = "2024-2025学年 第2学期",
-                    nodes = 12,
-                    timeTable = 2,
-                    startDate = "2025-02-24",
-                    maxWeek = 20,
-                    showSat = false,
-                    showSun = false,
-                    type = 1
-                )
-                tableDao.insertTable(histTable)
-            }
-            if (allTables.none { it.tableName.contains("2025-2026") && it.tableName.contains("2") }) {
-                val table2025_2 = TableBean(
-                    tableName = "2025-2026学年 第2学期",
-                    nodes = 12,
-                    timeTable = 2,
-                    startDate = "2026-02-23",
-                    maxWeek = 20,
-                    showSat = false,
-                    showSun = false,
-                    type = 1
-                )
-                tableDao.insertTable(table2025_2)
-            }
+
 
             // Also check if active table needs weekend update
             val defaultTable = tableDao.getDefaultTable()

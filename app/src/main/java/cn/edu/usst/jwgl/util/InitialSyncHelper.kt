@@ -29,6 +29,7 @@ object InitialSyncHelper {
         val authPrefs = AuthPreferences(context)
         val cacheManager = DataCacheManager(context)
         val db = AppDatabase.getDatabase(context)
+        db.ensureLatestTimeTableAndDefaults()
 
         try {
             // 1. 同步远程校历与调休配置
