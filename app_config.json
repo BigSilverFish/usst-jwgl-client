@@ -78,9 +78,9 @@
       "name": "国庆调休",
       "type": "SWAP_WEEKDAY",
       "date": "2026-10-10",
-      "target_weekday": 4,
+      "target_weekday": 3,
       "target_week": 5,
-      "remark": "10月10日(周六)上第5周周四的课"
+      "remark": "10月10日(周六)上第5周周三的课"
     }
   ],
   "announcement": {
