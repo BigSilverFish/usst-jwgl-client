@@ -2585,20 +2585,7 @@ class MainActivity : AppCompatActivity() {
         val todayZj = if (rawDay == Calendar.SUNDAY) 7 else rawDay - 1
         selectedFreeDay = todayZj
 
-        val todayName = when (todayZj) {
-            1 -> "周一"
-            2 -> "周二"
-            3 -> "周三"
-            4 -> "周四"
-            5 -> "周五"
-            6 -> "周六"
-            7 -> "周日"
-            else -> "今日"
-        }
-        val todayLabel = "${todayName}（今日）"
-
-        val dayOptions = listOf(
-            Pair(todayLabel, 0),
+        val baseDays = listOf(
             Pair("周一", 1),
             Pair("周二", 2),
             Pair("周三", 3),
@@ -2607,8 +2594,13 @@ class MainActivity : AppCompatActivity() {
             Pair("周六", 6),
             Pair("周日", 7)
         )
+        val dayOptions = baseDays.map { (name, zj) ->
+            if (zj == todayZj) Pair("$name（今日）", zj) else Pair(name, zj)
+        }
         val dAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, dayOptions.map { it.first })
         page.spinnerFreeDay.adapter = dAdapter
+        val todayIdx = dayOptions.indexOfFirst { it.second == todayZj }.coerceAtLeast(0)
+        page.spinnerFreeDay.setSelection(todayIdx)
 
         val sectionOptions = listOf(
             Pair("1-2节 (08:00-09:25)", "1-2"),
@@ -2713,8 +2705,7 @@ class MainActivity : AppCompatActivity() {
 
         page.spinnerFreeDay.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
-                val picked = dayOptions[position].second
-                selectedFreeDay = if (picked == 0) todayZj else picked
+                selectedFreeDay = dayOptions[position].second
                 fetchFreeClassrooms()
             }
             override fun onNothingSelected(p0: AdapterView<*>?) {}
