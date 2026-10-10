@@ -77,6 +77,27 @@ data class MergedSchoolCourse(
     var category: String = "待定"
 ) : Serializable {
 
+    /**
+     * 区分本研课程：
+     * 本科课程班级号格式：(xxxx-xxxx-x)-xxxxxxxx-xx，例如 (2026-2027-1)-22000210-10
+     * 研究生课程班级号格式：xxxxxxxx-xxxxx-xxx班，例如 32000010-26271-军工路01班、12000449-26271-营口路1班
+     */
+    val isGraduate: Boolean
+        get() {
+            val text = if (bjmc.isNotBlank()) bjmc else bjdm
+            // 研究生课程典型特征：形如 xxxxxxxx-xxxxx-xxx班，或包含"-26271-"且以"班"结尾
+            val graduateRegex = Regex("""^\d{6,10}-\d{4,6}-.+班$""")
+            return graduateRegex.matches(text.trim()) || text.contains("-26271-") || (text.endsWith("班") && !text.startsWith("("))
+        }
+
+    val isUndergraduate: Boolean
+        get() {
+            val text = if (bjmc.isNotBlank()) bjmc else bjdm
+            // 本科课程典型特征：形如 (xxxx-xxxx-x)-xxxxxxxx-xx
+            val undergraduateRegex = Regex("""^\(\d{4}-\d{4}-\d\)-\d{6,10}-\d{2}$""")
+            return undergraduateRegex.matches(text.trim()) || text.startsWith("(") || (!isGraduate && text.isNotBlank())
+        }
+
     fun toCourseItems(): List<CourseItem> {
         val baseId = if (bjdm.isNotEmpty()) bjdm else (if (kcdm.isNotEmpty()) kcdm else kcmc)
         return slots.mapIndexed { index, slot ->

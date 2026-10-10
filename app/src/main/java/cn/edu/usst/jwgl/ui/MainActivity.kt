@@ -364,7 +364,12 @@ class MainActivity : AppCompatActivity() {
         val initialTab = intent.getIntExtra("extra_tab", 1) // Default to 1 (课程表)
         when (initialTab) {
             0 -> switchTab(MainTab.PROFILE)
+            1 -> switchTab(MainTab.TIMETABLE)
             2 -> switchTab(MainTab.GRADES)
+            3 -> switchTab(MainTab.COURSE_SEARCH)
+            4 -> switchTab(MainTab.FREE_CLASSROOM)
+            5 -> switchTab(MainTab.EXAM_QUERY)
+            6 -> switchTab(MainTab.GRADE_REPORTS)
             else -> switchTab(MainTab.TIMETABLE)
         }
 

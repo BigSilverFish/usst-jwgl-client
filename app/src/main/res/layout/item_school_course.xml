@@ -35,9 +35,22 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/tvLevelBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/badge_bg"
+                android:paddingHorizontal="7dp"
+                android:paddingVertical="2dp"
+                android:text="本科"
+                android:textColor="@color/primary"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
                 android:id="@+id/tvCourseTypeBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
                 android:background="@drawable/badge_bg"
                 android:paddingHorizontal="7dp"
                 android:paddingVertical="2dp"
@@ -92,7 +105,7 @@
                 android:textSize="12.5sp" />
         </LinearLayout>
 
-        <!-- Middle row 2: Class Code & Course Code -->
+        <!-- Middle row 2: Class Code -->
         <TextView
             android:id="@+id/tvClassCode"
             android:layout_width="match_parent"
@@ -100,7 +113,7 @@
             android:layout_marginTop="4dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="班级: (2026-2027-1)-22000210-10 · 代码: 22000210"
+            android:text="班级: (2026-2027-1)-22000210-10"
             android:textColor="@color/text_tertiary"
             android:textSize="11.5sp" />
 

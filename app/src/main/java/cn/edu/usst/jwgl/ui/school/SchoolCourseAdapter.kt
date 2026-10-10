@@ -22,6 +22,7 @@ class SchoolCourseAdapter(
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvCourseName: TextView = view.findViewById(R.id.tvCourseName)
+        val tvLevelBadge: TextView = view.findViewById(R.id.tvLevelBadge)
         val tvCourseTypeBadge: TextView = view.findViewById(R.id.tvCourseTypeBadge)
         val tvCreditBadge: TextView = view.findViewById(R.id.tvCreditBadge)
         val tvTeacher: TextView = view.findViewById(R.id.tvTeacher)
@@ -44,6 +45,19 @@ class SchoolCourseAdapter(
         val density = context.resources.displayMetrics.density
 
         holder.tvCourseName.text = item.kcmc.ifEmpty { "未命名课程" }
+
+        // 区分本研课程：
+        // 本科课程班级号格式为 (xxxx-xxxx-x)-xxxxxxxx-xx
+        // 研究生课程班级号格式为 xxxxxxxx-xxxxx-xxx班
+        if (item.isGraduate) {
+            holder.tvLevelBadge.text = "研究生"
+            holder.tvLevelBadge.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.grade_purple_bg))
+            holder.tvLevelBadge.setTextColor(ContextCompat.getColor(context, R.color.grade_purple_text))
+        } else {
+            holder.tvLevelBadge.text = "本科"
+            holder.tvLevelBadge.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.grade_blue_bg))
+            holder.tvLevelBadge.setTextColor(ContextCompat.getColor(context, R.color.grade_blue_text))
+        }
 
         val categoryText = item.category.ifEmpty { "待定" }
         holder.tvCourseTypeBadge.text = categoryText
@@ -75,15 +89,16 @@ class SchoolCourseAdapter(
         holder.tvTeacher.text = "教师：${item.lsmc.ifEmpty { "待定" }}$teacherTitle"
         holder.tvCollege.text = item.xy.ifEmpty { "全校" }
 
-        val codeInfo = StringBuilder()
-        if (item.bjmc.isNotEmpty()) codeInfo.append("班级: ${item.bjmc}")
-        else if (item.bjdm.isNotEmpty()) codeInfo.append("班级代码: ${item.bjdm}")
-        if (item.kcdm.isNotEmpty()) {
-            if (codeInfo.isNotEmpty()) codeInfo.append(" · ")
-            codeInfo.append("课程代码: ${item.kcdm}")
+        // 课程代码已体现在班级号中，因此去掉单列出来的课程代码，直接显示班级号
+        val classText = if (item.bjmc.isNotEmpty()) {
+            "班级: ${item.bjmc}"
+        } else if (item.bjdm.isNotEmpty()) {
+            "班级: ${item.bjdm}"
+        } else {
+            ""
         }
-        holder.tvClassCode.text = codeInfo.toString()
-        holder.tvClassCode.visibility = if (codeInfo.isNotEmpty()) View.VISIBLE else View.GONE
+        holder.tvClassCode.text = classText
+        holder.tvClassCode.visibility = if (classText.isNotEmpty()) View.VISIBLE else View.GONE
 
         // Populate Merged Time Slots
         holder.llSlotsContainer.removeAllViews()
