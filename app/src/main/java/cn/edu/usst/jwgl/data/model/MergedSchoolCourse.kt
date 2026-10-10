@@ -34,8 +34,15 @@ data class CourseTimeSlot(
 
     val formattedTime: String
         get() {
-            val start = if (classTimeBegin.length >= 5) classTimeBegin.substring(0, 5) else classTimeBegin
-            val end = if (classTimeEnd.length >= 5) classTimeEnd.substring(0, 5) else classTimeEnd
+            var start = if (classTimeBegin.length >= 5) classTimeBegin.substring(0, 5) else classTimeBegin
+            var end = if (classTimeEnd.length >= 5) classTimeEnd.substring(0, 5) else classTimeEnd
+            if (start.isBlank()) {
+                start = getStandardStartTime(jc)
+            }
+            if (end.isBlank()) {
+                val endSec = if (jccd > 1) jc + jccd - 1 else jc
+                end = getStandardEndTime(endSec)
+            }
             return if (start.isNotEmpty() && end.isNotEmpty()) "$start-$end" else ""
         }
 
@@ -55,6 +62,22 @@ data class CourseTimeSlot(
                 "全学期"
             }
         }
+
+    companion object {
+        private val standardSectionStartTimes = mapOf(
+            1 to "08:00", 2 to "08:45", 3 to "09:45", 4 to "10:30", 5 to "11:15",
+            6 to "13:00", 7 to "13:45", 8 to "14:45", 9 to "15:30", 10 to "16:15",
+            11 to "18:00", 12 to "18:45", 13 to "19:30"
+        )
+        private val standardSectionEndTimes = mapOf(
+            1 to "08:40", 2 to "09:25", 3 to "10:25", 4 to "11:10", 5 to "11:55",
+            6 to "13:40", 7 to "14:25", 8 to "15:25", 9 to "16:10", 10 to "16:55",
+            11 to "18:40", 12 to "19:25", 13 to "20:10"
+        )
+
+        fun getStandardStartTime(section: Int): String = standardSectionStartTimes[section] ?: ""
+        fun getStandardEndTime(section: Int): String = standardSectionEndTimes[section] ?: ""
+    }
 }
 
 data class MergedSchoolCourse(
@@ -159,7 +182,7 @@ data class MergedSchoolCourse(
                     }
                 }
 
-                val sortedSlots = uniqueSlots.sortedWith(compareBy({ it.zj }, { it.jc }))
+                val mergedSlots = mergeConsecutiveSlots(uniqueSlots)
 
                 val initialCategory = CourseCatalogService.getCategoryFromCacheOrHeuristic(first.kcdm, first.kcmc)
 
@@ -178,11 +201,81 @@ data class MergedSchoolCourse(
                     bjdm = first.bjdm,
                     xn = first.xn,
                     xq = first.xq,
-                    slots = sortedSlots,
+                    slots = mergedSlots,
                     rawItems = groupItems,
                     category = initialCategory
                 )
             }
+        }
+
+        /**
+         * 合并连续节次：
+         * 针对研究生课程（或部分排课系统按单节 1 节存储的课程），若在同一星期、同一教室、相同上课周次且节次连续，
+         * 例如第3节、第4节、第5节，自动合并为“第3-5节”，起始与结束时间也相应扩展。
+         */
+        private fun mergeConsecutiveSlots(slots: List<CourseTimeSlot>): List<CourseTimeSlot> {
+            if (slots.size <= 1) return slots
+
+            // 按 (星期, 教室, 周次标识) 进行分组
+            val groupedByContext = slots.groupBy { slot ->
+                val weeksKey = if (slot.weekList.isNotEmpty()) {
+                    slot.weekList.sorted().joinToString(",")
+                } else if (slot.zc.isNotBlank()) {
+                    slot.zc.trim()
+                } else {
+                    "${slot.qsz}_${slot.jsz}"
+                }
+                "${slot.zj}_${slot.jsdd.trim().lowercase()}_$weeksKey"
+            }
+
+            val resultSlots = mutableListOf<CourseTimeSlot>()
+
+            for ((_, group) in groupedByContext) {
+                val sortedGroup = group.sortedBy { it.jc }
+                var current: CourseTimeSlot? = null
+
+                for (next in sortedGroup) {
+                    if (current == null) {
+                        current = next
+                    } else {
+                        val currentEndSection = current.jc + current.jccd
+                        if (next.jc == currentEndSection) {
+                            // 节次恰好紧密相连 (例如 current 为第3节，next 为第4节；或 current 为第3-4节，next 为第5节)
+                            val mergedJccd = current.jccd + next.jccd
+                            val beginTime = current.classTimeBegin.ifBlank { next.classTimeBegin }
+                            val endTime = next.classTimeEnd.ifBlank { current.classTimeEnd }
+                            current = current.copy(
+                                jccd = mergedJccd,
+                                classTimeBegin = beginTime,
+                                classTimeEnd = endTime
+                            )
+                        } else if (next.jc == current.jc) {
+                            // 起始节次完全相同，保留跨度更大的记录
+                            if (next.jccd > current.jccd) {
+                                current = next
+                            }
+                        } else if (next.jc < currentEndSection) {
+                            // 部分重叠节次
+                            val maxEnd = maxOf(currentEndSection, next.jc + next.jccd)
+                            val mergedJccd = maxEnd - current.jc
+                            val endTime = if (next.classTimeEnd.isNotBlank()) next.classTimeEnd else current.classTimeEnd
+                            current = current.copy(
+                                jccd = mergedJccd,
+                                classTimeEnd = endTime
+                            )
+                        } else {
+                            // 节次不相连（例如上午 1-2 节与下午 6-7 节），结算前一时段并开启新时段
+                            resultSlots.add(current)
+                            current = next
+                        }
+                    }
+                }
+                if (current != null) {
+                    resultSlots.add(current)
+                }
+            }
+
+            return resultSlots.sortedWith(compareBy({ it.zj }, { it.jc }))
         }
     }
 }
