@@ -397,6 +397,14 @@ object LappClient {
     }
 
     /**
+     * 全部已知教室的全局定义索引（保证按编号从小到大严格升序展示）
+     */
+    val ALL_KNOWN_CLASSROOMS_ORDER: Map<String, Int> = KNOWN_CLASSROOMS_BY_BUILDING.values
+        .flatten()
+        .withIndex()
+        .associate { it.value to it.index }
+
+    /**
      * 空教室计算：通过指定周次、星期、节次，获取被占用的教室，对比教学楼已知教室得出空闲教室
      */
     suspend fun queryFreeClassrooms(
@@ -464,8 +472,8 @@ object LappClient {
                 }
             }
 
-            // 排序：空闲教室排在前面
-            resultList.sortByDescending { it.isFree }
+            // 按已知教室编号字典顺序升序排列
+            resultList.sortBy { ALL_KNOWN_CLASSROOMS_ORDER[it.name] ?: 9999 }
             Result.success(resultList)
         } catch (e: Exception) {
             Log.e(TAG, "queryFreeClassrooms error", e)

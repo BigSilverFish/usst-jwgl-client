@@ -133,6 +133,16 @@ class DataCacheManager(context: Context) {
         }
     }
 
+    fun clearExams() {
+        val editor = prefs.edit()
+        for (k in prefs.all.keys) {
+            if (k.startsWith(PREFIX_EXAM_JSON) || k.startsWith(PREFIX_EXAM_TIME)) {
+                editor.remove(k)
+            }
+        }
+        editor.apply()
+    }
+
     fun getAllCachedExams(): List<ExamItem> {
         val all = prefs.all
         val list = mutableListOf<ExamItem>()
@@ -148,6 +158,7 @@ class DataCacheManager(context: Context) {
             }
         }
         return list.distinctBy { "${it.courseName}_${it.examTime}_${it.location}" }
+            .filterNot { it.courseCode == "1001001" || it.courseCode == "1002002" }
     }
 
     // --- Format update time helper ---

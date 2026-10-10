@@ -573,42 +573,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // Auto-seed sample exam schedule in debug mode if empty for previewing exam weeks
-                if (BuildConfig.DEBUG && cacheManager.getAllCachedExams().isEmpty()) {
-                    cacheManager.saveExams("2026", "3", listOf(
-                        ExamItem(
-                            courseName = "高等数学A(1)",
-                            courseCode = "1001001",
-                            examName = "期末考试",
-                            examTime = "2027-01-13 09:00-11:00",
-                            location = "一教301",
-                            building = "第一教学楼",
-                            seatNumber = "25",
-                            session = "第一场",
-                            examNature = "正常",
-                            examMethod = "笔试(闭卷)",
-                            credit = 5.0,
-                            yearName = "2026-2027",
-                            semesterName = "1",
-                            remarks = "请携带学生证和身份证"
-                        ),
-                        ExamItem(
-                            courseName = "大学物理B",
-                            courseCode = "1002002",
-                            examName = "期末考试",
-                            examTime = "2027-01-14 13:00-15:00",
-                            location = "二教205",
-                            building = "第二教学楼",
-                            seatNumber = "12",
-                            session = "第二场",
-                            examNature = "正常",
-                            examMethod = "笔试(闭卷)",
-                            credit = 4.0,
-                            yearName = "2026-2027",
-                            semesterName = "1",
-                            remarks = "可携带科学计算器"
-                        )
-                    ))
+                // Clear legacy test exam items if any existed in cache
+                if (cacheManager.getAllCachedExams().any { it.courseCode == "1001001" || it.courseCode == "1002002" }) {
+                    cacheManager.clearExams()
                 }
 
                 // Auto determine active semester & week on startup
@@ -2664,12 +2631,27 @@ class MainActivity : AppCompatActivity() {
         page.spinnerFreeSection.setSelection(defaultSecIdx)
         selectedFreeSection = sectionOptions[defaultSecIdx].second
 
-        fun filterAndDisplay() {
-            val onlyFree = page.cbOnlyFreeRooms.isChecked
-            val filtered = if (onlyFree) {
+        var isOnlyFreeRooms = true
+
+        fun updateOnlyFreeBtnStyle() {
+            if (isOnlyFreeRooms) {
+                page.btnOnlyFreeRooms.setBackgroundColor(ContextCompat.getColor(this, R.color.primary))
+                page.btnOnlyFreeRooms.setTextColor(ContextCompat.getColor(this, android.R.color.white))
+                page.btnOnlyFreeRooms.text = "仅空闲"
+            } else {
+                page.btnOnlyFreeRooms.setBackgroundColor(ContextCompat.getColor(this, R.color.surface_variant))
+                page.btnOnlyFreeRooms.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                page.btnOnlyFreeRooms.text = "全部教室"
+            }
+        }
+        updateOnlyFreeBtnStyle()
+
+        fun filterAndDisplay(showToast: Boolean = false) {
+            val filtered = if (isOnlyFreeRooms) {
                 allFreeRooms.filter { it.isFree }
             } else {
-                allFreeRooms
+                // 关闭仅空闲时，按已知教室编号从小到大依次展示所有教室
+                allFreeRooms.sortedBy { LappClient.ALL_KNOWN_CLASSROOMS_ORDER[it.name] ?: 9999 }
             }
             displayFreeRooms.clear()
             displayFreeRooms.addAll(filtered)
@@ -2677,7 +2659,9 @@ class MainActivity : AppCompatActivity() {
 
             val freeCount = allFreeRooms.count { it.isFree }
             val totalCount = allFreeRooms.size
-            page.tvSummaryFreeCount.text = if (totalCount > 0) "空闲 $freeCount / 共 $totalCount 间" else "暂无教室数据"
+            if (showToast && totalCount > 0) {
+                Toast.makeText(this@MainActivity, "空闲 $freeCount / 共 $totalCount 间", Toast.LENGTH_SHORT).show()
+            }
 
             if (displayFreeRooms.isEmpty()) {
                 page.rvFreeClassroomList.visibility = View.GONE
@@ -2711,7 +2695,7 @@ class MainActivity : AppCompatActivity() {
                     val list = result.getOrNull() ?: emptyList()
                     allFreeRooms.clear()
                     allFreeRooms.addAll(list)
-                    filterAndDisplay()
+                    filterAndDisplay(showToast = true)
                 } else {
                     val err = result.exceptionOrNull()?.message ?: "查询失败"
                     Toast.makeText(this@MainActivity, "查询空教室失败: $err", Toast.LENGTH_SHORT).show()
@@ -2739,13 +2723,15 @@ class MainActivity : AppCompatActivity() {
         page.spinnerFreeSection.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
                 selectedFreeSection = sectionOptions[position].second
-                filterAndDisplay()
+                filterAndDisplay(showToast = true)
             }
             override fun onNothingSelected(p0: AdapterView<*>?) {}
         }
 
-        page.cbOnlyFreeRooms.setOnCheckedChangeListener { _, _ ->
-            filterAndDisplay()
+        page.btnOnlyFreeRooms.setOnClickListener {
+            isOnlyFreeRooms = !isOnlyFreeRooms
+            updateOnlyFreeBtnStyle()
+            filterAndDisplay(showToast = true)
         }
 
         page.btnRefreshFreeClassroom.setOnClickListener {
