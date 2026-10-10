@@ -74,6 +74,7 @@ import cn.edu.usst.jwgl.util.TimetableSettingHelper
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -405,11 +406,15 @@ class MainActivity : AppCompatActivity() {
         if (intent == null) return
 
         val tab = intent.getIntExtra("extra_tab", -1)
-        if (tab in 0..2) {
+        if (tab in 0..6) {
             when (tab) {
                 0 -> switchTab(MainTab.PROFILE)
                 1 -> switchTab(MainTab.TIMETABLE)
                 2 -> switchTab(MainTab.GRADES)
+                3 -> switchTab(MainTab.COURSE_SEARCH)
+                4 -> switchTab(MainTab.FREE_CLASSROOM)
+                5 -> switchTab(MainTab.EXAM_QUERY)
+                6 -> switchTab(MainTab.GRADE_REPORTS)
             }
         }
 
@@ -525,6 +530,25 @@ class MainActivity : AppCompatActivity() {
 
         if (intent.getBooleanExtra("extra_open_xg_web", false)) {
             JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+        }
+
+        if (intent.hasExtra("extra_simulate_hour")) {
+            val h = intent.getIntExtra("extra_simulate_hour", -1)
+            if (h >= 0) {
+                val m = intent.getIntExtra("extra_simulate_minute", 0)
+                val dow = intent.getIntExtra("extra_simulate_dow", Calendar.WEDNESDAY)
+                val cal = Calendar.getInstance().apply {
+                    set(Calendar.DAY_OF_WEEK, dow)
+                    set(Calendar.HOUR_OF_DAY, h)
+                    set(Calendar.MINUTE, m)
+                }
+                SemesterHelper.simulatedToday = cal
+            } else {
+                SemesterHelper.simulatedToday = null
+            }
+            if (currentTab == MainTab.COURSE_SEARCH) {
+                checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true)
+            }
         }
     }
 
@@ -691,6 +715,7 @@ class MainActivity : AppCompatActivity() {
             }
             MainTab.COURSE_SEARCH -> {
                 initCourseSearchPage()
+                checkAndLoadDefaultCourseSearch()
                 binding.pageCourseSearch.llCourseSearchHeaderContainer.post {
                     updateCourseSearchHeaderSpacing(binding.pageCourseSearch.llCourseSearchHeaderContainer.height)
                 }
@@ -1901,6 +1926,189 @@ class MainActivity : AppCompatActivity() {
     private var selectedSearchWeek = -1
     private var selectedSearchCollege = ""
     private var selectedSearchDay = -1
+    private var defaultSlotQueryJob: Job? = null
+
+    data class CurrentSlotSpec(
+        val slotName: String,
+        val queryJc: String,
+        val statusText: String,
+        val timeDesc: String
+    )
+
+    private fun getCurrentWeekdaySlot(): CurrentSlotSpec? {
+        val cal = SemesterHelper.getToday()
+        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+        // Calendar.SUNDAY = 1, MONDAY = 2, ..., FRIDAY = 6, SATURDAY = 7
+        if (dayOfWeek !in Calendar.MONDAY..Calendar.FRIDAY) {
+            return null
+        }
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+        val totalMinutes = hour * 60 + minute
+
+        // 07:00 is 420, 20:15 is 1215
+        if (totalMinutes < 7 * 60 || totalMinutes > 20 * 60 + 15) {
+            return null
+        }
+
+        return when {
+            totalMinutes <= 9 * 60 + 25 -> {
+                val status = if (totalMinutes < 8 * 60) "即将开始 (08:00开课)" else "正在上课 (08:00-09:25)"
+                CurrentSlotSpec("第1-2节", "1-2", status, "08:00-09:25")
+            }
+            totalMinutes <= 11 * 60 + 55 -> {
+                val status = if (totalMinutes < 9 * 60 + 45) "即将开始 (09:45开课)" else "正在上课 (09:45-11:55)"
+                CurrentSlotSpec("第3-5节", "3-5", status, "09:45-11:55")
+            }
+            totalMinutes <= 14 * 60 + 25 -> {
+                val status = if (totalMinutes < 13 * 60) "即将开始 (13:00开课)" else "正在上课 (13:00-14:25)"
+                CurrentSlotSpec("第6-7节", "6-7", status, "13:00-14:25")
+            }
+            totalMinutes <= 16 * 60 + 55 -> {
+                val status = if (totalMinutes < 14 * 60 + 45) "即将开始 (14:45开课)" else "正在上课 (14:45-16:55)"
+                CurrentSlotSpec("第8-10节", "8-9", status, "14:45-16:55")
+            }
+            else -> {
+                val status = if (totalMinutes < 18 * 60) "即将开始 (18:00开课)" else "正在上课 (18:00-20:10)"
+                CurrentSlotSpec("第11-13节", "10-12", status, "18:00-20:10")
+            }
+        }
+    }
+
+    private fun checkAndLoadDefaultCourseSearch(isUserInitiatedReset: Boolean = false) {
+        if (!isCourseSearchInitialized) return
+        val page = binding.pageCourseSearch
+
+        val hasActiveSearch = !page.etSearchCourse.text.isNullOrBlank() ||
+                !page.etSearchTeacher.text.isNullOrBlank() ||
+                selectedSearchCollege.isNotEmpty() ||
+                selectedSearchDay != -1 ||
+                selectedSearchWeek != -1
+
+        if (hasActiveSearch && !isUserInitiatedReset) {
+            return
+        }
+
+        defaultSlotQueryJob?.cancel()
+
+        val slot = getCurrentWeekdaySlot()
+        if (slot == null) {
+            schoolCourseList.clear()
+            schoolCourseAdapter?.notifyDataSetChanged()
+            page.progressBarSearch.visibility = View.GONE
+            page.rvCourseList.visibility = View.GONE
+            page.layoutEmptyResults.visibility = View.VISIBLE
+            page.tvEmptyTitle.text = "当前非上课时段"
+            page.tvEmptyDesc.text = "工作日 07:00-20:15 默认展示当前时段课程\n您可通过上方搜索栏或筛选条件主动检索全校开课"
+            page.tvCourseSearchSubtitle.text = "当前非上课时段 · 请输入条件主动检索"
+            return
+        }
+
+        val cal = SemesterHelper.getToday()
+        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+        val todayZj = when (dayOfWeek) {
+            Calendar.MONDAY -> 1
+            Calendar.TUESDAY -> 2
+            Calendar.WEDNESDAY -> 3
+            Calendar.THURSDAY -> 4
+            Calendar.FRIDAY -> 5
+            else -> 1
+        }
+        val dayNames = arrayOf("", "周一", "周二", "周三", "周四", "周五")
+        val dayName = dayNames.getOrElse(todayZj) { "今天" }
+
+        val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
+        val targetWeek = if (curWeek in 1..25) curWeek else -1
+
+        page.progressBarSearch.visibility = View.VISIBLE
+        page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · ${slot.statusText} · 正在加载全校排课..."
+
+        defaultSlotQueryJob = lifecycleScope.launch {
+            try {
+                val result = LappClient.queryClassSchedule(
+                    context = this@MainActivity,
+                    xn = currentSearchXn,
+                    xq = currentSearchXq,
+                    week = targetWeek,
+                    xy = "",
+                    zj = todayZj,
+                    jc = slot.queryJc,
+                    kcmc = "",
+                    kcdm = "",
+                    lsmc = "",
+                    rows = 300
+                )
+
+                page.progressBarSearch.visibility = View.GONE
+
+                if (result.isSuccess) {
+                    val (_, rawItems) = result.getOrNull() ?: Pair(0, emptyList())
+                    val merged = MergedSchoolCourse.fromLappItems(rawItems)
+
+                    if (merged.isNotEmpty()) {
+                        schoolCourseList.clear()
+                        schoolCourseList.addAll(merged)
+                        schoolCourseAdapter?.notifyDataSetChanged()
+
+                        page.rvCourseList.visibility = View.VISIBLE
+                        page.layoutEmptyResults.visibility = View.GONE
+                        page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · ${slot.statusText} · 共 ${merged.size} 门课程"
+
+                        val pendingItems = merged.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
+                            .distinctBy { it.kcdm }
+                            .take(25)
+                        if (pendingItems.isNotEmpty()) {
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                for (item in pendingItems) {
+                                    val cat = CourseCatalogService.resolveCategory(this@MainActivity, item.kcdm, item.kcmc)
+                                    if (cat != "待定") {
+                                        withContext(Dispatchers.Main) {
+                                            var hit = false
+                                            for (c in schoolCourseList) {
+                                                if (c.kcdm == item.kcdm) {
+                                                    c.category = cat
+                                                    hit = true
+                                                }
+                                            }
+                                            if (hit) {
+                                                schoolCourseAdapter?.notifyDataSetChanged()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        schoolCourseList.clear()
+                        schoolCourseAdapter?.notifyDataSetChanged()
+                        page.rvCourseList.visibility = View.GONE
+                        page.layoutEmptyResults.visibility = View.VISIBLE
+                        page.tvEmptyTitle.text = "当前时段暂无排课"
+                        page.tvEmptyDesc.text = "今日 $dayName ${slot.slotName} 暂未检索到开课班级，您可主动检索其他时段"
+                        page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · ${slot.statusText} · 暂无开课"
+                    }
+                } else {
+                    val err = result.exceptionOrNull()?.message ?: "网络请求失败"
+                    schoolCourseList.clear()
+                    schoolCourseAdapter?.notifyDataSetChanged()
+                    page.rvCourseList.visibility = View.GONE
+                    page.layoutEmptyResults.visibility = View.VISIBLE
+                    page.tvEmptyTitle.text = "获取当前时段课程失败"
+                    page.tvEmptyDesc.text = "$err\n请检查网络连接或使用上方搜索栏主动检索"
+                    page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · 加载失败"
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) return@launch
+                page.progressBarSearch.visibility = View.GONE
+                schoolCourseList.clear()
+                schoolCourseAdapter?.notifyDataSetChanged()
+                page.rvCourseList.visibility = View.GONE
+                page.layoutEmptyResults.visibility = View.VISIBLE
+                page.tvEmptyTitle.text = "加载出错"
+                page.tvEmptyDesc.text = "${e.message}\n您可使用上方搜索栏主动检索"
+            }
+        }
+    }
 
     private fun initCourseSearchPage() {
         if (isCourseSearchInitialized) return
@@ -2075,6 +2283,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun executeSearch() {
+            defaultSlotQueryJob?.cancel()
             val courseKeyword = page.etSearchCourse.text.toString().trim()
             val teacherKeyword = page.etSearchTeacher.text.toString().trim()
 
@@ -2223,10 +2432,12 @@ class MainActivity : AppCompatActivity() {
                             page.layoutEmptyResults.visibility = View.VISIBLE
                             page.tvEmptyTitle.text = "未找到匹配开课班级"
                             page.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
+                            page.tvCourseSearchSubtitle.text = "未找到匹配开课班级"
                             Toast.makeText(this@MainActivity, "未检索到匹配的开课班级", Toast.LENGTH_SHORT).show()
                         } else {
                             page.rvCourseList.visibility = View.VISIBLE
                             page.layoutEmptyResults.visibility = View.GONE
+                            page.tvCourseSearchSubtitle.text = "全校检索结果 (共 ${merged.size} 个教学班)"
                             val codeHint = if (extractedCode != null) " [代码 $extractedCode]" else ""
                             Toast.makeText(this@MainActivity, "共检索到 ${merged.size} 个教学班$codeHint (共 ${filtered.size} 个上课时段)", Toast.LENGTH_SHORT).show()
                         }
@@ -2236,6 +2447,7 @@ class MainActivity : AppCompatActivity() {
                         page.layoutEmptyResults.visibility = View.VISIBLE
                         page.tvEmptyTitle.text = "检索遇到问题"
                         page.tvEmptyDesc.text = errorMsg
+                        page.tvCourseSearchSubtitle.text = "检索失败: $errorMsg"
                         Toast.makeText(this@MainActivity, "搜索失败: $errorMsg", Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
@@ -2263,12 +2475,11 @@ class MainActivity : AppCompatActivity() {
             page.etSearchCourse.setText("")
             page.etSearchTeacher.setText("")
             btnResetFilters.performClick()
-            schoolCourseList.clear()
-            schoolCourseAdapter?.notifyDataSetChanged()
-            page.layoutEmptyResults.visibility = View.GONE
-            page.rvCourseList.visibility = View.VISIBLE
+            checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true)
             Toast.makeText(this@MainActivity, "检索已重置", Toast.LENGTH_SHORT).show()
         }
+
+        checkAndLoadDefaultCourseSearch()
     }
 
     // ==========================================
