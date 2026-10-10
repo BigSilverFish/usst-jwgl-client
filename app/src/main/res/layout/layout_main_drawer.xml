@@ -181,57 +181,6 @@
                     android:textSize="16sp" />
             </LinearLayout>
 
-            <!-- Nav Item: 自主选课 (保留代码，界面隐藏) -->
-            <LinearLayout
-                android:id="@+id/drawerNavSelection"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="10dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/ivNavSelection"
-                    android:layout_width="22dp"
-                    android:layout_height="22dp"
-                    android:src="@drawable/ic_nav_selection"
-                    app:tint="@color/primary" />
-
-                <TextView
-                    android:id="@+id/tvNavSelection"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="14dp"
-                    android:text="自主选课"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14.5sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvNavSelectionBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:background="@drawable/badge_bg"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="1.5dp"
-                    android:text="开放中"
-                    android:textColor="@color/primary"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
-            </LinearLayout>
 
             <!-- Nav Item: 个人与设置 -->
             <LinearLayout
