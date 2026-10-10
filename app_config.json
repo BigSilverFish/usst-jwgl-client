@@ -1,11 +1,11 @@
 {
   "app_version": {
-    "version_code": 2,
-    "version_name": "1.0.1",
-    "release_date": "2026-09-10",
-    "release_notes": "1. 修复成绩查询页学业成绩总览卡片顶部被毛玻璃遮挡的问题，实现1:1动态像素高度同步\n2. 优化下拉刷新圆圈位置，自动下移避让毛玻璃顶栏，清晰旋转\n3. 移除多余的重复汇总徽章，精简学期选择器为单行优雅布局\n4. 课表与成绩列表支持连贯平滑划入毛玻璃",
-    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.0.1",
-    "force_update": false
+    "version_code": 3,
+    "version_name": "1.1.0",
+    "release_date": "2026-10-11",
+    "release_notes": "1. 全校课表重大升级：工作日（07:00-20:15）默认展示当前/即将开课课程，支持时段、学院、星期与跨学期多维筛选；\n2. 智能班级与课程解析：精准区分本研课程，合并连续节次，支持从班级号一键提取课程代码与反查课程库；\n3. 全校排课与空教室查询：两栏紧凑网格布局，支持“仅空闲”一键切换与按教室编号严格升序浏览，周次智能标注；\n4. 考务与成绩服务深度优化：清理测试假数据，放宽网络超时阈值至40秒，提升大数据量拉取稳定性；\n5. 新增全校排课网页版快速直达与全校各学期选课预测支持。",
+    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.0",
+    "force_update": true
   },
   "semester_config": {
     "current_semester": "2026-2027-1",

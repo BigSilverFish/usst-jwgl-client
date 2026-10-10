@@ -69,9 +69,9 @@ object JwglClient {
         .followRedirects(false) // Disable OkHttp's internal follower to let our interceptor handle all hops
         .followSslRedirects(false)
         .addInterceptor(redirectInterceptor)
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(40, TimeUnit.SECONDS)
+        .readTimeout(40, TimeUnit.SECONDS)
+        .writeTimeout(40, TimeUnit.SECONDS)
         .build()
 
     fun clearSession() {
