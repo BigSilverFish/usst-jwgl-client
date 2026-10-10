@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="false"
-    android:background="@color/background">
+    android:fitsSystemWindows="false">
+
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fitsSystemWindows="false"
+        android:background="@color/background">
 
     <FrameLayout
         android:id="@+id/mainContentFrame"
@@ -31,7 +37,36 @@
                 android:orientation="vertical"
                 android:paddingHorizontal="20dp"
                 android:paddingTop="16dp"
-                android:paddingBottom="24px">
+                android:paddingBottom="24dp">
+
+                <!-- Profile Header Bar -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <ImageView
+                        android:id="@+id/btnOpenDrawerProfile"
+                        android:layout_width="38dp"
+                        android:layout_height="38dp"
+                        android:padding="7dp"
+                        android:src="@drawable/ic_menu"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:clickable="true"
+                        android:focusable="true"
+                        app:tint="@color/text_primary"
+                        android:contentDescription="打开侧栏" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="个人与设置"
+                        android:textColor="@color/text_primary"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
                 <!-- Profile Summary Card -->
                 <com.google.android.material.card.MaterialCardView
@@ -457,6 +492,126 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- Course Selection Preferences Card (保留代码，界面隐藏) -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardSelectionConfig"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:visibility="gone"
+                    app:cardBackgroundColor="@color/surface"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="1dp"
+                    app:strokeColor="@color/border"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="自主选课设置"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="12dp"
+                            android:background="@color/border" />
+
+                        <!-- Select Course Confirmation Switch Row -->
+                        <LinearLayout
+                            android:id="@+id/rowConfirmSelectCourse"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="6dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingEnd="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="选课二次确认"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="关闭后点击班级选课直接提交，提高选课速度（默认关闭）"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/switchConfirmSelectCourse"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="8dp"
+                            android:background="@color/border" />
+
+                        <!-- Drop Course Confirmation Switch Row -->
+                        <LinearLayout
+                            android:id="@+id/rowConfirmDropCourse"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="6dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingEnd="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="退课二次确认"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="点击退选或换选时弹出确认弹窗，防止误退（默认开启）"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/switchConfirmDropCourse"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
                 <!-- System & Remote Config Card -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cardSystemConfig"
@@ -571,43 +726,6 @@
                                 android:text="↗"
                                 android:textColor="@color/primary"
                                 android:textSize="15sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <!-- JWGL Web Version Row -->
-                        <LinearLayout
-                            android:id="@+id/rowJwglWeb"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginBottom="12dp"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true">
-
-                            <TextView
-                                android:layout_width="90dp"
-                                android:layout_height="wrap_content"
-                                android:text="更多功能"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="进入官方教务系统网页版"
-                                android:textColor="@color/primary"
-                                android:textSize="13sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="›"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="16sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
 
@@ -735,6 +853,20 @@
                             android:orientation="horizontal"
                             android:gravity="center_vertical">
 
+                            <!-- Open Drawer Button -->
+                            <ImageView
+                                android:id="@+id/btnOpenDrawerTimetable"
+                                android:layout_width="38dp"
+                                android:layout_height="38dp"
+                                android:padding="7dp"
+                                android:layout_marginEnd="6dp"
+                                android:src="@drawable/ic_menu"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:clickable="true"
+                                android:focusable="true"
+                                app:tint="@color/text_primary"
+                                android:contentDescription="打开侧栏" />
+
                             <!-- Clickable Semester Selector -->
                             <LinearLayout
                                 android:id="@+id/btnSelectSemester"
@@ -766,52 +898,23 @@
                                     app:tint="@color/text_secondary" />
                             </LinearLayout>
 
-                            <!-- Clickable Week Selector Capsule Button -->
-                            <LinearLayout
-                                android:id="@+id/btnSelectWeek"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:background="@drawable/badge_bg_clickable"
-                                android:clickable="true"
-                                android:focusable="true"
-                                android:gravity="center_vertical"
-                                android:orientation="horizontal"
-                                android:paddingHorizontal="9dp"
-                                android:paddingVertical="4dp">
-
-                                <TextView
-                                    android:id="@+id/tvCurrentWeekIndicator"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="第 1 周 (本周)"
-                                    android:textColor="@color/primary"
-                                    android:textSize="12sp"
-                                    android:textStyle="bold" />
-
-                                <ImageView
-                                    android:layout_width="14dp"
-                                    android:layout_height="14dp"
-                                    android:layout_marginStart="2dp"
-                                    android:src="@drawable/ic_arrow_drop_down"
-                                    app:tint="@color/primary" />
-                            </LinearLayout>
-
-                            <!-- Schedule Manager Button -->
+                            <!-- 1. Refresh Button -->
                             <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnScheduleManager"
+                                android:id="@+id/btnRefreshTimetable"
                                 style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
                                 android:layout_width="36dp"
                                 android:layout_height="36dp"
                                 android:layout_marginStart="6dp"
                                 android:padding="0dp"
-                                android:contentDescription="课表管理"
-                                app:icon="@drawable/ic_tune"
+                                android:contentDescription="刷新课表"
+                                app:icon="@drawable/ic_refresh"
                                 app:iconGravity="textStart"
                                 app:iconPadding="0dp"
                                 app:iconSize="20dp"
                                 app:iconTint="@color/text_secondary" />
 
-                            <!-- Font Size Setting Button -->
+
+                            <!-- 3. Font Size Setting Button -->
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btnFontSize"
                                 style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
@@ -826,7 +929,7 @@
                                 app:iconSize="20dp"
                                 app:iconTint="@color/text_secondary" />
 
-                            <!-- Add Course Button -->
+                            <!-- 4. Add Course Button -->
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btnAddCourse"
                                 style="@style/Widget.Material3.Button.IconButton.Filled"
@@ -846,7 +949,7 @@
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="6dp"
                             android:orientation="horizontal"
                             android:gravity="center_vertical">
 
@@ -859,46 +962,51 @@
                                 android:textColor="@color/text_tertiary"
                                 android:textSize="11sp" />
 
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnExamQuery"
-                                style="@style/Widget.Material3.Button.TonalButton"
+                            <!-- Clickable Week Selector Capsule Button (Adjusted to Row 2, 24dp height) -->
+                            <LinearLayout
+                                android:id="@+id/btnSelectWeek"
                                 android:layout_width="wrap_content"
-                                android:layout_height="32dp"
-                                android:layout_marginEnd="6dp"
-                                android:paddingHorizontal="8dp"
-                                android:paddingVertical="0dp"
-                                android:insetTop="0dp"
-                                android:insetBottom="0dp"
-                                android:text="考试查询"
-                                android:textSize="11sp"
-                                app:icon="@drawable/ic_exam"
-                                app:iconSize="14dp"
-                                app:iconPadding="4dp"
-                                app:iconTint="@color/primary" />
+                                android:layout_height="24dp"
+                                android:layout_marginEnd="8dp"
+                                android:background="@drawable/badge_bg_clickable"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingHorizontal="8dp">
+
+                                <TextView
+                                    android:id="@+id/tvCurrentWeekIndicator"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="第 1 周 (本周)"
+                                    android:textColor="@color/primary"
+                                    android:textSize="11sp"
+                                    android:textStyle="bold" />
+
+                                <ImageView
+                                    android:layout_width="12dp"
+                                    android:layout_height="12dp"
+                                    android:layout_marginStart="2dp"
+                                    android:src="@drawable/ic_arrow_drop_down"
+                                    app:tint="@color/primary" />
+                            </LinearLayout>
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipFilterOnlyCurrentWeek"
                                 style="@style/Widget.Material3.Chip.Filter"
                                 android:layout_width="wrap_content"
-                                android:layout_height="32dp"
+                                android:layout_height="24dp"
                                 android:checkable="true"
                                 android:checked="true"
                                 android:text="仅本周课程"
-                                android:textSize="11sp" />
-
-                            <!-- Refresh Button -->
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnRefreshTimetable"
-                                style="@style/Widget.Material3.Button.IconButton"
-                                android:layout_width="32dp"
-                                android:layout_height="32dp"
-                                android:padding="0dp"
-                                android:contentDescription="刷新课表"
-                                app:icon="@drawable/ic_refresh"
-                                app:iconGravity="textStart"
-                                app:iconPadding="0dp"
-                                app:iconSize="18dp"
-                                app:iconTint="@color/primary" />
+                                android:textSize="11sp"
+                                app:chipCornerRadius="12dp"
+                                app:chipMinHeight="24dp"
+                                app:chipStartPadding="6dp"
+                                app:chipEndPadding="6dp"
+                                app:chipIconSize="12dp"
+                                app:ensureMinTouchTargetSize="false" />
                         </LinearLayout>
 
                         <!-- Row 3: Historical Semester Notification Banner -->
@@ -1195,6 +1303,20 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
 
+                    <!-- Open Drawer Button -->
+                    <ImageView
+                        android:id="@+id/btnOpenDrawerGrades"
+                        android:layout_width="38dp"
+                        android:layout_height="38dp"
+                        android:padding="7dp"
+                        android:layout_marginEnd="6dp"
+                        android:src="@drawable/ic_menu"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:clickable="true"
+                        android:focusable="true"
+                        app:tint="@color/text_primary"
+                        android:contentDescription="打开侧栏" />
+
                     <!-- Clickable Semester Selector -->
                     <LinearLayout
                         android:id="@+id/btnSelectGradeSemester"
@@ -1298,48 +1420,40 @@
 
         </FrameLayout>
 
+        <!-- 4. School Course Search Independent Page -->
+        <include
+            android:id="@+id/pageCourseSearch"
+            layout="@layout/layout_page_course_search" />
+
+        <!-- 5. Free Classroom Independent Page -->
+        <include
+            android:id="@+id/pageFreeClassroom"
+            layout="@layout/layout_page_free_classroom" />
+
+        <!-- 6. Exam Query Independent Page -->
+        <include
+            android:id="@+id/pageExamQuery"
+            layout="@layout/layout_page_exam_query" />
+
+        <!-- 7. Grade Reports & Proofs Independent Page -->
+        <include
+            android:id="@+id/pageGradeReports"
+            layout="@layout/layout_page_grade_reports" />
+
+        <!-- 8. Course Selection Center Independent Page -->
+        <include
+            android:id="@+id/pageCourseSelection"
+            layout="@layout/layout_page_course_selection" />
+
     </FrameLayout>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-    <!-- M3 Compact Bottom Navigation Bar with BlurView -->
-    <eightbitlab.com.blurview.BlurView
-        android:id="@+id/blurViewBottomNav"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom">
+    <!-- Side Navigation Drawer -->
+    <include
+        android:id="@+id/layoutDrawer"
+        layout="@layout/layout_main_drawer"
+        android:layout_width="310dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start" />
 
-        <LinearLayout
-            android:id="@+id/llBottomNavContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/bg_glass_bottom_bar">
-
-            <!-- Top Border Line for Bottom Nav Bar -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="0.8dp"
-                android:background="@color/border" />
-
-            <com.google.android.material.bottomnavigation.BottomNavigationView
-                android:id="@+id/bottomNav"
-                style="@style/Widget.Usst.BottomNavigationView"
-                android:layout_width="match_parent"
-                android:layout_height="71dp"
-                android:background="@android:color/transparent"
-                android:clipChildren="false"
-                android:clipToPadding="false"
-                app:elevation="0dp"
-                app:itemPaddingTop="4dp"
-                app:itemPaddingBottom="2dp"
-                app:labelVisibilityMode="labeled"
-                app:menu="@menu/bottom_nav_menu" />
-
-            <!-- Navigation Bar / Full Screen Gesture Inset Spacer -->
-            <View
-                android:id="@+id/viewNavBarSpacer"
-                android:layout_width="match_parent"
-                android:layout_height="0dp" />
-        </LinearLayout>
-    </eightbitlab.com.blurview.BlurView>
-
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

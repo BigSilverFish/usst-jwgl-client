@@ -30,10 +30,14 @@ class JwglWebActivity : AppCompatActivity() {
         private const val TAG = "JwglWebActivity"
         private const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
         const val EXTRA_URL = "extra_target_url"
+        const val EXTRA_TITLE = "extra_title"
 
-        fun start(context: Context, url: String = DEFAULT_TARGET_URL) {
+        fun start(context: Context, url: String = DEFAULT_TARGET_URL, title: String? = null) {
             val intent = Intent(context, JwglWebActivity::class.java).apply {
                 putExtra(EXTRA_URL, url)
+                if (title != null) {
+                    putExtra(EXTRA_TITLE, title)
+                }
             }
             context.startActivity(intent)
         }
@@ -46,11 +50,15 @@ class JwglWebActivity : AppCompatActivity() {
         binding = ActivityWebViewBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setupToolbar()
-        initWebView()
-        handleBackPress()
-
         val targetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_TARGET_URL
+        val customTitle = intent.getStringExtra(EXTRA_TITLE)
+        if (!customTitle.isNullOrBlank()) {
+            binding.toolbar.title = customTitle
+        }
+
+        setupToolbar()
+        initWebView(targetUrl)
+        handleBackPress()
         prepareAndLoad(targetUrl)
     }
 
@@ -77,7 +85,7 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun initWebView() {
+    private fun initWebView(targetUrl: String) {
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -88,7 +96,12 @@ class JwglWebActivity : AppCompatActivity() {
             builtInZoomControls = true
             displayZoomControls = false
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            // Use mobile WeChat UA for new2017.usst.edu.cn to render mobile mini-app layout, desktop UA for jwgl
+            userAgentString = if (targetUrl.contains("new2017.usst.edu.cn")) {
+                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.40.2420"
+            } else {
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
         }
 
         val cookieManager = CookieManager.getInstance()
@@ -107,7 +120,7 @@ class JwglWebActivity : AppCompatActivity() {
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                if (!title.isNullOrBlank() && !title.startsWith("http")) {
+                if (!title.isNullOrBlank() && !title.startsWith("http") && !title.contains("统一身份认证") && !title.contains("登录")) {
                     binding.toolbar.title = title
                 }
             }
@@ -116,13 +129,13 @@ class JwglWebActivity : AppCompatActivity() {
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                Log.d(TAG, "onPageStarted: ")
+                Log.d(TAG, "onPageStarted: $url")
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 binding.layoutLoading.visibility = View.GONE
-                Log.d(TAG, "onPageFinished: ")
+                Log.d(TAG, "onPageFinished: $url")
 
                 // If redirected to login page despite cookie injection, perform JS autofill fallback
                 if (url != null && (url.contains("authserver/login") || url.contains("login_slogin.html") || url.contains("sso/jziotlogin"))) {
@@ -131,6 +144,17 @@ class JwglWebActivity : AppCompatActivity() {
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return false
+                val scheme = uri.scheme ?: return false
+                if (scheme != "http" && scheme != "https") {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, uri)
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Cannot launch intent for $uri", e)
+                    }
+                    return true
+                }
                 return false
             }
         }
@@ -146,14 +170,16 @@ class JwglWebActivity : AppCompatActivity() {
             val js = """
                 (function() {
                     try {
-                        var u = document.getElementById('username') || document.querySelector('input[name=username]') || document.getElementById('yhm');
-                        var p = document.getElementById('password') || document.querySelector('input[name=password]') || document.getElementById('mm');
+                        var u = document.getElementById('mobileUsername') || document.getElementById('username') || document.querySelector('input[name=username]') || document.getElementById('yhm');
+                        var p = document.getElementById('mobilePassword') || document.getElementById('password') || document.querySelector('input[name=password]') || document.getElementById('mm');
                         if (u && p) {
                             u.value = '$safeId';
                             p.value = '$safePwd';
                             u.dispatchEvent(new Event('input', { bubbles: true }));
                             p.dispatchEvent(new Event('input', { bubbles: true }));
-                            var btn = document.getElementById('login_sub') || document.querySelector('button[type=submit]') || document.querySelector('.auth_login_btn') || document.getElementById('dl');
+                            u.dispatchEvent(new Event('change', { bubbles: true }));
+                            p.dispatchEvent(new Event('change', { bubbles: true }));
+                            var btn = document.getElementById('load') || document.querySelector('.login-button') || document.getElementById('login_sub') || document.querySelector('button[type=submit]') || document.querySelector('.auth_login_btn') || document.getElementById('dl');
                             if (btn && !window.__auto_submitted) {
                                 window.__auto_submitted = true;
                                 setTimeout(function() { btn.click(); }, 300);
@@ -173,7 +199,11 @@ class JwglWebActivity : AppCompatActivity() {
 
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
             binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMessage.text = "正在为网页版认证教务系统会话..."
+            binding.tvLoadingMessage.text = if (targetUrl.contains("new2017")) {
+                "正在为学工系统认证统一登录会话..."
+            } else {
+                "正在为教务系统认证网页会话..."
+            }
 
             lifecycleScope.launch {
                 // Always refresh CAS SSO session via OkHttp first to guarantee 100% fresh ticket
@@ -192,7 +222,7 @@ class JwglWebActivity : AppCompatActivity() {
                 }
             }
         } else {
-            binding.webView.loadUrl("https://jwgl.usst.edu.cn/sso/jziotlogin")
+            binding.webView.loadUrl(targetUrl)
         }
     }
 
@@ -203,6 +233,8 @@ class JwglWebActivity : AppCompatActivity() {
             "https://jwgl.usst.edu.cn",
             "https://ids6.usst.edu.cn",
             "https://ehall.usst.edu.cn",
+            "https://new2017.usst.edu.cn",
+            "http://new2017.usst.edu.cn",
             "https://usst.edu.cn"
         )
 

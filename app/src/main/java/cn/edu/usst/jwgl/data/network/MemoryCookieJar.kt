@@ -7,16 +7,18 @@ import okhttp3.HttpUrl
 import java.util.concurrent.CopyOnWriteArrayList
 
 class MemoryCookieJar : CookieJar {
-    private val cookieStore = CopyOnWriteArrayList<Cookie>()
+    private val lock = Any()
+    private val cookieStore = ArrayList<Cookie>()
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        for (cookie in cookies) {
-            // Remove matching old cookie
-            cookieStore.removeAll { 
-                it.name == cookie.name && it.domain == cookie.domain && it.path == cookie.path 
+        synchronized(lock) {
+            for (cookie in cookies) {
+                cookieStore.removeAll { 
+                    it.name == cookie.name && it.domain == cookie.domain && it.path == cookie.path 
+                }
+                cookieStore.add(cookie)
+                Log.d("MemoryCookieJar", "Saved cookie: ${cookie.name}=${cookie.value} domain=${cookie.domain} path=${cookie.path}")
             }
-            cookieStore.add(cookie)
-            Log.d("MemoryCookieJar", "Saved cookie: ${cookie.name}=${cookie.value} domain=${cookie.domain} path=${cookie.path}")
         }
     }
 
@@ -24,11 +26,15 @@ class MemoryCookieJar : CookieJar {
         val validCookies = ArrayList<Cookie>()
         val now = System.currentTimeMillis()
 
-        for (cookie in cookieStore) {
-            if (cookie.expiresAt < now) {
-                cookieStore.remove(cookie)
-            } else if (cookie.matches(url)) {
-                validCookies.add(cookie)
+        synchronized(lock) {
+            val iterator = cookieStore.iterator()
+            while (iterator.hasNext()) {
+                val cookie = iterator.next()
+                if (cookie.expiresAt < now) {
+                    iterator.remove()
+                } else if (cookie.matches(url)) {
+                    validCookies.add(cookie)
+                }
             }
         }
         Log.d("MemoryCookieJar", "Loaded ${validCookies.size} cookies for $url")
@@ -36,9 +42,13 @@ class MemoryCookieJar : CookieJar {
     }
 
     fun clear() {
-        cookieStore.clear()
+        synchronized(lock) {
+            cookieStore.clear()
+        }
         Log.d("MemoryCookieJar", "Cookie store cleared")
     }
 
-    fun getAllCookies(): List<Cookie> = cookieStore.toList()
+    fun getAllCookies(): List<Cookie> = synchronized(lock) {
+        ArrayList(cookieStore)
+    }
 }

@@ -21,6 +21,8 @@ class AuthPreferences(context: Context) {
         private const val KEY_DISCLAIMER_AGREED = "pref_disclaimer_agreed"
         private const val KEY_INITIAL_SYNC_COMPLETED = "pref_initial_sync_completed"
         private const val KEY_MIGRATED = "pref_migrated_to_encrypted"
+        private const val KEY_CONFIRM_SELECT_COURSE = "pref_confirm_select_course"
+        private const val KEY_CONFIRM_DROP_COURSE = "pref_confirm_drop_course"
 
         private fun createSecurePrefs(context: Context): SharedPreferences {
             return try {
@@ -89,6 +91,24 @@ class AuthPreferences(context: Context) {
 
     fun clearAutoLogin() {
         prefs.edit().putBoolean(KEY_AUTO_LOGIN, false).apply()
+    }
+
+    /**
+     * 选课二次确认开关（默认关闭）
+     */
+    fun isConfirmSelectCourse(): Boolean = prefs.getBoolean(KEY_CONFIRM_SELECT_COURSE, false)
+
+    fun setConfirmSelectCourse(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CONFIRM_SELECT_COURSE, enabled).apply()
+    }
+
+    /**
+     * 退课二次确认开关（默认开启）
+     */
+    fun isConfirmDropCourse(): Boolean = prefs.getBoolean(KEY_CONFIRM_DROP_COURSE, true)
+
+    fun setConfirmDropCourse(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CONFIRM_DROP_COURSE, enabled).apply()
     }
 
     fun clearAll() {

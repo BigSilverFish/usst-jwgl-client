@@ -41,6 +41,8 @@ class ScheduleWeekFragment : Fragment() {
     private lateinit var llWeekColumnsContainer: LinearLayout
     private lateinit var flScheduleContent: FrameLayout
 
+    private var hasRendered = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         arguments?.let {
@@ -59,22 +61,40 @@ class ScheduleWeekFragment : Fragment() {
         llSidebarNodes = view.findViewById(R.id.llSidebarNodes)
         llWeekColumnsContainer = view.findViewById(R.id.llWeekColumnsContainer)
         flScheduleContent = view.findViewById(R.id.flScheduleContent)
+        applyContentPadding()
         return view
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        applyContentPadding()
         renderSchedule()
+        hasRendered = true
     }
 
     override fun onResume() {
         super.onResume()
-        renderSchedule()
+        if (!hasRendered) {
+            applyContentPadding()
+            renderSchedule()
+            hasRendered = true
+        }
     }
 
     fun refresh() {
         if (isAdded) {
+            applyContentPadding()
             renderSchedule()
+            hasRendered = true
+        }
+    }
+
+    private fun applyContentPadding() {
+        if (!::svScheduleContent.isInitialized) return
+        val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(120f)
+        val bottomPad = (cn.edu.usst.jwgl.ui.MainActivity.bottomBarHeightPx.takeIf { it > 0 } ?: dpToPx(72f)) + 24
+        if (svScheduleContent.paddingTop != topPad || svScheduleContent.paddingBottom != bottomPad) {
+            svScheduleContent.setPadding(0, topPad, 0, bottomPad)
         }
     }
 
@@ -116,12 +136,7 @@ class ScheduleWeekFragment : Fragment() {
         val afternoonEndNode = if (table.nodes <= 12) 9 else 10
         val eveningStartNode = afternoonEndNode + 1
 
-        // Adjust svScheduleContent padding so content starts right below the floating unified top bar and clears bottom bar
-        svScheduleContent.post {
-            val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(120f)
-            val bottomPad = (cn.edu.usst.jwgl.ui.MainActivity.bottomBarHeightPx.takeIf { it > 0 } ?: dpToPx(72f)) + 24
-            svScheduleContent.setPadding(0, topPad, 0, bottomPad)
-        }
+        applyContentPadding()
 
         // 3. Sidebar Nodes
         llSidebarNodes.removeAllViews()
@@ -299,23 +314,6 @@ class ScheduleWeekFragment : Fragment() {
                 continue
             }
 
-            if (showDayParts) {
-                // Subtle evening tint background
-                val eveningTop = afternoonEndNode * (itemHeightPx + marTopPx) + marTopPx
-                val eveningHeight = (table.nodes - afternoonEndNode) * (itemHeightPx + marTopPx)
-                if (eveningHeight > 0) {
-                    val eveningBg = View(context).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            eveningHeight
-                        ).apply {
-                            topMargin = eveningTop
-                        }
-                        setBackgroundColor(0x06000000.toInt())
-                    }
-                    dayColumn.addView(eveningBg)
-                }
-            }
 
             val dayCourses = resolved.courses
 

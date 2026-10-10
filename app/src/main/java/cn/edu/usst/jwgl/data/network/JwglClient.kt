@@ -64,7 +64,7 @@ object JwglClient {
         response
     }
 
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .followRedirects(false) // Disable OkHttp's internal follower to let our interceptor handle all hops
         .followSslRedirects(false)

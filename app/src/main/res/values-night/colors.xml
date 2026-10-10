@@ -58,4 +58,7 @@
     <color name="hero_card_title">#E7BDBA</color>
     <color name="hero_card_val">#F1F5F9</color>
     <color name="hero_card_divider">#5C1E26</color>
+
+    <color name="error">#FFB4AB</color>
+    <color name="card_background">#1B1C20</color>
 </resources>
