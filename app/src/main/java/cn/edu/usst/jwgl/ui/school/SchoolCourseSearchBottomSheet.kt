@@ -45,13 +45,36 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
     private var selectedCollege = ""
     private var selectedDay = -1
 
-    private val semesterOptions = listOf(
-        Pair("2026-2027 第1学期 (当前)", Pair("2026-2027", "1")),
-        Pair("2025-2026 第2学期 (春季参考)", Pair("2025-2026", "2")),
-        Pair("2025-2026 第1学期", Pair("2025-2026", "1")),
-        Pair("2024-2025 第2学期", Pair("2024-2025", "2")),
-        Pair("2024-2025 第1学期", Pair("2024-2025", "1"))
-    )
+    private val semesterOptions = mutableListOf<Pair<String, Pair<String, String>>>().apply {
+        val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
+        val curYear = curXnm.toIntOrNull() ?: 2026
+        val curYearSpan = "$curYear-${curYear + 1}"
+        val curTermNum = if (curXqm == "3") "1" else "2"
+
+        val (nextXnm, nextXqm) = SemesterHelper.getNextSemester(curXnm, curXqm)
+        val nextYear = nextXnm.toIntOrNull() ?: 2026
+        val nextYearSpan = "$nextYear-${nextYear + 1}"
+        val nextTermNum = if (nextXqm == "3") "1" else "2"
+
+        add(Pair("$nextYearSpan 第${nextTermNum}学期 (下一学期)", Pair(nextYearSpan, nextTermNum)))
+        add(Pair("$curYearSpan 第${curTermNum}学期 (当前)", Pair(curYearSpan, curTermNum)))
+        var pastYear = curYear
+        var pastTerm = if (curTermNum == "1") "2" else "1"
+        if (curTermNum == "1") {
+            pastYear -= 1
+        }
+        for (i in 0 until 4) {
+            val pastSpan = "$pastYear-${pastYear + 1}"
+            val label = if (pastTerm == "2" && i == 0) "$pastSpan 第${pastTerm}学期 (春季参考)" else "$pastSpan 第${pastTerm}学期"
+            add(Pair(label, Pair(pastSpan, pastTerm)))
+            if (pastTerm == "2") {
+                pastTerm = "1"
+            } else {
+                pastTerm = "2"
+                pastYear -= 1
+            }
+        }
+    }
 
     private val dayOptions = listOf(
         Pair("全部星期", -1),
@@ -118,6 +141,8 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
         // Setup Semester Spinner
         val semAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, semesterOptions.map { it.first })
         spSemester.adapter = semAdapter
+        val defaultSemIndex = semesterOptions.indexOfFirst { it.second == Pair(currentXn, currentXq) }.coerceAtLeast(0)
+        spSemester.setSelection(defaultSemIndex)
         spSemester.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val pair = semesterOptions[position].second

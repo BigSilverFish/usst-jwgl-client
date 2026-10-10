@@ -2182,13 +2182,37 @@ class MainActivity : AppCompatActivity() {
         page.rvCourseList.layoutManager = LinearLayoutManager(this)
         page.rvCourseList.adapter = schoolCourseAdapter
 
-        val semesterOptions = listOf(
-            Pair("2026-2027 第1学期 (当前)", Pair("2026-2027", "1")),
-            Pair("2025-2026 第2学期 (春季参考)", Pair("2025-2026", "2")),
-            Pair("2025-2026 第1学期", Pair("2025-2026", "1")),
-            Pair("2024-2025 第2学期", Pair("2024-2025", "2")),
-            Pair("2024-2025 第1学期", Pair("2024-2025", "1"))
-        )
+        val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
+        val curYear = curXnm.toIntOrNull() ?: 2026
+        val curYearSpan = "$curYear-${curYear + 1}"
+        val curTermNum = if (curXqm == "3") "1" else "2"
+
+        val (nextXnm, nextXqm) = SemesterHelper.getNextSemester(curXnm, curXqm)
+        val nextYear = nextXnm.toIntOrNull() ?: 2026
+        val nextYearSpan = "$nextYear-${nextYear + 1}"
+        val nextTermNum = if (nextXqm == "3") "1" else "2"
+
+        val semesterOptions = mutableListOf<Pair<String, Pair<String, String>>>().apply {
+            add(Pair("$nextYearSpan 第${nextTermNum}学期 (下一学期)", Pair(nextYearSpan, nextTermNum)))
+            add(Pair("$curYearSpan 第${curTermNum}学期 (当前)", Pair(curYearSpan, curTermNum)))
+            var pastYear = curYear
+            var pastTerm = if (curTermNum == "1") "2" else "1"
+            if (curTermNum == "1") {
+                pastYear -= 1
+            }
+            for (i in 0 until 4) {
+                val pastSpan = "$pastYear-${pastYear + 1}"
+                val label = if (pastTerm == "2" && i == 0) "$pastSpan 第${pastTerm}学期 (春季参考)" else "$pastSpan 第${pastTerm}学期"
+                add(Pair(label, Pair(pastSpan, pastTerm)))
+                if (pastTerm == "2") {
+                    pastTerm = "1"
+                } else {
+                    pastTerm = "2"
+                    pastYear -= 1
+                }
+            }
+        }
+        val defaultSemIndex = semesterOptions.indexOfFirst { it.second == Pair(currentSearchXn, currentSearchXq) }.coerceAtLeast(0)
         val semAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, semesterOptions.map { it.first })
 
         val weekOptions = mutableListOf(Pair("全部周次", -1))
@@ -2250,6 +2274,7 @@ class MainActivity : AppCompatActivity() {
         val btnConfirmFilters = filterView.findViewById<View>(R.id.btnConfirmFilters)
 
         dialogSpinnerSemester.adapter = semAdapter
+        dialogSpinnerSemester.setSelection(defaultSemIndex)
         dialogSpinnerWeek.adapter = weekAdapter
         dialogSpinnerCollege.adapter = collegeAdapter
         dialogSpinnerDay.adapter = dayAdapter
@@ -2257,7 +2282,7 @@ class MainActivity : AppCompatActivity() {
 
         fun updateFilterBadge() {
             val conditions = mutableListOf<String>()
-            if (currentSearchXn != "2026-2027" || currentSearchXq != "1") {
+            if (currentSearchXn != curYearSpan || currentSearchXq != curTermNum) {
                 conditions.add("${currentSearchXn.takeLast(4)}-${currentSearchXq}")
             }
             if (selectedSearchWeek != -1) {
@@ -2331,13 +2356,14 @@ class MainActivity : AppCompatActivity() {
         btnConfirmFilters.setOnClickListener { filterDialog.dismiss() }
 
         btnResetFilters.setOnClickListener {
-            dialogSpinnerSemester.setSelection(0)
+            val resetSemIndex = semesterOptions.indexOfFirst { it.second == Pair(curYearSpan, curTermNum) }.coerceAtLeast(0)
+            dialogSpinnerSemester.setSelection(resetSemIndex)
             dialogSpinnerWeek.setSelection(0)
             dialogSpinnerCollege.setSelection(0)
             dialogSpinnerDay.setSelection(0)
             dialogSpinnerSection.setSelection(0)
-            currentSearchXn = "2026-2027"
-            currentSearchXq = "1"
+            currentSearchXn = curYearSpan
+            currentSearchXq = curTermNum
             selectedSearchWeek = -1
             selectedSearchCollege = ""
             selectedSearchDay = -1
