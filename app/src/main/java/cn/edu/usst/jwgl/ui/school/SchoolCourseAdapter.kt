@@ -78,10 +78,6 @@ class SchoolCourseAdapter(
 
         val creditInfo = StringBuilder()
         if (item.xf.isNotEmpty()) creditInfo.append("${item.xf}学分")
-        if (item.xs.isNotEmpty()) {
-            if (creditInfo.isNotEmpty()) creditInfo.append(" · ")
-            creditInfo.append("${item.xs}学时")
-        }
         holder.tvCreditBadge.text = creditInfo.toString()
         holder.tvCreditBadge.visibility = if (creditInfo.isNotEmpty()) View.VISIBLE else View.GONE
 

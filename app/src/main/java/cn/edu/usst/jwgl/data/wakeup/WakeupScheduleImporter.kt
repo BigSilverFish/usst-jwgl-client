@@ -115,7 +115,17 @@ object WakeupScheduleImporter {
         val clean = raw.replace("周", "").trim()
         val isSingle = clean.contains("单")
         val isDouble = clean.contains("双")
-        val numberPart = clean.replace("(单)", "").replace("(双)", "").replace("单", "").replace("双", "").trim()
+        val numberPart = clean.replace("(单周)", "")
+            .replace("(双周)", "")
+            .replace("（单周）", "")
+            .replace("（双周）", "")
+            .replace("(单)", "")
+            .replace("(双)", "")
+            .replace("（单）", "")
+            .replace("（双）", "")
+            .replace("单", "")
+            .replace("双", "")
+            .trim()
 
         val type = when {
             isSingle -> 1

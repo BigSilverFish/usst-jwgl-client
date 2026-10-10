@@ -124,6 +124,17 @@
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOpenLappWeb"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginEnd="2dp"
+                    android:contentDescription="全校排课网页版"
+                    app:icon="@drawable/ic_globe"
+                    app:iconSize="20dp"
+                    app:iconTint="@color/primary" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnClearSearch"
                     style="@style/Widget.Material3.Button.IconButton"
                     android:layout_width="38dp"

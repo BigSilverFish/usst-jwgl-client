@@ -39,15 +39,6 @@
                     android:textColor="@color/text_primary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvBuildingName"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="第一教学楼"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
             </LinearLayout>
 
             <TextView

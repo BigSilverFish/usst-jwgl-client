@@ -34,22 +34,38 @@ class FreeClassroomBottomSheet : BottomSheetDialogFragment() {
 
     private val buildingOptions = LappClient.ALL_KNOWN_BUILDINGS
 
-    private val dayOptions = listOf(
-        Pair("今天", 0),
-        Pair("周一", 1),
-        Pair("周二", 2),
-        Pair("周三", 3),
-        Pair("周四", 4),
-        Pair("周五", 5),
-        Pair("周六", 6),
-        Pair("周日", 7)
-    )
+    private val dayOptions: List<Pair<String, Int>>
+        get() {
+            val cal = Calendar.getInstance()
+            val rawDay = cal.get(Calendar.DAY_OF_WEEK)
+            val todayZj = if (rawDay == Calendar.SUNDAY) 7 else rawDay - 1
+            val todayName = when (todayZj) {
+                1 -> "周一"
+                2 -> "周二"
+                3 -> "周三"
+                4 -> "周四"
+                5 -> "周五"
+                6 -> "周六"
+                7 -> "周日"
+                else -> "今日"
+            }
+            return listOf(
+                Pair("${todayName}（今日）", 0),
+                Pair("周一", 1),
+                Pair("周二", 2),
+                Pair("周三", 3),
+                Pair("周四", 4),
+                Pair("周五", 5),
+                Pair("周六", 6),
+                Pair("周日", 7)
+            )
+        }
 
     private val sectionOptions = listOf(
         Pair("1-2节 (08:00-09:25)", "1-2"),
         Pair("3-5节 (09:45-11:55)", "3-5"),
         Pair("6-7节 (13:00-14:25)", "6-7"),
-        Pair("8-9节 (14:45-16:10)", "8-9"),
+        Pair("8-10节 (14:45-16:55)", "8-9"),
         Pair("10-12节 (16:15-19:25)", "10-12")
     )
 

@@ -1734,15 +1734,6 @@ class MainActivity : AppCompatActivity() {
             switchTab(MainTab.GRADE_REPORTS)
         }
 
-        // Side Navigation Drawer: University Web Portals
-        binding.layoutDrawer.drawerItemLappWeb.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
-            JwglWebActivity.start(
-                this,
-                "https://lapp.usst.edu.cn/_web/_customizes/usst/schoolTimetable/mobile/permit/pc/pub/index.html",
-                "全校课表"
-            )
-        }
 
         binding.layoutDrawer.drawerItemJwglWeb.setOnClickListener {
             binding.drawerLayout.closeDrawer(GravityCompat.START)
@@ -2155,6 +2146,13 @@ class MainActivity : AppCompatActivity() {
         val page = binding.pageCourseSearch
         page.btnOpenDrawerCourseSearch.setOnClickListener {
             binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+        page.btnOpenLappWeb.setOnClickListener {
+            JwglWebActivity.start(
+                this,
+                "https://lapp.usst.edu.cn/_web/_customizes/usst/schoolTimetable/mobile/permit/pc/pub/index.html",
+                "全校课表"
+            )
         }
 
         schoolCourseAdapter = SchoolCourseAdapter(
@@ -2615,8 +2613,25 @@ class MainActivity : AppCompatActivity() {
         val bAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, buildingOptions)
         page.spinnerFreeBuilding.adapter = bAdapter
 
+        val cal = Calendar.getInstance()
+        val rawDay = cal.get(Calendar.DAY_OF_WEEK)
+        val todayZj = if (rawDay == Calendar.SUNDAY) 7 else rawDay - 1
+        selectedFreeDay = todayZj
+
+        val todayName = when (todayZj) {
+            1 -> "周一"
+            2 -> "周二"
+            3 -> "周三"
+            4 -> "周四"
+            5 -> "周五"
+            6 -> "周六"
+            7 -> "周日"
+            else -> "今日"
+        }
+        val todayLabel = "${todayName}（今日）"
+
         val dayOptions = listOf(
-            Pair("今天", 0),
+            Pair(todayLabel, 0),
             Pair("周一", 1),
             Pair("周二", 2),
             Pair("周三", 3),
@@ -2628,16 +2643,11 @@ class MainActivity : AppCompatActivity() {
         val dAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, dayOptions.map { it.first })
         page.spinnerFreeDay.adapter = dAdapter
 
-        val cal = Calendar.getInstance()
-        val rawDay = cal.get(Calendar.DAY_OF_WEEK)
-        val todayZj = if (rawDay == Calendar.SUNDAY) 7 else rawDay - 1
-        selectedFreeDay = todayZj
-
         val sectionOptions = listOf(
             Pair("1-2节 (08:00-09:25)", "1-2"),
             Pair("3-5节 (09:45-11:55)", "3-5"),
             Pair("6-7节 (13:00-14:25)", "6-7"),
-            Pair("8-9节 (14:45-16:10)", "8-9"),
+            Pair("8-10节 (14:45-16:55)", "8-9"),
             Pair("10-12节 (16:15-19:25)", "10-12")
         )
         val sAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sectionOptions.map { it.first })

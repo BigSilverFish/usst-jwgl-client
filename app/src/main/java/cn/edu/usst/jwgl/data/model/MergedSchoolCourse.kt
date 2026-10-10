@@ -49,15 +49,25 @@ data class CourseTimeSlot(
     val formattedWeeks: String
         get() {
             return if (weekList.isNotEmpty()) {
-                val minW = weekList.first()
-                val maxW = weekList.last()
-                if (weekList.size == (maxW - minW + 1)) {
-                    "${minW}-${maxW}周"
+                val sorted = weekList.sorted()
+                val minW = sorted.first()
+                val maxW = sorted.last()
+                val isConsecutive = sorted.size == (maxW - minW + 1)
+                val isStep2 = sorted.size > 1 && sorted.zipWithNext().all { (a, b) -> b - a == 2 }
+                val isAllOdd = isStep2 && sorted.all { it % 2 != 0 }
+                val isAllEven = isStep2 && sorted.all { it % 2 == 0 }
+
+                if (isConsecutive) {
+                    if (minW == maxW) "${minW}周" else "${minW}-${maxW}周"
+                } else if (isAllOdd) {
+                    "${minW}-${maxW}周(单周)"
+                } else if (isAllEven) {
+                    "${minW}-${maxW}周(双周)"
                 } else {
-                    "${minW}-${maxW}周(共${weekList.size}周)"
+                    "${minW}-${maxW}周(共${sorted.size}周)"
                 }
             } else if (qsz > 0 && jsz >= qsz) {
-                "${qsz}-${jsz}周"
+                if (qsz == jsz) "${qsz}周" else "${qsz}-${jsz}周"
             } else {
                 "全学期"
             }

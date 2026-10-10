@@ -14,7 +14,6 @@ class FreeClassroomAdapter(
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvName: TextView = view.findViewById(R.id.tvClassroomName)
-        val tvBuilding: TextView = view.findViewById(R.id.tvBuildingName)
         val tvDetail: TextView = view.findViewById(R.id.tvOccupiedDetail)
         val tvBadge: TextView = view.findViewById(R.id.tvStatusBadge)
     }
@@ -27,7 +26,6 @@ class FreeClassroomAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = list[position]
         holder.tvName.text = item.name
-        holder.tvBuilding.text = item.building
 
         if (item.isFree) {
             holder.tvBadge.text = "空闲可自习"
