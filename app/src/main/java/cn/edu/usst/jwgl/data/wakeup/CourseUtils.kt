@@ -43,11 +43,12 @@ object CourseUtils {
             cal.set(Calendar.MILLISECOND, 0)
             val time1 = cal.timeInMillis
 
-            val today = Calendar.getInstance()
-            today.set(Calendar.HOUR_OF_DAY, 0)
-            today.set(Calendar.MINUTE, 0)
-            today.set(Calendar.SECOND, 0)
-            today.set(Calendar.MILLISECOND, 0)
+            val today = cn.edu.usst.jwgl.util.SemesterHelper.getToday().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
             val time2 = today.timeInMillis
 
             val betweenDays = (time2 - time1) / (1000 * 3600 * 24)

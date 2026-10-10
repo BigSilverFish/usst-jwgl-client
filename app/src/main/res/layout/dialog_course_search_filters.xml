@@ -43,7 +43,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="支持学期、周次、开课学院与星期多维筛选"
+                android:text="支持学期、周次、开课学院、星期与上课时段筛选"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -136,6 +136,24 @@
 
         <Spinner
             android:id="@+id/dialogSpinnerDay"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/badge_bg"
+            android:paddingHorizontal="10dp" />
+
+        <!-- 5. Section Selection -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⏰ 上课时段"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/dialogSpinnerSection"
             android:layout_width="match_parent"
             android:layout_height="42dp"
             android:layout_marginTop="6dp"

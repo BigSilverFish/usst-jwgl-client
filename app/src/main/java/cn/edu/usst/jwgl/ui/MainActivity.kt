@@ -1926,6 +1926,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedSearchWeek = -1
     private var selectedSearchCollege = ""
     private var selectedSearchDay = -1
+    private var selectedSearchSection = "-1"
     private var defaultSlotQueryJob: Job? = null
 
     data class CurrentSlotSpec(
@@ -1983,7 +1984,8 @@ class MainActivity : AppCompatActivity() {
                 !page.etSearchTeacher.text.isNullOrBlank() ||
                 selectedSearchCollege.isNotEmpty() ||
                 selectedSearchDay != -1 ||
-                selectedSearchWeek != -1
+                selectedSearchWeek != -1 ||
+                selectedSearchSection != "-1"
 
         if (hasActiveSearch && !isUserInitiatedReset) {
             return
@@ -2019,9 +2021,10 @@ class MainActivity : AppCompatActivity() {
 
         val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
         val targetWeek = if (curWeek in 1..25) curWeek else -1
+        val weekPrefix = if (targetWeek > 0) "第${targetWeek}周 " else ""
 
         page.progressBarSearch.visibility = View.VISIBLE
-        page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · ${slot.statusText} · 正在加载全校排课..."
+        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${slot.statusText} · 正在加载全校排课..."
 
         defaultSlotQueryJob = lifecycleScope.launch {
             try {
@@ -2043,7 +2046,37 @@ class MainActivity : AppCompatActivity() {
 
                 if (result.isSuccess) {
                     val (_, rawItems) = result.getOrNull() ?: Pair(0, emptyList())
-                    val merged = MergedSchoolCourse.fromLappItems(rawItems)
+
+                    // 核心要求：默认显示当前时段课程时只显示本周课程
+                    val thisWeekItems = if (targetWeek > 0) {
+                        rawItems.filter { item ->
+                            if (item.weekList.isNotEmpty()) {
+                                item.weekList.contains(targetWeek)
+                            } else if (item.qsz > 0 && item.jsz >= item.qsz) {
+                                targetWeek in item.qsz..item.jsz
+                            } else if (item.zc.isNotBlank()) {
+                                item.zc.split(",").mapNotNull { it.trim().toIntOrNull() }.contains(targetWeek)
+                            } else {
+                                true
+                            }
+                        }
+                    } else {
+                        rawItems
+                    }
+
+                    // 严格限定属于当前时段范围的节次
+                    val validSlotItems = thisWeekItems.filter { item ->
+                        when (slot.queryJc) {
+                            "1-2" -> item.jc in 1..2
+                            "3-5" -> item.jc in 3..5
+                            "6-7" -> item.jc in 6..8
+                            "8-9" -> item.jc in 8..10
+                            "10-12" -> item.jc in 11..13
+                            else -> true
+                        }
+                    }
+
+                    val merged = MergedSchoolCourse.fromLappItems(validSlotItems)
 
                     if (merged.isNotEmpty()) {
                         schoolCourseList.clear()
@@ -2052,7 +2085,7 @@ class MainActivity : AppCompatActivity() {
 
                         page.rvCourseList.visibility = View.VISIBLE
                         page.layoutEmptyResults.visibility = View.GONE
-                        page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · ${slot.statusText} · 共 ${merged.size} 门课程"
+                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${slot.statusText} · 共 ${merged.size} 门课程"
 
                         val pendingItems = merged.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
                             .distinctBy { it.kcdm }
@@ -2083,9 +2116,9 @@ class MainActivity : AppCompatActivity() {
                         schoolCourseAdapter?.notifyDataSetChanged()
                         page.rvCourseList.visibility = View.GONE
                         page.layoutEmptyResults.visibility = View.VISIBLE
-                        page.tvEmptyTitle.text = "当前时段暂无排课"
-                        page.tvEmptyDesc.text = "今日 $dayName ${slot.slotName} 暂未检索到开课班级，您可主动检索其他时段"
-                        page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · ${slot.statusText} · 暂无开课"
+                        page.tvEmptyTitle.text = "本周当前时段暂无排课"
+                        page.tvEmptyDesc.text = "${weekPrefix}$dayName ${slot.slotName} 暂未检索到开课教学班，您可主动检索其他时段或周次"
+                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${slot.statusText} · 暂无开课"
                     }
                 } else {
                     val err = result.exceptionOrNull()?.message ?: "网络请求失败"
@@ -2095,7 +2128,7 @@ class MainActivity : AppCompatActivity() {
                     page.layoutEmptyResults.visibility = View.VISIBLE
                     page.tvEmptyTitle.text = "获取当前时段课程失败"
                     page.tvEmptyDesc.text = "$err\n请检查网络连接或使用上方搜索栏主动检索"
-                    page.tvCourseSearchSubtitle.text = "$dayName ${slot.slotName} · 加载失败"
+                    page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 加载失败"
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
@@ -2171,6 +2204,16 @@ class MainActivity : AppCompatActivity() {
         )
         val dayAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, dayOptions.map { it.first })
 
+        val sectionOptions = listOf(
+            Pair("全部时段", "-1"),
+            Pair("1-2节 (08:00-09:25)", "1-2"),
+            Pair("3-5节 (09:45-11:55)", "3-5"),
+            Pair("6-7节 (13:00-14:25)", "6-7"),
+            Pair("8-10节 (14:45-16:55)", "8-9"),
+            Pair("11-13节 (18:00-20:10)", "10-12")
+        )
+        val sectionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sectionOptions.map { it.first })
+
         val defaultColleges = mutableListOf("全部学院")
         val collegeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, defaultColleges)
 
@@ -2187,7 +2230,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 更多筛选弹窗 (收纳 学期、周次、学院、星期)
+        // 更多筛选弹窗 (收纳 学期、周次、学院、星期、时段)
         val filterDialog = BottomSheetDialog(this)
         val filterView = layoutInflater.inflate(R.layout.dialog_course_search_filters, null)
         filterDialog.setContentView(filterView)
@@ -2196,6 +2239,7 @@ class MainActivity : AppCompatActivity() {
         val dialogSpinnerWeek = filterView.findViewById<Spinner>(R.id.dialogSpinnerWeek)
         val dialogSpinnerCollege = filterView.findViewById<Spinner>(R.id.dialogSpinnerCollege)
         val dialogSpinnerDay = filterView.findViewById<Spinner>(R.id.dialogSpinnerDay)
+        val dialogSpinnerSection = filterView.findViewById<Spinner>(R.id.dialogSpinnerSection)
         val btnCloseFilterDialog = filterView.findViewById<View>(R.id.btnCloseFilterDialog)
         val btnResetFilters = filterView.findViewById<View>(R.id.btnResetFilters)
         val btnConfirmFilters = filterView.findViewById<View>(R.id.btnConfirmFilters)
@@ -2204,6 +2248,7 @@ class MainActivity : AppCompatActivity() {
         dialogSpinnerWeek.adapter = weekAdapter
         dialogSpinnerCollege.adapter = collegeAdapter
         dialogSpinnerDay.adapter = dayAdapter
+        dialogSpinnerSection.adapter = sectionAdapter
 
         fun updateFilterBadge() {
             val conditions = mutableListOf<String>()
@@ -2219,6 +2264,13 @@ class MainActivity : AppCompatActivity() {
             if (selectedSearchDay != -1) {
                 val days = arrayOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
                 conditions.add(days.getOrElse(selectedSearchDay) { "" })
+            }
+            if (selectedSearchSection != "-1") {
+                val secLabel = sectionOptions.firstOrNull { it.second == selectedSearchSection }?.first
+                if (secLabel != null) {
+                    val shortLabel = secLabel.substringBefore(" ")
+                    conditions.add(shortLabel)
+                }
             }
 
             if (conditions.isNotEmpty()) {
@@ -2262,6 +2314,14 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(p0: AdapterView<*>?) {}
         }
 
+        dialogSpinnerSection.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
+                selectedSearchSection = sectionOptions[position].second
+                updateFilterBadge()
+            }
+            override fun onNothingSelected(p0: AdapterView<*>?) {}
+        }
+
         btnCloseFilterDialog.setOnClickListener { filterDialog.dismiss() }
         btnConfirmFilters.setOnClickListener { filterDialog.dismiss() }
 
@@ -2270,11 +2330,13 @@ class MainActivity : AppCompatActivity() {
             dialogSpinnerWeek.setSelection(0)
             dialogSpinnerCollege.setSelection(0)
             dialogSpinnerDay.setSelection(0)
+            dialogSpinnerSection.setSelection(0)
             currentSearchXn = "2026-2027"
             currentSearchXq = "1"
             selectedSearchWeek = -1
             selectedSearchCollege = ""
             selectedSearchDay = -1
+            selectedSearchSection = "-1"
             updateFilterBadge()
         }
 
@@ -2287,7 +2349,7 @@ class MainActivity : AppCompatActivity() {
             val courseKeyword = page.etSearchCourse.text.toString().trim()
             val teacherKeyword = page.etSearchTeacher.text.toString().trim()
 
-            if (courseKeyword.isEmpty() && teacherKeyword.isEmpty() && selectedSearchCollege.isEmpty() && selectedSearchDay == -1 && selectedSearchWeek == -1) {
+            if (courseKeyword.isEmpty() && teacherKeyword.isEmpty() && selectedSearchCollege.isEmpty() && selectedSearchDay == -1 && selectedSearchWeek == -1 && selectedSearchSection == "-1") {
                 Toast.makeText(this, "请输入课程名/代码/教师名或选择筛选条件", Toast.LENGTH_SHORT).show()
                 return
             }
@@ -2345,7 +2407,7 @@ class MainActivity : AppCompatActivity() {
                         week = selectedSearchWeek,
                         xy = selectedSearchCollege,
                         zj = selectedSearchDay,
-                        jc = "-1",
+                        jc = selectedSearchSection,
                         kcmc = queryKcmc,
                         kcdm = "",
                         lsmc = teacherKeyword,
@@ -2392,6 +2454,18 @@ class MainActivity : AppCompatActivity() {
                         }
                         if (selectedSearchDay > 0) {
                             filtered = filtered.filter { it.zj == selectedSearchDay }
+                        }
+                        if (selectedSearchSection != "-1") {
+                            filtered = filtered.filter { item ->
+                                when (selectedSearchSection) {
+                                    "1-2" -> item.jc in 1..2
+                                    "3-5" -> item.jc in 3..5
+                                    "6-7" -> item.jc in 6..8
+                                    "8-9" -> item.jc in 8..10
+                                    "10-12" -> item.jc in 11..13
+                                    else -> true
+                                }
+                            }
                         }
 
                         val merged = MergedSchoolCourse.fromLappItems(filtered)
