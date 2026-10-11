@@ -69,8 +69,9 @@ object LappClient {
 
     private val client = OkHttpClient.Builder()
         .cookieJar(cookieJar)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -428,13 +429,15 @@ object LappClient {
                 rows = 500
             )
 
+            if (schedResult.isFailure) {
+                return@withContext Result.failure(schedResult.exceptionOrNull() ?: Exception("查询失败"))
+            }
+
             val occupiedMap = mutableMapOf<String, LappCourseItem>()
-            if (schedResult.isSuccess) {
-                val (_, courses) = schedResult.getOrNull() ?: Pair(0, emptyList())
-                for (c in courses) {
-                    if (c.jsdd.isNotEmpty()) {
-                        occupiedMap[c.jsdd] = c
-                    }
+            val (_, courses) = schedResult.getOrNull() ?: Pair(0, emptyList())
+            for (c in courses) {
+                if (c.jsdd.isNotEmpty()) {
+                    occupiedMap[c.jsdd] = c
                 }
             }
 

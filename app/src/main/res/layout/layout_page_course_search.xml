@@ -118,7 +118,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="支持教师 / 课程名 / 课程代码 / 学期 / 开课周同查"
+                        android:text="需连接无线校园网 · 支持教师/课程名/代码/学期同查"
                         android:textColor="@color/text_secondary"
                         android:textSize="11.5sp" />
                 </LinearLayout>
@@ -130,7 +130,12 @@
                     android:layout_height="38dp"
                     android:layout_marginEnd="2dp"
                     android:contentDescription="全校排课网页版"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
                     app:icon="@drawable/ic_globe"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
                     app:iconSize="20dp"
                     app:iconTint="@color/primary" />
 
@@ -140,7 +145,12 @@
                     android:layout_width="38dp"
                     android:layout_height="38dp"
                     android:contentDescription="重置检索"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
                     app:icon="@drawable/ic_refresh"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
                     app:iconSize="20dp"
                     app:iconTint="@color/primary" />
             </LinearLayout>

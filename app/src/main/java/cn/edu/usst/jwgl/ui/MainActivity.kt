@@ -1964,8 +1964,8 @@ class MainActivity : AppCompatActivity() {
             page.rvCourseList.visibility = View.GONE
             page.layoutEmptyResults.visibility = View.VISIBLE
             page.tvEmptyTitle.text = "当前非上课时段"
-            page.tvEmptyDesc.text = "工作日 07:00-20:15 默认展示当前时段课程\n您可通过上方搜索栏或筛选条件主动检索全校开课"
-            page.tvCourseSearchSubtitle.text = "当前非上课时段 · 请输入条件主动检索"
+            page.tvEmptyDesc.text = "工作日 07:00-20:15 默认展示当前时段课程\n您可通过上方搜索栏或筛选条件主动检索全校开课（需连接无线校园网）"
+            page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 当前非上课时段，请主动检索"
             return
         }
 
@@ -1987,7 +1987,7 @@ class MainActivity : AppCompatActivity() {
         val weekPrefix = if (targetWeek > 0) "第${targetWeek}周 " else ""
 
         page.progressBarSearch.visibility = View.VISIBLE
-        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${slot.statusText} · 正在加载全校排课..."
+        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · $weekPrefix$dayName ${slot.slotName} · 正在加载..."
 
         defaultSlotQueryJob = lifecycleScope.launch {
             try {
@@ -2048,7 +2048,7 @@ class MainActivity : AppCompatActivity() {
 
                         page.rvCourseList.visibility = View.VISIBLE
                         page.layoutEmptyResults.visibility = View.GONE
-                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${slot.statusText} · 共 ${merged.size} 门课程"
+                        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · $weekPrefix$dayName ${slot.slotName} · 共 ${merged.size} 门课程"
 
                         val pendingItems = merged.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
                             .distinctBy { it.kcdm }
@@ -2081,17 +2081,17 @@ class MainActivity : AppCompatActivity() {
                         page.layoutEmptyResults.visibility = View.VISIBLE
                         page.tvEmptyTitle.text = "本周当前时段暂无排课"
                         page.tvEmptyDesc.text = "${weekPrefix}$dayName ${slot.slotName} 暂未检索到开课教学班，您可主动检索其他时段或周次"
-                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${slot.statusText} · 暂无开课"
+                        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · $weekPrefix$dayName ${slot.slotName} · 暂无开课"
                     }
                 } else {
-                    val err = result.exceptionOrNull()?.message ?: "网络请求失败"
                     schoolCourseList.clear()
                     schoolCourseAdapter?.notifyDataSetChanged()
                     page.rvCourseList.visibility = View.GONE
                     page.layoutEmptyResults.visibility = View.VISIBLE
-                    page.tvEmptyTitle.text = "获取当前时段课程失败"
-                    page.tvEmptyDesc.text = "$err\n请检查网络连接或使用上方搜索栏主动检索"
-                    page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 加载失败"
+                    page.tvEmptyTitle.text = "查询失败"
+                    page.tvEmptyDesc.text = "查询失败，请检查是否正确连接无线校园网"
+                    page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 查询失败"
+                    Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
@@ -2100,8 +2100,10 @@ class MainActivity : AppCompatActivity() {
                 schoolCourseAdapter?.notifyDataSetChanged()
                 page.rvCourseList.visibility = View.GONE
                 page.layoutEmptyResults.visibility = View.VISIBLE
-                page.tvEmptyTitle.text = "加载出错"
-                page.tvEmptyDesc.text = "${e.message}\n您可使用上方搜索栏主动检索"
+                page.tvEmptyTitle.text = "查询失败"
+                page.tvEmptyDesc.text = "查询失败，请检查是否正确连接无线校园网"
+                page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 查询失败"
+                Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -2204,7 +2206,7 @@ class MainActivity : AppCompatActivity() {
             Pair("3-5节 (09:45-11:55)", "3-5"),
             Pair("6-7节 (13:00-14:25)", "6-7"),
             Pair("8-10节 (14:45-16:55)", "8-9"),
-            Pair("11-13节 (18:00-20:10)", "10-12")
+            Pair("11-13节 (18:00-20:15)", "10-12")
         )
         val sectionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sectionOptions.map { it.first })
 
@@ -2502,28 +2504,27 @@ class MainActivity : AppCompatActivity() {
                             page.layoutEmptyResults.visibility = View.VISIBLE
                             page.tvEmptyTitle.text = "未找到匹配开课班级"
                             page.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
-                            page.tvCourseSearchSubtitle.text = "未找到匹配开课班级"
+                            page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 未找到匹配开课班级"
                             Toast.makeText(this@MainActivity, "未检索到匹配的开课班级", Toast.LENGTH_SHORT).show()
                         } else {
                             page.rvCourseList.visibility = View.VISIBLE
                             page.layoutEmptyResults.visibility = View.GONE
-                            page.tvCourseSearchSubtitle.text = "全校检索结果 (共 ${merged.size} 个教学班)"
+                            page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 检索结果 (共 ${merged.size} 个教学班)"
                             val codeHint = if (extractedCode != null) " [代码 $extractedCode]" else ""
                             Toast.makeText(this@MainActivity, "共检索到 ${merged.size} 个教学班$codeHint (共 ${filtered.size} 个上课时段)", Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        val errorMsg = result.exceptionOrNull()?.message ?: "网络请求失败，请稍后重试"
                         page.rvCourseList.visibility = View.GONE
                         page.layoutEmptyResults.visibility = View.VISIBLE
-                        page.tvEmptyTitle.text = "检索遇到问题"
-                        page.tvEmptyDesc.text = errorMsg
-                        page.tvCourseSearchSubtitle.text = "检索失败: $errorMsg"
-                        Toast.makeText(this@MainActivity, "搜索失败: $errorMsg", Toast.LENGTH_SHORT).show()
+                        page.tvEmptyTitle.text = "查询失败"
+                        page.tvEmptyDesc.text = "查询失败，请检查是否正确连接无线校园网"
+                        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 查询失败"
+                        Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
                     page.progressBarSearch.visibility = View.GONE
                     page.btnDoSearch.isEnabled = true
-                    Toast.makeText(this@MainActivity, "异常: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -2577,7 +2578,8 @@ class MainActivity : AppCompatActivity() {
         page.rvFreeClassroomList.adapter = freeClassroomAdapter
 
         val buildingOptions = LappClient.ALL_KNOWN_BUILDINGS
-        val bAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, buildingOptions)
+        val bAdapter = ArrayAdapter(this, R.layout.item_spinner_free_classroom, buildingOptions)
+        bAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown_free_classroom)
         page.spinnerFreeBuilding.adapter = bAdapter
 
         val cal = Calendar.getInstance()
@@ -2597,7 +2599,8 @@ class MainActivity : AppCompatActivity() {
         val dayOptions = baseDays.map { (name, zj) ->
             if (zj == todayZj) Pair("$name（今日）", zj) else Pair(name, zj)
         }
-        val dAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, dayOptions.map { it.first })
+        val dAdapter = ArrayAdapter(this, R.layout.item_spinner_free_classroom, dayOptions.map { it.first })
+        dAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown_free_classroom)
         page.spinnerFreeDay.adapter = dAdapter
         val todayIdx = dayOptions.indexOfFirst { it.second == todayZj }.coerceAtLeast(0)
         page.spinnerFreeDay.setSelection(todayIdx)
@@ -2607,9 +2610,10 @@ class MainActivity : AppCompatActivity() {
             Pair("3-5节 (09:45-11:55)", "3-5"),
             Pair("6-7节 (13:00-14:25)", "6-7"),
             Pair("8-10节 (14:45-16:55)", "8-9"),
-            Pair("10-12节 (16:15-19:25)", "10-12")
+            Pair("11-13节(18:00-20:15)", "10-12")
         )
-        val sAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sectionOptions.map { it.first })
+        val sAdapter = ArrayAdapter(this, R.layout.item_spinner_free_classroom, sectionOptions.map { it.first })
+        sAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown_free_classroom)
         page.spinnerFreeSection.adapter = sAdapter
 
         val hour = cal.get(Calendar.HOUR_OF_DAY)
@@ -2664,9 +2668,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        fun fetchFreeClassrooms() {
+        fun fetchFreeClassrooms(isUserQueryClick: Boolean = false) {
             page.progressBarFreeClassroom.visibility = View.VISIBLE
-            page.btnRefreshFreeClassroom.isEnabled = false
+            page.btnQueryFreeClassroom.isEnabled = false
 
             val actualDay = if (selectedFreeDay == 0) todayZj else selectedFreeDay
 
@@ -2681,16 +2685,15 @@ class MainActivity : AppCompatActivity() {
                     building = selectedFreeBuilding
                 )
                 page.progressBarFreeClassroom.visibility = View.GONE
-                page.btnRefreshFreeClassroom.isEnabled = true
+                page.btnQueryFreeClassroom.isEnabled = true
 
                 if (result.isSuccess) {
                     val list = result.getOrNull() ?: emptyList()
                     allFreeRooms.clear()
                     allFreeRooms.addAll(list)
-                    filterAndDisplay(showToast = true)
+                    filterAndDisplay(showToast = isUserQueryClick)
                 } else {
-                    val err = result.exceptionOrNull()?.message ?: "查询失败"
-                    Toast.makeText(this@MainActivity, "查询空教室失败: $err", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -2698,7 +2701,6 @@ class MainActivity : AppCompatActivity() {
         page.spinnerFreeBuilding.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
                 selectedFreeBuilding = buildingOptions[position]
-                fetchFreeClassrooms()
             }
             override fun onNothingSelected(p0: AdapterView<*>?) {}
         }
@@ -2706,7 +2708,6 @@ class MainActivity : AppCompatActivity() {
         page.spinnerFreeDay.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
                 selectedFreeDay = dayOptions[position].second
-                fetchFreeClassrooms()
             }
             override fun onNothingSelected(p0: AdapterView<*>?) {}
         }
@@ -2714,7 +2715,6 @@ class MainActivity : AppCompatActivity() {
         page.spinnerFreeSection.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
                 selectedFreeSection = sectionOptions[position].second
-                filterAndDisplay(showToast = true)
             }
             override fun onNothingSelected(p0: AdapterView<*>?) {}
         }
@@ -2722,14 +2722,14 @@ class MainActivity : AppCompatActivity() {
         page.btnOnlyFreeRooms.setOnClickListener {
             isOnlyFreeRooms = !isOnlyFreeRooms
             updateOnlyFreeBtnStyle()
-            filterAndDisplay(showToast = true)
+            filterAndDisplay(showToast = false)
         }
 
-        page.btnRefreshFreeClassroom.setOnClickListener {
-            fetchFreeClassrooms()
+        page.btnQueryFreeClassroom.setOnClickListener {
+            fetchFreeClassrooms(isUserQueryClick = true)
         }
 
-        fetchFreeClassrooms()
+        fetchFreeClassrooms(isUserQueryClick = false)
     }
 
     // ==========================================

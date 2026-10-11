@@ -131,7 +131,12 @@
                     android:layout_width="38dp"
                     android:layout_height="38dp"
                     android:contentDescription="刷新考试日程"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
                     app:icon="@drawable/ic_refresh"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
                     app:iconSize="20dp"
                     app:iconTint="@color/primary" />
             </LinearLayout>

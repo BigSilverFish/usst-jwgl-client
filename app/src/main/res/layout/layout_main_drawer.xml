@@ -571,7 +571,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="USST JWGL · v1.1.0"
+            android:text="USST JWGL · v1.1.1"
             android:textColor="@color/text_tertiary"
             android:textSize="12sp" />
 

@@ -110,23 +110,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="全校排课实时反选 · 智能寻找空闲自习室"
+                        android:text="需连接无线校园网 · 全校排课实时反选空闲自习室"
                         android:textColor="@color/text_secondary"
                         android:textSize="11.5sp" />
                 </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnRefreshFreeClassroom"
-                    style="@style/Widget.Material3.Button.IconButton"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:contentDescription="刷新教室"
-                    app:icon="@drawable/ic_refresh"
-                    app:iconSize="20dp"
-                    app:iconTint="@color/primary" />
             </LinearLayout>
 
-            <!-- Filter Controls (Two rows: 1st row 1:1, 2nd row 2:1) -->
+            <!-- Filter Controls (Row 1: 1/3 + 1/3 + 1/3, Row 2: 1/2 + 1/2) -->
             <LinearLayout
                 android:id="@+id/cardFreeClassroomFilter"
                 android:layout_width="match_parent"
@@ -136,7 +126,7 @@
                 android:orientation="vertical"
                 android:paddingHorizontal="16dp">
 
-                <!-- Row 1: Building (50%) & Day (50%) -->
+                <!-- Row 1: Building (1/3) & Day (1/3) & Only Free Switch (1/3) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -146,22 +136,35 @@
                     <Spinner
                         android:id="@+id/spinnerFreeBuilding"
                         android:layout_width="0dp"
-                        android:layout_height="38dp"
+                        android:layout_height="32dp"
                         android:layout_weight="1"
                         android:background="@drawable/badge_bg"
-                        android:paddingHorizontal="8dp" />
+                        android:paddingHorizontal="4dp" />
 
                     <Spinner
                         android:id="@+id/spinnerFreeDay"
                         android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_marginStart="8dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="6dp"
                         android:layout_weight="1"
                         android:background="@drawable/badge_bg"
-                        android:paddingHorizontal="8dp" />
+                        android:paddingHorizontal="4dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOnlyFreeRooms"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:padding="0dp"
+                        android:text="仅空闲"
+                        android:textSize="12.5sp"
+                        app:cornerRadius="10dp" />
                 </LinearLayout>
 
-                <!-- Row 2: Section (2/3) & Only Free Button (1/3) -->
+                <!-- Row 2: Section (1/2) & Query Button (1/2) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -172,23 +175,31 @@
                     <Spinner
                         android:id="@+id/spinnerFreeSection"
                         android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_weight="2"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
                         android:background="@drawable/badge_bg"
-                        android:paddingHorizontal="8dp" />
+                        android:paddingHorizontal="4dp" />
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnOnlyFreeRooms"
+                        android:id="@+id/btnQueryFreeClassroom"
                         android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_marginStart="8dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="6dp"
                         android:layout_weight="1"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
                         android:padding="0dp"
-                        android:text="仅空闲"
+                        android:text="查询空教室"
+                        android:textColor="#FFFFFF"
                         android:textSize="13sp"
-                        app:cornerRadius="8dp" />
+                        android:textStyle="bold"
+                        app:backgroundTint="@color/primary"
+                        app:cornerRadius="10dp"
+                        app:icon="@drawable/ic_search"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="16dp"
+                        app:iconTint="#FFFFFF" />
                 </LinearLayout>
             </LinearLayout>
 
