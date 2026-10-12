@@ -17,7 +17,7 @@ class MemoryCookieJar : CookieJar {
                     it.name == cookie.name && it.domain == cookie.domain && it.path == cookie.path 
                 }
                 cookieStore.add(cookie)
-                Log.d("MemoryCookieJar", "Saved cookie: ${cookie.name}=${cookie.value} domain=${cookie.domain} path=${cookie.path}")
+                Log.d("MemoryCookieJar", "Saved cookie: ${cookie.name} domain=${cookie.domain} path=${cookie.path}")
             }
         }
     }
@@ -37,7 +37,7 @@ class MemoryCookieJar : CookieJar {
                 }
             }
         }
-        Log.d("MemoryCookieJar", "Loaded ${validCookies.size} cookies for $url")
+        Log.d("MemoryCookieJar", "Loaded ${validCookies.size} cookies for ${url.host}")
         return validCookies
     }
 

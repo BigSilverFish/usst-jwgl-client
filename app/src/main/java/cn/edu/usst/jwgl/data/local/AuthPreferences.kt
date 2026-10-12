@@ -22,21 +22,76 @@ class AuthPreferences(context: Context) {
         private const val KEY_INITIAL_SYNC_COMPLETED = "pref_initial_sync_completed"
         private const val KEY_MIGRATED = "pref_migrated_to_encrypted"
 
+        private val volatileMemoryFallback = InMemorySharedPreferences()
+
         private fun createSecurePrefs(context: Context): SharedPreferences {
             return try {
-                val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
-                EncryptedSharedPreferences.create(
-                    SECURE_PREF_NAME,
-                    masterKeyAlias,
-                    context,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create EncryptedSharedPreferences, falling back", e)
-                context.getSharedPreferences(SECURE_PREF_NAME, Context.MODE_PRIVATE)
+                createEncryptedPrefsInternal(context)
+            } catch (firstEx: Exception) {
+                Log.w(TAG, "EncryptedSharedPreferences init failed, resetting corrupted keyset and retrying", firstEx)
+                try {
+                    context.deleteSharedPreferences(SECURE_PREF_NAME)
+                    createEncryptedPrefsInternal(context)
+                } catch (retryEx: Exception) {
+                    Log.e(TAG, "Hardware keystore unavailable after reset; using volatile RAM-only store (never persisted to disk)", retryEx)
+                    volatileMemoryFallback
+                }
             }
         }
+
+        private fun createEncryptedPrefsInternal(context: Context): SharedPreferences {
+            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            return EncryptedSharedPreferences.create(
+                SECURE_PREF_NAME,
+                masterKeyAlias,
+                context,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
+    }
+
+    /**
+     * Volatile RAM-only SharedPreferences used only when Android Keystore is permanently broken on the device.
+     * Ensures credentials are NEVER written to disk in plaintext.
+     */
+    private class InMemorySharedPreferences : SharedPreferences {
+        private val map = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+        override fun getAll(): MutableMap<String, *> = HashMap(map)
+        override fun getString(key: String?, defValue: String?): String? = (map[key] as? String) ?: defValue
+        @Suppress("UNCHECKED_CAST")
+        override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+            (map[key] as? Set<String>)?.toMutableSet() ?: defValues
+        override fun getInt(key: String?, defValue: Int): Int = (map[key] as? Int) ?: defValue
+        override fun getLong(key: String?, defValue: Long): Long = (map[key] as? Long) ?: defValue
+        override fun getFloat(key: String?, defValue: Float): Float = (map[key] as? Float) ?: defValue
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean = (map[key] as? Boolean) ?: defValue
+        override fun contains(key: String?): Boolean = key != null && map.containsKey(key)
+
+        override fun edit(): SharedPreferences.Editor = object : SharedPreferences.Editor {
+            private val pending = HashMap<String, Any?>()
+            private var clearFlag = false
+
+            override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor = apply { if (key != null) pending[key] = values?.toSet() }
+            override fun putInt(key: String?, value: Int): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putLong(key: String?, value: Long): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putFloat(key: String?, value: Float): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun remove(key: String?): SharedPreferences.Editor = apply { if (key != null) pending[key] = null }
+            override fun clear(): SharedPreferences.Editor = apply { clearFlag = true }
+            override fun commit(): Boolean { apply(); return true }
+            override fun apply() {
+                if (clearFlag) map.clear()
+                for ((k, v) in pending) {
+                    if (v == null) map.remove(k) else map[k] = v
+                }
+            }
+        }
+
+        override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+        override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
     }
 
     init {

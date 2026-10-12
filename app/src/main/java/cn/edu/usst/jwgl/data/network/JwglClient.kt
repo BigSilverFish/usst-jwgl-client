@@ -42,16 +42,16 @@ object JwglClient {
 
             var resolvedUrl = response.request.url.resolve(location)
             if (resolvedUrl == null) {
-                Log.e(TAG, "Cannot resolve redirect location: $location relative to ${response.request.url}")
+                Log.e(TAG, "Cannot resolve redirect location relative to ${response.request.url.host}")
                 break
             }
 
             // Upgrade http to https for USST internal systems
-            if (resolvedUrl.scheme == "http" && resolvedUrl.host.endsWith("usst.edu.cn")) {
+            if (resolvedUrl.scheme == "http" && (resolvedUrl.host == "usst.edu.cn" || resolvedUrl.host.endsWith(".usst.edu.cn"))) {
                 resolvedUrl = resolvedUrl.newBuilder().scheme("https").build()
             }
 
-            Log.d(TAG, "Hop $redirectCount: [${response.code}] ${request.method} -> $resolvedUrl")
+            Log.d(TAG, "Hop $redirectCount: [${response.code}] ${request.method} -> ${resolvedUrl.scheme}://${resolvedUrl.host}${resolvedUrl.encodedPath}")
 
             val newRequestBuilder = request.newBuilder().url(resolvedUrl)
             if (response.code == 301 || response.code == 302 || response.code == 303) {
@@ -88,7 +88,7 @@ object JwglClient {
     suspend fun login(studentId: String, password: String): Result<StudentProfile> = withContext(Dispatchers.IO) {
         try {
             clearSession()
-            Log.d(TAG, "--- Starting login flow for $studentId ---")
+            Log.d(TAG, "--- Starting CAS SSO login flow ---")
 
             // 1. Visit entry URL to initiate CAS SSO session
             val entryReq = Request.Builder()
@@ -100,7 +100,7 @@ object JwglClient {
             val entryResp = client.newCall(entryReq).execute()
             val casUrl = entryResp.request.url.toString()
             val casHtml = entryResp.body?.string() ?: ""
-            Log.d(TAG, "Entry reached CAS page: $casUrl (HTML len: ${casHtml.length})")
+            Log.d(TAG, "Entry reached CAS page (HTML len: ${casHtml.length})")
 
             // 2. Parse CAS hidden fields
             val doc = Jsoup.parse(casHtml)
@@ -108,10 +108,10 @@ object JwglClient {
             val execution = doc.select("input[name=execution]").`val`()
             val eventId = doc.select("input[name=_eventId]").`val`().ifEmpty { "submit" }
 
-            Log.d(TAG, "Parsed CAS tokens: lt=$lt, execution=$execution, _eventId=$eventId")
+            Log.d(TAG, "Parsed CAS tokens: ltPresent=${lt.isNotEmpty()}, executionPresent=${execution.isNotEmpty()}, _eventId=$eventId")
 
             if (lt.isEmpty() || execution.isEmpty()) {
-                return@withContext Result.failure(IOException("无法解析 CAS 认证令牌 (lt=$lt, execution=$execution)"))
+                return@withContext Result.failure(IOException("无法解析 CAS 认证令牌"))
             }
 
             // 3. Post credentials to CAS SSO
@@ -136,7 +136,7 @@ object JwglClient {
             val finalUrl = loginResp.request.url.toString()
             val respCode = loginResp.code
             val respBody = loginResp.body?.string() ?: ""
-            Log.d(TAG, "Login finished. Status: $respCode, Final URL: $finalUrl")
+            Log.d(TAG, "Login finished. Status: $respCode, Host: ${loginResp.request.url.host}")
 
             // Check if we arrived in jwglxt
             if (!finalUrl.contains("jwglxt") && !finalUrl.contains("index_initMenu")) {
@@ -147,7 +147,7 @@ object JwglClient {
                 } else if (finalUrl.contains("authserver/login")) {
                     "账号或密码错误，请核对后重试"
                 } else {
-                    "登录失败，停留在未知地址: $finalUrl"
+                    "登录失败，停留在未知地址: ${loginResp.request.url.host}"
                 }
                 Log.e(TAG, "Login check failed: $failReason")
                 return@withContext Result.failure(IOException(failReason))
@@ -156,7 +156,7 @@ object JwglClient {
             // 4. Fetch full student profile
             Log.d(TAG, "Fetching student profile...")
             val profile = fetchStudentProfile(studentId)
-            Log.d(TAG, "Fetched profile successfully: $profile")
+            Log.d(TAG, "Fetched student profile successfully")
             Result.success(profile)
         } catch (e: Exception) {
             Log.e(TAG, "Login exception", e)
@@ -794,13 +794,12 @@ object JwglClient {
                 // If the response is directly a binary PDF (starts with "%PDF")
                 if (bodyBytes.size > 4 && bodyBytes[0] == '%'.code.toByte() && bodyBytes[1] == 'P'.code.toByte() && bodyBytes[2] == 'D'.code.toByte() && bodyBytes[3] == 'F'.code.toByte()) {
                     destinationFile.outputStream().use { it.write(bodyBytes) }
-                    Log.d(TAG, "Successfully downloaded binary PDF from server: ${destinationFile.absolutePath} (${bodyBytes.size} bytes)")
+                    Log.d(TAG, "Successfully downloaded binary PDF from server (${bodyBytes.size} bytes)")
                     return@withContext Result.success(destinationFile)
                 }
 
                 // If the server returns a path (e.g. "\/jwglxt\/templete\/scorePrint\/\/sign_...pdf#成功")
                 val resString = String(bodyBytes, Charsets.UTF_8).trim()
-                Log.d(TAG, "Server response for document generation: $resString")
                 if (resString.contains(".pdf")) {
                     var remoteFilePath = ""
                     if (resString.startsWith("{")) {
@@ -819,8 +818,12 @@ object JwglClient {
 
                     if (remoteFilePath.isNotEmpty()) {
                         val normalizedPath = if (remoteFilePath.startsWith("/")) remoteFilePath else "/$remoteFilePath"
-                        val fullUrl = if (remoteFilePath.startsWith("http")) remoteFilePath else "https://jwgl.usst.edu.cn$normalizedPath"
-                        Log.d(TAG, "Fetching official PDF from: $fullUrl")
+                        val fullUrl = when {
+                            remoteFilePath.startsWith("https://") -> remoteFilePath
+                            remoteFilePath.startsWith("http://") -> "https://" + remoteFilePath.removePrefix("http://")
+                            else -> "https://jwgl.usst.edu.cn$normalizedPath"
+                        }
+                        Log.d(TAG, "Fetching official generated PDF from server...")
                         kotlinx.coroutines.delay(800) // Allow server report compiler to finish writing file
                         val getReq = Request.Builder()
                             .url(fullUrl)
@@ -831,7 +834,7 @@ object JwglClient {
                         val pdfBytes = getResp.body?.bytes()
                         if (pdfBytes != null && pdfBytes.size > 1000 && pdfBytes[0] == '%'.code.toByte() && pdfBytes[1] == 'P'.code.toByte()) {
                             destinationFile.outputStream().use { it.write(pdfBytes) }
-                            Log.d(TAG, "Successfully downloaded official USST PDF: ${destinationFile.absolutePath} (${pdfBytes.size} bytes)")
+                            Log.d(TAG, "Successfully downloaded official USST PDF (${pdfBytes.size} bytes)")
                             return@withContext Result.success(destinationFile)
                         } else {
                             Log.w(TAG, "Official PDF fetch returned non-PDF or empty: size=${pdfBytes?.size}")

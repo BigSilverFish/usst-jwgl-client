@@ -50,7 +50,8 @@ class JwglWebActivity : AppCompatActivity() {
         binding = ActivityWebViewBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val targetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_TARGET_URL
+        val rawTargetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_TARGET_URL
+        val targetUrl = sanitizeAndValidateUrl(rawTargetUrl)
         val customTitle = intent.getStringExtra(EXTRA_TITLE)
         if (!customTitle.isNullOrBlank()) {
             binding.toolbar.title = customTitle
@@ -60,6 +61,31 @@ class JwglWebActivity : AppCompatActivity() {
         initWebView(targetUrl)
         handleBackPress()
         prepareAndLoad(targetUrl)
+    }
+
+    private fun isAllowedUsstHost(host: String?): Boolean {
+        if (host.isNullOrBlank()) return false
+        val lower = host.lowercase()
+        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn")
+    }
+
+    private fun sanitizeAndValidateUrl(url: String): String {
+        val uri = try {
+            android.net.Uri.parse(url)
+        } catch (_: Exception) {
+            null
+        } ?: return DEFAULT_TARGET_URL
+
+        val host = uri.host ?: return DEFAULT_TARGET_URL
+        if (!isAllowedUsstHost(host)) {
+            Log.w(TAG, "Blocked non-USST target URL host: $host")
+            return DEFAULT_TARGET_URL
+        }
+        return when (uri.scheme?.lowercase()) {
+            "https" -> uri.toString()
+            "http" -> uri.buildUpon().scheme("https").build().toString()
+            else -> DEFAULT_TARGET_URL
+        }
     }
 
     private fun setupToolbar() {
@@ -90,12 +116,14 @@ class JwglWebActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             // Use mobile WeChat UA for new2017.usst.edu.cn to render mobile mini-app layout, desktop UA for jwgl
             userAgentString = if (targetUrl.contains("new2017.usst.edu.cn")) {
                 "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.40.2420"
@@ -106,7 +134,7 @@ class JwglWebActivity : AppCompatActivity() {
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
+        cookieManager.setAcceptThirdPartyCookies(binding.webView, false)
 
         binding.webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -129,66 +157,40 @@ class JwglWebActivity : AppCompatActivity() {
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                Log.d(TAG, "onPageStarted: $url")
+                val host = url?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }
+                Log.d(TAG, "onPageStarted: host=$host")
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 binding.layoutLoading.visibility = View.GONE
-                Log.d(TAG, "onPageFinished: $url")
-
-                // If redirected to login page despite cookie injection, perform JS autofill fallback
-                if (url != null && (url.contains("authserver/login") || url.contains("login_slogin.html") || url.contains("sso/jziotlogin"))) {
-                    autoFillCredentialsIfPresent()
-                }
+                val host = url?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }
+                Log.d(TAG, "onPageFinished: host=$host")
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
-                val scheme = uri.scheme ?: return false
+                val scheme = uri.scheme?.lowercase() ?: return true
+                val host = uri.host
+
                 if (scheme != "http" && scheme != "https") {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, uri)
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Cannot launch intent for $uri", e)
-                    }
                     return true
                 }
+
+                if (!isAllowedUsstHost(host)) {
+                    Log.w(TAG, "Blocked navigation to external host: $host")
+                    Toast.makeText(this@JwglWebActivity, "已拦截非校园网域名访问: ${host ?: ""}", Toast.LENGTH_SHORT).show()
+                    return true
+                }
+
+                if (scheme == "http") {
+                    val httpsUrl = uri.buildUpon().scheme("https").build().toString()
+                    view?.loadUrl(httpsUrl)
+                    return true
+                }
+
                 return false
             }
-        }
-    }
-
-    private fun autoFillCredentialsIfPresent() {
-        val authPrefs = AuthPreferences(this)
-        val studentId = authPrefs.getStudentId()
-        val password = authPrefs.getPassword()
-        if (studentId.isNotEmpty() && password.isNotEmpty()) {
-            val safeId = studentId.replace("'", "\\'")
-            val safePwd = password.replace("'", "\\'")
-            val js = """
-                (function() {
-                    try {
-                        var u = document.getElementById('mobileUsername') || document.getElementById('username') || document.querySelector('input[name=username]') || document.getElementById('yhm');
-                        var p = document.getElementById('mobilePassword') || document.getElementById('password') || document.querySelector('input[name=password]') || document.getElementById('mm');
-                        if (u && p) {
-                            u.value = '$safeId';
-                            p.value = '$safePwd';
-                            u.dispatchEvent(new Event('input', { bubbles: true }));
-                            p.dispatchEvent(new Event('input', { bubbles: true }));
-                            u.dispatchEvent(new Event('change', { bubbles: true }));
-                            p.dispatchEvent(new Event('change', { bubbles: true }));
-                            var btn = document.getElementById('load') || document.querySelector('.login-button') || document.getElementById('login_sub') || document.querySelector('button[type=submit]') || document.querySelector('.auth_login_btn') || document.getElementById('dl');
-                            if (btn && !window.__auto_submitted) {
-                                window.__auto_submitted = true;
-                                setTimeout(function() { btn.click(); }, 300);
-                            }
-                        }
-                    } catch(e) {}
-                })();
-            """.trimIndent()
-            binding.webView.evaluateJavascript(js, null)
         }
     }
 
@@ -206,7 +208,7 @@ class JwglWebActivity : AppCompatActivity() {
             }
 
             lifecycleScope.launch {
-                // Always refresh CAS SSO session via OkHttp first to guarantee 100% fresh ticket
+                // Refresh CAS SSO session via OkHttp first to guarantee a fresh session cookie
                 val loginResult = withContext(Dispatchers.IO) {
                     JwglClient.login(studentId, password)
                 }
@@ -216,7 +218,6 @@ class JwglWebActivity : AppCompatActivity() {
                     binding.webView.loadUrl(targetUrl)
                 }.onFailure { e ->
                     Log.w(TAG, "CAS login refresh failed", e)
-                    // If login failed, sync existing cookies and try direct load; JS fallback handles page
                     syncCookiesToWebView()
                     binding.webView.loadUrl(targetUrl)
                 }
@@ -229,30 +230,22 @@ class JwglWebActivity : AppCompatActivity() {
     private fun syncCookiesToWebView() {
         val cookieManager = CookieManager.getInstance()
         val cookies = JwglClient.getCookies()
-        val targetDomains = listOf(
-            "https://jwgl.usst.edu.cn",
-            "https://ids6.usst.edu.cn",
-            "https://ehall.usst.edu.cn",
-            "https://new2017.usst.edu.cn",
-            "http://new2017.usst.edu.cn",
-            "https://usst.edu.cn"
-        )
 
         for (cookie in cookies) {
-            val domain = cookie.domain
-            val cookieString = "${cookie.name}=${cookie.value}; Domain=${domain}; Path=${cookie.path}; Secure"
-            val rawString = "${cookie.name}=${cookie.value}; Path=${cookie.path}"
+            val cleanDomain = cookie.domain.trimStart('.')
+            if (!isAllowedUsstHost(cleanDomain)) continue
 
-            val url = if (domain.startsWith(".")) "https://${domain.substring(1)}" else "https://${domain}"
-            cookieManager.setCookie(url, cookieString)
-            cookieManager.setCookie(url, rawString)
-
-            for (target in targetDomains) {
-                if (target.contains(domain.trimStart('.'))) {
-                    cookieManager.setCookie(target, cookieString)
-                    cookieManager.setCookie(target, rawString)
-                }
+            val originUrl = "https://$cleanDomain"
+            val cookieBuilder = StringBuilder("${cookie.name}=${cookie.value}; Path=${cookie.path}; Secure")
+            if (cookie.hostOnly) {
+                // Host-only cookie: bind only to exact host
+            } else {
+                cookieBuilder.append("; Domain=${cookie.domain}")
             }
+            if (cookie.httpOnly) {
+                cookieBuilder.append("; HttpOnly")
+            }
+            cookieManager.setCookie(originUrl, cookieBuilder.toString())
         }
         cookieManager.flush()
         Log.d(TAG, "Synced ${cookies.size} cookies to Android WebView")

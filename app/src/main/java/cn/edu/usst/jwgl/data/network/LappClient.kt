@@ -47,9 +47,9 @@ object LappClient {
     private val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             for (c in cookies) {
-                cookieStore.removeAll { it.name == c.name && (it.domain == c.domain || c.domain.endsWith("usst.edu.cn")) }
+                cookieStore.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
                 cookieStore.add(c)
-                Log.d(TAG, "Saved Lapp cookie: ${c.name}=${c.value} domain=${c.domain}")
+                Log.d(TAG, "Saved Lapp cookie: ${c.name} domain=${c.domain}")
             }
         }
 
@@ -59,7 +59,7 @@ object LappClient {
             for (c in cookieStore) {
                 if (c.expiresAt < now) {
                     cookieStore.remove(c)
-                } else if (c.matches(url) || url.host.endsWith("usst.edu.cn")) {
+                } else if (c.matches(url)) {
                     valid.add(c)
                 }
             }
@@ -67,13 +67,36 @@ object LappClient {
         }
     }
 
+    private val httpsRedirectInterceptor = okhttp3.Interceptor { chain ->
+        var request = chain.request()
+        var response = chain.proceed(request)
+        var redirectCount = 0
+        while (response.isRedirect && redirectCount < 20) {
+            redirectCount++
+            val location = response.header("Location") ?: break
+            var resolvedUrl = response.request.url.resolve(location) ?: break
+            if (resolvedUrl.scheme == "http" && (resolvedUrl.host == "usst.edu.cn" || resolvedUrl.host.endsWith(".usst.edu.cn"))) {
+                resolvedUrl = resolvedUrl.newBuilder().scheme("https").build()
+            }
+            val newReqBuilder = request.newBuilder().url(resolvedUrl)
+            if (response.code == 301 || response.code == 302 || response.code == 303) {
+                newReqBuilder.get()
+            }
+            request = newReqBuilder.build()
+            response.close()
+            response = chain.proceed(request)
+        }
+        response
+    }
+
     private val client = OkHttpClient.Builder()
         .cookieJar(cookieJar)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .addInterceptor(httpsRedirectInterceptor)
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .writeTimeout(5, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
         .build()
 
     /**
@@ -204,7 +227,7 @@ object LappClient {
                 val postFinalUrl = casResp.request.url.toString()
                 casResp.body?.string() // consume
 
-                Log.d(TAG, "CAS login completed, landed on: $postFinalUrl")
+                Log.d(TAG, "CAS login completed, landed on host: ${casResp.request.url.host}")
                 return@withContext hasLappSession() || postFinalUrl.contains("lapp.usst.edu.cn")
             }
 

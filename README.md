@@ -91,11 +91,14 @@
 
 | 安全项 | 实现方式 |
 | :--- | :--- |
-| **密码存储** | 采用 Google Jetpack EncryptedSharedPreferences + Android Keystore 硬件级 AES-256 加密，杜绝明文凭据泄露。 |
-| **网络通信** | 全面禁止明文 HTTP 流量，严格配置 network_security_config.xml，仅信任官方 HTTPS 通信。 |
+| **密码存储** | 采用 Google Jetpack EncryptedSharedPreferences + Android Keystore 硬件级 AES-256 加密，密钥集异常时自动重建或退回纯内存易失存储，彻底杜绝明文凭据落盘。 |
+| **网络通信** | 全面禁止明文 HTTP 流量，严格配置 `network_security_config.xml`，仅信任官方 HTTPS 通信，自动升级校内重定向链接。 |
+| **WebView 隔离** | 严禁向网页注入账号密码脚本，禁用第三方 Cookie 与混合内容，严格校验 `*.usst.edu.cn` HTTPS 域名白名单并按源域隔离 Cookie。 |
+| **日志脱敏** | 全面剥离 CAS 令牌、Cookie 值与个人信息日志，Release 构建通过 R8 自动移除全部调试日志。 |
 | **防数据备份泄露** | 禁用 allowBackup，配置 data_extraction_rules.xml，排除一切缓存与本地 SQLite 数据库被外部提取。 |
 | **广播导出防护** | 开机重启 Receiver 绑定 RECEIVE_BOOT_COMPLETED 系统级权限，阻止第三方 App 恶意唤起。 |
 | **存储暴露收窄** | FileProvider 路径严格收缩在私有下载目录，杜绝全目录遍历风险。 |
+| **独立私钥签名** | Release 构建采用独立 2048 位 RSA 私钥签名（SHA384withRSA），保障分发完整性与升级安全。 |
 | **隐私承诺** | **本 App 为非官方开源项目，仅供开发学习交流，不收集、不上传任何隐私数据。所有数据均保存在用户手机本地。** |
 
 ---
@@ -122,6 +125,9 @@
 ---
 
 ## 📥 下载与安装
+
+> [!IMPORTANT]
+> **v1.1.2 升级说明**：因提升应用安全性而更换应用签名，故需卸载现有版本再升级，不便之处敬请谅解。
 
 请前往 [Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 下载最新发布的 Release 安装包：
 
