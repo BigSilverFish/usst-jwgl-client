@@ -24,8 +24,8 @@
 
     <style name="Widget.Usst.BottomNavigationView" parent="Widget.Material3.BottomNavigationView">
         <item name="android:background">@android:color/transparent</item>
-        <item name="itemIconTint">@color/primary</item>
-        <item name="itemTextColor">@color/text_primary</item>
+        <item name="itemIconTint">@color/bottom_nav_item_color</item>
+        <item name="itemTextColor">@color/bottom_nav_item_color</item>
         <item name="elevation">0dp</item>
     </style>
 </resources>

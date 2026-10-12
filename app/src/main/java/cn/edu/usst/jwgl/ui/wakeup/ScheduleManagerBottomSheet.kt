@@ -34,6 +34,11 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
         return inflater.inflate(R.layout.bottom_sheet_schedule_manager, container, false)
     }
 
+    override fun onStart() {
+        super.onStart()
+        cn.edu.usst.jwgl.util.TabletLayoutHelper.setupBottomSheetForLargeScreen(dialog, requireContext())
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val rvScheduleList = view.findViewById<RecyclerView>(R.id.rvScheduleList)

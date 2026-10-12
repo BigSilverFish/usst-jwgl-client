@@ -1,10 +1,10 @@
 {
   "app_version": {
-    "version_code": 4,
-    "version_name": "1.1.1",
-    "release_date": "2026-10-11",
-    "release_notes": "1. 空教室查询交互与布局焕新：重排两栏检索栏（第一行：教学楼/周次/仅空闲 均分，第二行：时段/查询空教室 均分），统一框高、字号与居中排版，移除顶栏冗余刷新键；\n2. 校准晚间时段显示为“11-13节(18:00-20:15)”，教室统计 Toast 仅在主动点击查询时弹出；\n3. 校园网状态感知优化：全校课表与空教室查询副标题注明需连接无线校园网，查询超时设为 5 秒并提供明确网络检查提示；\n4. 细节打磨：修正全校课表与考试日程页右上角图标按键点击水波纹（同心圆）居中对齐问题。",
-    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.1",
+    "version_code": 5,
+    "version_name": "1.1.2",
+    "release_date": "2026-10-13",
+    "release_notes": "1. 全校课表与空教室查询引入本地持久缓存机制（SharedPreferences + 内存二级缓存），秒开历史检索结果，右上角提供手动同步刷新按键；\n2. 手机端新增“侧栏模式”与“底栏模式（底部常驻四栏导航：课程表、成绩查询、更多功能、个人设置）”自由切换，将全校查课、空教室、考试日程、成绩单下载与官方直通车统一收纳进“更多功能”；\n3. 侧栏模式下支持双击课表空白处呼出侧边抽屉（可在设置中自由开关），课程表与成绩查询顶栏学年/学期合并为单行显示；\n4. 新增平板 / 折叠屏横屏（Pad 模式）自适应分栏与多列网格布局，精简全校课表与空教室副标题，仅在手动同步失败时 Toast 提示检查校园网。",
+    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.2",
     "force_update": false
   },
   "semester_config": {

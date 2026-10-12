@@ -13,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipToPadding="false"
-        android:paddingHorizontal="4dp"
+        android:paddingHorizontal="10dp"
         android:paddingBottom="24dp" />
 
     <!-- Empty State -->
@@ -110,10 +110,25 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="需连接无线校园网 · 全校排课实时反选空闲自习室"
+                        android:text="全校排课反选空闲自习室（支持本地缓存）"
                         android:textColor="@color/text_secondary"
                         android:textSize="11.5sp" />
                 </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRefreshFreeClassroom"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:contentDescription="手动刷新空教室数据"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
+                    app:icon="@drawable/ic_refresh"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="20dp"
+                    app:iconTint="@color/primary" />
             </LinearLayout>
 
             <!-- Filter Controls (Row 1: 1/3 + 1/3 + 1/3, Row 2: 1/2 + 1/2) -->
@@ -128,6 +143,7 @@
 
                 <!-- Row 1: Building (1/3) & Day (1/3) & Only Free Switch (1/3) -->
                 <LinearLayout
+                    android:id="@+id/rowFreeClassroom1"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
@@ -166,6 +182,7 @@
 
                 <!-- Row 2: Section (1/2) & Query Button (1/2) -->
                 <LinearLayout
+                    android:id="@+id/rowFreeClassroom2"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"

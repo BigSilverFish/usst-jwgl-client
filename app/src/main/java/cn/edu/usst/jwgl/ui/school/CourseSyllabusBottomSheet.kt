@@ -74,16 +74,11 @@ class CourseSyllabusBottomSheet : BottomSheetDialogFragment() {
 
     override fun onStart() {
         super.onStart()
-        dialog?.let { d ->
-            val bottomSheet = d.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
-            bottomSheet?.let {
-                val behavior = BottomSheetBehavior.from(it)
-                behavior.state = BottomSheetBehavior.STATE_EXPANDED
-                behavior.skipCollapsed = true
-                it.layoutParams.height = (resources.displayMetrics.heightPixels * 0.82).toInt()
-                it.requestLayout()
-            }
-        }
+        cn.edu.usst.jwgl.util.TabletLayoutHelper.setupBottomSheetForLargeScreen(
+            dialog,
+            requireContext(),
+            limitHeightRatio = 0.82
+        )
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {

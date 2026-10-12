@@ -7,9 +7,18 @@
     <item
         android:id="@+id/nav_grades"
         android:icon="@drawable/ic_nav_grades"
-        android:title="学业情况查询" />
+        android:title="成绩查询" />
+    <item
+        android:id="@+id/nav_course_search"
+        android:icon="@drawable/ic_search"
+        android:title="全校查课" />
+    <item
+        android:id="@+id/nav_free_classroom"
+        android:icon="@drawable/ic_school"
+        android:title="空教室" />
     <item
         android:id="@+id/nav_profile"
         android:icon="@drawable/ic_nav_profile"
-        android:title="个人与设置" />
+        android:title="个人设置" />
 </menu>
+

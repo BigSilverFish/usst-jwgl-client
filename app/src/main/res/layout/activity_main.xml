@@ -12,10 +12,32 @@
         android:fitsSystemWindows="false"
         android:background="@color/background">
 
+    <LinearLayout
+        android:id="@+id/llRootHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
+
+        <!-- Permanent Side Navigation Rail/Sidebar for Pad Landscape -->
+        <FrameLayout
+            android:id="@+id/permanentSidebarContainer"
+            android:layout_width="265dp"
+            android:layout_height="match_parent"
+            android:background="@color/surface"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/viewPermanentSidebarDivider"
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="@color/border"
+            android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/mainContentFrame"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
 
         <!-- 1. Profile Section -->
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -67,6 +89,18 @@
                         android:textSize="18sp"
                         android:textStyle="bold" />
                 </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/llProfileBody"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/llProfileLeftPane"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
 
                 <!-- Profile Summary Card -->
                 <com.google.android.material.card.MaterialCardView
@@ -267,6 +301,13 @@
 
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/llProfileRightPane"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
 
                 <!-- Appearance & Reminders Card -->
                 <com.google.android.material.card.MaterialCardView
@@ -343,6 +384,107 @@
                                 android:textColor="@color/text_secondary"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <View
+                            android:id="@+id/dividerPhoneNavMode"
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="8dp"
+                            android:background="@color/border" />
+
+                        <!-- Phone Navigation Bar Mode Row (Sidebar vs Bottom Bar) -->
+                        <LinearLayout
+                            android:id="@+id/rowPhoneNavMode"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="8dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="导航栏模式"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvPhoneNavModeStatus"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="侧栏模式 (左侧抽屉导航)"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="13sp" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="›"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <View
+                            android:id="@+id/dividerDoubleTapDrawer"
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="8dp"
+                            android:background="@color/border" />
+
+                        <!-- Double-Tap Empty Timetable Space to Open Drawer Row -->
+                        <LinearLayout
+                            android:id="@+id/rowDoubleTapDrawer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="6dp"
+                            android:background="?attr/selectableItemBackground">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingEnd="12dp">
+
+                                <TextView
+                                    android:id="@+id/tvDoubleTapDrawerTitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="双击课表空白处呼出侧栏"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvDoubleTapDrawerSubtitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="在侧栏模式下双击课表无课区域快速打开侧边栏"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/switchDoubleTapDrawer"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
                         </LinearLayout>
 
                         <View
@@ -489,6 +631,124 @@
                                 android:layout_height="wrap_content" />
                         </LinearLayout>
 
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Quick Services Card (Visible in Bottom Bar Mode so all features remain accessible) -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardBottomModeServices"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:visibility="gone"
+                    app:cardBackgroundColor="@color/surface"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="1dp"
+                    app:strokeColor="@color/border"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="教务服务与系统直通车"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="12dp"
+                            android:background="@color/border" />
+
+                        <!-- Row 1: Exam Query + Grade Reports -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnProfileExamQuery"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="0dp"
+                                android:layout_height="42dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="考试日程查询"
+                                android:textSize="13sp"
+                                app:cornerRadius="12dp"
+                                app:icon="@drawable/ic_exam"
+                                app:iconGravity="textStart"
+                                app:iconPadding="6dp"
+                                app:iconSize="16dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnProfileGradeReports"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="0dp"
+                                android:layout_height="42dp"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="证明与成绩单"
+                                android:textSize="13sp"
+                                app:cornerRadius="12dp"
+                                app:icon="@drawable/ic_download"
+                                app:iconGravity="textStart"
+                                app:iconPadding="6dp"
+                                app:iconSize="16dp" />
+                        </LinearLayout>
+
+                        <!-- Row 2: Official JWGL Web + XG Web -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnProfileJwglWeb"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="教务系统网页"
+                                android:textSize="12.5sp"
+                                app:cornerRadius="12dp"
+                                app:icon="@drawable/ic_globe"
+                                app:iconGravity="textStart"
+                                app:iconPadding="6dp"
+                                app:iconSize="15dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnProfileXgWeb"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="学工系统小程序"
+                                android:textSize="12.5sp"
+                                app:cornerRadius="12dp"
+                                app:icon="@drawable/ic_globe"
+                                app:iconGravity="textStart"
+                                app:iconPadding="6dp"
+                                app:iconSize="15dp" />
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -677,6 +937,9 @@
                     app:cornerRadius="12dp"
                     app:strokeColor="@color/grade_red_text" />
 
+                </LinearLayout>
+                </LinearLayout>
+
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
@@ -765,11 +1028,12 @@
                                     android:id="@+id/tvTimetableSemester"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="2026-2027学年&#10;第1学期"
+                                    android:text="2026-2027学年 第1学期"
                                     android:textColor="@color/text_primary"
-                                    android:textSize="13.5sp"
-                                    android:lineSpacingExtra="1dp"
-                                    android:maxLines="2"
+                                    android:textSize="14sp"
+                                    android:singleLine="true"
+                                    android:maxLines="1"
+                                    android:ellipsize="end"
                                     android:textStyle="bold" />
 
                                 <ImageView
@@ -1004,6 +1268,18 @@
                             android:layout_width="match_parent"
                             android:layout_height="115dp" />
 
+                        <LinearLayout
+                            android:id="@+id/llGradesBody"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
+                        <LinearLayout
+                            android:id="@+id/llGradesLeftPane"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
                         <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cardStatisticsOverview"
                     android:layout_width="match_parent"
@@ -1115,6 +1391,51 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                        <!-- Tablet Landscape Master Card: Semester Breakdown & Quick Switcher -->
+                        <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/cardGradesSemesterMaster"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:visibility="gone"
+                            app:cardBackgroundColor="@color/surface"
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="1dp"
+                            app:strokeColor="@color/border"
+                            app:strokeWidth="1dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical"
+                                android:padding="14dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="4dp"
+                                    android:layout_marginBottom="8dp"
+                                    android:text="历年学期绩点总览 · 点击筛选"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12.5sp"
+                                    android:textStyle="bold" />
+
+                                <LinearLayout
+                                    android:id="@+id/llGradesSemesterMasterList"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical" />
+                            </LinearLayout>
+                        </com.google.android.material.card.MaterialCardView>
+
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/llGradesRightPane"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
                         <ProgressBar
                             android:id="@+id/gradesProgressBar"
                             android:layout_width="wrap_content"
@@ -1142,6 +1463,9 @@
                             android:text="GitHub@BigSilverFish"
                             android:textColor="#C0C0C0"
                             android:textSize="11sp" />
+
+                        </LinearLayout>
+                        </LinearLayout>
 
                     </LinearLayout>
                 </androidx.core.widget.NestedScrollView>
@@ -1218,8 +1542,9 @@
                             android:text="全部学期"
                             android:textColor="@color/text_primary"
                             android:textSize="14sp"
-                            android:lineSpacingExtra="1dp"
-                            android:maxLines="2"
+                            android:singleLine="true"
+                            android:maxLines="1"
+                            android:ellipsize="end"
                             android:textStyle="bold" />
 
                         <ImageView
@@ -1321,8 +1646,204 @@
             android:id="@+id/pageGradeReports"
             layout="@layout/layout_page_grade_reports" />
 
+        <!-- 8. More Features Hub Page (For Phone Bottom Bar Mode) -->
+        <include
+            android:id="@+id/pageMoreFeatures"
+            layout="@layout/layout_page_more_features" />
 
     </FrameLayout>
+    </LinearLayout>
+
+    <!-- Custom 4-Tab Frosted Glass Bottom Navigation Bar (For Phone Bottom Bar Mode) -->
+    <eightbitlab.com.blurview.BlurView
+        android:id="@+id/blurViewBottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/llBottomNavContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_glass_bottom_bar">
+
+            <!-- Top Border Line for Bottom Nav Bar -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.8dp"
+                android:background="@color/border" />
+
+            <!-- 4 Bottom Navigation Tabs: 课程表 / 成绩查询 / 更多功能 / 个人设置 -->
+            <LinearLayout
+                android:id="@+id/llBottomNavTabs"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="6dp">
+
+                <!-- Tab 1: 课程表 -->
+                <LinearLayout
+                    android:id="@+id/tabBottomTimetable"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <FrameLayout
+                        android:id="@+id/flBottomPillTimetable"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp"
+                        android:background="@drawable/bg_bottom_nav_pill">
+
+                        <ImageView
+                            android:id="@+id/ivBottomTimetable"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_nav_timetable"
+                            app:tint="@color/primary" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tvBottomTimetable"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:singleLine="true"
+                        android:text="课程表"
+                        android:textColor="@color/primary"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Tab 2: 成绩查询 -->
+                <LinearLayout
+                    android:id="@+id/tabBottomGrades"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <FrameLayout
+                        android:id="@+id/flBottomPillGrades"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp">
+
+                        <ImageView
+                            android:id="@+id/ivBottomGrades"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_nav_grades"
+                            app:tint="@color/text_secondary" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tvBottomGrades"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:singleLine="true"
+                        android:text="成绩查询"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
+
+                <!-- Tab 3: 更多功能 -->
+                <LinearLayout
+                    android:id="@+id/tabBottomMore"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <FrameLayout
+                        android:id="@+id/flBottomPillMore"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp">
+
+                        <ImageView
+                            android:id="@+id/ivBottomMore"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_more_features"
+                            app:tint="@color/text_secondary" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tvBottomMore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:singleLine="true"
+                        android:text="更多功能"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
+
+                <!-- Tab 4: 个人设置 -->
+                <LinearLayout
+                    android:id="@+id/tabBottomProfile"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <FrameLayout
+                        android:id="@+id/flBottomPillProfile"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp">
+
+                        <ImageView
+                            android:id="@+id/ivBottomProfile"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_nav_profile"
+                            app:tint="@color/text_secondary" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tvBottomProfile"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:singleLine="true"
+                        android:text="个人设置"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Navigation Bar / Full Screen Gesture Inset Spacer -->
+            <View
+                android:id="@+id/viewNavBarSpacer"
+                android:layout_width="match_parent"
+                android:layout_height="0dp" />
+        </LinearLayout>
+    </eightbitlab.com.blurview.BlurView>
+
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <!-- Side Navigation Drawer -->

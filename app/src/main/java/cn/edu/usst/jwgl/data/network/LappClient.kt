@@ -219,8 +219,86 @@ object LappClient {
         return cookieStore.any { it.name.equals("JSESSIONID", ignoreCase = true) && (it.domain.contains("lapp") || it.domain.endsWith("usst.edu.cn")) }
     }
 
+    private const val PREF_LAPP_CACHE = "usst_lapp_schedule_cache"
+    private val gson = com.google.gson.Gson()
+    private val memoryScheduleCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, List<LappCourseItem>>>()
+
+    @Volatile
+    var lastQueryFromCache: Boolean = false
+        private set
+
+    @Volatile
+    var lastQueryCacheTime: Long = 0L
+        private set
+
+    fun buildScheduleCacheKey(
+        xn: String = "",
+        xq: String = "",
+        week: Int = -1,
+        xy: String = "",
+        zj: Int = -1,
+        jc: String = "-1",
+        kcmc: String = "",
+        kcdm: String = "",
+        lsmc: String = "",
+        page: Int = 0,
+        rows: Int = 50
+    ): String {
+        return "sched_${xn.trim()}_${xq.trim()}_w${week}_xy${xy.trim()}_zj${zj}_jc${jc.trim()}_kc${kcmc.trim()}_dm${kcdm.trim()}_ls${lsmc.trim()}_p${page}_r${rows}"
+    }
+
+    private fun readScheduleCache(context: Context, key: String): Pair<Long, Pair<Int, List<LappCourseItem>>>? {
+        val prefs = context.getSharedPreferences(PREF_LAPP_CACHE, Context.MODE_PRIVATE)
+        val ts = prefs.getLong("time_$key", 0L)
+        memoryScheduleCache[key]?.let { mem ->
+            return Pair(if (ts > 0L) ts else System.currentTimeMillis(), mem)
+        }
+        val jsonStr = prefs.getString("data_$key", null) ?: return null
+        return try {
+            val root = JSONObject(jsonStr)
+            val total = root.optInt("total", 0)
+            val itemsJson = root.optString("items", "[]")
+            val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
+            val list: List<LappCourseItem> = gson.fromJson(itemsJson, type) ?: emptyList()
+            val pair = Pair(total, list)
+            memoryScheduleCache[key] = pair
+            Pair(ts, pair)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read Lapp cache for $key", e)
+            null
+        }
+    }
+
+    private fun writeScheduleCache(context: Context, key: String, total: Int, list: List<LappCourseItem>): Long {
+        val now = System.currentTimeMillis()
+        memoryScheduleCache[key] = Pair(total, list)
+        try {
+            val root = JSONObject().apply {
+                put("total", total)
+                put("items", gson.toJson(list))
+            }
+            val prefs = context.getSharedPreferences(PREF_LAPP_CACHE, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("data_$key", root.toString())
+                .putLong("time_$key", now)
+                .apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to write Lapp cache for $key", e)
+        }
+        return now
+    }
+
+    fun formatCacheTag(timestamp: Long = lastQueryCacheTime, fromCache: Boolean = lastQueryFromCache): String {
+        if (timestamp <= 0L) return ""
+        if (!fromCache) return "刚刚同步"
+        val diff = System.currentTimeMillis() - timestamp
+        if (diff < 60_000L) return "缓存 · 刚刚更新"
+        val sdf = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        return "缓存 · ${sdf.format(java.util.Date(timestamp))}"
+    }
+
     /**
-     * 查询全校课表开课信息
+     * 查询全校课表开课信息（优先使用本地持久缓存，forceRefresh=true 时强制从网络拉取并更新缓存）
      */
     suspend fun queryClassSchedule(
         context: Context,
@@ -234,8 +312,32 @@ object LappClient {
         kcdm: String = "",
         lsmc: String = "",
         page: Int = 0,
-        rows: Int = 50
+        rows: Int = 50,
+        forceRefresh: Boolean = false
     ): Result<Pair<Int, List<LappCourseItem>>> = withContext(Dispatchers.IO) {
+        val cacheKey = buildScheduleCacheKey(xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page, rows)
+        // 若查询的是某个具体时段 (zj>0, jc!="-1", 无关键词和学院限制)，也可复用全周次通用时段缓存 (week=-1, rows=500)
+        val sharedSlotKey = if (xy.isEmpty() && kcmc.isEmpty() && kcdm.isEmpty() && lsmc.isEmpty() && zj > 0 && jc != "-1" && page == 0) {
+            buildScheduleCacheKey(xn, xq, -1, "", zj, jc, "", "", "", 0, 500)
+        } else null
+
+        if (!forceRefresh) {
+            readScheduleCache(context, cacheKey)?.let { (ts, cachedPair) ->
+                Log.i(TAG, "queryClassSchedule HIT local cache: $cacheKey (${cachedPair.second.size} items)")
+                lastQueryFromCache = true
+                lastQueryCacheTime = ts
+                return@withContext Result.success(cachedPair)
+            }
+            if (sharedSlotKey != null && sharedSlotKey != cacheKey) {
+                readScheduleCache(context, sharedSlotKey)?.let { (ts, cachedPair) ->
+                    Log.i(TAG, "queryClassSchedule HIT shared slot cache: $sharedSlotKey (${cachedPair.second.size} items)")
+                    lastQueryFromCache = true
+                    lastQueryCacheTime = ts
+                    return@withContext Result.success(cachedPair)
+                }
+            }
+        }
+
         try {
             ensureSession(context)
 
@@ -319,6 +421,9 @@ object LappClient {
                 )
             }
 
+            val savedTime = writeScheduleCache(context, cacheKey, total, list)
+            lastQueryFromCache = false
+            lastQueryCacheTime = savedTime
             Result.success(Pair(total, list))
         } catch (e: Exception) {
             Log.e(TAG, "queryClassSchedule error", e)
@@ -366,9 +471,22 @@ object LappClient {
     }
 
     /**
-     * 查询开课学院列表
+     * 查询开课学院列表（支持本地缓存）
      */
-    suspend fun queryColleges(context: Context): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun queryColleges(context: Context, forceRefresh: Boolean = false): Result<List<String>> = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences(PREF_LAPP_CACHE, Context.MODE_PRIVATE)
+        if (!forceRefresh) {
+            val cachedJson = prefs.getString("cached_colleges", null)
+            if (!cachedJson.isNullOrEmpty()) {
+                try {
+                    val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                    val cachedList: List<String>? = gson.fromJson(cachedJson, type)
+                    if (!cachedList.isNullOrEmpty()) {
+                        return@withContext Result.success(cachedList)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
         try {
             ensureSession(context)
             val url = "$BASE_URL/_web/_lightapp/schedule/mobile/school/queryClassXy.rst"
@@ -389,6 +507,9 @@ object LappClient {
                 if (xy.isNotEmpty() && !list.contains(xy)) {
                     list.add(xy)
                 }
+            }
+            if (list.isNotEmpty()) {
+                prefs.edit().putString("cached_colleges", gson.toJson(list)).apply()
             }
             Result.success(list)
         } catch (e: Exception) {
@@ -415,10 +536,11 @@ object LappClient {
         week: Int,
         zj: Int,
         jc: String,
-        building: String
+        building: String,
+        forceRefresh: Boolean = false
     ): Result<List<FreeClassroomInfo>> = withContext(Dispatchers.IO) {
         try {
-            // 拉取指定时段的全部排课（每页 500 条即可覆盖单时段的所有排课）
+            // 拉取指定时段的全部排课（每页 500 条即可覆盖单时段的所有排课，默认优先走本地缓存）
             val schedResult = queryClassSchedule(
                 context = context,
                 xn = xn,
@@ -426,7 +548,8 @@ object LappClient {
                 week = week,
                 zj = zj,
                 jc = jc,
-                rows = 500
+                rows = 500,
+                forceRefresh = forceRefresh
             )
 
             if (schedResult.isFailure) {

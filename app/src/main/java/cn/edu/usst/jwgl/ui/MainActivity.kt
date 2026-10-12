@@ -24,7 +24,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import cn.edu.usst.jwgl.BuildConfig
@@ -69,6 +71,7 @@ import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.ExamHelper
 import cn.edu.usst.jwgl.util.InitialSyncHelper
 import cn.edu.usst.jwgl.util.SemesterHelper
+import cn.edu.usst.jwgl.util.TabletLayoutHelper
 import cn.edu.usst.jwgl.util.ThemeManager
 import cn.edu.usst.jwgl.util.TimetableSettingHelper
 import com.google.android.material.chip.Chip
@@ -88,6 +91,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityMainBinding
+    private var isTabletLandscapeMode: Boolean = false
     private lateinit var cacheManager: DataCacheManager
     private lateinit var db: AppDatabase
     private val gradeAdapter = CourseGradeAdapter()
@@ -225,6 +229,12 @@ class MainActivity : AppCompatActivity() {
                 tappableInsets.bottom,
                 mandatoryInsets.bottom
             )
+            lastNavBarBottomInsetPx = navBarBottom
+
+            if (binding.viewNavBarSpacer.layoutParams.height != navBarBottom) {
+                binding.viewNavBarSpacer.layoutParams.height = navBarBottom
+                binding.viewNavBarSpacer.requestLayout()
+            }
 
             // Adjust grades spacing view to match floating header height
             binding.llGradesHeaderContainer.post {
@@ -234,76 +244,36 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Bottom bar removed: allocate safe insets for scrollable content
-            bottomBarHeightPx = navBarBottom + (16 * density).toInt()
             val statusTopPad = statusBarInsets.top + (8 * density).toInt()
+            lastStatusTopPadPx = statusTopPad
 
-            binding.scrollProfile.setPadding(
-                binding.scrollProfile.paddingLeft,
-                statusTopPad,
-                binding.scrollProfile.paddingRight,
-                bottomBarHeightPx
-            )
-            binding.scrollGrades.setPadding(
-                binding.scrollGrades.paddingLeft,
-                binding.scrollGrades.paddingTop,
-                binding.scrollGrades.paddingRight,
-                bottomBarHeightPx
-            )
+            applyContentBottomPadding()
 
-            // Independent feature pages status bar and bottom padding
+            // Independent feature pages status bar top padding
             binding.pageCourseSearch.headerCourseSearch.setPadding(
                 binding.pageCourseSearch.headerCourseSearch.paddingLeft,
                 statusTopPad,
                 binding.pageCourseSearch.headerCourseSearch.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageCourseSearch.rvCourseList.setPadding(
-                binding.pageCourseSearch.rvCourseList.paddingLeft,
-                binding.pageCourseSearch.rvCourseList.paddingTop,
-                binding.pageCourseSearch.rvCourseList.paddingRight,
-                bottomBarHeightPx
-            )
-
             binding.pageFreeClassroom.headerFreeClassroom.setPadding(
                 binding.pageFreeClassroom.headerFreeClassroom.paddingLeft,
                 statusTopPad,
                 binding.pageFreeClassroom.headerFreeClassroom.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageFreeClassroom.rvFreeClassroomList.setPadding(
-                binding.pageFreeClassroom.rvFreeClassroomList.paddingLeft,
-                binding.pageFreeClassroom.rvFreeClassroomList.paddingTop,
-                binding.pageFreeClassroom.rvFreeClassroomList.paddingRight,
-                bottomBarHeightPx
-            )
-
             binding.pageExamQuery.headerExamQuery.setPadding(
                 binding.pageExamQuery.headerExamQuery.paddingLeft,
                 statusTopPad,
                 binding.pageExamQuery.headerExamQuery.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageExamQuery.rvExamQueryList.setPadding(
-                binding.pageExamQuery.rvExamQueryList.paddingLeft,
-                binding.pageExamQuery.rvExamQueryList.paddingTop,
-                binding.pageExamQuery.rvExamQueryList.paddingRight,
-                bottomBarHeightPx
-            )
-
             binding.pageGradeReports.headerGradeReports.setPadding(
                 binding.pageGradeReports.headerGradeReports.paddingLeft,
                 statusTopPad,
                 binding.pageGradeReports.headerGradeReports.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageGradeReports.scrollGradeReports.setPadding(
-                binding.pageGradeReports.scrollGradeReports.paddingLeft,
-                binding.pageGradeReports.scrollGradeReports.paddingTop,
-                binding.pageGradeReports.scrollGradeReports.paddingRight,
-                bottomBarHeightPx
-            )
-
 
             insets
         }
@@ -318,6 +288,10 @@ class MainActivity : AppCompatActivity() {
                 .setBlurRadius(20f)
 
             binding.blurViewGradesHeader.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+
+            binding.blurViewBottomNav.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
@@ -352,6 +326,8 @@ class MainActivity : AppCompatActivity() {
         currentProfile = profile
 
         displayProfile(profile)
+        setupTabletLandscapeLayout()
+        applyPhoneNavigationMode()
         setupViews()
         setupListeners()
         initWakeupSchedule()
@@ -370,6 +346,7 @@ class MainActivity : AppCompatActivity() {
             4 -> switchTab(MainTab.FREE_CLASSROOM)
             5 -> switchTab(MainTab.EXAM_QUERY)
             6 -> switchTab(MainTab.GRADE_REPORTS)
+            7 -> switchTab(MainTab.MORE_FEATURES)
             else -> switchTab(MainTab.TIMETABLE)
         }
 
@@ -387,6 +364,284 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private var lastNavBarBottomInsetPx: Int = 0
+    private var lastStatusTopPadPx: Int = 0
+
+    private fun isPhoneBottomBarMode(): Boolean {
+        return !isTabletLandscapeMode &&
+                TimetableSettingHelper.getPhoneNavMode(this) == TimetableSettingHelper.NAV_MODE_BOTTOM
+    }
+
+    private fun applyContentBottomPadding() {
+        val density = resources.displayMetrics.density
+        val isBottomMode = isPhoneBottomBarMode()
+        val bottomNavBarHeight = if (isBottomMode) (64 * density).toInt() else 0
+        bottomBarHeightPx = lastNavBarBottomInsetPx + bottomNavBarHeight + (16 * density).toInt()
+        val statusTopPad = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * density).toInt()
+
+        binding.scrollProfile.setPadding(
+            binding.scrollProfile.paddingLeft,
+            statusTopPad,
+            binding.scrollProfile.paddingRight,
+            bottomBarHeightPx
+        )
+        binding.pageMoreFeatures.llMoreFeaturesContent.setPadding(
+            binding.pageMoreFeatures.llMoreFeaturesContent.paddingLeft,
+            statusTopPad,
+            binding.pageMoreFeatures.llMoreFeaturesContent.paddingRight,
+            bottomBarHeightPx
+        )
+        binding.scrollGrades.setPadding(
+            binding.scrollGrades.paddingLeft,
+            binding.scrollGrades.paddingTop,
+            binding.scrollGrades.paddingRight,
+            bottomBarHeightPx
+        )
+        binding.pageCourseSearch.rvCourseList.setPadding(
+            binding.pageCourseSearch.rvCourseList.paddingLeft,
+            binding.pageCourseSearch.rvCourseList.paddingTop,
+            binding.pageCourseSearch.rvCourseList.paddingRight,
+            bottomBarHeightPx
+        )
+        binding.pageFreeClassroom.rvFreeClassroomList.setPadding(
+            binding.pageFreeClassroom.rvFreeClassroomList.paddingLeft,
+            binding.pageFreeClassroom.rvFreeClassroomList.paddingTop,
+            binding.pageFreeClassroom.rvFreeClassroomList.paddingRight,
+            bottomBarHeightPx
+        )
+        binding.pageExamQuery.rvExamQueryList.setPadding(
+            binding.pageExamQuery.rvExamQueryList.paddingLeft,
+            binding.pageExamQuery.rvExamQueryList.paddingTop,
+            binding.pageExamQuery.rvExamQueryList.paddingRight,
+            bottomBarHeightPx
+        )
+        binding.pageGradeReports.scrollGradeReports.setPadding(
+            binding.pageGradeReports.scrollGradeReports.paddingLeft,
+            binding.pageGradeReports.scrollGradeReports.paddingTop,
+            binding.pageGradeReports.scrollGradeReports.paddingRight,
+            bottomBarHeightPx
+        )
+
+        supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
+            .forEach { it.applyContentPadding() }
+    }
+
+    private fun applyPhoneNavigationMode() {
+        if (isTabletLandscapeMode) {
+            binding.blurViewBottomNav.visibility = View.GONE
+            binding.rowPhoneNavMode.visibility = View.GONE
+            binding.dividerPhoneNavMode.visibility = View.GONE
+            binding.rowDoubleTapDrawer.visibility = View.GONE
+            binding.dividerDoubleTapDrawer.visibility = View.GONE
+            binding.cardBottomModeServices.visibility = View.GONE
+            return
+        }
+
+        val navMode = TimetableSettingHelper.getPhoneNavMode(this)
+        val isBottomMode = navMode == TimetableSettingHelper.NAV_MODE_BOTTOM
+
+        binding.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(navMode)
+        binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
+        binding.cardBottomModeServices.visibility = View.GONE
+
+        if (isBottomMode) {
+            closeNavDrawer()
+            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+            binding.blurViewBottomNav.visibility = View.VISIBLE
+
+            // Hide top-left drawer hamburger icons on the main bottom-bar pages
+            binding.btnOpenDrawerTimetable.visibility = View.GONE
+            binding.btnOpenDrawerGrades.visibility = View.GONE
+            binding.btnOpenDrawerProfile.visibility = View.GONE
+
+            // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
+            binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
+            binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.VISIBLE
+            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
+            binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
+            binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
+
+            // Double-tap drawer option is only applicable in Sidebar mode
+            binding.rowDoubleTapDrawer.visibility = View.GONE
+            binding.dividerDoubleTapDrawer.visibility = View.GONE
+        } else {
+            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
+            binding.blurViewBottomNav.visibility = View.GONE
+
+            binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
+            binding.btnOpenDrawerGrades.visibility = View.VISIBLE
+            binding.btnOpenDrawerProfile.visibility = View.VISIBLE
+            binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
+            binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_menu)
+            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.VISIBLE
+            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.setImageResource(R.drawable.ic_menu)
+            binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
+            binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_menu)
+            binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
+            binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_menu)
+
+            binding.rowDoubleTapDrawer.visibility = View.VISIBLE
+            binding.dividerDoubleTapDrawer.visibility = View.VISIBLE
+
+            if (currentTab == MainTab.MORE_FEATURES) {
+                switchTab(MainTab.TIMETABLE)
+            }
+        }
+
+        applyContentBottomPadding()
+    }
+
+    fun onTimetableEmptySpaceDoubleTapped(): Boolean {
+        if (isTabletLandscapeMode) return false
+        if (TimetableSettingHelper.getPhoneNavMode(this) != TimetableSettingHelper.NAV_MODE_DRAWER) return false
+        if (!TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)) return false
+        openNavDrawer()
+        return true
+    }
+
+    private fun openNavDrawer() {
+        if (!isTabletLandscapeMode &&
+            !isPhoneBottomBarMode() &&
+            binding.layoutDrawer.root.parent == binding.drawerLayout
+        ) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+    }
+
+    private fun closeNavDrawer() {
+        if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
+            if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                binding.drawerLayout.closeDrawer(GravityCompat.START)
+            }
+        }
+    }
+
+    private fun isNavDrawerOpen(): Boolean {
+        return !isTabletLandscapeMode &&
+                binding.layoutDrawer.root.parent == binding.drawerLayout &&
+                binding.drawerLayout.isDrawerOpen(GravityCompat.START)
+    }
+
+    private fun setupTabletLandscapeLayout() {
+        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this)
+        if (!isTabletLandscapeMode) return
+
+        val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
+
+        // 1. 常驻左侧导航栏 (Permanent Left Side Navigation)
+        val drawerView = binding.layoutDrawer.root
+        (drawerView.parent as? ViewGroup)?.removeView(drawerView)
+        binding.permanentSidebarContainer.addView(
+            drawerView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        binding.permanentSidebarContainer.visibility = View.VISIBLE
+        binding.viewPermanentSidebarDivider.visibility = View.VISIBLE
+        binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+
+        // 隐藏各页面顶栏左上角汉堡包菜单图标
+        binding.btnOpenDrawerTimetable.visibility = View.GONE
+        binding.btnOpenDrawerGrades.visibility = View.GONE
+        binding.btnOpenDrawerProfile.visibility = View.GONE
+        binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.GONE
+        binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.GONE
+        binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.GONE
+        binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.GONE
+
+        // 2. 顶部检索栏单行化 (Compact Single-Row Filter Bars in Landscape)
+        // 2a. 全校课表检索栏单行化
+        val csPage = binding.pageCourseSearch
+        csPage.cardCourseSearchFilter.orientation = LinearLayout.HORIZONTAL
+        csPage.cardCourseSearchFilter.gravity = android.view.Gravity.CENTER_VERTICAL
+        csPage.rowCourseSearchInputs.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            1.35f
+        )
+        csPage.rowCourseSearchActions.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            1.0f
+        ).apply {
+            topMargin = 0
+            marginStart = dp(10f)
+        }
+
+        // 2b. 空教室查询检索栏单行化
+        val fcPage = binding.pageFreeClassroom
+        fcPage.cardFreeClassroomFilter.orientation = LinearLayout.HORIZONTAL
+        fcPage.cardFreeClassroomFilter.gravity = android.view.Gravity.CENTER_VERTICAL
+        fcPage.rowFreeClassroom1.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            3f
+        )
+        fcPage.rowFreeClassroom2.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            2f
+        ).apply {
+            topMargin = 0
+            marginStart = dp(6f)
+        }
+
+        // 3. 双栏主从视图 (Two-Pane Master-Detail Layouts)
+        // 3a. 学业情况查询 (左：学分绩点总览 + 历年学期切换卡片；右：双列课程成绩网格)
+        binding.llGradesBody.orientation = LinearLayout.HORIZONTAL
+        binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.36f
+        ).apply {
+            marginEnd = dp(14f)
+        }
+        binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.64f
+        )
+        (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
+        binding.cardGradesSemesterMaster.visibility = View.VISIBLE
+
+        // 3b. 个人与设置 (左：学生名片 + 学籍档案；右：外观提醒设置 + 系统更新 + 退出登录)
+        binding.llProfileBody.orientation = LinearLayout.HORIZONTAL
+        binding.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.42f
+        ).apply {
+            marginEnd = dp(16f)
+        }
+        binding.llProfileRightPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.58f
+        )
+        (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
+
+        // 3c. 学业证明与成绩单 (左：官方可下载证明；右：本地已下载文件管理)
+        val grPage = binding.pageGradeReports
+        grPage.llReportsBody.orientation = LinearLayout.HORIZONTAL
+        grPage.llReportsLeftPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.54f
+        ).apply {
+            marginEnd = dp(16f)
+        }
+        grPage.llReportsRightPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.46f
+        )
     }
 
     override fun onResume() {
@@ -411,7 +666,8 @@ class MainActivity : AppCompatActivity() {
         if (intent == null) return
 
         val tab = intent.getIntExtra("extra_tab", -1)
-        if (tab in 0..6) {
+        if (tab in 0..7) {
+            closeNavDrawer()
             when (tab) {
                 0 -> switchTab(MainTab.PROFILE)
                 1 -> switchTab(MainTab.TIMETABLE)
@@ -420,6 +676,7 @@ class MainActivity : AppCompatActivity() {
                 4 -> switchTab(MainTab.FREE_CLASSROOM)
                 5 -> switchTab(MainTab.EXAM_QUERY)
                 6 -> switchTab(MainTab.GRADE_REPORTS)
+                7 -> switchTab(MainTab.MORE_FEATURES)
             }
         }
 
@@ -462,6 +719,22 @@ class MainActivity : AppCompatActivity() {
             TimetableSettingHelper.setDayPartDividersEnabled(this, enabled)
             binding.switchDayPartDividers.isChecked = enabled
             scheduleAdapter?.refreshAllFragments()
+        }
+
+        if (intent.hasExtra("extra_nav_mode")) {
+            val mode = intent.getIntExtra("extra_nav_mode", TimetableSettingHelper.NAV_MODE_DRAWER)
+            TimetableSettingHelper.setPhoneNavMode(this, mode)
+            applyPhoneNavigationMode()
+        }
+
+        if (intent.hasExtra("extra_double_tap_drawer")) {
+            val enabled = intent.getBooleanExtra("extra_double_tap_drawer", true)
+            TimetableSettingHelper.setDoubleTapOpenDrawerEnabled(this, enabled)
+            binding.switchDoubleTapDrawer.isChecked = enabled
+        }
+
+        if (intent.getBooleanExtra("extra_open_drawer", false)) {
+            openNavDrawer()
         }
 
         if (intent.getBooleanExtra("extra_set_disclaimer_agreed", false)) {
@@ -509,7 +782,11 @@ class MainActivity : AppCompatActivity() {
 
         val gradeSem = intent.getStringExtra("extra_grade_semester")
         if (gradeSem != null) {
-            selectedGradeSemesterTitle = if (gradeSem == "ALL") "" else gradeSem
+            selectedGradeSemesterTitle = when (gradeSem) {
+                "ALL" -> ""
+                "FIRST" -> gradeReport?.semesters?.firstOrNull()?.semesterTitle ?: ""
+                else -> gradeReport?.semesters?.find { it.semesterTitle.contains(gradeSem) }?.semesterTitle ?: gradeSem
+            }
             gradeReport?.let { updateGradesUI(it) }
         }
 
@@ -611,12 +888,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatSemesterTitle(title: String): String {
-        if (title.contains("\n")) return title
-        val regex = Regex("(\\d{4}-\\d{4}学年)\\s*(第\\d+学期)")
-        return if (regex.containsMatchIn(title)) {
-            title.replace(regex, "$1\n$2")
+        val singleLine = title.replace("\r\n", " ").replace("\n", " ").replace(Regex("\\s+"), " ").trim()
+        val regex = Regex("(\\d{4}-\\d{4}学年)\\s*(第.+?学期)")
+        return if (regex.containsMatchIn(singleLine)) {
+            singleLine.replace(regex, "$1 $2")
         } else {
-            title.replace("学年 ", "学年\n").replace("学年第", "学年\n第")
+            singleLine.replace("学年第", "学年 第")
         }
     }
 
@@ -655,6 +932,7 @@ class MainActivity : AppCompatActivity() {
     enum class MainTab {
         TIMETABLE,
         GRADES,
+        MORE_FEATURES,
         COURSE_SEARCH,
         FREE_CLASSROOM,
         EXAM_QUERY,
@@ -666,10 +944,12 @@ class MainActivity : AppCompatActivity() {
     private fun switchTab(tab: MainTab) {
         currentTab = tab
         updateDrawerActiveTab(tab)
+        updateBottomNavActiveTab(tab)
 
         binding.layoutTimetable.visibility = if (tab == MainTab.TIMETABLE) View.VISIBLE else View.GONE
         binding.layoutGrades.visibility = if (tab == MainTab.GRADES) View.VISIBLE else View.GONE
         binding.layoutProfile.visibility = if (tab == MainTab.PROFILE) View.VISIBLE else View.GONE
+        binding.pageMoreFeatures.layoutMoreFeatures.visibility = if (tab == MainTab.MORE_FEATURES) View.VISIBLE else View.GONE
         binding.pageCourseSearch.layoutCourseSearch.visibility = if (tab == MainTab.COURSE_SEARCH) View.VISIBLE else View.GONE
         binding.pageFreeClassroom.layoutFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
         binding.pageExamQuery.layoutExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
@@ -685,6 +965,7 @@ class MainActivity : AppCompatActivity() {
                     showOrLoadGrades()
                 }
             }
+            MainTab.MORE_FEATURES -> {}
             MainTab.COURSE_SEARCH -> {
                 initCourseSearchPage()
                 checkAndLoadDefaultCourseSearch()
@@ -712,6 +993,57 @@ class MainActivity : AppCompatActivity() {
             }
             MainTab.PROFILE -> {}
         }
+    }
+
+    private fun updateBottomNavActiveTab(tab: MainTab) {
+        fun setBottomTabStyle(pill: FrameLayout, icon: ImageView, label: TextView, isActive: Boolean) {
+            if (isActive) {
+                pill.setBackgroundResource(R.drawable.bg_bottom_nav_pill)
+                icon.imageTintList = android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this, R.color.primary)
+                )
+                label.setTextColor(ContextCompat.getColor(this, R.color.primary))
+                label.typeface = android.graphics.Typeface.DEFAULT_BOLD
+            } else {
+                pill.background = null
+                icon.imageTintList = android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this, R.color.text_secondary)
+                )
+                label.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                label.typeface = android.graphics.Typeface.DEFAULT
+            }
+        }
+
+        val isMoreSection = tab == MainTab.MORE_FEATURES ||
+                tab == MainTab.COURSE_SEARCH ||
+                tab == MainTab.FREE_CLASSROOM ||
+                tab == MainTab.EXAM_QUERY ||
+                tab == MainTab.GRADE_REPORTS
+
+        setBottomTabStyle(
+            binding.flBottomPillTimetable,
+            binding.ivBottomTimetable,
+            binding.tvBottomTimetable,
+            tab == MainTab.TIMETABLE
+        )
+        setBottomTabStyle(
+            binding.flBottomPillGrades,
+            binding.ivBottomGrades,
+            binding.tvBottomGrades,
+            tab == MainTab.GRADES
+        )
+        setBottomTabStyle(
+            binding.flBottomPillMore,
+            binding.ivBottomMore,
+            binding.tvBottomMore,
+            isMoreSection
+        )
+        setBottomTabStyle(
+            binding.flBottomPillProfile,
+            binding.ivBottomProfile,
+            binding.tvBottomProfile,
+            tab == MainTab.PROFILE
+        )
     }
 
     private fun updateDrawerActiveTab(tab: MainTab) {
@@ -782,7 +1114,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupViews() {
-        binding.rvGrades.layoutManager = LinearLayoutManager(this)
+        if (isTabletLandscapeMode) {
+            binding.rvGrades.layoutManager = GridLayoutManager(this, 2)
+            val gapPx = (5 * resources.displayMetrics.density).toInt()
+            binding.rvGrades.addItemDecoration(object : RecyclerView.ItemDecoration() {
+                override fun getItemOffsets(
+                    outRect: android.graphics.Rect,
+                    view: View,
+                    parent: RecyclerView,
+                    state: RecyclerView.State
+                ) {
+                    val pos = parent.getChildAdapterPosition(view)
+                    if (pos == RecyclerView.NO_POSITION) return
+                    if (pos % 2 == 0) {
+                        outRect.right = gapPx
+                    } else {
+                        outRect.left = gapPx
+                    }
+                }
+            })
+        } else {
+            binding.rvGrades.layoutManager = LinearLayoutManager(this)
+        }
         binding.rvGrades.adapter = gradeAdapter
 
         binding.headerTimetableContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
@@ -936,6 +1289,22 @@ class MainActivity : AppCompatActivity() {
             TimetableSettingHelper.setDayPartDividersEnabled(this, isChecked)
             scheduleAdapter?.refreshAllFragments()
             val msg = if (isChecked) "已开启时段区分 (上午/下午/晚上)" else "已关闭时段区分"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        // Phone Navigation Mode (侧栏模式 / 底栏模式)
+        binding.rowPhoneNavMode.setOnClickListener {
+            showPhoneNavModeDialog()
+        }
+
+        // Double-tap empty space on timetable to open sidebar drawer
+        binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
+        binding.rowDoubleTapDrawer.setOnClickListener {
+            binding.switchDoubleTapDrawer.toggle()
+        }
+        binding.switchDoubleTapDrawer.setOnCheckedChangeListener { _, isChecked ->
+            TimetableSettingHelper.setDoubleTapOpenDrawerEnabled(this, isChecked)
+            val msg = if (isChecked) "已开启双击课表空白处呼出侧栏" else "已关闭双击课表空白处呼出侧栏"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
@@ -1176,9 +1545,11 @@ class MainActivity : AppCompatActivity() {
         binding.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
 
         binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(ThemeManager.getThemeMode(this))
+        binding.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(TimetableSettingHelper.getPhoneNavMode(this))
         binding.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
         binding.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
+        binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
         updateReminderSubtitles()
 
         // Update Drawer Version
@@ -1215,6 +1586,26 @@ class MainActivity : AppCompatActivity() {
             .setSingleChoiceItems(options, currentMode) { dialog, which ->
                 ThemeManager.setThemeMode(this, which)
                 binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(which)
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showPhoneNavModeDialog() {
+        val options = arrayOf(
+            "侧栏模式 (左滑/双击课表空白处呼出)",
+            "底栏模式 (底部常驻四栏导航)"
+        )
+        val currentMode = TimetableSettingHelper.getPhoneNavMode(this)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("导航栏模式 (手机)")
+            .setSingleChoiceItems(options, currentMode) { dialog, which ->
+                TimetableSettingHelper.setPhoneNavMode(this, which)
+                applyPhoneNavigationMode()
+                val modeName = TimetableSettingHelper.getPhoneNavModeName(which)
+                Toast.makeText(this, "已切换为：$modeName", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -1437,6 +1828,9 @@ class MainActivity : AppCompatActivity() {
                 binding.pageCourseSearch.rvCourseList.paddingRight,
                 bottomBarHeightPx
             )
+            if (currentTop == 0) {
+                binding.pageCourseSearch.rvCourseList.scrollToPosition(0)
+            }
             binding.pageCourseSearch.layoutEmptyResults.setPadding(
                 binding.pageCourseSearch.layoutEmptyResults.paddingLeft,
                 headerHeightPx,
@@ -1458,6 +1852,9 @@ class MainActivity : AppCompatActivity() {
                 binding.pageFreeClassroom.rvFreeClassroomList.paddingRight,
                 bottomBarHeightPx
             )
+            if (currentTop == 0) {
+                binding.pageFreeClassroom.rvFreeClassroomList.scrollToPosition(0)
+            }
             binding.pageFreeClassroom.layoutEmptyFreeClassroom.setPadding(
                 binding.pageFreeClassroom.layoutEmptyFreeClassroom.paddingLeft,
                 headerHeightPx,
@@ -1479,6 +1876,9 @@ class MainActivity : AppCompatActivity() {
                 binding.pageExamQuery.rvExamQueryList.paddingRight,
                 bottomBarHeightPx
             )
+            if (currentTop == 0) {
+                binding.pageExamQuery.rvExamQueryList.scrollToPosition(0)
+            }
             binding.pageExamQuery.layoutEmptyExamQuery.setPadding(
                 binding.pageExamQuery.layoutEmptyExamQuery.paddingLeft,
                 headerHeightPx,
@@ -1535,6 +1935,126 @@ class MainActivity : AppCompatActivity() {
                 binding.tvGradesCountSummary.text = "本学期 ${sem.courses.size} 门课程"
             } else {
                 selectedGradeSemesterTitle = ""
+                updateGradesUI(report)
+                return
+            }
+        }
+
+        if (isTabletLandscapeMode) {
+            populateGradesSemesterMasterList(report)
+        }
+    }
+
+    private fun populateGradesSemesterMasterList(report: GradeReport) {
+        val container = binding.llGradesSemesterMasterList
+        container.removeAllViews()
+        val density = resources.displayMetrics.density
+
+        fun addMasterRow(
+            title: String,
+            subtitle: String,
+            gpaBadge: String,
+            isSelected: Boolean,
+            onClick: () -> Unit
+        ) {
+            val rowCard = com.google.android.material.card.MaterialCardView(this).apply {
+                radius = 12 * density
+                cardElevation = 0f
+                strokeWidth = ((if (isSelected) 1.5f else 0.8f) * density).toInt()
+                strokeColor = ContextCompat.getColor(
+                    this@MainActivity,
+                    if (isSelected) R.color.primary else R.color.border
+                )
+                setCardBackgroundColor(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (isSelected) R.color.primary_container else R.color.surface_variant
+                    )
+                )
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
+                layoutParams = lp
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onClick() }
+            }
+
+            val rowInner = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                val hPad = (12 * density).toInt()
+                val vPad = (10 * density).toInt()
+                setPadding(hPad, vPad, hPad, vPad)
+            }
+
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val tvTitle = TextView(this).apply {
+                text = title
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (isSelected) R.color.primary else R.color.text_primary
+                    )
+                )
+            }
+
+            val tvSub = TextView(this).apply {
+                text = subtitle
+                textSize = 11f
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
+                setPadding(0, (2 * density).toInt(), 0, 0)
+            }
+
+            textCol.addView(tvTitle)
+            textCol.addView(tvSub)
+            rowInner.addView(textCol)
+
+            val tvGpa = TextView(this).apply {
+                text = gpaBadge
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (isSelected) R.color.primary else R.color.text_primary
+                    )
+                )
+            }
+            rowInner.addView(tvGpa)
+            rowCard.addView(rowInner)
+            container.addView(rowCard)
+        }
+
+        val allCount = report.semesters.sumOf { it.courses.size }
+        addMasterRow(
+            title = "全部学期 (汇总)",
+            subtitle = "$allCount 门 · ${String.format("%.1f", report.totalCredits)} 学分 · 均分 ${String.format("%.2f", report.cumulativeWeightedScore)}",
+            gpaBadge = "GPA ${String.format("%.2f", report.cumulativeGpa)}",
+            isSelected = selectedGradeSemesterTitle.isEmpty()
+        ) {
+            selectedGradeSemesterTitle = ""
+            updateGradesUI(report)
+        }
+
+        for (sem in report.semesters) {
+            val formatted = formatSemesterTitle(sem.semesterTitle)
+            addMasterRow(
+                title = formatted,
+                subtitle = "${sem.courses.size} 门 · ${String.format("%.1f", sem.totalCredits)} 学分 · 均分 ${String.format("%.2f", sem.weightedAverageScore)}",
+                gpaBadge = "GPA ${String.format("%.2f", sem.weightedGpa)}",
+                isSelected = selectedGradeSemesterTitle == sem.semesterTitle
+            ) {
+                selectedGradeSemesterTitle = sem.semesterTitle
                 updateGradesUI(report)
             }
         }
@@ -1643,8 +2163,15 @@ class MainActivity : AppCompatActivity() {
         // Back press handling: close drawer first if opened
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                    binding.drawerLayout.closeDrawer(GravityCompat.START)
+                if (isNavDrawerOpen()) {
+                    closeNavDrawer()
+                } else if (isPhoneBottomBarMode() && (
+                        currentTab == MainTab.COURSE_SEARCH ||
+                        currentTab == MainTab.FREE_CLASSROOM ||
+                        currentTab == MainTab.EXAM_QUERY ||
+                        currentTab == MainTab.GRADE_REPORTS
+                    )) {
+                    switchTab(MainTab.MORE_FEATURES)
                 } else if (currentTab != MainTab.TIMETABLE) {
                     switchTab(MainTab.TIMETABLE)
                 } else {
@@ -1655,66 +2182,114 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // Custom 4-Tab Bottom Navigation Bar (Phone Bottom Mode)
+        binding.tabBottomTimetable.setOnClickListener {
+            switchTab(MainTab.TIMETABLE)
+        }
+        binding.tabBottomGrades.setOnClickListener {
+            switchTab(MainTab.GRADES)
+        }
+        binding.tabBottomMore.setOnClickListener {
+            switchTab(MainTab.MORE_FEATURES)
+        }
+        binding.tabBottomProfile.setOnClickListener {
+            switchTab(MainTab.PROFILE)
+        }
+
+        // More Features Hub Page (Bottom Bar Mode)
+        binding.pageMoreFeatures.rowMoreCourseSearch.setOnClickListener {
+            switchTab(MainTab.COURSE_SEARCH)
+        }
+        binding.pageMoreFeatures.rowMoreFreeClassroom.setOnClickListener {
+            switchTab(MainTab.FREE_CLASSROOM)
+        }
+        binding.pageMoreFeatures.rowMoreExamQuery.setOnClickListener {
+            switchTab(MainTab.EXAM_QUERY)
+        }
+        binding.pageMoreFeatures.rowMoreGradeReports.setOnClickListener {
+            switchTab(MainTab.GRADE_REPORTS)
+        }
+        binding.pageMoreFeatures.rowMoreJwglWeb.setOnClickListener {
+            JwglWebActivity.start(this)
+        }
+        binding.pageMoreFeatures.rowMoreXgWeb.setOnClickListener {
+            JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+        }
+
+        // Quick Service Entries in Profile (Bottom Bar Mode)
+        binding.btnProfileExamQuery.setOnClickListener {
+            switchTab(MainTab.EXAM_QUERY)
+        }
+        binding.btnProfileGradeReports.setOnClickListener {
+            switchTab(MainTab.GRADE_REPORTS)
+        }
+        binding.btnProfileJwglWeb.setOnClickListener {
+            JwglWebActivity.start(this)
+        }
+        binding.btnProfileXgWeb.setOnClickListener {
+            JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+        }
+
         // Hamburger Menu Buttons to Open Drawer
         binding.btnOpenDrawerTimetable.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            openNavDrawer()
         }
         binding.btnOpenDrawerGrades.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            openNavDrawer()
         }
         binding.btnOpenDrawerProfile.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            openNavDrawer()
         }
 
         // Side Navigation Drawer: Main Tabs
         binding.layoutDrawer.drawerNavTimetable.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.TIMETABLE)
         }
         binding.layoutDrawer.drawerNavGrades.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.GRADES)
         }
         binding.layoutDrawer.drawerNavProfile.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.PROFILE)
         }
 
         // Side Navigation Drawer: School Features (Independent Pages)
         binding.layoutDrawer.drawerItemSchoolSearch.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.COURSE_SEARCH)
         }
 
         binding.layoutDrawer.drawerItemFreeClassroom.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.FREE_CLASSROOM)
         }
 
         binding.layoutDrawer.drawerItemExamQuery.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.EXAM_QUERY)
         }
 
         binding.layoutDrawer.drawerItemGradeReports.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             switchTab(MainTab.GRADE_REPORTS)
         }
 
 
         binding.layoutDrawer.drawerItemJwglWeb.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             JwglWebActivity.start(this)
         }
 
         binding.layoutDrawer.drawerItemXgWeb.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
         }
 
         // Side Navigation Drawer: Logout
         binding.layoutDrawer.btnDrawerLogout.setOnClickListener {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            closeNavDrawer()
             binding.btnLogout.performClick()
         }
 
@@ -1939,7 +2514,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkAndLoadDefaultCourseSearch(isUserInitiatedReset: Boolean = false) {
+    private fun checkAndLoadDefaultCourseSearch(isUserInitiatedReset: Boolean = false, forceRefresh: Boolean = false) {
         if (!isCourseSearchInitialized) return
         val page = binding.pageCourseSearch
 
@@ -1964,8 +2539,8 @@ class MainActivity : AppCompatActivity() {
             page.rvCourseList.visibility = View.GONE
             page.layoutEmptyResults.visibility = View.VISIBLE
             page.tvEmptyTitle.text = "当前非上课时段"
-            page.tvEmptyDesc.text = "工作日 07:00-20:15 默认展示当前时段课程\n您可通过上方搜索栏或筛选条件主动检索全校开课（需连接无线校园网）"
-            page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 当前非上课时段，请主动检索"
+            page.tvEmptyDesc.text = "工作日 07:00-20:15 默认展示当前时段课程\n您可通过上方搜索栏或筛选条件主动检索全校开课（支持本地缓存）"
+            page.tvCourseSearchSubtitle.text = "当前非上课时段，请主动检索"
             return
         }
 
@@ -1987,7 +2562,7 @@ class MainActivity : AppCompatActivity() {
         val weekPrefix = if (targetWeek > 0) "第${targetWeek}周 " else ""
 
         page.progressBarSearch.visibility = View.VISIBLE
-        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · $weekPrefix$dayName ${slot.slotName} · 正在加载..."
+        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · ${if (forceRefresh) "正在同步最新排课..." else "正在加载..."}"
 
         defaultSlotQueryJob = lifecycleScope.launch {
             try {
@@ -1995,20 +2570,23 @@ class MainActivity : AppCompatActivity() {
                     context = this@MainActivity,
                     xn = currentSearchXn,
                     xq = currentSearchXq,
-                    week = targetWeek,
+                    week = -1,
                     xy = "",
                     zj = todayZj,
                     jc = slot.queryJc,
                     kcmc = "",
                     kcdm = "",
                     lsmc = "",
-                    rows = 300
+                    rows = 500,
+                    forceRefresh = forceRefresh
                 )
 
                 page.progressBarSearch.visibility = View.GONE
 
                 if (result.isSuccess) {
                     val (_, rawItems) = result.getOrNull() ?: Pair(0, emptyList())
+                    val cacheTag = LappClient.formatCacheTag()
+                    val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
 
                     // 核心要求：默认显示当前时段课程时只显示本周课程
                     val thisWeekItems = if (targetWeek > 0) {
@@ -2048,7 +2626,11 @@ class MainActivity : AppCompatActivity() {
 
                         page.rvCourseList.visibility = View.VISIBLE
                         page.layoutEmptyResults.visibility = View.GONE
-                        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · $weekPrefix$dayName ${slot.slotName} · 共 ${merged.size} 门课程"
+                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 共 ${merged.size} 门$cacheSuffix"
+
+                        if (forceRefresh) {
+                            Toast.makeText(this@MainActivity, "已手动刷新当前时段排课 (共 ${merged.size} 门课程)", Toast.LENGTH_SHORT).show()
+                        }
 
                         val pendingItems = merged.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
                             .distinctBy { it.kcdm }
@@ -2081,29 +2663,36 @@ class MainActivity : AppCompatActivity() {
                         page.layoutEmptyResults.visibility = View.VISIBLE
                         page.tvEmptyTitle.text = "本周当前时段暂无排课"
                         page.tvEmptyDesc.text = "${weekPrefix}$dayName ${slot.slotName} 暂未检索到开课教学班，您可主动检索其他时段或周次"
-                        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · $weekPrefix$dayName ${slot.slotName} · 暂无开课"
+                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 暂无开课$cacheSuffix"
+                        if (forceRefresh) {
+                            Toast.makeText(this@MainActivity, "已手动刷新，当前时段暂无排课", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 } else {
-                    schoolCourseList.clear()
-                    schoolCourseAdapter?.notifyDataSetChanged()
-                    page.rvCourseList.visibility = View.GONE
-                    page.layoutEmptyResults.visibility = View.VISIBLE
-                    page.tvEmptyTitle.text = "查询失败"
-                    page.tvEmptyDesc.text = "查询失败，请检查是否正确连接无线校园网"
-                    page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 查询失败"
-                    Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                    if (schoolCourseList.isEmpty()) {
+                        page.rvCourseList.visibility = View.GONE
+                        page.layoutEmptyResults.visibility = View.VISIBLE
+                        page.tvEmptyTitle.text = "暂无本地排课缓存"
+                        page.tvEmptyDesc.text = "可点击右上角刷新按键同步全校排课数据"
+                        page.tvCourseSearchSubtitle.text = "支持教师/课程名/代码/学期同查"
+                    }
+                    if (forceRefresh) {
+                        Toast.makeText(this@MainActivity, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
                 page.progressBarSearch.visibility = View.GONE
-                schoolCourseList.clear()
-                schoolCourseAdapter?.notifyDataSetChanged()
-                page.rvCourseList.visibility = View.GONE
-                page.layoutEmptyResults.visibility = View.VISIBLE
-                page.tvEmptyTitle.text = "查询失败"
-                page.tvEmptyDesc.text = "查询失败，请检查是否正确连接无线校园网"
-                page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 查询失败"
-                Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                if (schoolCourseList.isEmpty()) {
+                    page.rvCourseList.visibility = View.GONE
+                    page.layoutEmptyResults.visibility = View.VISIBLE
+                    page.tvEmptyTitle.text = "暂无本地排课缓存"
+                    page.tvEmptyDesc.text = "可点击右上角刷新按键同步全校排课数据"
+                    page.tvCourseSearchSubtitle.text = "支持教师/课程名/代码/学期同查"
+                }
+                if (forceRefresh) {
+                    Toast.makeText(this@MainActivity, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -2114,7 +2703,11 @@ class MainActivity : AppCompatActivity() {
 
         val page = binding.pageCourseSearch
         page.btnOpenDrawerCourseSearch.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            if (isPhoneBottomBarMode()) {
+                switchTab(MainTab.MORE_FEATURES)
+            } else {
+                openNavDrawer()
+            }
         }
         page.btnOpenLappWeb.setOnClickListener {
             JwglWebActivity.start(
@@ -2146,7 +2739,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "已成功添加《${mergedCourse.kcmc}》(共${itemsToAdd.size}个时段) 到课表！", Toast.LENGTH_SHORT).show()
             scheduleAdapter?.refreshAllFragments()
         }
-        page.rvCourseList.layoutManager = LinearLayoutManager(this)
+        page.rvCourseList.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
         page.rvCourseList.adapter = schoolCourseAdapter
 
         val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
@@ -2230,6 +2823,9 @@ class MainActivity : AppCompatActivity() {
         val filterDialog = BottomSheetDialog(this)
         val filterView = layoutInflater.inflate(R.layout.dialog_course_search_filters, null)
         filterDialog.setContentView(filterView)
+        filterDialog.setOnShowListener {
+            TabletLayoutHelper.setupBottomSheetForLargeScreen(filterDialog, this)
+        }
 
         val dialogSpinnerSemester = filterView.findViewById<Spinner>(R.id.dialogSpinnerSemester)
         val dialogSpinnerWeek = filterView.findViewById<Spinner>(R.id.dialogSpinnerWeek)
@@ -2342,13 +2938,17 @@ class MainActivity : AppCompatActivity() {
             filterDialog.show()
         }
 
-        fun executeSearch() {
+        fun executeSearch(forceRefresh: Boolean = false) {
             defaultSlotQueryJob?.cancel()
             val courseKeyword = page.etSearchCourse.text.toString().trim()
             val teacherKeyword = page.etSearchTeacher.text.toString().trim()
 
             if (courseKeyword.isEmpty() && teacherKeyword.isEmpty() && selectedSearchCollege.isEmpty() && selectedSearchDay == -1 && selectedSearchWeek == -1 && selectedSearchSection == "-1") {
-                Toast.makeText(this, "请输入课程名/代码/教师名或选择筛选条件", Toast.LENGTH_SHORT).show()
+                if (getCurrentWeekdaySlot() != null) {
+                    checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true, forceRefresh = forceRefresh)
+                } else {
+                    Toast.makeText(this, "请输入课程名/代码/教师名或选择筛选条件", Toast.LENGTH_SHORT).show()
+                }
                 return
             }
 
@@ -2398,7 +2998,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    var result = LappClient.queryClassSchedule(
+                    val result = LappClient.queryClassSchedule(
                         context = this@MainActivity,
                         xn = currentSearchXn,
                         xq = currentSearchXq,
@@ -2409,7 +3009,8 @@ class MainActivity : AppCompatActivity() {
                         kcmc = queryKcmc,
                         kcdm = "",
                         lsmc = teacherKeyword,
-                        rows = 200
+                        rows = 200,
+                        forceRefresh = forceRefresh
                     )
 
                     page.progressBarSearch.visibility = View.GONE
@@ -2417,7 +3018,9 @@ class MainActivity : AppCompatActivity() {
 
                     if (result.isSuccess) {
                         val (_, rawItems) = result.getOrNull() ?: Pair(0, emptyList())
-                        Log.i("MainActivity", "executeSearch: rawItems.size=${rawItems.size}")
+                        val cacheTag = LappClient.formatCacheTag()
+                        val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
+                        Log.i("MainActivity", "executeSearch: rawItems.size=${rawItems.size}, fromCache=${LappClient.lastQueryFromCache}")
 
                         var filtered = rawItems
                         if (extractedCode != null) {
@@ -2504,53 +3107,71 @@ class MainActivity : AppCompatActivity() {
                             page.layoutEmptyResults.visibility = View.VISIBLE
                             page.tvEmptyTitle.text = "未找到匹配开课班级"
                             page.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
-                            page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 未找到匹配开课班级"
+                            page.tvCourseSearchSubtitle.text = "未找到匹配开课班级$cacheSuffix"
                             Toast.makeText(this@MainActivity, "未检索到匹配的开课班级", Toast.LENGTH_SHORT).show()
                         } else {
                             page.rvCourseList.visibility = View.VISIBLE
                             page.layoutEmptyResults.visibility = View.GONE
-                            page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 检索结果 (共 ${merged.size} 个教学班)"
+                            page.tvCourseSearchSubtitle.text = "检索结果 共 ${merged.size} 个教学班$cacheSuffix"
                             val codeHint = if (extractedCode != null) " [代码 $extractedCode]" else ""
-                            Toast.makeText(this@MainActivity, "共检索到 ${merged.size} 个教学班$codeHint (共 ${filtered.size} 个上课时段)", Toast.LENGTH_SHORT).show()
+                            val msg = if (forceRefresh) {
+                                "已刷新排课数据 · 共 ${merged.size} 个教学班$codeHint"
+                            } else {
+                                "共检索到 ${merged.size} 个教学班$codeHint (共 ${filtered.size} 个上课时段)"
+                            }
+                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        page.rvCourseList.visibility = View.GONE
-                        page.layoutEmptyResults.visibility = View.VISIBLE
-                        page.tvEmptyTitle.text = "查询失败"
-                        page.tvEmptyDesc.text = "查询失败，请检查是否正确连接无线校园网"
-                        page.tvCourseSearchSubtitle.text = "需连接无线校园网 · 查询失败"
-                        Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                        if (schoolCourseList.isEmpty()) {
+                            page.rvCourseList.visibility = View.GONE
+                            page.layoutEmptyResults.visibility = View.VISIBLE
+                            page.tvEmptyTitle.text = "暂无匹配本地缓存"
+                            page.tvEmptyDesc.text = "可点击右上角刷新按键同步全校排课数据"
+                            page.tvCourseSearchSubtitle.text = "支持教师/课程名/代码/学期同查"
+                        }
+                        if (forceRefresh) {
+                            Toast.makeText(this@MainActivity, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 } catch (e: Exception) {
                     page.progressBarSearch.visibility = View.GONE
                     page.btnDoSearch.isEnabled = true
-                    Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                    if (forceRefresh) {
+                        Toast.makeText(this@MainActivity, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
 
-        page.btnDoSearch.setOnClickListener { executeSearch() }
+        page.btnDoSearch.setOnClickListener { executeSearch(forceRefresh = false) }
         page.etSearchCourse.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
-                executeSearch()
+                executeSearch(forceRefresh = false)
                 true
             } else false
         }
         page.etSearchTeacher.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
-                executeSearch()
+                executeSearch(forceRefresh = false)
                 true
             } else false
         }
+        // 右上角手动刷新按键：强制从校园网拉取最新排课数据并更新本地缓存
         page.btnClearSearch.setOnClickListener {
-            page.etSearchCourse.setText("")
-            page.etSearchTeacher.setText("")
-            btnResetFilters.performClick()
-            checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true)
-            Toast.makeText(this@MainActivity, "检索已重置", Toast.LENGTH_SHORT).show()
+            val hasActive = !page.etSearchCourse.text.isNullOrBlank() ||
+                    !page.etSearchTeacher.text.isNullOrBlank() ||
+                    selectedSearchCollege.isNotEmpty() ||
+                    selectedSearchDay != -1 ||
+                    selectedSearchWeek != -1 ||
+                    selectedSearchSection != "-1"
+            if (hasActive) {
+                executeSearch(forceRefresh = true)
+            } else {
+                checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true, forceRefresh = true)
+            }
         }
 
-        checkAndLoadDefaultCourseSearch()
+        checkAndLoadDefaultCourseSearch(isUserInitiatedReset = false, forceRefresh = false)
     }
 
     // ==========================================
@@ -2570,11 +3191,15 @@ class MainActivity : AppCompatActivity() {
 
         val page = binding.pageFreeClassroom
         page.btnOpenDrawerFreeClassroom.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            if (isPhoneBottomBarMode()) {
+                switchTab(MainTab.MORE_FEATURES)
+            } else {
+                openNavDrawer()
+            }
         }
 
         freeClassroomAdapter = FreeClassroomAdapter(displayFreeRooms)
-        page.rvFreeClassroomList.layoutManager = LinearLayoutManager(this)
+        page.rvFreeClassroomList.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 3) else LinearLayoutManager(this)
         page.rvFreeClassroomList.adapter = freeClassroomAdapter
 
         val buildingOptions = LappClient.ALL_KNOWN_BUILDINGS
@@ -2642,7 +3267,7 @@ class MainActivity : AppCompatActivity() {
         }
         updateOnlyFreeBtnStyle()
 
-        fun filterAndDisplay(showToast: Boolean = false) {
+        fun filterAndDisplay(showToast: Boolean = false, isManualRefresh: Boolean = false) {
             val filtered = if (isOnlyFreeRooms) {
                 allFreeRooms.filter { it.isFree }
             } else {
@@ -2655,8 +3280,19 @@ class MainActivity : AppCompatActivity() {
 
             val freeCount = allFreeRooms.count { it.isFree }
             val totalCount = allFreeRooms.size
+            val cacheTag = LappClient.formatCacheTag()
+            val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
+            if (totalCount > 0) {
+                page.tvFreeClassroomSubtitle.text = "空闲 $freeCount / 共 $totalCount 间$cacheSuffix"
+            }
+
             if (showToast && totalCount > 0) {
-                Toast.makeText(this@MainActivity, "空闲 $freeCount / 共 $totalCount 间", Toast.LENGTH_SHORT).show()
+                val toastMsg = if (isManualRefresh) {
+                    "已手动刷新 · 空闲 $freeCount / 共 $totalCount 间"
+                } else {
+                    "空闲 $freeCount / 共 $totalCount 间"
+                }
+                Toast.makeText(this@MainActivity, toastMsg, Toast.LENGTH_SHORT).show()
             }
 
             if (displayFreeRooms.isEmpty()) {
@@ -2668,9 +3304,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        fun fetchFreeClassrooms(isUserQueryClick: Boolean = false) {
+        fun fetchFreeClassrooms(isUserQueryClick: Boolean = false, forceRefresh: Boolean = false) {
             page.progressBarFreeClassroom.visibility = View.VISIBLE
             page.btnQueryFreeClassroom.isEnabled = false
+            page.btnRefreshFreeClassroom.isEnabled = false
 
             val actualDay = if (selectedFreeDay == 0) todayZj else selectedFreeDay
 
@@ -2682,18 +3319,20 @@ class MainActivity : AppCompatActivity() {
                     week = -1,
                     zj = actualDay,
                     jc = selectedFreeSection,
-                    building = selectedFreeBuilding
+                    building = selectedFreeBuilding,
+                    forceRefresh = forceRefresh
                 )
                 page.progressBarFreeClassroom.visibility = View.GONE
                 page.btnQueryFreeClassroom.isEnabled = true
+                page.btnRefreshFreeClassroom.isEnabled = true
 
                 if (result.isSuccess) {
                     val list = result.getOrNull() ?: emptyList()
                     allFreeRooms.clear()
                     allFreeRooms.addAll(list)
-                    filterAndDisplay(showToast = isUserQueryClick)
-                } else {
-                    Toast.makeText(this@MainActivity, "查询失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                    filterAndDisplay(showToast = isUserQueryClick, isManualRefresh = forceRefresh)
+                } else if (forceRefresh) {
+                    Toast.makeText(this@MainActivity, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -2726,10 +3365,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         page.btnQueryFreeClassroom.setOnClickListener {
-            fetchFreeClassrooms(isUserQueryClick = true)
+            fetchFreeClassrooms(isUserQueryClick = true, forceRefresh = false)
         }
 
-        fetchFreeClassrooms(isUserQueryClick = false)
+        page.btnRefreshFreeClassroom.setOnClickListener {
+            fetchFreeClassrooms(isUserQueryClick = true, forceRefresh = true)
+        }
+
+        fetchFreeClassrooms(isUserQueryClick = false, forceRefresh = false)
     }
 
     // ==========================================
@@ -2746,11 +3389,15 @@ class MainActivity : AppCompatActivity() {
 
         val page = binding.pageExamQuery
         page.btnOpenDrawerExamQuery.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            if (isPhoneBottomBarMode()) {
+                switchTab(MainTab.MORE_FEATURES)
+            } else {
+                openNavDrawer()
+            }
         }
 
         examAdapter = ExamAdapter(emptyList())
-        page.rvExamQueryList.layoutManager = LinearLayoutManager(this)
+        page.rvExamQueryList.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
         page.rvExamQueryList.adapter = examAdapter
 
         val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
@@ -2886,7 +3533,11 @@ class MainActivity : AppCompatActivity() {
 
         val page = binding.pageGradeReports
         page.btnOpenDrawerGradeReports.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+            if (isPhoneBottomBarMode()) {
+                switchTab(MainTab.MORE_FEATURES)
+            } else {
+                openNavDrawer()
+            }
         }
 
         val auth = AuthPreferences(this)

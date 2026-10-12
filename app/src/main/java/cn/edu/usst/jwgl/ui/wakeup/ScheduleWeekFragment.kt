@@ -61,8 +61,32 @@ class ScheduleWeekFragment : Fragment() {
         llSidebarNodes = view.findViewById(R.id.llSidebarNodes)
         llWeekColumnsContainer = view.findViewById(R.id.llWeekColumnsContainer)
         flScheduleContent = view.findViewById(R.id.flScheduleContent)
+        setupEmptySpaceDoubleTap()
         applyContentPadding()
         return view
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun setupEmptySpaceDoubleTap() {
+        val ctx = context ?: return
+        val detector = android.view.GestureDetector(
+            ctx,
+            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: android.view.MotionEvent): Boolean {
+                    return true
+                }
+
+                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                    val act = activity as? cn.edu.usst.jwgl.ui.MainActivity ?: return false
+                    return act.onTimetableEmptySpaceDoubleTapped()
+                }
+            }
+        )
+        flScheduleContent.isClickable = true
+        flScheduleContent.setOnTouchListener { _, event ->
+            detector.onTouchEvent(event)
+            false
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -89,7 +113,7 @@ class ScheduleWeekFragment : Fragment() {
         }
     }
 
-    private fun applyContentPadding() {
+    fun applyContentPadding() {
         if (!::svScheduleContent.isInitialized) return
         val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(120f)
         val bottomPad = (cn.edu.usst.jwgl.ui.MainActivity.bottomBarHeightPx.takeIf { it > 0 } ?: dpToPx(72f)) + 24
@@ -127,7 +151,16 @@ class ScheduleWeekFragment : Fragment() {
             emptyList()
         }
 
-        val itemHeightPx = dpToPx(table.itemHeight.toFloat())
+        val isTabletLand = cn.edu.usst.jwgl.util.TabletLayoutHelper.isTabletLandscape(context)
+        val itemHeightPx = if (isTabletLand && table.itemHeight == 56) {
+            val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(110f)
+            val botPad = dpToPx(24f)
+            val availH = resources.displayMetrics.heightPixels - topPad - botPad
+            val calcH = (availH / table.nodes.coerceAtLeast(13)) - dpToPx(2f)
+            calcH.coerceIn(dpToPx(42f), dpToPx(54f))
+        } else {
+            dpToPx(table.itemHeight.toFloat())
+        }
         val examSessionHeightPx = dpToPx(105f)
         val marTopPx = dpToPx(2f)
 

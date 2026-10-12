@@ -17,9 +17,16 @@
         android:paddingBottom="36dp">
 
         <LinearLayout
+            android:id="@+id/llReportsBody"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/llReportsLeftPane"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
             <!-- Student Profile Badge Card -->
             <com.google.android.material.card.MaterialCardView
@@ -428,6 +435,13 @@
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/llReportsRightPane"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
             <!-- Section 2: 本地已下载文件 -->
             <LinearLayout
@@ -475,6 +489,8 @@
                 android:text="暂无已下载文件，点击上方按钮即可生成并导出"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
+
+            </LinearLayout>
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
