@@ -11,6 +11,7 @@ class AppDatabase private constructor(context: Context) {
     private val dbHelper = DatabaseHelper(context.applicationContext)
 
     companion object {
+        const val LAB_RESERVATION_PREFIX = "[实验预约] "
         private const val DATABASE_NAME = "wakeup.db"
         private const val DATABASE_VERSION = 2
 
@@ -313,6 +314,71 @@ class AppDatabase private constructor(context: Context) {
                 tableDao.updateTable(defaultTable)
             }
 
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun replaceAllLabReservations(tableId: Int, reservations: List<LabReservation>) {
+        require(reservations.isNotEmpty()) { "没有可导入的实验预约" }
+        val table = tableDao.getTableById(tableId) ?: throw IllegalArgumentException("找不到目标课表")
+        require(reservations.all {
+            it.week in 1..table.maxWeek && it.day in 1..7 &&
+                it.startNode in 1..table.nodes && it.step > 0 && it.startNode + it.step - 1 <= table.nodes && it.name.isNotBlank()
+        }) {
+            "预约时间超出当前课表节次范围"
+        }
+
+        val db = dbHelper.writableDatabase
+        db.beginTransaction()
+        try {
+            val imported = courseBaseDao.getCourseOfTable(tableId)
+                .filter { it.courseName.startsWith(LAB_RESERVATION_PREFIX) }
+                .distinctBy { it.id }
+
+            for (course in imported) {
+                val details = courseDetailDao.getDetailByIdOfTable(course.id, tableId)
+                details.filter {
+                    it.type == 0
+                }
+                    .forEach(courseDetailDao::deleteCourseDetail)
+                if (courseDetailDao.getDetailByIdOfTable(course.id, tableId).isEmpty()) {
+                    courseBaseDao.deleteCourseBase(course.id, tableId)
+                }
+            }
+
+            var nextId = courseBaseDao.getLastIdOfTable(tableId)
+            for ((name, items) in reservations.groupBy { it.name.trim() }) {
+                if (name.isBlank()) continue
+                nextId++
+                courseBaseDao.insertCourseBase(
+                    CourseBaseBean(
+                        id = nextId,
+                        courseName = LAB_RESERVATION_PREFIX + name,
+                        color = CourseUtils.getColorHex(nextId - 1),
+                        tableId = tableId
+                    )
+                )
+                courseDetailDao.insertList(items.map { item ->
+                    CourseDetailBean(
+                        id = nextId,
+                        day = item.day,
+                        room = item.room,
+                        teacher = "",
+                        startNode = item.startNode,
+                        step = item.step,
+                        startWeek = item.week,
+                        endWeek = item.week,
+                        type = 0,
+                        tableId = tableId
+                    )
+                })
+            }
+
+            if (reservations.any { it.day == 6 }) table.showSat = true
+            if (reservations.any { it.day == 7 }) table.showSun = true
+            tableDao.updateTable(table)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
