@@ -321,9 +321,188 @@ object LappClient {
     }
 
     /**
-     * 查询全校课表开课信息（优先使用本地持久缓存，forceRefresh=true 时强制从网络拉取并更新缓存）
+     * 判断某门课程在目标教学周是否处于开课/活跃状态
      */
-    suspend fun queryClassSchedule(
+    fun isCourseActiveInWeek(c: LappCourseItem, targetWeek: Int): Boolean {
+        if (targetWeek <= 0) return true
+        val list = c.weekList
+        if (list.isNotEmpty()) {
+            return list.contains(targetWeek)
+        }
+        if (c.qsz in 1..30 && c.jsz >= c.qsz) {
+            return targetWeek in c.qsz..c.jsz
+        }
+        if (c.zc.isNotBlank()) {
+            val parsed = c.zc.split(",").mapNotNull { it.trim().toIntOrNull() }
+            if (parsed.isNotEmpty()) {
+                return parsed.contains(targetWeek)
+            }
+        }
+        return false
+    }
+
+    /**
+     * 解析节次范围参数（支持 1-2, 3-5, 6-7, 8-9, 10-12 等格式）
+     */
+    fun getQuerySectionRange(queryJc: String): IntRange? {
+        if (queryJc == "-1" || queryJc.isBlank()) return null
+        return when (queryJc) {
+            "1-2", "01-02" -> 1..2
+            "3-5", "03-05" -> 3..5
+            "6-7", "06-07" -> 6..7
+            "8-9", "8-10", "08-09", "08-10" -> 8..10
+            "10-12", "11-13", "10-13" -> 11..13
+            else -> {
+                val parts = queryJc.split("-")
+                val start = parts[0].trim().toIntOrNull() ?: return null
+                val end = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: start
+                start..end
+            }
+        }
+    }
+
+    /**
+     * 判断课程是否与指定查询节次发生重叠冲突
+     */
+    fun matchesSection(c: LappCourseItem, queryJc: String): Boolean {
+        val qRange = getQuerySectionRange(queryJc) ?: return true
+        val cStart = c.jc
+        val cEnd = if (c.jccd > 0) c.jc + c.jccd - 1 else c.jc
+        return maxOf(qRange.first, cStart) <= minOf(qRange.last, cEnd)
+    }
+
+    // 全校课表全量缓存（内存 + 本地文件持久化）
+    private val fullScheduleMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<LappCourseItem>>>()
+
+    private fun getFullCacheFile(context: Context, xn: String, xq: String): java.io.File {
+        val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return java.io.File(context.cacheDir, "full_school_schedule_${safeXn}_${safeXq}.json")
+    }
+
+    fun getFullSchoolScheduleCached(context: Context, xn: String, xq: String): Pair<Long, List<LappCourseItem>>? {
+        val key = "${xn.trim()}_${xq.trim()}"
+        fullScheduleMemoryCache[key]?.let { return it }
+
+        val file = getFullCacheFile(context, xn, xq)
+        if (!file.exists() || file.length() == 0L) return null
+
+        return try {
+            val jsonStr = file.readText(Charsets.UTF_8)
+            val root = JSONObject(jsonStr)
+            val ts = root.optLong("time", file.lastModified())
+            val itemsJson = root.optString("items", "[]")
+            val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
+            val list: List<LappCourseItem> = gson.fromJson(itemsJson, type) ?: emptyList()
+            val pair = Pair(ts, list)
+            fullScheduleMemoryCache[key] = pair
+            pair
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read full schedule file cache for $key", e)
+            null
+        }
+    }
+
+    private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>): Long {
+        val key = "${xn.trim()}_${xq.trim()}"
+        val now = System.currentTimeMillis()
+        fullScheduleMemoryCache[key] = Pair(now, list)
+        try {
+            val file = getFullCacheFile(context, xn, xq)
+            val root = JSONObject().apply {
+                put("time", now)
+                put("items", gson.toJson(list))
+            }
+            file.writeText(root.toString(), Charsets.UTF_8)
+            Log.i(TAG, "Saved full schedule cache to ${file.absolutePath} (${list.size} courses)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to write full schedule file cache for $key", e)
+        }
+        return now
+    }
+
+    /**
+     * 获取或拉取全校课表全量缓存（初次加载时全量分页拉取并缓存至本地）
+     */
+    suspend fun getOrFetchFullSchoolSchedule(
+        context: Context,
+        xn: String,
+        xq: String,
+        forceRefresh: Boolean = false
+    ): Result<List<LappCourseItem>> = withContext(Dispatchers.IO) {
+        if (!forceRefresh) {
+            getFullSchoolScheduleCached(context, xn, xq)?.let { (ts, list) ->
+                lastQueryFromCache = true
+                lastQueryCacheTime = ts
+                return@withContext Result.success(list)
+            }
+        }
+
+        try {
+            ensureSession(context)
+            val allCourses = mutableListOf<LappCourseItem>()
+            var page = 0
+            val rows = 1000
+            var total = 0
+
+            do {
+                val pageResult = fetchSchedulePage(
+                    context = context,
+                    xn = xn,
+                    xq = xq,
+                    week = -1,
+                    xy = "",
+                    zj = -1,
+                    jc = "-1",
+                    kcmc = "",
+                    kcdm = "",
+                    lsmc = "",
+                    page = page,
+                    rows = rows
+                )
+                if (pageResult.isFailure) {
+                    if (allCourses.isNotEmpty()) break
+                    getFullSchoolScheduleCached(context, xn, xq)?.let { (ts, list) ->
+                        lastQueryFromCache = true
+                        lastQueryCacheTime = ts
+                        return@withContext Result.success(list)
+                    }
+                    return@withContext Result.failure(pageResult.exceptionOrNull() ?: Exception("全量课表获取失败"))
+                }
+                val (t, pageItems) = pageResult.getOrThrow()
+                total = t
+                allCourses.addAll(pageItems)
+                page++
+                if (pageItems.isEmpty() || allCourses.size >= total) break
+            } while (page * rows < total && page < 20)
+
+            if (allCourses.isNotEmpty()) {
+                val savedTs = saveFullSchoolSchedule(context, xn, xq, allCourses)
+                lastQueryFromCache = false
+                lastQueryCacheTime = savedTs
+                Result.success(allCourses)
+            } else {
+                val fallback = getFullSchoolScheduleCached(context, xn, xq)
+                if (fallback != null) {
+                    Result.success(fallback.second)
+                } else {
+                    Result.failure(Exception("未能拉取到全校课表数据"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getOrFetchFullSchoolSchedule error", e)
+            val fallback = getFullSchoolScheduleCached(context, xn, xq)
+            if (fallback != null) {
+                lastQueryFromCache = true
+                lastQueryCacheTime = fallback.first
+                Result.success(fallback.second)
+            } else {
+                Result.failure(e)
+            }
+        }
+    }
+
+    private suspend fun fetchSchedulePage(
         context: Context,
         xn: String = "",
         xq: String = "",
@@ -335,32 +514,8 @@ object LappClient {
         kcdm: String = "",
         lsmc: String = "",
         page: Int = 0,
-        rows: Int = 50,
-        forceRefresh: Boolean = false
+        rows: Int = 1000
     ): Result<Pair<Int, List<LappCourseItem>>> = withContext(Dispatchers.IO) {
-        val cacheKey = buildScheduleCacheKey(xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page, rows)
-        // 若查询的是某个具体时段 (zj>0, jc!="-1", 无关键词和学院限制)，也可复用全周次通用时段缓存 (week=-1, rows=500)
-        val sharedSlotKey = if (xy.isEmpty() && kcmc.isEmpty() && kcdm.isEmpty() && lsmc.isEmpty() && zj > 0 && jc != "-1" && page == 0) {
-            buildScheduleCacheKey(xn, xq, -1, "", zj, jc, "", "", "", 0, 500)
-        } else null
-
-        if (!forceRefresh) {
-            readScheduleCache(context, cacheKey)?.let { (ts, cachedPair) ->
-                Log.i(TAG, "queryClassSchedule HIT local cache: $cacheKey (${cachedPair.second.size} items)")
-                lastQueryFromCache = true
-                lastQueryCacheTime = ts
-                return@withContext Result.success(cachedPair)
-            }
-            if (sharedSlotKey != null && sharedSlotKey != cacheKey) {
-                readScheduleCache(context, sharedSlotKey)?.let { (ts, cachedPair) ->
-                    Log.i(TAG, "queryClassSchedule HIT shared slot cache: $sharedSlotKey (${cachedPair.second.size} items)")
-                    lastQueryFromCache = true
-                    lastQueryCacheTime = ts
-                    return@withContext Result.success(cachedPair)
-                }
-            }
-        }
-
         try {
             ensureSession(context)
 
@@ -378,8 +533,6 @@ object LappClient {
             urlBuilder.append("rows=").append(rows)
 
             val requestUrl = urlBuilder.toString()
-            Log.i(TAG, "queryClassSchedule URL: $requestUrl")
-
             val req = Request.Builder()
                 .url(requestUrl)
                 .header("User-Agent", USER_AGENT)
@@ -390,15 +543,11 @@ object LappClient {
             var resp = client.newCall(req).execute()
             var body = resp.body?.string() ?: ""
 
-            // 如果会话失效，重试一次
             if (body.contains("用户未登录")) {
-                Log.w(TAG, "Lapp session expired, re-authenticating...")
                 ensureSession(context)
                 resp = client.newCall(req).execute()
                 body = resp.body?.string() ?: ""
             }
-
-            Log.i(TAG, "queryClassSchedule resp snippet: ${body.take(200)}")
 
             val json = JSONObject(body)
             if (json.optInt("resultCode", -1) != 0) {
@@ -409,7 +558,6 @@ object LappClient {
             val resultObj = json.optJSONObject("result") ?: JSONObject()
             val total = resultObj.optInt("total", 0)
             val dataArr = resultObj.optJSONArray("data") ?: org.json.JSONArray()
-            Log.i(TAG, "queryClassSchedule total: $total, dataArr length: ${dataArr.length()}")
 
             val list = mutableListOf<LappCourseItem>()
             for (i in 0 until dataArr.length()) {
@@ -443,7 +591,91 @@ object LappClient {
                     )
                 )
             }
+            Result.success(Pair(total, list))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
+    /**
+     * 查询全校课表开课信息（优先使用全量/本地持久缓存，forceRefresh=true 时强制从网络拉取并更新缓存）
+     */
+    suspend fun queryClassSchedule(
+        context: Context,
+        xn: String = "",
+        xq: String = "",
+        week: Int = -1,
+        xy: String = "",
+        zj: Int = -1,
+        jc: String = "-1",
+        kcmc: String = "",
+        kcdm: String = "",
+        lsmc: String = "",
+        page: Int = 0,
+        rows: Int = 50,
+        forceRefresh: Boolean = false
+    ): Result<Pair<Int, List<LappCourseItem>>> = withContext(Dispatchers.IO) {
+        // 1. 优先检查是否存在全校课表全量缓存，若存在直接在内存中秒级检索
+        val cachedFullPair = getFullSchoolScheduleCached(context, xn, xq)
+        if (!forceRefresh && cachedFullPair != null && cachedFullPair.second.isNotEmpty()) {
+            val (ts, allList) = cachedFullPair
+            var filtered = allList.asSequence()
+            if (week > 0) {
+                filtered = filtered.filter { isCourseActiveInWeek(it, week) }
+            }
+            if (xy.isNotEmpty()) {
+                filtered = filtered.filter { it.xy.contains(xy) || xy.contains(it.xy) }
+            }
+            if (zj > 0) {
+                filtered = filtered.filter { it.zj == zj }
+            }
+            if (jc != "-1" && jc.isNotEmpty()) {
+                filtered = filtered.filter { matchesSection(it, jc) }
+            }
+            if (kcmc.isNotEmpty()) {
+                filtered = filtered.filter { it.kcmc.contains(kcmc, ignoreCase = true) }
+            }
+            if (kcdm.isNotEmpty()) {
+                filtered = filtered.filter { it.kcdm.contains(kcdm, ignoreCase = true) || it.bjmc.contains(kcdm, ignoreCase = true) }
+            }
+            if (lsmc.isNotEmpty()) {
+                filtered = filtered.filter { it.lsmc.contains(lsmc, ignoreCase = true) }
+            }
+            val list = filtered.toList()
+            lastQueryFromCache = true
+            lastQueryCacheTime = ts
+            Log.i(TAG, "queryClassSchedule HIT full schedule in-memory filter: ${list.size} results")
+            return@withContext Result.success(Pair(list.size, list))
+        }
+
+        val cacheKey = buildScheduleCacheKey(xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page, rows)
+        val sharedSlotKey = if (xy.isEmpty() && kcmc.isEmpty() && kcdm.isEmpty() && lsmc.isEmpty() && zj > 0 && jc != "-1" && page == 0) {
+            buildScheduleCacheKey(xn, xq, -1, "", zj, jc, "", "", "", 0, 500)
+        } else null
+
+        if (!forceRefresh) {
+            readScheduleCache(context, cacheKey)?.let { (ts, cachedPair) ->
+                Log.i(TAG, "queryClassSchedule HIT local cache: $cacheKey (${cachedPair.second.size} items)")
+                lastQueryFromCache = true
+                lastQueryCacheTime = ts
+                return@withContext Result.success(cachedPair)
+            }
+            if (sharedSlotKey != null && sharedSlotKey != cacheKey) {
+                readScheduleCache(context, sharedSlotKey)?.let { (ts, cachedPair) ->
+                    Log.i(TAG, "queryClassSchedule HIT shared slot cache: $sharedSlotKey (${cachedPair.second.size} items)")
+                    lastQueryFromCache = true
+                    lastQueryCacheTime = ts
+                    return@withContext Result.success(cachedPair)
+                }
+            }
+        }
+
+        try {
+            val pageResult = fetchSchedulePage(context, xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page, rows)
+            if (pageResult.isFailure) {
+                return@withContext Result.failure(pageResult.exceptionOrNull() ?: Exception("查询失败"))
+            }
+            val (total, list) = pageResult.getOrThrow()
             val savedTime = writeScheduleCache(context, cacheKey, total, list)
             lastQueryFromCache = false
             lastQueryCacheTime = savedTime
@@ -551,6 +783,7 @@ object LappClient {
 
     /**
      * 空教室计算：通过指定周次、星期、节次，获取被占用的教室，对比教学楼已知教室得出空闲教室
+     * 优先走全校课表全量缓存，且严格剔除非本周次（如仅1-4周或单双周不重叠）的开课记录
      */
     suspend fun queryFreeClassrooms(
         context: Context,
@@ -563,27 +796,46 @@ object LappClient {
         forceRefresh: Boolean = false
     ): Result<List<FreeClassroomInfo>> = withContext(Dispatchers.IO) {
         try {
-            // 拉取指定时段的全部排课（每页 500 条即可覆盖单时段的所有排课，默认优先走本地缓存）
-            val schedResult = queryClassSchedule(
-                context = context,
-                xn = xn,
-                xq = xq,
-                week = week,
-                zj = zj,
-                jc = jc,
-                rows = 500,
-                forceRefresh = forceRefresh
-            )
-
-            if (schedResult.isFailure) {
-                return@withContext Result.failure(schedResult.exceptionOrNull() ?: Exception("查询失败"))
-            }
-
+            val targetWeek = if (week > 0) week else 1
             val occupiedMap = mutableMapOf<String, LappCourseItem>()
-            val (_, courses) = schedResult.getOrNull() ?: Pair(0, emptyList())
-            for (c in courses) {
-                if (c.jsdd.isNotEmpty()) {
-                    occupiedMap[c.jsdd] = c
+
+            // 1. 优先拉取或读取全校课表全量缓存进行秒级精确匹配
+            val fullResult = getOrFetchFullSchoolSchedule(context, xn, xq, forceRefresh)
+            val allCourses = fullResult.getOrNull()
+
+            if (!allCourses.isNullOrEmpty()) {
+                val matchedCourses = allCourses.filter { c ->
+                    (zj <= 0 || c.zj == zj) &&
+                    matchesSection(c, jc) &&
+                    isCourseActiveInWeek(c, targetWeek)
+                }
+                for (c in matchedCourses) {
+                    if (c.jsdd.isNotEmpty()) {
+                        occupiedMap[c.jsdd] = c
+                    }
+                }
+            } else {
+                // 2. 降级备用：单时段网络查询，同时严格按 targetWeek 和 jc 过滤
+                val schedResult = queryClassSchedule(
+                    context = context,
+                    xn = xn,
+                    xq = xq,
+                    week = targetWeek,
+                    zj = zj,
+                    jc = jc,
+                    rows = 500,
+                    forceRefresh = forceRefresh
+                )
+
+                if (schedResult.isFailure) {
+                    return@withContext Result.failure(schedResult.exceptionOrNull() ?: Exception("查询失败"))
+                }
+
+                val (_, courses) = schedResult.getOrNull() ?: Pair(0, emptyList())
+                for (c in courses) {
+                    if (c.jsdd.isNotEmpty() && isCourseActiveInWeek(c, targetWeek) && matchesSection(c, jc)) {
+                        occupiedMap[c.jsdd] = c
+                    }
                 }
             }
 

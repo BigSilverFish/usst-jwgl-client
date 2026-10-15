@@ -132,7 +132,11 @@ class ScheduleWeekFragment : Fragment() {
     private fun renderSchedule() {
         val context = context ?: return
         val db = AppDatabase.getDatabase(context)
-        val table = if (tableId > 0) {
+        val act = activity as? cn.edu.usst.jwgl.ui.MainActivity
+        val actTable = act?.currentTable
+        val table = if (actTable != null && (tableId <= 0 || actTable.id == tableId)) {
+            actTable
+        } else if (tableId > 0) {
             db.tableDao.getTableById(tableId) ?: db.tableDao.getDefaultTable()
         } else {
             db.tableDao.getDefaultTable()

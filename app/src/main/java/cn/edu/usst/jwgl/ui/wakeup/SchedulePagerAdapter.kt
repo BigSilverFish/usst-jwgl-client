@@ -42,14 +42,22 @@ class SchedulePagerAdapter(
     }
 
     fun refreshAllFragments() {
+        val refreshed = mutableSetOf<ScheduleWeekFragment>()
         for (fragment in activity.supportFragmentManager.fragments) {
             if (fragment is ScheduleWeekFragment && fragment.isAdded) {
                 fragment.refresh()
+                refreshed.add(fragment)
             }
             for (child in fragment.childFragmentManager.fragments) {
                 if (child is ScheduleWeekFragment && child.isAdded) {
                     child.refresh()
+                    refreshed.add(child)
                 }
+            }
+        }
+        for (fragment in fragmentMap.values) {
+            if (fragment.isAdded && !refreshed.contains(fragment)) {
+                fragment.refresh()
             }
         }
     }

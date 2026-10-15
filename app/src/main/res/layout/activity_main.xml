@@ -1238,7 +1238,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="24dp"
                                 android:checkable="true"
-                                android:checked="true"
+                                android:checked="false"
                                 android:text="仅本周课程"
                                 android:textSize="11sp"
                                 app:chipCornerRadius="12dp"

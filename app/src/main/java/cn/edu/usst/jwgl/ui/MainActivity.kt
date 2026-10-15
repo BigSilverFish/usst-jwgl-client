@@ -99,7 +99,8 @@ class MainActivity : AppCompatActivity() {
     private var selectedGradeSemesterTitle: String = ""
     private var currentProfile: StudentProfile? = null
 
-    private var currentTable: TableBean? = null
+    internal var currentTable: TableBean? = null
+    private var isUpdatingChipProgrammatically = false
     private var scheduleAdapter: SchedulePagerAdapter? = null
     private var currentWeek: Int = 1
 
@@ -905,7 +906,9 @@ class MainActivity : AppCompatActivity() {
             currentTable = table
 
             binding.tvTimetableSemester.text = formatSemesterTitle(table.tableName)
+            isUpdatingChipProgrammatically = true
             binding.chipFilterOnlyCurrentWeek.isChecked = !table.showOtherWeekCourse
+            isUpdatingChipProgrammatically = false
 
             val realCurrentWeek = CourseUtils.countWeek(table.startDate)
             if (currentWeek !in 1..table.maxWeek) {
@@ -1223,10 +1226,13 @@ class MainActivity : AppCompatActivity() {
 
         // Filter: Show non-current week courses toggle
         binding.chipFilterOnlyCurrentWeek.setOnCheckedChangeListener { _, isChecked ->
+            if (isUpdatingChipProgrammatically) return@setOnCheckedChangeListener
             val table = currentTable ?: return@setOnCheckedChangeListener
             table.showOtherWeekCourse = !isChecked
-            lifecycleScope.launch(Dispatchers.IO) { db.tableDao.updateTable(table) }
-            scheduleAdapter?.refreshAllFragments()
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) { db.tableDao.updateTable(table) }
+                scheduleAdapter?.refreshAllFragments()
+            }
         }
 
         // Refresh / Sync from USST JWGL
@@ -2618,6 +2624,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // 首次进入或重置检索时，在后台异步全量加载并缓存全校课表
+        lifecycleScope.launch(Dispatchers.IO) {
+            LappClient.getOrFetchFullSchoolSchedule(this@MainActivity, currentSearchXn, currentSearchXq)
+        }
+
         defaultSlotQueryJob?.cancel()
 
         val slot = getCurrentWeekdaySlot()
@@ -3371,8 +3382,10 @@ class MainActivity : AppCompatActivity() {
             val totalCount = allFreeRooms.size
             val cacheTag = LappClient.formatCacheTag()
             val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
+            val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
+            val targetWeek = if (curWeek in 1..25) curWeek else 1
             if (totalCount > 0) {
-                page.tvFreeClassroomSubtitle.text = "空闲 $freeCount / 共 $totalCount 间$cacheSuffix"
+                page.tvFreeClassroomSubtitle.text = "第 $targetWeek 周 · 空闲 $freeCount / 共 $totalCount 间$cacheSuffix"
             }
 
             if (showToast && totalCount > 0) {
@@ -3399,13 +3412,15 @@ class MainActivity : AppCompatActivity() {
             page.btnRefreshFreeClassroom.isEnabled = false
 
             val actualDay = if (selectedFreeDay == 0) todayZj else selectedFreeDay
+            val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
+            val targetWeek = if (curWeek in 1..25) curWeek else 1
 
             lifecycleScope.launch {
                 val result = LappClient.queryFreeClassrooms(
                     context = this@MainActivity,
                     xn = "2026-2027",
                     xq = "1",
-                    week = -1,
+                    week = targetWeek,
                     zj = actualDay,
                     jc = selectedFreeSection,
                     building = selectedFreeBuilding,

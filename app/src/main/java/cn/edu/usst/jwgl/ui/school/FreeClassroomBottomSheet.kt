@@ -125,6 +125,8 @@ class FreeClassroomBottomSheet : BottomSheetDialogFragment() {
         spSection.setSelection(defaultSectionIdx)
         selectedSection = sectionOptions[defaultSectionIdx].second
 
+        var currentTargetWeek = 1
+
         fun filterAndDisplay() {
             val onlyFree = cbOnlyFree.isChecked
             displayRooms.clear()
@@ -137,7 +139,9 @@ class FreeClassroomBottomSheet : BottomSheetDialogFragment() {
 
             val freeCount = allRooms.count { it.isFree }
             val occupiedCount = allRooms.size - freeCount
-            tvSummary.text = "空闲教室: ${freeCount} 间 · 占用: ${occupiedCount} 间"
+            val cacheTag = LappClient.formatCacheTag()
+            val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
+            tvSummary.text = "第 $currentTargetWeek 周 · 空闲: ${freeCount} 间 · 占用: ${occupiedCount} 间$cacheSuffix"
 
             if (displayRooms.isEmpty()) {
                 emptyLayout.visibility = View.VISIBLE
@@ -155,11 +159,17 @@ class FreeClassroomBottomSheet : BottomSheetDialogFragment() {
             val actualDay = if (selectedDay == 0) todayZj else selectedDay
 
             lifecycleScope.launch {
+                val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(requireContext())
+                val curWeek = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    db.tableDao.getDefaultTable()?.let { cn.edu.usst.jwgl.data.wakeup.CourseUtils.countWeek(it.startDate) }
+                } ?: 1
+                currentTargetWeek = if (curWeek in 1..25) curWeek else 1
+
                 val result = LappClient.queryFreeClassrooms(
                     context = requireContext(),
                     xn = "2026-2027",
                     xq = "1",
-                    week = -1, // -1 表示全部或当前教学周
+                    week = currentTargetWeek,
                     zj = actualDay,
                     jc = selectedSection,
                     building = selectedBuilding
