@@ -124,6 +124,22 @@ class LoginActivity : AppCompatActivity() {
 
             performLogin(studentId, password, isAuto = false)
         }
+
+        binding.btnGuestCourseSearch.setOnClickListener {
+            val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_GUEST_MODE, true)
+                putExtra(MainActivity.EXTRA_TAB, 3)
+            }
+            startActivity(intent)
+        }
+
+        binding.btnGuestFreeClassroom.setOnClickListener {
+            val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_GUEST_MODE, true)
+                putExtra(MainActivity.EXTRA_TAB, 4)
+            }
+            startActivity(intent)
+        }
     }
 
     private fun performLogin(studentId: String, password: String, isAuto: Boolean = false) {

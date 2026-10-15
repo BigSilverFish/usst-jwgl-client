@@ -437,7 +437,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="学工系统小程序 (new2017)"
+                            android:text="学工一体化 (new2017)"
                             android:textColor="@color/text_primary"
                             android:textSize="14.5sp"
                             android:textStyle="bold" />
@@ -446,7 +446,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="直达上海理工大学学生工作部移动门户"
+                            android:text="直达上海理工大学学工一体化学生主页"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>

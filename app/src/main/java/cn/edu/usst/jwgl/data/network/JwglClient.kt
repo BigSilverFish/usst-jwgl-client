@@ -164,6 +164,42 @@ object JwglClient {
         }
     }
 
+    suspend fun loginWebVpn(studentId: String, password: String, serviceUrl: String = "https://new2017.webvpn.usst.edu.cn/default.aspx"): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val encodedService = java.net.URLEncoder.encode(serviceUrl, "UTF-8")
+            val casUrl = "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=$encodedService"
+            val req1 = Request.Builder().url(casUrl).header("User-Agent", USER_AGENT).get().build()
+            val resp1 = client.newCall(req1).execute()
+            val html1 = resp1.body?.string().orEmpty()
+
+            val lt = Jsoup.parse(html1).select("input[name=lt]").attr("value")
+            val execution = Jsoup.parse(html1).select("input[name=execution]").attr("value")
+
+            if (lt.isNotEmpty() && execution.isNotEmpty()) {
+                val formBody = FormBody.Builder()
+                    .add("username", studentId)
+                    .add("password", password)
+                    .add("lt", lt)
+                    .add("dllt", "userNamePasswordLogin")
+                    .add("execution", execution)
+                    .add("_eventId", "submit")
+                    .add("rmShown", "1")
+                    .build()
+                val req2 = Request.Builder()
+                    .url(casUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .post(formBody)
+                    .build()
+                val resp2 = client.newCall(req2).execute()
+                resp2.close()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w(TAG, "loginWebVpn failed", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun fetchStudentProfile(fallbackStudentId: String = ""): StudentProfile = withContext(Dispatchers.IO) {
         val profileReq = Request.Builder()
             .url(PROFILE_URL)

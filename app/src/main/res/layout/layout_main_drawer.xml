@@ -534,7 +534,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="14dp"
-                    android:text="学工系统小程序 (new2017)"
+                    android:text="学工一体化 (new2017)"
                     android:textColor="@color/text_primary"
                     android:textSize="13.5sp" />
 

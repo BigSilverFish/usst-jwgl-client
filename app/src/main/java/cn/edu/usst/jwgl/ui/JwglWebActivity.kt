@@ -124,8 +124,10 @@ class JwglWebActivity : AppCompatActivity() {
             builtInZoomControls = true
             displayZoomControls = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            // Use mobile WeChat UA for new2017.usst.edu.cn to render mobile mini-app layout, desktop UA for jwgl
-            userAgentString = if (targetUrl.contains("new2017.usst.edu.cn")) {
+            // Use standard mobile Chrome UA for webvpn, mobile WeChat UA for new2017 intranet, desktop UA for jwgl
+            userAgentString = if (targetUrl.contains("new2017.webvpn.usst.edu.cn")) {
+                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            } else if (targetUrl.contains("new2017")) {
                 "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.40.2420"
             } else {
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -202,28 +204,41 @@ class JwglWebActivity : AppCompatActivity() {
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
             binding.layoutLoading.visibility = View.VISIBLE
             binding.tvLoadingMessage.text = if (targetUrl.contains("new2017")) {
-                "正在为学工系统认证统一登录会话..."
+                "正在为学工一体化认证统一登录会话..."
             } else {
                 "正在为教务系统认证网页会话..."
             }
 
             lifecycleScope.launch {
-                // Refresh CAS SSO session via OkHttp first to guarantee a fresh session cookie
                 val loginResult = withContext(Dispatchers.IO) {
-                    JwglClient.login(studentId, password)
+                    if (targetUrl.contains("new2017.webvpn.usst.edu.cn")) {
+                        JwglClient.loginWebVpn(studentId, password)
+                    } else {
+                        JwglClient.login(studentId, password).map { Unit }
+                    }
                 }
 
                 loginResult.onSuccess {
                     syncCookiesToWebView()
                     binding.webView.loadUrl(targetUrl)
                 }.onFailure { e ->
-                    Log.w(TAG, "CAS login refresh failed", e)
+                    Log.w(TAG, "SSO login refresh failed", e)
                     syncCookiesToWebView()
-                    binding.webView.loadUrl(targetUrl)
+                    val fallbackUrl = if (targetUrl.contains("new2017.webvpn.usst.edu.cn")) {
+                        "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
+                    } else {
+                        targetUrl
+                    }
+                    binding.webView.loadUrl(fallbackUrl)
                 }
             }
         } else {
-            binding.webView.loadUrl(targetUrl)
+            val urlToLoad = if (targetUrl.contains("new2017.webvpn.usst.edu.cn")) {
+                "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
+            } else {
+                targetUrl
+            }
+            binding.webView.loadUrl(urlToLoad)
         }
     }
 

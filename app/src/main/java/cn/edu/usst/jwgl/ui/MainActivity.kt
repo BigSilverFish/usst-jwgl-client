@@ -86,12 +86,15 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PROFILE = "extra_student_profile"
+        const val EXTRA_TAB = "extra_tab"
+        const val EXTRA_GUEST_MODE = "extra_guest_mode"
         var topBarHeightPx: Int = 0
         var bottomBarHeightPx: Int = 0
     }
 
     private lateinit var binding: ActivityMainBinding
     private var isTabletLandscapeMode: Boolean = false
+    private var isGuestMode: Boolean = false
     private lateinit var cacheManager: DataCacheManager
     private lateinit var db: AppDatabase
     private val gradeAdapter = CourseGradeAdapter()
@@ -318,12 +321,16 @@ class MainActivity : AppCompatActivity() {
         db = AppDatabase.getDatabase(this)
         RemoteConfigManager.init(this)
 
-        val profile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        isGuestMode = intent.getBooleanExtra(EXTRA_GUEST_MODE, false)
+
+        val profile = if (isGuestMode) {
+            null
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getSerializableExtra(EXTRA_PROFILE, StudentProfile::class.java)
         } else {
             @Suppress("DEPRECATION")
             intent.getSerializableExtra(EXTRA_PROFILE) as? StudentProfile
-        } ?: cacheManager.getProfile()
+        } ?: if (isGuestMode) null else cacheManager.getProfile()
         currentProfile = profile
 
         displayProfile(profile)
@@ -338,7 +345,7 @@ class MainActivity : AppCompatActivity() {
             showAuthorDisclaimerDialog(allowDismiss = false)
         }
 
-        val initialTab = intent.getIntExtra("extra_tab", 1) // Default to 1 (课程表)
+        val initialTab = intent.getIntExtra(EXTRA_TAB, 1) // Default to 1 (课程表)
         when (initialTab) {
             0 -> switchTab(MainTab.PROFILE)
             1 -> switchTab(MainTab.TIMETABLE)
@@ -354,7 +361,7 @@ class MainActivity : AppCompatActivity() {
         handleIntentExtras(intent)
 
         val authPrefs = AuthPreferences(this)
-        if (!authPrefs.hasInitialSyncCompleted() && authPrefs.getStudentId().isNotEmpty()) {
+        if (!authPrefs.hasInitialSyncCompleted() && authPrefs.getStudentId().isNotEmpty() && !isGuestMode) {
             lifecycleScope.launch {
                 binding.timetableProgressBar.visibility = View.VISIBLE
                 val res = InitialSyncHelper.performInitialSync(this@MainActivity, authPrefs.getStudentId())
@@ -371,7 +378,7 @@ class MainActivity : AppCompatActivity() {
     private var lastStatusTopPadPx: Int = 0
 
     private fun isPhoneBottomBarMode(): Boolean {
-        return !isTabletLandscapeMode &&
+        return !isTabletLandscapeMode && !isGuestMode &&
                 TimetableSettingHelper.getPhoneNavMode(this) == TimetableSettingHelper.NAV_MODE_BOTTOM
     }
 
@@ -430,6 +437,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyPhoneNavigationMode() {
+        if (isGuestMode) {
+            closeNavDrawer()
+            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+            binding.blurViewBottomNav.visibility = View.GONE
+            binding.btnOpenDrawerTimetable.visibility = View.GONE
+            binding.btnOpenDrawerGrades.visibility = View.GONE
+            binding.btnOpenDrawerProfile.visibility = View.GONE
+
+            binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
+            binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.VISIBLE
+            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
+            binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
+            binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
+
+            binding.rowDoubleTapDrawer.visibility = View.GONE
+            binding.dividerDoubleTapDrawer.visibility = View.GONE
+            applyContentBottomPadding()
+            return
+        }
+
         if (isTabletLandscapeMode) {
             binding.blurViewBottomNav.visibility = View.GONE
             binding.rowPhoneNavMode.visibility = View.GONE
@@ -812,7 +842,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (intent.getBooleanExtra("extra_open_xg_web", false)) {
-            JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
 
         if (intent.hasExtra("extra_simulate_hour")) {
@@ -2258,7 +2288,9 @@ class MainActivity : AppCompatActivity() {
         // Back press handling: close drawer first if opened
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (isNavDrawerOpen()) {
+                if (isGuestMode) {
+                    finish()
+                } else if (isNavDrawerOpen()) {
                     closeNavDrawer()
                 } else if (isPhoneBottomBarMode() && (
                         currentTab == MainTab.COURSE_SEARCH ||
@@ -2308,7 +2340,7 @@ class MainActivity : AppCompatActivity() {
             JwglWebActivity.start(this)
         }
         binding.pageMoreFeatures.rowMoreXgWeb.setOnClickListener {
-            JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
 
         // Quick Service Entries in Profile (Bottom Bar Mode)
@@ -2322,7 +2354,7 @@ class MainActivity : AppCompatActivity() {
             JwglWebActivity.start(this)
         }
         binding.btnProfileXgWeb.setOnClickListener {
-            JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
 
         // Hamburger Menu Buttons to Open Drawer
@@ -2379,7 +2411,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.layoutDrawer.drawerItemXgWeb.setOnClickListener {
             closeNavDrawer()
-            JwglWebActivity.start(this, "https://new2017.usst.edu.cn/default.aspx", "学工系统")
+            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
 
         // Side Navigation Drawer: Logout
@@ -2803,7 +2835,9 @@ class MainActivity : AppCompatActivity() {
 
         val page = binding.pageCourseSearch
         page.btnOpenDrawerCourseSearch.setOnClickListener {
-            if (isPhoneBottomBarMode()) {
+            if (isGuestMode) {
+                finish()
+            } else if (isPhoneBottomBarMode()) {
                 switchTab(MainTab.MORE_FEATURES)
             } else {
                 openNavDrawer()
@@ -3291,7 +3325,9 @@ class MainActivity : AppCompatActivity() {
 
         val page = binding.pageFreeClassroom
         page.btnOpenDrawerFreeClassroom.setOnClickListener {
-            if (isPhoneBottomBarMode()) {
+            if (isGuestMode) {
+                finish()
+            } else if (isPhoneBottomBarMode()) {
                 switchTab(MainTab.MORE_FEATURES)
             } else {
                 openNavDrawer()

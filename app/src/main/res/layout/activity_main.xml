@@ -836,7 +836,7 @@
                                 android:layout_marginStart="6dp"
                                 android:insetTop="0dp"
                                 android:insetBottom="0dp"
-                                android:text="学工系统小程序"
+                                android:text="学工一体化"
                                 android:textSize="12.5sp"
                                 app:cornerRadius="12dp"
                                 app:icon="@drawable/ic_globe"
