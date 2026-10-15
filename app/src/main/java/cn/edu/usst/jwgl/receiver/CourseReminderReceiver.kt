@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.ui.MainActivity
+import kotlinx.coroutines.launch
 
 class CourseReminderReceiver : BroadcastReceiver() {
 
@@ -31,6 +32,11 @@ class CourseReminderReceiver : BroadcastReceiver() {
         fun createNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                val audioAttributes = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
 
                 // Course Reminder Channel
                 val channelCourse = NotificationChannel(
@@ -40,7 +46,10 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 ).apply {
                     description = "课程开始前根据设置自动提醒即将开始的课程"
                     enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 250, 200, 250)
+                    vibrationPattern = longArrayOf(0, 350, 200, 350)
+                    setSound(defaultSound, audioAttributes)
+                    enableLights(true)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 }
                 notificationManager.createNotificationChannel(channelCourse)
 
@@ -52,7 +61,10 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 ).apply {
                     description = "考试开始前提醒考场、座号与时间"
                     enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 300, 200, 300, 200, 300)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
+                    setSound(defaultSound, audioAttributes)
+                    enableLights(true)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 }
                 notificationManager.createNotificationChannel(channelExam)
             }
@@ -88,6 +100,8 @@ class CourseReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+
         val builder = if (isExam) {
             val roomText = if (classroom.isNotEmpty()) "考场：$classroom" else "考场待定"
             val seatText = if (seatNumber.isNotEmpty() && seatNumber != "未指定") " | 座号：$seatNumber" else ""
@@ -101,6 +115,9 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 ))
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(defaultSound)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
         } else {
@@ -112,8 +129,11 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 .setContentTitle("🔔 还有 $advanceText 上课：$courseName")
                 .setContentText(content)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${content}\n请带齐课件与学习用品，准时到达教室。"))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(defaultSound)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
         }
@@ -123,6 +143,17 @@ class CourseReminderReceiver : BroadcastReceiver() {
             notificationManager.notify(notifId, builder.build())
         } catch (e: SecurityException) {
             // Android 13+ without POST_NOTIFICATIONS permission
+        }
+
+        // Asynchronously advance the rolling schedule so future alarms stay fresh
+        val pendingResult = goAsync()
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                cn.edu.usst.jwgl.util.CourseReminderManager.scheduleUpcomingReminders(context)
+            } catch (_: Exception) {
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

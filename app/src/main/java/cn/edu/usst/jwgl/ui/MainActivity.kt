@@ -1280,6 +1280,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Powerful AlarmClock Reminder Row & Switch
+        binding.rowPowerfulReminder.setOnClickListener {
+            binding.switchPowerfulReminder.toggle()
+        }
+        binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
+        binding.switchPowerfulReminder.setOnCheckedChangeListener { _, isChecked ->
+            CourseReminderManager.setPowerfulReminderEnabled(this, isChecked)
+            updateReminderSubtitles()
+            val msg = if (isChecked) {
+                "已开启强力防漏模式（系统闹钟级别穿透）"
+            } else {
+                "已切换为标准后台提醒模式"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        // Battery Optimization & Anti-miss Guide Row
+        binding.rowBatteryOptimizationGuide.setOnClickListener {
+            showBatteryOptimizationGuideDialog()
+        }
+
         // Day-part Dividers (上午/下午/晚上) Row & Switch
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.rowDayPartDividers.setOnClickListener {
@@ -1548,6 +1569,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(TimetableSettingHelper.getPhoneNavMode(this))
         binding.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
         binding.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
+        binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
         updateReminderSubtitles()
@@ -1628,6 +1650,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             "已关闭 · 点击可设置提前时长"
         }
+
+        val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)
+        binding.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
+            "已开启系统时钟穿透 · 状态栏显示 ⏰ 标记，防杀防漏"
+        } else {
+            "标准模式 · 灭屏深度休眠时可能受系统节流"
+        }
     }
 
     private fun showCourseReminderAdvanceDialog() {
@@ -1683,6 +1712,50 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showBatteryOptimizationGuideDialog() {
+        val guideMsg = """
+            为避免手机灭屏休眠导致课前/考前提醒延迟或漏报，建议完成以下自检：
+
+            1. 开启【允许自启动 / 后台运行】：
+            进入应用权限设置，允许“自启动”和“后台运行”。
+
+            2. 电池策略设为【无限制】：
+            在电池管理中将本应用设为“无限制”或“不进行耗电优化”，避免被系统强制冻结。
+
+            3. 开启【强力防漏模式】：
+            使用系统底层 AlarmClock 协议唤醒，穿透国产系统休眠，保障 100% 准时提醒。
+
+            4. 检查【通知与精确闹钟】权限：
+            确保系统的通知开关已开启，且提示音与震动正常生效。
+        """.trimIndent()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("🔔 防漏提醒与保活自检指南")
+            .setMessage(guideMsg)
+            .setPositiveButton("前往应用详情") { _, _ ->
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = android.net.Uri.fromParts("package", packageName, null)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "无法打开设置页: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNeutralButton("电池优化设置") { _, _ ->
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    startActivity(intent)
+                } catch (_: Exception) {
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                    } catch (_: Exception) {}
+                }
+            }
+            .setNegativeButton("我知道了", null)
             .safeShow()
     }
 
