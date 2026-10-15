@@ -74,6 +74,7 @@ import cn.edu.usst.jwgl.util.SemesterHelper
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 import cn.edu.usst.jwgl.util.ThemeManager
 import cn.edu.usst.jwgl.util.TimetableSettingHelper
+import cn.edu.usst.jwgl.util.UpdateDialogHelper
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +107,24 @@ class MainActivity : AppCompatActivity() {
     private var isUpdatingChipProgrammatically = false
     private var scheduleAdapter: SchedulePagerAdapter? = null
     private var currentWeek: Int = 1
+
+    /**
+     * Returns the most accurate current academic week:
+     * 1) From the active timetable startDate if valid;
+     * 2) Otherwise from RemoteConfigManager.getCurrentWeek() (synced with cloud calendar);
+     * 3) Otherwise falling back to currentWeek (coerced into 1..25).
+     */
+    private fun getEffectiveCurrentWeek(): Int {
+        val tableWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) }
+        if (tableWeek != null && tableWeek in 1..25) {
+            return tableWeek
+        }
+        val remoteWeek = RemoteConfigManager.getCurrentWeek()
+        if (remoteWeek in 1..25) {
+            return remoteWeek
+        }
+        return if (currentWeek in 1..25) currentWeek else 1
+    }
 
     private val addCourseLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -320,6 +339,7 @@ class MainActivity : AppCompatActivity() {
         cacheManager = DataCacheManager(this)
         db = AppDatabase.getDatabase(this)
         RemoteConfigManager.init(this)
+        currentWeek = RemoteConfigManager.getCurrentWeek()
 
         isGuestMode = intent.getBooleanExtra(EXTRA_GUEST_MODE, false)
 
@@ -2518,7 +2538,7 @@ class MainActivity : AppCompatActivity() {
                     CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
 
                     if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
-                        showUpdateDialog(config.appVersion)
+                        showUpdateDialog(config.appVersion, isManual = isManual)
                     } else if (isManual) {
                         Toast.makeText(this@MainActivity, "当前已是最新版本，校历与调休配置已同步", Toast.LENGTH_SHORT).show()
                     } else {
@@ -2544,30 +2564,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showUpdateDialog(versionInfo: AppVersionInfo) {
-        val notes = if (versionInfo.releaseNotes.isNotBlank()) "\n\n更新说明：\n${versionInfo.releaseNotes}" else ""
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("发现新版本 v${versionInfo.versionName}")
-            .setMessage("检测到新版本发布 (发布日期: ${versionInfo.releaseDate})$notes")
-            .setPositiveButton("立即下载更新") { _, _ ->
-                if (versionInfo.downloadUrl.isNotBlank()) {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(versionInfo.downloadUrl))
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        Toast.makeText(this, "无法打开下载链接: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    Toast.makeText(this, "暂无直接下载链接", Toast.LENGTH_SHORT).show()
-                }
-            }
-
-        if (!versionInfo.forceUpdate) {
-            dialog.setNegativeButton("稍后再说", null)
-        } else {
-            dialog.setCancelable(false)
-        }
-        dialog.safeShow()
+    private fun showUpdateDialog(versionInfo: AppVersionInfo, isManual: Boolean = false) {
+        UpdateDialogHelper.showUpdateDialog(this, versionInfo, forceShow = isManual)
     }
 
     private fun MaterialAlertDialogBuilder.safeShow() {
@@ -2689,7 +2687,7 @@ class MainActivity : AppCompatActivity() {
         val dayNames = arrayOf("", "周一", "周二", "周三", "周四", "周五")
         val dayName = dayNames.getOrElse(todayZj) { "今天" }
 
-        val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
+        val curWeek = getEffectiveCurrentWeek()
         val targetWeek = if (curWeek in 1..25) curWeek else -1
         val weekPrefix = if (targetWeek > 0) "第${targetWeek}周 " else ""
 
@@ -3418,7 +3416,7 @@ class MainActivity : AppCompatActivity() {
             val totalCount = allFreeRooms.size
             val cacheTag = LappClient.formatCacheTag()
             val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
-            val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
+            val curWeek = getEffectiveCurrentWeek()
             val targetWeek = if (curWeek in 1..25) curWeek else 1
             if (totalCount > 0) {
                 page.tvFreeClassroomSubtitle.text = "第 $targetWeek 周 · 空闲 $freeCount / 共 $totalCount 间$cacheSuffix"
@@ -3448,7 +3446,7 @@ class MainActivity : AppCompatActivity() {
             page.btnRefreshFreeClassroom.isEnabled = false
 
             val actualDay = if (selectedFreeDay == 0) todayZj else selectedFreeDay
-            val curWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) } ?: currentWeek
+            val curWeek = getEffectiveCurrentWeek()
             val targetWeek = if (curWeek in 1..25) curWeek else 1
 
             lifecycleScope.launch {

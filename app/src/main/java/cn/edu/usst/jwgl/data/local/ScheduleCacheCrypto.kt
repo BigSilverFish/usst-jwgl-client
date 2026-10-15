@@ -85,13 +85,11 @@ object ScheduleCacheCrypto {
         GZIPOutputStream(bos).use { it.write(plainBytes) }
         val compressedBytes = bos.toByteArray()
 
-        // 2. AES-GCM 加密
+        // 2. AES-GCM 加密 (AndroidKeyStore 安全规范要求使用 Cipher 内部生成的随机 IV)
         val secretKey = getSecretKey(context)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        val iv = ByteArray(GCM_IV_LENGTH)
-        SecureRandom().nextBytes(iv)
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
         val cipherBytes = cipher.doFinal(compressedBytes)
 
         // 3. 构造密文结构: MAGIC (4B) + VERSION (1B) + IV (12B) + CIPHERTEXT

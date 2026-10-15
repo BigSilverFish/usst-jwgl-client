@@ -15,6 +15,7 @@ import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.util.InitialSyncHelper
+import cn.edu.usst.jwgl.util.UpdateDialogHelper
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -38,17 +39,21 @@ class LoginActivity : AppCompatActivity() {
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Immediately initialize RemoteConfigManager with cached preferences
+        RemoteConfigManager.init(this)
+
         authPrefs = AuthPreferences(this)
         cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(this)
+
+        // Immediately fetch latest cloud configuration and show update dialog if available
+        checkRemoteConfigAndUpdate()
 
         if (!authPrefs.hasAgreedDisclaimer()) {
             showDisclaimerDialog {
                 setupPrefillAndAutoLogin()
-                checkDailyConfig()
             }
         } else {
             setupPrefillAndAutoLogin()
-            checkDailyConfig()
         }
         setupListeners()
     }
@@ -185,36 +190,20 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkDailyConfig() {
-        if (!RemoteConfigManager.shouldPerformDailySync(this)) return
+    private fun checkRemoteConfigAndUpdate() {
         lifecycleScope.launch {
             val result = RemoteConfigManager.fetchConfig(this@LoginActivity)
             result.onSuccess { config ->
                 RemoteConfigManager.markDailySyncCompleted(this@LoginActivity)
                 if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
-                    showUpdateDialog(config.appVersion)
+                    UpdateDialogHelper.showUpdateDialog(this@LoginActivity, config.appVersion)
+                }
+            }.onFailure {
+                // If offline, check if previously cached config had an update
+                if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
+                    UpdateDialogHelper.showUpdateDialog(this@LoginActivity, RemoteConfigManager.getLatestVersion())
                 }
             }
         }
-    }
-
-    private fun showUpdateDialog(versionInfo: AppVersionInfo) {
-        if (isFinishing || isDestroyed) return
-        val notes = if (versionInfo.releaseNotes.isNotBlank()) "\n\n更新说明：\n${versionInfo.releaseNotes}" else ""
-        MaterialAlertDialogBuilder(this)
-            .setTitle("发现新版本 v${versionInfo.versionName}")
-            .setMessage("检测到新版本发布 (发布日期: ${versionInfo.releaseDate})$notes")
-            .setPositiveButton("立即下载更新") { _, _ ->
-                if (versionInfo.downloadUrl.isNotBlank()) {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(versionInfo.downloadUrl))
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        Toast.makeText(this, "无法打开下载链接: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            .setNegativeButton("稍后再说", null)
-            .show()
     }
 }

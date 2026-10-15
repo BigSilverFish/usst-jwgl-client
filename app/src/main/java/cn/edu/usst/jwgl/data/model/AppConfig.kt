@@ -67,9 +67,38 @@ data class AppVersionInfo(
     val releaseNotes: String = "",
     @SerializedName("download_url")
     val downloadUrl: String = "",
+    @SerializedName("apk_url")
+    val apkUrl: String = "",
     @SerializedName("force_update")
     val forceUpdate: Boolean = false
-)
+) {
+    /**
+     * Returns direct APK download URL with ghproxy acceleration (recommended for mainland China networks)
+     */
+    fun getDirectApkUrl(): String {
+        if (apkUrl.isNotBlank()) return apkUrl.trim()
+        val tag = if (versionName.startsWith("v")) versionName else "v$versionName"
+        val effectiveTag = if (downloadUrl.contains("/releases/tag/")) {
+            downloadUrl.substringAfterLast("/releases/tag/").trim()
+        } else {
+            tag
+        }
+        return "https://ghproxy.net/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/$effectiveTag/app-release.apk"
+    }
+
+    /**
+     * Returns official direct GitHub download URL
+     */
+    fun getGithubDirectApkUrl(): String {
+        val tag = if (versionName.startsWith("v")) versionName else "v$versionName"
+        val effectiveTag = if (downloadUrl.contains("/releases/tag/")) {
+            downloadUrl.substringAfterLast("/releases/tag/").trim()
+        } else {
+            tag
+        }
+        return "https://github.com/BigSilverFish/usst-jwgl-client/releases/download/$effectiveTag/app-release.apk"
+    }
+}
 
 data class SemesterRemoteConfig(
     @SerializedName("current_semester")
