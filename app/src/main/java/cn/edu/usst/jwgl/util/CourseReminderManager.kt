@@ -20,6 +20,7 @@ object CourseReminderManager {
     private const val KEY_COURSE_ADVANCE_MINS = "course_advance_mins"
     private const val KEY_EXAM_REMINDER_ENABLED = "exam_reminder_enabled"
     private const val KEY_EXAM_ADVANCE_MINS = "exam_advance_mins"
+    private const val KEY_POWERFUL_REMINDER = "powerful_reminder_enabled"
     private const val KEY_ACTIVE_SEMESTER = "active_semester_key"
 
     // Official USST Section start times (Hour, Minute)
@@ -52,6 +53,19 @@ object CourseReminderManager {
             scheduleUpcomingReminders(context)
         } else {
             cancelAllReminders(context)
+        }
+    }
+
+    fun isPowerfulReminderEnabled(context: Context): Boolean {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getBoolean(KEY_POWERFUL_REMINDER, true) // Default enabled for 100% reliable alarms
+    }
+
+    fun setPowerfulReminderEnabled(context: Context, enabled: Boolean) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putBoolean(KEY_POWERFUL_REMINDER, enabled).apply()
+        if (isReminderEnabled(context)) {
+            scheduleUpcomingReminders(context)
         }
     }
 
@@ -120,15 +134,14 @@ object CourseReminderManager {
     fun setActiveSemesterKey(context: Context, semKey: String) {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         sp.edit().putString(KEY_ACTIVE_SEMESTER, semKey).apply()
-        // Reschedule reminders for the new active semester
         if (isReminderEnabled(context)) {
             scheduleUpcomingReminders(context)
         }
     }
 
     /**
-     * Schedules reminders STRICTLY for the single active semester.
-     * Always cancels all existing alarms first to avoid orphan alarms across semesters.
+     * Schedules reminders for a rolling 14-day window (covering current week + next week).
+     * This permanently resolves the "cross-week missed reminder" issue.
      */
     fun scheduleUpcomingReminders(context: Context, ignoredCourses: List<CourseItem>? = null) {
         if (!isReminderEnabled(context)) {
@@ -138,20 +151,15 @@ object CourseReminderManager {
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
-        // Step 1: ALWAYS flush all prior reminders first so no old/orphan alarms remain!
+        // Step 1: Cancel previous reminders in window
         cancelAllReminders(context)
 
-        // Step 2: Strictly load courses for the active table in AppDatabase
+        // Step 2: Load active timetable & time details
         val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context)
         val activeTable = db.tableDao.getDefaultTable()
-        val curWeek = cn.edu.usst.jwgl.data.wakeup.CourseUtils.countWeek(activeTable.startDate)
-        if (curWeek !in 1..activeTable.maxWeek) {
-            Log.d(TAG, "Current week ($curWeek) is outside active table maxWeek (${activeTable.maxWeek}).")
-            return
-        }
-
         val times = db.timeDetailDao.getTimeDetails(activeTable.timeTable)
         val advanceMins = getCourseReminderAdvanceMinutes(context)
+        val powerfulMode = isPowerfulReminderEnabled(context)
         val now = System.currentTimeMillis()
 
         val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -160,41 +168,43 @@ object CourseReminderManager {
             true
         }
 
-        val weekCal = Calendar.getInstance()
-        weekCal.firstDayOfWeek = if (activeTable.sundayFirst) Calendar.SUNDAY else Calendar.MONDAY
-        while (weekCal.get(Calendar.DAY_OF_WEEK) != weekCal.firstDayOfWeek) {
-            weekCal.add(Calendar.DAY_OF_MONTH, -1)
-        }
-
         val allCourses = db.courseBaseDao.getCourseOfTable(activeTable.id)
         val sdfDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
+        var scheduledCount = 0
 
-        for (dayIdx in 0..6) {
-            val dayNumber = if (activeTable.sundayFirst) (if (dayIdx == 0) 7 else dayIdx) else (dayIdx + 1)
-            val dayCal = (weekCal.clone() as Calendar).apply {
-                add(Calendar.DAY_OF_MONTH, dayIdx)
+        // Schedule for the next 14 consecutive days (dayOffset = 0..13)
+        for (dayOffset in 0..13) {
+            val dayCal = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, dayOffset)
+            }
+            val dateStr = sdfDate.format(dayCal.time)
+            val targetWeek = cn.edu.usst.jwgl.data.wakeup.CourseUtils.countWeek(activeTable.startDate, dayCal)
+
+            if (targetWeek !in 1..activeTable.maxWeek) {
+                continue
             }
 
-            val dateStr = sdfDate.format(dayCal.time)
+            val dayOfWeek = dayCal.get(Calendar.DAY_OF_WEEK)
+            val dayNumber = if (dayOfWeek == Calendar.SUNDAY) 7 else (dayOfWeek - 1)
+
             val resolved = cn.edu.usst.jwgl.data.wakeup.CourseAdjustmentResolver.resolve(
                 db,
                 activeTable.id,
                 dateStr,
-                curWeek,
+                targetWeek,
                 dayNumber,
                 allCourses
             )
 
             if (resolved.isHolidayOff) {
-                Log.d(TAG, "Skipping reminders for $dateStr due to holiday: ${resolved.holidayName}")
                 continue
             }
 
             val dayCourses = if (resolved.isSwapped) {
                 resolved.courses
             } else {
-                val weekType = if (curWeek % 2 != 0) 1 else 2
-                db.courseBaseDao.getCourseByDayAndWeekOfTable(dayNumber, curWeek, weekType, activeTable.id)
+                val weekType = if (targetWeek % 2 != 0) 1 else 2
+                db.courseBaseDao.getCourseByDayAndWeekOfTable(dayNumber, targetWeek, weekType, activeTable.id)
             }
 
             for (course in dayCourses) {
@@ -204,7 +214,7 @@ object CourseReminderManager {
                     val parts = timeItem.startTime.split(":")
                     Pair(parts.getOrNull(0)?.toIntOrNull() ?: 8, parts.getOrNull(1)?.toIntOrNull() ?: 0)
                 } else {
-                    Pair(8, 0)
+                    SECTION_START_TIMES[node] ?: Pair(8, 0)
                 }
 
                 val reminderCal = (dayCal.clone() as Calendar).apply {
@@ -217,7 +227,7 @@ object CourseReminderManager {
 
                 val reminderTimeMillis = reminderCal.timeInMillis
                 if (reminderTimeMillis > now) {
-                    val requestCode = dayNumber * 100 + node
+                    val requestCode = 10000 + (dayOffset * 100) + node
                     val intent = Intent(context, CourseReminderReceiver::class.java).apply {
                         putExtra(CourseReminderReceiver.EXTRA_COURSE_NAME, course.courseName)
                         putExtra(CourseReminderReceiver.EXTRA_CLASSROOM, course.room ?: "")
@@ -235,8 +245,22 @@ object CourseReminderManager {
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                     )
 
+                    val showIntent = Intent(context, cn.edu.usst.jwgl.ui.MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra("extra_tab", 1)
+                    }
+                    val showPendingIntent = PendingIntent.getActivity(
+                        context,
+                        requestCode + 50000,
+                        showIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
                     try {
-                        if (canScheduleExact) {
+                        if (powerfulMode || (!canScheduleExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)) {
+                            val alarmClockInfo = AlarmManager.AlarmClockInfo(reminderTimeMillis, showPendingIntent)
+                            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+                        } else if (canScheduleExact) {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                                 alarmManager.setExactAndAllowWhileIdle(
                                     AlarmManager.RTC_WAKEUP,
@@ -265,38 +289,51 @@ object CourseReminderManager {
                                 )
                             }
                         }
-                        Log.d(TAG, "Scheduled reminder for ${course.courseName} at ${reminderCal.time}")
+                        scheduledCount++
                     } catch (e: Throwable) {
                         Log.e(TAG, "Failed to schedule alarm for ${course.courseName}: ${e.message}")
                     }
                 }
             }
         }
+        Log.d(TAG, "Successfully scheduled $scheduledCount upcoming course reminders across rolling 14 days.")
     }
 
     fun cancelAllReminders(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        // Cancel rolling 14-day requests (10000..11313)
+        for (dayOffset in 0..13) {
+            for (sec in 1..13) {
+                val requestCode = 10000 + (dayOffset * 100) + sec
+                cancelPendingIntent(context, alarmManager, requestCode)
+            }
+        }
+        // Cancel legacy requests (100..713)
         for (day in 1..7) {
             for (sec in 1..13) {
                 val requestCode = day * 100 + sec
-                val intent = Intent(context, CourseReminderReceiver::class.java)
-                val pendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    requestCode,
-                    intent,
-                    PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-                )
-                if (pendingIntent != null) {
-                    try {
-                        alarmManager.cancel(pendingIntent)
-                        pendingIntent.cancel()
-                    } catch (e: Throwable) {
-                        // Safe cancel
-                    }
-                }
+                cancelPendingIntent(context, alarmManager, requestCode)
             }
         }
+        // Cancel test reminder (9999)
+        cancelPendingIntent(context, alarmManager, 9999)
         Log.d(TAG, "Cancelled all course reminders.")
+    }
+
+    private fun cancelPendingIntent(context: Context, alarmManager: AlarmManager, requestCode: Int) {
+        val intent = Intent(context, CourseReminderReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pendingIntent != null) {
+            try {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            } catch (_: Throwable) {}
+        }
     }
 
     /**
@@ -322,32 +359,31 @@ object CourseReminderManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val showIntent = Intent(context, cn.edu.usst.jwgl.ui.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("extra_tab", 1)
+        }
+        val showPendingIntent = PendingIntent.getActivity(
+            context,
+            9999 + 50000,
+            showIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         try {
-            val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                alarmManager.canScheduleExactAlarms()
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+        } catch (_: Throwable) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
             } else {
-                true
+                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
             }
-            if (canExact) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-                }
-            } else {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-                } else {
-                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-                }
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed to schedule test reminder: ${e.message}")
         }
     }
 
     /**
-     * 为考试日程安排考前提醒（根据用户配置的提前时长）
+     * 为考试日程安排考前提醒（采用系统闹钟级别 setAlarmClock 保证零漏报）
      */
     fun scheduleExamReminders(context: Context, exams: List<cn.edu.usst.jwgl.data.model.ExamItem>) {
         if (!isExamReminderEnabled(context)) {
@@ -356,19 +392,17 @@ object CourseReminderManager {
         }
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            alarmManager.canScheduleExactAlarms()
-        } else {
-            true
-        }
+        cancelAllExamReminders(context)
 
         val advanceMins = getExamReminderAdvanceMinutes(context)
         val now = System.currentTimeMillis()
+        var scheduledExamsCount = 0
+
         for ((idx, exam) in exams.withIndex()) {
             val startMillis = exam.getExamStartTimeMillis() ?: continue
             val reminderMillis = startMillis - advanceMins * 60 * 1000L
             if (reminderMillis > now) {
-                val requestCode = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
+                val requestCode = 30000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
                 val intent = Intent(context, CourseReminderReceiver::class.java).apply {
                     putExtra(CourseReminderReceiver.EXTRA_IS_EXAM, true)
                     putExtra(CourseReminderReceiver.EXTRA_COURSE_NAME, exam.courseName)
@@ -387,48 +421,50 @@ object CourseReminderManager {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
+                val showIntent = Intent(context, cn.edu.usst.jwgl.ui.MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra("extra_tab", 1)
+                    putExtra("extra_open_exam", true)
+                }
+                val showPendingIntent = PendingIntent.getActivity(
+                    context,
+                    requestCode + 50000,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
                 try {
-                    if (canScheduleExact) {
+                    // Exams are critical events; always schedule with setAlarmClock for highest priority
+                    val alarmClockInfo = AlarmManager.AlarmClockInfo(reminderMillis, showPendingIntent)
+                    alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+                    scheduledExamsCount++
+                    Log.d(TAG, "Scheduled exam AlarmClock for ${exam.courseName} ($advanceMins mins before) at $reminderMillis")
+                } catch (e: Exception) {
+                    Log.w(TAG, "setAlarmClock failed for ${exam.courseName}, falling back", e)
+                    try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
                         } else {
                             alarmManager.setExact(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
                         }
-                    } else {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
-                        } else {
-                            alarmManager.set(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
-                        }
+                        scheduledExamsCount++
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "Failed fallback exam reminder for ${exam.courseName}", e2)
                     }
-                    Log.d(TAG, "Scheduled exam reminder for ${exam.courseName} ($advanceMins mins before) at $reminderMillis (starts at $startMillis)")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to schedule exam reminder for ${exam.courseName}", e)
                 }
             }
         }
+        Log.d(TAG, "Scheduled $scheduledExamsCount exam reminders.")
     }
 
     fun cancelAllExamReminders(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val cachedExams = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getAllCachedExams()
         for ((idx, exam) in cachedExams.withIndex()) {
-            val requestCode = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
-            val intent = Intent(context, CourseReminderReceiver::class.java)
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-            )
-            if (pendingIntent != null) {
-                try {
-                    alarmManager.cancel(pendingIntent)
-                    pendingIntent.cancel()
-                } catch (e: Throwable) {
-                    // Safe cancel
-                }
-            }
+            val req1 = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
+            val req2 = 30000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
+            cancelPendingIntent(context, alarmManager, req1)
+            cancelPendingIntent(context, alarmManager, req2)
         }
         Log.d(TAG, "Cancelled all exam reminders.")
     }

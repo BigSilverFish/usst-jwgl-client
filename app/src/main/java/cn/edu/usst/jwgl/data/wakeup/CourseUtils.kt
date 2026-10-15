@@ -163,6 +163,29 @@ object CourseUtils {
         return if (during < 0) 1 else during / 7 + 1
     }
 
+    fun countWeek(startDateStr: String, targetDate: Calendar): Int {
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+            val startCal = Calendar.getInstance().apply {
+                time = sdf.parse(startDateStr) ?: return 1
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val target = (targetDate.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val diffDays = ((target.timeInMillis - startCal.timeInMillis) / (24L * 3600L * 1000L)).toInt()
+            if (diffDays < 0) 1 else (diffDays / 7) + 1
+        } catch (e: Exception) {
+            1
+        }
+    }
+
     fun getDateStringFromWeek(startDateStr: String, targetWeek: Int, sundayFirst: Boolean): List<String> {
         val dateList = ArrayList<String>()
         try {
