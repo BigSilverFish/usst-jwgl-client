@@ -1192,12 +1192,28 @@ class MainActivity : AppCompatActivity() {
         binding.btnSelectSemester.setOnClickListener(openScheduleManager)
         binding.btnSelectWeek.setOnClickListener { showWeekPickerDialog() }
 
-        // Add Course (WakeUP course add / edit activity)
         binding.btnAddCourse.setOnClickListener {
-            val intent = Intent(this, AddCourseActivity::class.java).apply {
-                putExtra("tableId", currentTable?.id ?: 1)
+            androidx.appcompat.widget.PopupMenu(this, binding.btnAddCourse).apply {
+                menu.add(0, 1, 0, "手动添加课程")
+                menu.add(0, 2, 1, "导入实验课表")
+                setOnMenuItemClickListener { item ->
+                    when (item.itemId) {
+                        1 -> {
+                            val intent = Intent(this@MainActivity, AddCourseActivity::class.java).apply {
+                                putExtra("tableId", currentTable?.id ?: 1)
+                            }
+                            addCourseLauncher.launch(intent)
+                            true
+                        }
+                        2 -> {
+                            addCourseLauncher.launch(Intent(this@MainActivity, ExcelCleanActivity::class.java))
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                show()
             }
-            addCourseLauncher.launch(intent)
         }
 
         // Font Size Dialog (adjust item height and text size)

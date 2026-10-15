@@ -51,6 +51,10 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".ui.ExcelCleanActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ui.JwglWebActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize" />
