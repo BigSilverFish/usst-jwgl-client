@@ -1064,6 +1064,7 @@ class MainActivity : AppCompatActivity() {
             updateWeekHeaderDates(currentWeek)
 
             scheduleAdapter?.refreshAllFragments()
+            cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this@MainActivity)
         }
     }
 
@@ -2475,6 +2476,19 @@ class MainActivity : AppCompatActivity() {
         }
         binding.pageMoreFeatures.rowMoreGradeReports.setOnClickListener {
             switchTab(MainTab.GRADE_REPORTS)
+        }
+        binding.pageMoreFeatures.rowMoreWidgetPin.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val appWidgetManager = getSystemService(android.appwidget.AppWidgetManager::class.java)
+                val provider = android.content.ComponentName(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java)
+                if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
+                    appWidgetManager.requestPinAppWidget(provider, null, null)
+                } else {
+                    Toast.makeText(this, "当前手机桌面启动器不支持自动添加，请在桌面空白处长按手动添加小组件", Toast.LENGTH_LONG).show()
+                }
+            } else {
+                Toast.makeText(this, "请在手机桌面空白处长按手动添加今日课表小组件", Toast.LENGTH_LONG).show()
+            }
         }
         binding.pageMoreFeatures.rowMoreJwglWeb.setOnClickListener {
             JwglWebActivity.start(this)

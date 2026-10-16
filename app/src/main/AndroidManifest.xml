@@ -34,9 +34,7 @@
         
         <activity
             android:name=".ui.LoginActivity"
-            android:exported="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -45,10 +43,8 @@
 
         <activity
             android:name=".ui.MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true" />
+            android:exported="false"
+            android:launchMode="singleTop" />
 
         <activity
             android:name=".ui.wakeup.AddCourseActivity"
@@ -82,6 +78,29 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- Today Schedule AppWidget Provider -->
+        <receiver
+            android:name=".widget.TodayScheduleWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_today_schedule_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_REFRESH_WIDGET" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_schedule_widget_info" />
+        </receiver>
+
+        <!-- Today Schedule AppWidget Service for ListView RemoteViews -->
+        <service
+            android:name=".widget.TodayScheduleWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -39,7 +39,7 @@ object UpdateDialogHelper {
             .setMessage("检测到新版本发布 (发布日期: ${versionInfo.releaseDate})$notes")
             .setPositiveButton("直链直接下载") { _, _ ->
                 if (directApkUrl.isNotBlank()) {
-                    ApkDownloadHelper.downloadAndInstall(activity, directApkUrl, versionInfo.versionName)
+                    ApkDownloadHelper.downloadAndInstall(activity, directApkUrl, versionInfo.versionName, versionInfo.sha256)
                 } else if (webReleaseUrl.isNotBlank()) {
                     openWebUrl(activity, webReleaseUrl)
                 } else {

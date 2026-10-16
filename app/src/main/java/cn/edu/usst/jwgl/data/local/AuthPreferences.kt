@@ -105,8 +105,12 @@ class AuthPreferences(context: Context) {
     private fun migrateFromPlaintext() {
         if (prefs.getBoolean(KEY_MIGRATED, false)) return
         val oldPassword = prefs.getString(KEY_PASSWORD, null)
+        val oldStudentId = prefs.getString(KEY_STUDENT_ID, null)
         if (!oldPassword.isNullOrEmpty()) {
             securePrefs.edit().putString(KEY_PASSWORD, oldPassword).apply()
+        }
+        if (!oldStudentId.isNullOrEmpty()) {
+            securePrefs.edit().putString(KEY_STUDENT_ID, oldStudentId).apply()
         }
         prefs.edit()
             .remove(KEY_PASSWORD)
@@ -132,11 +136,16 @@ class AuthPreferences(context: Context) {
             .putBoolean(KEY_AUTO_LOGIN, autoLogin)
             .apply()
         securePrefs.edit()
+            .putString(KEY_STUDENT_ID, studentId)
             .putString(KEY_PASSWORD, password)
             .apply()
     }
 
-    fun getStudentId(): String = prefs.getString(KEY_STUDENT_ID, "") ?: ""
+    fun getStudentId(): String {
+        val secureId = securePrefs.getString(KEY_STUDENT_ID, null)
+        if (!secureId.isNullOrEmpty()) return secureId
+        return prefs.getString(KEY_STUDENT_ID, "") ?: ""
+    }
 
     fun getPassword(): String = securePrefs.getString(KEY_PASSWORD, "") ?: ""
 

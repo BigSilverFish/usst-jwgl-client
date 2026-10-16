@@ -9,4 +9,6 @@
     <string name="login_failed">登录失败，请检查学号与密码</string>
     <string name="profile_title">学生个人信息</string>
     <string name="logout">退出登录</string>
+    <string name="widget_today_schedule_name">今日课表</string>
+    <string name="widget_today_schedule_description">在桌面快速查看当日课程、节次时间与教室地点</string>
 </resources>

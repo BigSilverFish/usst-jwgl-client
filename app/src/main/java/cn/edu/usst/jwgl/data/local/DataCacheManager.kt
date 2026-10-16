@@ -2,6 +2,9 @@ package cn.edu.usst.jwgl.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
@@ -14,10 +17,13 @@ import java.util.Locale
 class DataCacheManager(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+    private val securePrefs: SharedPreferences = createSecurePrefs(context)
     private val gson = Gson()
 
     companion object {
+        private const val TAG = "DataCacheManager"
         private const val PREF_NAME = "usst_jwgl_data_cache"
+        private const val SECURE_PREF_NAME = "usst_jwgl_secure_data_cache"
 
         private const val KEY_PROFILE_JSON = "cache_profile_json"
         private const val KEY_PROFILE_TIME = "cache_profile_time"
@@ -30,31 +36,64 @@ class DataCacheManager(context: Context) {
 
         private const val KEY_GRADES_JSON = "cache_grades_json"
         private const val KEY_GRADES_TIME = "cache_grades_time"
+
+        private fun createSecurePrefs(context: Context): SharedPreferences {
+            return try {
+                val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+                EncryptedSharedPreferences.create(
+                    SECURE_PREF_NAME,
+                    masterKeyAlias,
+                    context,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Hardware keystore securePrefs init failed, falling back to private prefs", e)
+                context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            }
+        }
     }
 
-    // --- Profile Cache ---
+    // --- Profile Cache (Encrypted) ---
     fun saveProfile(profile: StudentProfile) {
         // 防御性保护：若传入档案的关键信息（姓名、学院、专业）均为空，且本地已有有效档案，坚决拒绝覆盖合法缓存
         if (profile.name.isBlank() && profile.college.isBlank() && profile.major.isBlank()) {
             val existing = getProfile()
             if (existing != null && (existing.name.isNotBlank() || existing.college.isNotBlank() || existing.major.isNotBlank())) {
-                android.util.Log.w("DataCacheManager", "Rejecting saving empty profile over existing valid profile")
+                Log.w(TAG, "Rejecting saving empty profile over existing valid profile")
                 return
             }
         }
         val json = gson.toJson(profile)
-        prefs.edit()
+        securePrefs.edit()
             .putString(KEY_PROFILE_JSON, json)
             .putLong(KEY_PROFILE_TIME, System.currentTimeMillis())
             .apply()
+        if (prefs !== securePrefs && prefs.contains(KEY_PROFILE_JSON)) {
+            prefs.edit().remove(KEY_PROFILE_JSON).remove(KEY_PROFILE_TIME).apply()
+        }
     }
 
     fun clearProfile() {
-        prefs.edit().remove(KEY_PROFILE_JSON).remove(KEY_PROFILE_TIME).apply()
+        securePrefs.edit().remove(KEY_PROFILE_JSON).remove(KEY_PROFILE_TIME).apply()
+        if (prefs !== securePrefs) {
+            prefs.edit().remove(KEY_PROFILE_JSON).remove(KEY_PROFILE_TIME).apply()
+        }
     }
 
     fun getProfile(): StudentProfile? {
-        val json = prefs.getString(KEY_PROFILE_JSON, null) ?: return null
+        var json = securePrefs.getString(KEY_PROFILE_JSON, null)
+        if (json.isNullOrEmpty() && prefs !== securePrefs) {
+            json = prefs.getString(KEY_PROFILE_JSON, null)
+            if (!json.isNullOrEmpty()) {
+                securePrefs.edit()
+                    .putString(KEY_PROFILE_JSON, json)
+                    .putLong(KEY_PROFILE_TIME, prefs.getLong(KEY_PROFILE_TIME, System.currentTimeMillis()))
+                    .apply()
+                prefs.edit().remove(KEY_PROFILE_JSON).remove(KEY_PROFILE_TIME).apply()
+            }
+        }
+        if (json.isNullOrEmpty()) return null
         return try {
             gson.fromJson(json, StudentProfile::class.java)
         } catch (e: Exception) {
@@ -62,7 +101,11 @@ class DataCacheManager(context: Context) {
         }
     }
 
-    fun getProfileUpdateTime(): Long = prefs.getLong(KEY_PROFILE_TIME, 0L)
+    fun getProfileUpdateTime(): Long {
+        val t = securePrefs.getLong(KEY_PROFILE_TIME, 0L)
+        if (t > 0L) return t
+        return prefs.getLong(KEY_PROFILE_TIME, 0L)
+    }
 
     // --- Timetable Cache ---
     fun saveTimetable(xnm: String, xqm: String, data: TimetableData) {
@@ -104,17 +147,31 @@ class DataCacheManager(context: Context) {
         return list
     }
 
-    // --- Grades Cache ---
+    // --- Grades Cache (Encrypted) ---
     fun saveGrades(report: GradeReport) {
         val json = gson.toJson(report)
-        prefs.edit()
+        securePrefs.edit()
             .putString(KEY_GRADES_JSON, json)
             .putLong(KEY_GRADES_TIME, System.currentTimeMillis())
             .apply()
+        if (prefs !== securePrefs && prefs.contains(KEY_GRADES_JSON)) {
+            prefs.edit().remove(KEY_GRADES_JSON).remove(KEY_GRADES_TIME).apply()
+        }
     }
 
     fun getGrades(): GradeReport? {
-        val json = prefs.getString(KEY_GRADES_JSON, null) ?: return null
+        var json = securePrefs.getString(KEY_GRADES_JSON, null)
+        if (json.isNullOrEmpty() && prefs !== securePrefs) {
+            json = prefs.getString(KEY_GRADES_JSON, null)
+            if (!json.isNullOrEmpty()) {
+                securePrefs.edit()
+                    .putString(KEY_GRADES_JSON, json)
+                    .putLong(KEY_GRADES_TIME, prefs.getLong(KEY_GRADES_TIME, System.currentTimeMillis()))
+                    .apply()
+                prefs.edit().remove(KEY_GRADES_JSON).remove(KEY_GRADES_TIME).apply()
+            }
+        }
+        if (json.isNullOrEmpty()) return null
         return try {
             gson.fromJson(json, GradeReport::class.java)
         } catch (e: Exception) {
@@ -122,7 +179,11 @@ class DataCacheManager(context: Context) {
         }
     }
 
-    fun getGradesUpdateTime(): Long = prefs.getLong(KEY_GRADES_TIME, 0L)
+    fun getGradesUpdateTime(): Long {
+        val t = securePrefs.getLong(KEY_GRADES_TIME, 0L)
+        if (t > 0L) return t
+        return prefs.getLong(KEY_GRADES_TIME, 0L)
+    }
 
     // --- Exams Cache ---
     fun saveExams(xnm: String, xqm: String, exams: List<ExamItem>) {
@@ -185,5 +246,8 @@ class DataCacheManager(context: Context) {
 
     fun clearAll() {
         prefs.edit().clear().apply()
+        if (prefs !== securePrefs) {
+            securePrefs.edit().clear().apply()
+        }
     }
 }

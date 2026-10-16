@@ -69,6 +69,8 @@ data class AppVersionInfo(
     val downloadUrl: String = "",
     @SerializedName("apk_url")
     val apkUrl: String = "",
+    @SerializedName("sha256")
+    val sha256: String = "",
     @SerializedName("force_update")
     val forceUpdate: Boolean = false
 ) {

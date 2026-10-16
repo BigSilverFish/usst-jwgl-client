@@ -28,6 +28,9 @@ class BootReceiver : BroadcastReceiver() {
                         val exams = DataCacheManager(context).getAllCachedExams()
                         CourseReminderManager.scheduleExamReminders(context, exams)
                     }
+
+                    // 3. Update home screen timetable widgets
+                    cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(context)
                 } catch (_: Exception) {
                 } finally {
                     pendingResult.finish()

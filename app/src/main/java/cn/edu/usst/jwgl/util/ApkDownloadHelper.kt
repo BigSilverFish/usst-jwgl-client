@@ -44,7 +44,8 @@ object ApkDownloadHelper {
     fun downloadAndInstall(
         activity: Activity,
         downloadUrl: String,
-        versionName: String
+        versionName: String,
+        expectedSha256: String = ""
     ) {
         if (activity.isFinishing || activity.isDestroyed) return
 
@@ -147,6 +148,15 @@ object ApkDownloadHelper {
                         if (apkFile.exists()) apkFile.delete()
                         tempFile.renameTo(apkFile)
                     }
+
+                    // 完整性校验：若云端配置提供了 sha256 校验和，则强制进行哈希比对
+                    if (expectedSha256.isNotBlank() && apkFile.exists()) {
+                        val actualHash = calculateSha256(apkFile)
+                        if (!actualHash.equals(expectedSha256.trim(), ignoreCase = true)) {
+                            apkFile.delete()
+                            throw IOException("安装包完整性校验未通过 (SHA256 预期: $expectedSha256, 实际: $actualHash)")
+                        }
+                    }
                 }
 
                 dialog.dismiss()
@@ -171,6 +181,18 @@ object ApkDownloadHelper {
                 downloadJob = null
             }
         }
+    }
+
+    private fun calculateSha256(file: File): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { fis ->
+            val buffer = ByteArray(8192)
+            var read: Int
+            while (fis.read(buffer).also { read = it } != -1) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun cancelDownload(tempFile: File) {
