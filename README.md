@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.3">
-    <img src="https://img.shields.io/badge/Release-v1.1.3-blue.svg" alt="Release v1.1.3" />
+  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.4">
+    <img src="https://img.shields.io/badge/Release-v1.1.4-blue.svg" alt="Release v1.1.4" />
   </a>
   <a href="https://developer.android.com">
     <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-green.svg" alt="Android 7.0+" />
@@ -205,6 +205,24 @@
 
 ## 📝 版本更新历史 (Changelog)
 
+### v1.1.4 (2026-10-16)
+- **📺 课程直播/点播深度集成与课表一键直达对应日期回放**：
+  - **课表智能跳转回放**：在课表上点击任意课程，弹窗清晰显示当堂课实际公历日期（如 `2026-10-14 (周三) 第 8 - 10 节`）与一键「播放此节回放 (yyyy-MM-dd)」专属按钮；
+  - **全自动流水线式定位**：App 自动进入直录播平台，自动切换至「点播」列表，自动填充检索该课程并进入播放页；
+  - **选集精确匹配开播**：自动遍历选集列表，精准筛选匹配对应日期与上课节次（如第3节/第8节）的回放视频并自动开始播放，同时通过原生 Toast 实时提示；
+  - **大屏沉浸播放**：支持沉浸式全屏横屏播放与系统状态栏自适应隐藏/展开。
+- **📱 响应式自适应 UA 与双端视图切换**：
+  - 手机设备自动识别并进入专属手机 H5 界面（Vant 现代移动端排版）；
+  - 平板或大屏设备自适应进入电脑版视图，并支持右上角菜单一键切换手机版/电脑版。
+- **🔐 校园统一身份认证 (CAS) SSO 自动登录**：
+  - WebView 智能识别 CAS 统一认证页面，自动安全填充学生凭据并提交登录，免去重复繁琐的手动输入。
+- **📲 今日课表桌面小部件（Today Schedule App Widget）与安全加固**：
+  - 新增桌面小部件，无需打开 App 即可一览今日课程、节次与上课教室；
+  - 硬件级安全加密与数据备份加固。
+- **🎨 交互细节精简与体验提升**：
+  - 优化学校官方系统直通车列表，移除冗余胶囊标签；
+  - 优化学生个人学籍信息与相片的加载稳定性。
+
 ### v1.1.3 (2026-10-15)
 - **🧪 实验课表导入与自动修复（已合并分支 `feat/lab-excel-import`）**：
   - 课表页右上角新增“导入实验课表”，支持 `.xlsx`、`.csv`、HTML 结构表及文本表格格式导入；
@@ -238,12 +256,12 @@
 ## 📥 下载与安装
 
 > [!NOTE]
-> **升级建议**：建议所有用户更新至最新 **v1.1.3** 版本，享受实验课表智能导入、脱网秒级全校课表与更精准的空教室自习室排查体验！
+> **升级建议**：建议所有用户更新至最新 **v1.1.4** 版本，享受课程直播/点播深度集成、课表一键直达对应日期课堂回放与更优质的响应式交互体验！
 
 请前往 [Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 下载最新发布的 Release 安装包：
 
-- **最新稳定版**：[v1.1.3 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.3)
-- **直接下载 APK**：[app-release.apk](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.1.3/app-release.apk)
+- **最新稳定版**：[v1.1.4 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.4)
+- **直接下载 APK**：[app-release.apk](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.1.4/app-release.apk)
 - **安装要求**：Android 7.0 (API 24) 及以上版本的安卓设备。
 
 ---
