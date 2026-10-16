@@ -1,11 +1,11 @@
 {
   "app_version": {
-    "version_code": 6,
-    "version_name": "1.1.3",
-    "release_date": "2026-10-15",
-    "release_notes": "1. 整合合并 feat/lab-excel-import：支持实验课表 Excel/CSV 智能导入与文件格式自动修复，无缝合并至周课表；\n2. 修复冷启动后第一次点击“仅本周课程”开关切换无反应的异步状态竞争问题；\n3. 修复空教室查询下部分非本周或单双周课程错误占用教室的问题，严格按当前教学周精准排查；\n4. 全校课表与空教室全面升级为首次全量加载与磁盘持久化缓存，实现毫秒级纯内存过滤，脱网离线亦可秒级查询；\n5. 全面扩充全校 9 大主流教学楼（一教 99间、三教 47间、四教 59间、卓越楼 1-5楼 33间、国合楼 1-4楼 34间、综合楼 60间、博学楼 30间、乐学楼 22间、勤学楼 12间）共 396 间权威门牌自习数据库，彻底修复排课接口行偏移分页导致的排课遗漏问题，支持智能别名归一化并精准过滤非自习专用空间。",
-    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.3",
-    "apk_url": "https://ghproxy.net/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.1.3/app-release.apk",
+    "version_code": 7,
+    "version_name": "1.1.4",
+    "release_date": "2026-10-16",
+    "release_notes": "1. 课表智能直达课堂回放：点击课表课程弹窗展示实际公历日期，一键全自动跳转直录播平台并精确定位开播对应日期节次的回放视频；\n2. 响应式自适应 UA：手机端自动进入移动版 H5 视图，平板与大屏设备自适应进入电脑版并支持右上角菜单一键切换；\n3. 统一身份认证 (CAS) SSO 自动登录：直通车与官方网页智能识别 CAS 统一认证页面并自动安全填充学生凭证；\n4. 界面与交互细节精简：移除官方直通车列表冗余胶囊标签，优化学生学籍与相片加载稳定性；\n5. 新增今日课表桌面小部件 (App Widget) 并加固硬件级安全防护。",
+    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.4",
+    "apk_url": "https://ghproxy.net/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.1.4/app-release.apk",
     "force_update": false
   },
   "semester_config": {
