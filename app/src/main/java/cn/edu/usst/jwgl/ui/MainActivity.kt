@@ -2445,34 +2445,6 @@ class MainActivity : AppCompatActivity() {
         binding.pageMoreFeatures.rowMoreXgWeb.setOnClickListener {
             JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
-        binding.pageMoreFeatures.rowMoreExportSchedule.setOnClickListener {
-            CalendarExportHelper.showScheduleCalendarDialog(this@MainActivity, currentTable?.id) {
-                checkAndRequestCalendarPermission {
-                    lifecycleScope.launch {
-                        val result = CalendarExportHelper.importScheduleToSystemCalendar(this@MainActivity, currentTable?.id)
-                        result.onSuccess { count ->
-                            Toast.makeText(this@MainActivity, "成功将 $count 节课程导入系统日历 (含15分钟课前提醒)", Toast.LENGTH_LONG).show()
-                        }.onFailure { err ->
-                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-        }
-        binding.pageMoreFeatures.rowMoreExportExam.setOnClickListener {
-            CalendarExportHelper.showExamCalendarDialog(this@MainActivity, currentExamList) {
-                checkAndRequestCalendarPermission {
-                    lifecycleScope.launch {
-                        val result = CalendarExportHelper.importExamsToSystemCalendar(this@MainActivity, currentExamList)
-                        result.onSuccess { count ->
-                            Toast.makeText(this@MainActivity, "成功将 $count 门考试导入系统日历 (含30分钟考前提醒)", Toast.LENGTH_LONG).show()
-                        }.onFailure { err ->
-                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-        }
 
         // Quick Service Entries in Profile (Bottom Bar Mode)
         binding.btnProfileExamQuery.setOnClickListener {
