@@ -180,4 +180,35 @@ class CalendarExportHelperTest {
         val beforeWeek = CourseUtils.countWeek(startDate, beforeCal)
         assertEquals("Date before semester should return 1", 1, beforeWeek)
     }
+
+    @Test
+    fun testLappCourseItemGsonSerialization() {
+        val item = cn.edu.usst.jwgl.data.model.LappCourseItem(
+            id = "12345",
+            kcdm = "22000210",
+            kcmc = "高等数学A(1)",
+            lsmc = "张三",
+            jsdd = "卓越楼402",
+            zj = 1,
+            jc = 1,
+            jccd = 2,
+            zc = "1-16",
+            qsz = 1,
+            jsz = 16
+        )
+
+        val gson = com.google.gson.Gson()
+        val json = gson.toJson(listOf(item))
+
+        // Deserialization must succeed without JsonIOException: Interfaces can't be instantiated (kotlin.Lazy)
+        val type = object : com.google.gson.reflect.TypeToken<List<cn.edu.usst.jwgl.data.model.LappCourseItem>>() {}.type
+        val list: List<cn.edu.usst.jwgl.data.model.LappCourseItem> = gson.fromJson(json, type)
+
+        assertEquals(1, list.size)
+        assertEquals("高等数学A(1)", list[0].kcmc)
+        assertEquals("卓越楼402", list[0].jsdd)
+        assertEquals(16, list[0].weekList.size)
+        assertEquals(1, list[0].weekList.first())
+        assertEquals(16, list[0].weekList.last())
+    }
 }

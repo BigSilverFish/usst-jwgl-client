@@ -417,6 +417,11 @@ class MainActivity : AppCompatActivity() {
 
         handleIntentExtras(intent)
 
+        // 异步预热全校课表本地缓存至内存（避免用户切换至全校课表或空教室自习查询时等待）
+        lifecycleScope.launch(Dispatchers.IO) {
+            cn.edu.usst.jwgl.data.network.LappClient.getFullSchoolScheduleCached(this@MainActivity, "2026-2027", "1")
+        }
+
         val authPrefs = AuthPreferences(this)
         if (!authPrefs.hasInitialSyncCompleted() && authPrefs.getStudentId().isNotEmpty() && !isGuestMode) {
             lifecycleScope.launch {

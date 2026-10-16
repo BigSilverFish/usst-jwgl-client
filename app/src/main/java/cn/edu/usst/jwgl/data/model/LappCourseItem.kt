@@ -29,17 +29,34 @@ data class LappCourseItem(
     val xq: String = ""
 ) : Serializable {
 
-    val weekList: List<Int> by lazy {
-        if (zc.isNotEmpty()) {
-            zc.split(",")
-                .mapNotNull { it.trim().toIntOrNull() }
-                .filter { it in 1..30 }
-        } else if (qsz in 1..30 && jsz >= qsz) {
-            (qsz..jsz).toList()
-        } else {
-            emptyList()
+    val weekList: List<Int>
+        get() {
+            val z = zc
+            if (!z.isNullOrEmpty()) {
+                val parsed = mutableListOf<Int>()
+                for (part in z.split(",")) {
+                    val trimmed = part.trim()
+                    if (trimmed.contains("-")) {
+                        val rangeParts = trimmed.split("-")
+                        val start = rangeParts.getOrNull(0)?.trim()?.toIntOrNull()
+                        val end = rangeParts.getOrNull(1)?.trim()?.toIntOrNull()
+                        if (start != null && end != null && end >= start) {
+                            for (w in start..end) {
+                                if (w in 1..30) parsed.add(w)
+                            }
+                        }
+                    } else {
+                        val w = trimmed.toIntOrNull()
+                        if (w != null && w in 1..30) parsed.add(w)
+                    }
+                }
+                if (parsed.isNotEmpty()) return parsed.distinct()
+            }
+            if (qsz in 1..30 && jsz >= qsz) {
+                return (qsz..jsz).toList()
+            }
+            return emptyList()
         }
-    }
 
     val formattedDayOfWeek: String
         get() = when (zj) {

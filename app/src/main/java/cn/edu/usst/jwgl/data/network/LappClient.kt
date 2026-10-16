@@ -425,83 +425,103 @@ val ALL_KNOWN_BUILDINGS = listOf(
         return java.io.File(context.cacheDir, "full_school_schedule_${safeXn}_${safeXq}.json")
     }
 
+    private fun tryParseFullScheduleJson(jsonStr: String, fallbackTime: Long): Pair<Long, List<LappCourseItem>>? {
+        val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
+        try {
+            val root = JSONObject(jsonStr)
+            val ts = root.optLong("time", fallbackTime)
+            val itemsObj = root.opt("items")
+            val list: List<LappCourseItem> = when (itemsObj) {
+                is String -> gson.fromJson(itemsObj, type) ?: emptyList()
+                is org.json.JSONArray -> gson.fromJson(itemsObj.toString(), type) ?: emptyList()
+                else -> emptyList()
+            }
+            if (list.isNotEmpty()) {
+                return Pair(ts, list)
+            }
+        } catch (_: Exception) {}
+
+        // Fallback: direct array
+        try {
+            val list: List<LappCourseItem> = gson.fromJson(jsonStr, type) ?: emptyList()
+            if (list.isNotEmpty()) {
+                return Pair(fallbackTime, list)
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
     fun getFullSchoolScheduleCached(context: Context, xn: String, xq: String): Pair<Long, List<LappCourseItem>>? {
         val key = "${xn.trim()}_${xq.trim()}"
         fullScheduleMemoryCache[key]?.let { return it }
 
-        // 1. 优先读取 AES-256-GCM 硬件加密缓存文件 (.enc)
-        val encFile = getFullEncryptedCacheFile(context, xn, xq)
-        if (encFile.exists() && encFile.length() > 0L) {
-            try {
-                val jsonStr = cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.readAndDecrypt(context, encFile)
-                if (!jsonStr.isNullOrBlank()) {
-                    val root = JSONObject(jsonStr)
-                    val ts = root.optLong("time", encFile.lastModified())
-                    val itemsJson = root.optString("items", "[]")
-                    val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
-                    val list: List<LappCourseItem> = gson.fromJson(itemsJson, type) ?: emptyList()
-                    if (list.isNotEmpty()) {
-                        val pair = Pair(ts, list)
+        synchronized(fullScheduleMemoryCache) {
+            fullScheduleMemoryCache[key]?.let { return it }
+
+            // 1. 优先读取 AES-256-GCM 硬件加密缓存文件 (.enc)
+            val encFile = getFullEncryptedCacheFile(context, xn, xq)
+            if (encFile.exists() && encFile.length() > 0L) {
+                try {
+                    val jsonStr = cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.readAndDecrypt(context, encFile)
+                    if (!jsonStr.isNullOrBlank()) {
+                        val pair = tryParseFullScheduleJson(jsonStr, encFile.lastModified())
+                        if (pair != null && pair.second.isNotEmpty()) {
+                            fullScheduleMemoryCache[key] = pair
+                            return pair
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read encrypted full schedule cache for $key", e)
+                }
+            }
+
+            // 2. 兼容读取旧版明文格式缓存 (.json)，并自动静默迁移升级为加密文件
+            val legacyFile = getLegacyCacheFile(context, xn, xq)
+            if (legacyFile.exists() && legacyFile.length() > 0L) {
+                try {
+                    val jsonStr = legacyFile.readText(Charsets.UTF_8)
+                    val pair = tryParseFullScheduleJson(jsonStr, legacyFile.lastModified())
+                    if (pair != null && pair.second.isNotEmpty()) {
+                        saveFullSchoolSchedule(context, xn, xq, pair.second)
+                        legacyFile.delete()
                         fullScheduleMemoryCache[key] = pair
                         return pair
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read legacy full schedule file cache for $key", e)
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read encrypted full schedule cache for $key", e)
             }
-        }
 
-        // 2. 兼容读取旧版明文格式缓存 (.json)，并自动静默迁移升级为加密文件
-        val legacyFile = getLegacyCacheFile(context, xn, xq)
-        if (legacyFile.exists() && legacyFile.length() > 0L) {
+            // 3. 本地磁盘均无缓存时（冷启动/非校园网），检测并加载 APK 内置镜像包（Assets）
+            val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val presetAssetName = "preset_schedule_${safeXn}_${safeXq}.json"
             try {
-                val jsonStr = legacyFile.readText(Charsets.UTF_8)
-                val root = JSONObject(jsonStr)
-                val ts = root.optLong("time", legacyFile.lastModified())
-                val itemsJson = root.optString("items", "[]")
-                val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
-                val list: List<LappCourseItem> = gson.fromJson(itemsJson, type) ?: emptyList()
-                if (list.isNotEmpty()) {
-                    saveFullSchoolSchedule(context, xn, xq, list)
-                    legacyFile.delete()
-                    val pair = Pair(ts, list)
-                    fullScheduleMemoryCache[key] = pair
-                    return pair
+                val assetManager = context.assets
+                val hasAsset = try {
+                    assetManager.open(presetAssetName).close()
+                    true
+                } catch (_: Exception) { false }
+
+                if (hasAsset) {
+                    Log.i(TAG, "Found built-in schedule preset asset: $presetAssetName, initializing encrypted cache...")
+                    val assetJson = assetManager.open(presetAssetName).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val pair = tryParseFullScheduleJson(assetJson, System.currentTimeMillis())
+                    if (pair != null && pair.second.isNotEmpty()) {
+                        val savedTime = saveFullSchoolSchedule(context, xn, xq, pair.second)
+                        val resultPair = Pair(savedTime, pair.second)
+                        fullScheduleMemoryCache[key] = resultPair
+                        Log.i(TAG, "Successfully initialized and encrypted $key schedule from preset asset (${pair.second.size} courses)")
+                        return resultPair
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to read legacy full schedule file cache for $key", e)
+                Log.w(TAG, "Failed to load preset schedule asset $presetAssetName", e)
             }
+
+            return null
         }
-
-        // 3. 本地磁盘均无缓存时（冷启动/非校园网），检测并加载 APK 内置镜像包（Assets）
-        val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val presetAssetName = "preset_schedule_${safeXn}_${safeXq}.json"
-        try {
-            val assetManager = context.assets
-            val hasAsset = try {
-                assetManager.open(presetAssetName).close()
-                true
-            } catch (_: Exception) { false }
-
-            if (hasAsset) {
-                Log.i(TAG, "Found built-in schedule preset asset: $presetAssetName, initializing encrypted cache...")
-                val assetJson = assetManager.open(presetAssetName).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
-                val list: List<LappCourseItem> = gson.fromJson(assetJson, type) ?: emptyList()
-                if (list.isNotEmpty()) {
-                    val savedTime = saveFullSchoolSchedule(context, xn, xq, list)
-                    val pair = Pair(savedTime, list)
-                    fullScheduleMemoryCache[key] = pair
-                    Log.i(TAG, "Successfully initialized and encrypted $key schedule from preset asset (${list.size} courses)")
-                    return pair
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to load preset schedule asset $presetAssetName", e)
-        }
-
-        return null
     }
 
     private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>): Long {

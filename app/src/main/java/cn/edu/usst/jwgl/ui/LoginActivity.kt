@@ -16,6 +16,7 @@ import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.util.InitialSyncHelper
 import cn.edu.usst.jwgl.util.UpdateDialogHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -47,6 +48,11 @@ class LoginActivity : AppCompatActivity() {
 
         // Immediately fetch latest cloud configuration and show update dialog if available
         checkRemoteConfigAndUpdate()
+
+        // 异步预热全校课表本地缓存至内存（避免免登录查询全校课表或空教室时等待）
+        lifecycleScope.launch(Dispatchers.IO) {
+            cn.edu.usst.jwgl.data.network.LappClient.getFullSchoolScheduleCached(this@LoginActivity, "2026-2027", "1")
+        }
 
         if (!authPrefs.hasAgreedDisclaimer()) {
             showDisclaimerDialog {
