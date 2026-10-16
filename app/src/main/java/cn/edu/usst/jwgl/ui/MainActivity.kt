@@ -391,6 +391,31 @@ class MainActivity : AppCompatActivity() {
         currentProfile = profile
 
         displayProfile(profile)
+
+        // 自动自愈保护：若本地缓存的学籍档案为空白（如历史版本被异常覆盖为未知），且已保存登录凭证，则在后台静默恢复
+        if (!isGuestMode && (profile == null || (profile.name.isBlank() && profile.college.isBlank()))) {
+            val auth = AuthPreferences(this)
+            val stuId = auth.getStudentId()
+            val stuPwd = auth.getPassword()
+            if (stuId.isNotEmpty() && stuPwd.isNotEmpty()) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        if (JwglClient.ensureSession(this@MainActivity)) {
+                            val healedProfile = JwglClient.fetchStudentProfile(stuId)
+                            if (healedProfile.name.isNotBlank() || healedProfile.college.isNotBlank()) {
+                                cacheManager.saveProfile(healedProfile)
+                                withContext(Dispatchers.Main) {
+                                    displayProfile(healedProfile)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MainActivity", "Background profile restoration failed", e)
+                    }
+                }
+            }
+        }
+
         setupTabletLandscapeLayout()
         applyPhoneNavigationMode()
         setupViews()
@@ -1959,11 +1984,23 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val auth = AuthPreferences(this@MainActivity)
-                val profile = JwglClient.fetchStudentProfile(auth.getStudentId())
-                cacheManager.saveProfile(profile)
-                displayProfile(profile)
-                Toast.makeText(this@MainActivity, "个人信息与档案已更新", Toast.LENGTH_SHORT).show()
+                val id = auth.getStudentId()
+                if (id.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "未检测到已登录学号，请重新登录", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val profile = JwglClient.fetchStudentProfile(id, this@MainActivity)
+
+                if (profile.name.isNotEmpty() || profile.college.isNotEmpty() || profile.major.isNotEmpty()) {
+                    cacheManager.saveProfile(profile)
+                    displayProfile(profile)
+                    Toast.makeText(this@MainActivity, "个人信息与档案已更新", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "未能获取到有效的学籍档案信息", Toast.LENGTH_SHORT).show()
+                }
             } catch (e: Exception) {
+                Log.e("MainActivity", "refreshProfile error", e)
                 Toast.makeText(this@MainActivity, "个人信息更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 binding.layoutProfile.isRefreshing = false

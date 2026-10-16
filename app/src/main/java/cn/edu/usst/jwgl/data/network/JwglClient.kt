@@ -200,7 +200,22 @@ object JwglClient {
         }
     }
 
-    suspend fun fetchStudentProfile(fallbackStudentId: String = ""): StudentProfile = withContext(Dispatchers.IO) {
+    suspend fun ensureSession(context: android.content.Context): Boolean = withContext(Dispatchers.IO) {
+        val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
+        val id = auth.getStudentId()
+        val pwd = auth.getPassword()
+        if (id.isNotEmpty() && pwd.isNotEmpty()) {
+            Log.d(TAG, "Ensuring session: performing silent CAS re-login...")
+            val loginRes = login(id, pwd)
+            return@withContext loginRes.isSuccess
+        }
+        false
+    }
+
+    suspend fun fetchStudentProfile(
+        fallbackStudentId: String = "",
+        context: android.content.Context? = null
+    ): StudentProfile = withContext(Dispatchers.IO) {
         val profileReq = Request.Builder()
             .url(PROFILE_URL)
             .header("User-Agent", USER_AGENT)
@@ -209,8 +224,24 @@ object JwglClient {
             .build()
 
         val resp = client.newCall(profileReq).execute()
+        val finalProfileUrl = resp.request.url.toString()
         val html = resp.body?.string() ?: ""
-        Log.d(TAG, "Profile response len: ${html.length}")
+        Log.d(TAG, "Profile url: $finalProfileUrl, response len: ${html.length}")
+
+        // 会话失效与 302 登录重定向检测
+        val isLoginRedirect = finalProfileUrl.contains("login_slogin") ||
+                finalProfileUrl.contains("authserver") ||
+                html.contains("用户登录") ||
+                html.contains("统一身份认证")
+
+        if (isLoginRedirect) {
+            if (context != null && ensureSession(context)) {
+                Log.d(TAG, "Profile session restored via CAS login, re-fetching profile...")
+                return@withContext fetchStudentProfile(fallbackStudentId, null)
+            }
+            throw IOException("教务系统会话失效或未登录")
+        }
+
         val doc = Jsoup.parse(html)
 
         fun extractFieldValue(labelText: String): String {
@@ -241,6 +272,8 @@ object JwglClient {
         val studentCategory = extractFieldValue("学生类别")
         val phone = extractFieldValue("手机号码")
 
+        Log.d(TAG, "Extracted from PROFILE_URL: name=$name, id=$studentId, college=$college, major=$major, class=$className, grade=$grade")
+
         // If primary profile is incomplete, complement with quick dashboard info
         if (name.isEmpty() || college.isEmpty()) {
             Log.d(TAG, "Profile name/college empty, fetching quick info...")
@@ -252,7 +285,9 @@ object JwglClient {
                 .build()
 
             val quickResp = client.newCall(quickReq).execute()
+            val quickFinalUrl = quickResp.request.url.toString()
             val quickHtml = quickResp.body?.string() ?: ""
+            Log.d(TAG, "Quick info url: $quickFinalUrl, len: ${quickHtml.length}")
             val quickDoc = Jsoup.parse(quickHtml)
 
             val heading = quickDoc.select("h4.media-heading").text().trim()
@@ -266,6 +301,14 @@ object JwglClient {
                 if (college.isEmpty() && parts.isNotEmpty()) college = parts[0]
                 if (className.isEmpty() && parts.size > 1) className = parts[1]
             }
+        }
+
+        if (name.isEmpty() && college.isEmpty() && major.isEmpty()) {
+            if (context != null && ensureSession(context)) {
+                Log.d(TAG, "Profile extracted empty, re-logging in and re-fetching...")
+                return@withContext fetchStudentProfile(fallbackStudentId, null)
+            }
+            throw IOException("未能从教务系统解析到有效的学籍档案信息")
         }
 
         if (studentId.isEmpty()) {
@@ -315,17 +358,8 @@ object JwglClient {
             Log.d(TAG, "Grades response status: ${resp.code}, len: ${body.length}")
 
             if (body.contains("authserver") || !body.trimStart().startsWith("{")) {
-                if (context != null) {
-                    val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
-                    val id = auth.getStudentId()
-                    val pwd = auth.getPassword()
-                    if (id.isNotEmpty() && pwd.isNotEmpty()) {
-                        Log.d(TAG, "Session expired, attempting silent re-login for grades...")
-                        val loginRes = login(id, pwd)
-                        if (loginRes.isSuccess) {
-                            return@withContext fetchGrades(null)
-                        }
-                    }
+                if (context != null && ensureSession(context)) {
+                    return@withContext fetchGrades(null)
                 }
                 return@withContext Result.failure(IOException("未获取到有效的成绩数据，会话可能已失效"))
             }
@@ -454,17 +488,8 @@ object JwglClient {
             Log.d(TAG, "Timetable response status: ${resp.code}, len: ${body.length}")
 
             if (!body.trimStart().startsWith("{")) {
-                if (context != null) {
-                    val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
-                    val id = auth.getStudentId()
-                    val pwd = auth.getPassword()
-                    if (id.isNotEmpty() && pwd.isNotEmpty()) {
-                        Log.d(TAG, "Session expired, attempting silent re-login for timetable...")
-                        val loginRes = login(id, pwd)
-                        if (loginRes.isSuccess) {
-                            return@withContext fetchTimetable(xnm, xqm, null)
-                        }
-                    }
+                if (context != null && ensureSession(context)) {
+                    return@withContext fetchTimetable(xnm, xqm, null)
                 }
                 return@withContext Result.failure(IOException("未获取到有效的课表数据，会话可能已失效"))
             }
@@ -624,17 +649,8 @@ object JwglClient {
 
             // 会话失效检测与静默自动重连
             if (body.contains("authserver") || !body.trimStart().startsWith("{")) {
-                if (context != null) {
-                    val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(context)
-                    val id = auth.getStudentId()
-                    val pwd = auth.getPassword()
-                    if (id.isNotEmpty() && pwd.isNotEmpty()) {
-                        Log.d(TAG, "Session expired, attempting silent re-login for exams...")
-                        val loginRes = login(id, pwd)
-                        if (loginRes.isSuccess) {
-                            return@withContext fetchExams(xnm, xqm, null)
-                        }
-                    }
+                if (context != null && ensureSession(context)) {
+                    return@withContext fetchExams(xnm, xqm, null)
                 }
                 return@withContext Result.failure(IOException("未获取到有效的考试数据，会话可能已失效"))
             }

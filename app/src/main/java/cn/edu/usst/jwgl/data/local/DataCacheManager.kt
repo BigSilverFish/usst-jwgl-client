@@ -34,11 +34,23 @@ class DataCacheManager(context: Context) {
 
     // --- Profile Cache ---
     fun saveProfile(profile: StudentProfile) {
+        // 防御性保护：若传入档案的关键信息（姓名、学院、专业）均为空，且本地已有有效档案，坚决拒绝覆盖合法缓存
+        if (profile.name.isBlank() && profile.college.isBlank() && profile.major.isBlank()) {
+            val existing = getProfile()
+            if (existing != null && (existing.name.isNotBlank() || existing.college.isNotBlank() || existing.major.isNotBlank())) {
+                android.util.Log.w("DataCacheManager", "Rejecting saving empty profile over existing valid profile")
+                return
+            }
+        }
         val json = gson.toJson(profile)
         prefs.edit()
             .putString(KEY_PROFILE_JSON, json)
             .putLong(KEY_PROFILE_TIME, System.currentTimeMillis())
             .apply()
+    }
+
+    fun clearProfile() {
+        prefs.edit().remove(KEY_PROFILE_JSON).remove(KEY_PROFILE_TIME).apply()
     }
 
     fun getProfile(): StudentProfile? {
