@@ -39,13 +39,7 @@ object UpdateDialogHelper {
             .setMessage("检测到新版本发布 (发布日期: ${versionInfo.releaseDate})$notes")
             .setPositiveButton("直链直接下载") { _, _ ->
                 if (directApkUrl.isNotBlank()) {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(directApkUrl))
-                        activity.startActivity(intent)
-                        Toast.makeText(activity, "正在通过直链启动 APK 下载...", Toast.LENGTH_SHORT).show()
-                    } catch (e: Exception) {
-                        Toast.makeText(activity, "无法启动直链下载: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
+                    ApkDownloadHelper.downloadAndInstall(activity, directApkUrl, versionInfo.versionName)
                 } else if (webReleaseUrl.isNotBlank()) {
                     openWebUrl(activity, webReleaseUrl)
                 } else {

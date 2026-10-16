@@ -17,6 +17,8 @@ import com.google.android.material.textfield.TextInputEditText
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.wakeup.TableBean
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
 
@@ -66,6 +68,7 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
                     val ivActiveIndicator = holder.itemView.findViewById<ImageView>(R.id.ivActiveIndicator)
                     val tvScheduleName = holder.itemView.findViewById<TextView>(R.id.tvScheduleName)
                     val tvScheduleMeta = holder.itemView.findViewById<TextView>(R.id.tvScheduleMeta)
+                    val btnExportTableSchedule = holder.itemView.findViewById<MaterialButton>(R.id.btnExportTableSchedule)
                     val btnEditSchedule = holder.itemView.findViewById<MaterialButton>(R.id.btnEditSchedule)
                     val btnDeleteSchedule = holder.itemView.findViewById<MaterialButton>(R.id.btnDeleteSchedule)
 
@@ -83,6 +86,26 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
                             Toast.makeText(context, "已切换为：${table.tableName}", Toast.LENGTH_SHORT).show()
                             onScheduleChangedListener?.invoke()
                             dismiss()
+                        }
+                    }
+
+                    btnExportTableSchedule.setOnClickListener {
+                        val act = activity as? cn.edu.usst.jwgl.ui.MainActivity
+                        if (act != null) {
+                            cn.edu.usst.jwgl.util.CalendarExportHelper.showScheduleCalendarDialog(act, table.id) {
+                                act.checkAndRequestCalendarPermission {
+                                    viewLifecycleOwner.lifecycleScope.launch {
+                                        val result = cn.edu.usst.jwgl.util.CalendarExportHelper.importScheduleToSystemCalendar(act, table.id)
+                                        result.onSuccess { count ->
+                                            Toast.makeText(act, "成功将 $count 节课程导入系统日历 (含15分钟课前提醒)", Toast.LENGTH_LONG).show()
+                                        }.onFailure { err ->
+                                            Toast.makeText(act, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            cn.edu.usst.jwgl.util.CalendarExportHelper.exportScheduleToIcs(requireActivity(), table.id)
                         }
                     }
 

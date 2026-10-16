@@ -206,4 +206,14 @@ class LoginActivity : AppCompatActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        cn.edu.usst.jwgl.util.ApkDownloadHelper.pendingInstallApkFile?.let { apk ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
+                cn.edu.usst.jwgl.util.ApkDownloadHelper.pendingInstallApkFile = null
+                cn.edu.usst.jwgl.util.ApkDownloadHelper.installApk(this, apk)
+            }
+        }
+    }
 }

@@ -49,6 +49,10 @@ import cn.edu.usst.jwgl.ui.adapter.CourseGradeAdapter
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
+import cn.edu.usst.jwgl.util.ApkDownloadHelper
+import cn.edu.usst.jwgl.util.CalendarExportHelper
+import android.Manifest
+import android.content.pm.PackageManager
 import android.view.LayoutInflater
 import android.view.inputmethod.EditorInfo
 import android.widget.AdapterView
@@ -107,6 +111,39 @@ class MainActivity : AppCompatActivity() {
     private var isUpdatingChipProgrammatically = false
     private var scheduleAdapter: SchedulePagerAdapter? = null
     private var currentWeek: Int = 1
+    private var isInitialWeekLocated: Boolean = false
+    private var currentExamList: List<ExamItem>? = null
+
+    private var pendingCalendarAction: (() -> Unit)? = null
+    private val calendarPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.WRITE_CALENDAR] == true
+        if (granted) {
+            pendingCalendarAction?.invoke()
+        } else {
+            Toast.makeText(this, "需要日历读写权限才能将日程导入系统自带日历", Toast.LENGTH_LONG).show()
+        }
+        pendingCalendarAction = null
+    }
+
+    fun checkAndRequestCalendarPermission(action: () -> Unit) {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.WRITE_CALENDAR
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            action()
+        } else {
+            pendingCalendarAction = action
+            calendarPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_CALENDAR,
+                    Manifest.permission.WRITE_CALENDAR
+                )
+            )
+        }
+    }
 
     /**
      * Returns the most accurate current academic week:
@@ -702,6 +739,12 @@ class MainActivity : AppCompatActivity() {
             setTurnScreenOn(true)
         }
         reloadTimetableFromDb()
+        ApkDownloadHelper.pendingInstallApkFile?.let { apk ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
+                ApkDownloadHelper.pendingInstallApkFile = null
+                ApkDownloadHelper.installApk(this, apk)
+            }
+        }
         if (RemoteConfigManager.shouldPerformDailySync(this)) {
             syncRemoteConfig(isManual = false)
         }
@@ -805,7 +848,9 @@ class MainActivity : AppCompatActivity() {
                 if (target != null) {
                     withContext(Dispatchers.IO) { db.tableDao.setDefaultTable(target.id) }
                     currentTable = target
-                    currentWeek = 1
+                    val realWeek = CourseUtils.countWeek(target.startDate)
+                    currentWeek = if (realWeek in 1..target.maxWeek) realWeek else 1
+                    isInitialWeekLocated = true
                     reloadTimetableFromDb()
                 }
             }
@@ -818,7 +863,9 @@ class MainActivity : AppCompatActivity() {
                 if (target != null) {
                     withContext(Dispatchers.IO) { db.tableDao.setDefaultTable(target.id) }
                     currentTable = target
-                    currentWeek = 1
+                    val realWeek = CourseUtils.countWeek(target.startDate)
+                    currentWeek = if (realWeek in 1..target.maxWeek) realWeek else 1
+                    isInitialWeekLocated = true
                     reloadTimetableFromDb()
                 }
             }
@@ -918,15 +965,21 @@ class MainActivity : AppCompatActivity() {
 
             val (targetTable, targetWeek, maxWeek) = initData
             currentTable = targetTable
-            currentWeek = targetWeek
+            val realCurrentWeek = CourseUtils.countWeek(targetTable.startDate)
+            val determinedWeek = if (targetWeek in 1..maxWeek) targetWeek else if (realCurrentWeek in 1..maxWeek) realCurrentWeek else 1
+            currentWeek = determinedWeek
 
             scheduleAdapter = SchedulePagerAdapter(this@MainActivity, maxWeek, targetTable.id)
             binding.vpSchedule.adapter = scheduleAdapter
             binding.vpSchedule.offscreenPageLimit = 1
+            binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
 
             binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
                     super.onPageSelected(position)
+                    if (!isInitialWeekLocated) {
+                        return
+                    }
                     val selectedWeek = position + 1
                     currentWeek = selectedWeek
                     updateWeekSelectionUI(selectedWeek)
@@ -934,7 +987,7 @@ class MainActivity : AppCompatActivity() {
                 }
             })
 
-            reloadTimetableFromDb()
+            reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
         }
     }
 
@@ -948,8 +1001,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun reloadTimetableFromDb() {
+    private fun reloadTimetableFromDb(initialWeek: Int? = null, forceWeek: Boolean = false) {
         lifecycleScope.launch {
+            if (scheduleAdapter == null) {
+                // Prevent race condition on cold startup before initWakeupSchedule completes
+                return@launch
+            }
             val table = withContext(Dispatchers.IO) {
                 db.tableDao.getDefaultTable()
             }
@@ -961,8 +1018,13 @@ class MainActivity : AppCompatActivity() {
             isUpdatingChipProgrammatically = false
 
             val realCurrentWeek = CourseUtils.countWeek(table.startDate)
-            if (currentWeek !in 1..table.maxWeek) {
-                currentWeek = if (realCurrentWeek in 1..table.maxWeek) realCurrentWeek else 1
+            if (!isInitialWeekLocated || forceWeek || currentWeek !in 1..table.maxWeek) {
+                currentWeek = when {
+                    initialWeek != null && initialWeek in 1..table.maxWeek -> initialWeek
+                    realCurrentWeek in 1..table.maxWeek -> realCurrentWeek
+                    else -> 1
+                }
+                isInitialWeekLocated = true
             }
 
             scheduleAdapter?.updateConfig(table.maxWeek, table.id)
@@ -1249,6 +1311,7 @@ class MainActivity : AppCompatActivity() {
             androidx.appcompat.widget.PopupMenu(this, binding.btnAddCourse).apply {
                 menu.add(0, 1, 0, "手动添加课程")
                 menu.add(0, 2, 1, "导入实验课表")
+                menu.add(0, 3, 2, "导入 / 导出日历 (.ics)")
                 setOnMenuItemClickListener { item ->
                     when (item.itemId) {
                         1 -> {
@@ -1260,6 +1323,21 @@ class MainActivity : AppCompatActivity() {
                         }
                         2 -> {
                             addCourseLauncher.launch(Intent(this@MainActivity, ExcelCleanActivity::class.java))
+                            true
+                        }
+                        3 -> {
+                            CalendarExportHelper.showScheduleCalendarDialog(this@MainActivity, currentTable?.id) {
+                                checkAndRequestCalendarPermission {
+                                    lifecycleScope.launch {
+                                        val result = CalendarExportHelper.importScheduleToSystemCalendar(this@MainActivity, currentTable?.id)
+                                        result.onSuccess { count ->
+                                            Toast.makeText(this@MainActivity, "成功将 $count 节课程导入系统日历 (含15分钟课前提醒)", Toast.LENGTH_LONG).show()
+                                        }.onFailure { err ->
+                                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            }
                             true
                         }
                         else -> false
@@ -2361,6 +2439,34 @@ class MainActivity : AppCompatActivity() {
         }
         binding.pageMoreFeatures.rowMoreXgWeb.setOnClickListener {
             JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
+        }
+        binding.pageMoreFeatures.rowMoreExportSchedule.setOnClickListener {
+            CalendarExportHelper.showScheduleCalendarDialog(this@MainActivity, currentTable?.id) {
+                checkAndRequestCalendarPermission {
+                    lifecycleScope.launch {
+                        val result = CalendarExportHelper.importScheduleToSystemCalendar(this@MainActivity, currentTable?.id)
+                        result.onSuccess { count ->
+                            Toast.makeText(this@MainActivity, "成功将 $count 节课程导入系统日历 (含15分钟课前提醒)", Toast.LENGTH_LONG).show()
+                        }.onFailure { err ->
+                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+        binding.pageMoreFeatures.rowMoreExportExam.setOnClickListener {
+            CalendarExportHelper.showExamCalendarDialog(this@MainActivity, currentExamList) {
+                checkAndRequestCalendarPermission {
+                    lifecycleScope.launch {
+                        val result = CalendarExportHelper.importExamsToSystemCalendar(this@MainActivity, currentExamList)
+                        result.onSuccess { count ->
+                            Toast.makeText(this@MainActivity, "成功将 $count 门考试导入系统日历 (含30分钟考前提醒)", Toast.LENGTH_LONG).show()
+                        }.onFailure { err ->
+                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
         }
 
         // Quick Service Entries in Profile (Bottom Bar Mode)
@@ -3563,6 +3669,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun updateExamList(exams: List<ExamItem>) {
+            currentExamList = exams
             if (exams.isEmpty()) {
                 page.rvExamQueryList.visibility = View.GONE
                 page.layoutEmptyExamQuery.visibility = View.VISIBLE
@@ -3653,6 +3760,20 @@ class MainActivity : AppCompatActivity() {
             fetchOnlineExams()
         }
 
+        page.btnExportExamCalendar.setOnClickListener {
+            CalendarExportHelper.showExamCalendarDialog(this@MainActivity, currentExamList) {
+                checkAndRequestCalendarPermission {
+                    lifecycleScope.launch {
+                        val result = CalendarExportHelper.importExamsToSystemCalendar(this@MainActivity, currentExamList)
+                        result.onSuccess { count ->
+                            Toast.makeText(this@MainActivity, "成功将 $count 门考试导入系统日历 (含30分钟考前提醒)", Toast.LENGTH_LONG).show()
+                        }.onFailure { err ->
+                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
         page.btnRefreshExamQuery.setOnClickListener { fetchOnlineExams() }
         page.btnEmptySyncExamQuery.setOnClickListener { fetchOnlineExams() }
     }

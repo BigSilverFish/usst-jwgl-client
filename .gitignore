@@ -16,4 +16,5 @@ keystore/
 *.jks
 *.keystore
 keystore.properties
+scratch/
 

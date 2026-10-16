@@ -5,4 +5,6 @@
     <external-files-path name="external_files_download" path="Download" />
     <external-cache-path name="external_cache_pdf" path="grade_reports/" />
     <cache-path name="internal_cache_pdf" path="grade_reports/" />
+    <cache-path name="internal_cache" path="." />
+    <external-cache-path name="external_cache" path="." />
 </paths>
