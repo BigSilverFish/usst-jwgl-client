@@ -1,5 +1,8 @@
 package cn.edu.usst.jwgl.ui.wakeup
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -16,6 +19,7 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.wakeup.CourseBean
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
+import cn.edu.usst.jwgl.ui.JwglWebActivity
 
 class CourseDetailDialog : BottomSheetDialogFragment() {
 
@@ -68,6 +72,7 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         val tvDetailTeacher = view.findViewById<TextView>(R.id.tvDetailTeacher)
         val tvDetailWeeks = view.findViewById<TextView>(R.id.tvDetailWeeks)
         val btnClose = view.findViewById<MaterialButton>(R.id.btnClose)
+        val btnOpenCourseLive = view.findViewById<MaterialButton>(R.id.btnOpenCourseLive)
         val btnEditCourse = view.findViewById<MaterialButton>(R.id.btnEditCourse)
         val btnDeleteSlot = view.findViewById<MaterialButton>(R.id.btnDeleteSlot)
         val btnDeleteCourse = view.findViewById<MaterialButton>(R.id.btnDeleteCourse)
@@ -107,6 +112,23 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         tvDetailWeeks.text = "第 ${course.startWeek} - ${course.endWeek} 周$typeStr"
 
         btnClose.setOnClickListener { dismiss() }
+
+        btnOpenCourseLive.setOnClickListener {
+            dismiss()
+            try {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("CourseName", course.courseName)
+                clipboard.setPrimaryClip(clip)
+            } catch (_: Exception) {
+            }
+            Toast.makeText(context, "正在进入直录播平台，已复制课程名「${course.courseName}」", Toast.LENGTH_SHORT).show()
+            JwglWebActivity.start(
+                context = context,
+                url = JwglWebActivity.LIVE_TARGET_URL,
+                title = "课程直录播 - ${course.courseName}",
+                searchQuery = course.courseName
+            )
+        }
 
         btnEditCourse.setOnClickListener {
             dismiss()

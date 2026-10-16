@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_refresh"
+        android:icon="@drawable/ic_refresh"
+        android:title="刷新"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_toggle_desktop"
+        android:title="切换为电脑版"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_open_external"
+        android:title="在系统浏览器中打开"
+        app:showAsAction="never" />
+</menu>

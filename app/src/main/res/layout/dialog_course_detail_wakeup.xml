@@ -194,10 +194,20 @@
         android:orientation="vertical">
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnOpenCourseLive"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="查看课程直录播"
+            app:cornerRadius="12dp"
+            app:icon="@drawable/ic_live_video"
+            app:iconGravity="textStart" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnEditCourse"
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="match_parent"
             android:layout_height="48dp"
+            android:layout_marginTop="8dp"
             android:text="编辑课程"
             app:cornerRadius="12dp"
             app:icon="@drawable/ic_edit"

@@ -23,6 +23,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.ActivityWebViewBinding
@@ -40,12 +41,21 @@ class JwglWebActivity : AppCompatActivity() {
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
         const val EXTRA_URL = "extra_target_url"
         const val EXTRA_TITLE = "extra_title"
+        const val EXTRA_SEARCH_QUERY = "extra_search_query"
 
-        fun start(context: Context, url: String = DEFAULT_TARGET_URL, title: String? = null) {
+        fun start(
+            context: Context,
+            url: String = DEFAULT_TARGET_URL,
+            title: String? = null,
+            searchQuery: String? = null
+        ) {
             val intent = Intent(context, JwglWebActivity::class.java).apply {
                 putExtra(EXTRA_URL, url)
                 if (title != null) {
                     putExtra(EXTRA_TITLE, title)
+                }
+                if (searchQuery != null) {
+                    putExtra(EXTRA_SEARCH_QUERY, searchQuery)
                 }
             }
             context.startActivity(intent)
@@ -56,6 +66,8 @@ class JwglWebActivity : AppCompatActivity() {
     private var customVideoView: View? = null
     private var customVideoCallback: WebChromeClient.CustomViewCallback? = null
     private var casAttemptCount = 0
+    private var searchQuery: String? = null
+    private var isDesktopMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,11 +77,19 @@ class JwglWebActivity : AppCompatActivity() {
         val rawTargetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_TARGET_URL
         val targetUrl = sanitizeAndValidateUrl(rawTargetUrl)
         val customTitle = intent.getStringExtra(EXTRA_TITLE)
+        searchQuery = intent.getStringExtra(EXTRA_SEARCH_QUERY)
+
+        // Responsively select UA based on screen size:
+        // Phones (< 600dp) default to Mobile UA for optimal touch and mobile layout
+        // Tablets/Desktops (>= 600dp) default to Desktop UA
+        val smallestWidthDp = resources.configuration.smallestScreenWidthDp
+        isDesktopMode = smallestWidthDp >= 600
+
         if (!customTitle.isNullOrBlank()) {
             binding.toolbar.title = customTitle
         }
 
-        setupToolbar()
+        setupToolbar(targetUrl)
         initWebView(targetUrl)
         handleBackPress()
         prepareAndLoad(targetUrl)
@@ -100,7 +120,7 @@ class JwglWebActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupToolbar() {
+    private fun setupToolbar(targetUrl: String) {
         binding.toolbar.setNavigationOnClickListener {
             if (customVideoView != null) {
                 binding.webView.webChromeClient?.onHideCustomView()
@@ -112,6 +132,41 @@ class JwglWebActivity : AppCompatActivity() {
                 finish()
             }
         }
+
+        binding.toolbar.inflateMenu(R.menu.menu_web_activity)
+        updateDesktopMenuItemTitle()
+        binding.toolbar.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.action_refresh -> {
+                    binding.webView.reload()
+                    true
+                }
+                R.id.action_toggle_desktop -> {
+                    isDesktopMode = !isDesktopMode
+                    applyUserAgent(binding.webView.url ?: targetUrl)
+                    updateDesktopMenuItemTitle()
+                    binding.webView.reload()
+                    val toastText = if (isDesktopMode) "已切换至电脑版视图" else "已切换至手机版视图"
+                    Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
+                    true
+                }
+                R.id.action_open_external -> {
+                    val currentUrl = binding.webView.url ?: targetUrl
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl)))
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "无法调用外部浏览器打开", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun updateDesktopMenuItemTitle() {
+        val menuItem = binding.toolbar.menu.findItem(R.id.action_toggle_desktop) ?: return
+        menuItem.title = if (isDesktopMode) "切换为手机版" else "切换为电脑版"
     }
 
     private fun handleBackPress() {
@@ -130,6 +185,20 @@ class JwglWebActivity : AppCompatActivity() {
         })
     }
 
+    private fun applyUserAgent(url: String) {
+        val mobileChromeUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        val desktopChromeUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        val weChatMobileUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.40.2420"
+
+        binding.webView.settings.userAgentString = when {
+            url.contains("new2017.webvpn.usst.edu.cn") -> mobileChromeUa
+            url.contains("new2017") -> weChatMobileUa
+            isDesktopMode -> desktopChromeUa
+            else -> mobileChromeUa
+        }
+        Log.d(TAG, "Selected UA (desktopMode=$isDesktopMode) for $url: ${binding.webView.settings.userAgentString}")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun initWebView(targetUrl: String) {
         binding.webView.settings.apply {
@@ -145,17 +214,10 @@ class JwglWebActivity : AppCompatActivity() {
             displayZoomControls = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             mediaPlaybackRequiresUserGesture = false
-
-            // Standard mobile Chrome UA for webvpn, mobile WeChat UA for new2017 intranet, desktop UA for jwgl & live
-            userAgentString = when {
-                targetUrl.contains("new2017.webvpn.usst.edu.cn") ->
-                    "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-                targetUrl.contains("new2017") ->
-                    "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.40.2420"
-                else ->
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            }
+            textZoom = 100
         }
+
+        applyUserAgent(targetUrl)
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
@@ -298,6 +360,46 @@ class JwglWebActivity : AppCompatActivity() {
                             view?.evaluateJavascript(js, null)
                         }
                     }
+                }
+
+                // If on the Live video platform and a course search query was specified, auto-search it
+                if (url != null && url.contains("live.usst.edu.cn") && !searchQuery.isNullOrBlank()) {
+                    val quotedQuery = JSONObject.quote(searchQuery ?: "")
+                    val jsSearch = """
+                        (function() {
+                            if (window.__usst_search_injected) return;
+                            var q = $quotedQuery;
+                            if (!q) return;
+                            var attempts = 0;
+                            var timer = setInterval(function() {
+                                attempts++;
+                                if (attempts > 30) {
+                                    clearInterval(timer);
+                                    return;
+                                }
+                                var input = document.querySelector('input[placeholder*="课程名称"]');
+                                if (input) {
+                                    window.__usst_search_injected = true;
+                                    clearInterval(timer);
+                                    input.focus();
+                                    input.value = q;
+                                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                                    var btn = document.querySelector('.search-icon') ? document.querySelector('.search-icon').closest('button') : null;
+                                    if (!btn) {
+                                        var container = input.closest('.el-input');
+                                        if (container && container.parentElement) {
+                                            btn = container.parentElement.querySelector('button');
+                                        }
+                                    }
+                                    if (btn) {
+                                        setTimeout(function() { btn.click(); }, 350);
+                                    }
+                                }
+                            }, 500);
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(jsSearch, null)
                 }
             }
 
