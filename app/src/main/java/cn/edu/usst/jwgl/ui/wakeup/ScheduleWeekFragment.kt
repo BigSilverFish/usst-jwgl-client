@@ -476,7 +476,7 @@ class ScheduleWeekFragment : Fragment() {
                     text = textBuilder.toString()
 
                     setOnClickListener {
-                        val dialog = CourseDetailDialog.newInstance(course)
+                        val dialog = CourseDetailDialog.newInstance(course, targetDate = fullDateStr, targetWeek = week)
                         dialog.setOnCourseChangedListener {
                             refresh()
                         }

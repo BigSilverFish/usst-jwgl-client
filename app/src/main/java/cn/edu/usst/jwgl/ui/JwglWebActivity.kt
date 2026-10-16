@@ -42,12 +42,16 @@ class JwglWebActivity : AppCompatActivity() {
         const val EXTRA_URL = "extra_target_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
+        const val EXTRA_TARGET_DATE = "extra_target_date"
+        const val EXTRA_TARGET_NODE = "extra_target_node"
 
         fun start(
             context: Context,
             url: String = DEFAULT_TARGET_URL,
             title: String? = null,
-            searchQuery: String? = null
+            searchQuery: String? = null,
+            targetDate: String? = null,
+            targetNode: Int = -1
         ) {
             val intent = Intent(context, JwglWebActivity::class.java).apply {
                 putExtra(EXTRA_URL, url)
@@ -56,6 +60,12 @@ class JwglWebActivity : AppCompatActivity() {
                 }
                 if (searchQuery != null) {
                     putExtra(EXTRA_SEARCH_QUERY, searchQuery)
+                }
+                if (targetDate != null) {
+                    putExtra(EXTRA_TARGET_DATE, targetDate)
+                }
+                if (targetNode > 0) {
+                    putExtra(EXTRA_TARGET_NODE, targetNode)
                 }
             }
             context.startActivity(intent)
@@ -67,7 +77,18 @@ class JwglWebActivity : AppCompatActivity() {
     private var customVideoCallback: WebChromeClient.CustomViewCallback? = null
     private var casAttemptCount = 0
     private var searchQuery: String? = null
+    private var targetDate: String? = null
+    private var targetNode: Int = -1
     private var isDesktopMode = false
+
+    inner class LiveNavInterface {
+        @android.webkit.JavascriptInterface
+        fun onEpisodeFound(episodeInfo: String) {
+            runOnUiThread {
+                Toast.makeText(this@JwglWebActivity, "已自动跳转至：$episodeInfo", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,6 +99,8 @@ class JwglWebActivity : AppCompatActivity() {
         val targetUrl = sanitizeAndValidateUrl(rawTargetUrl)
         val customTitle = intent.getStringExtra(EXTRA_TITLE)
         searchQuery = intent.getStringExtra(EXTRA_SEARCH_QUERY)
+        targetDate = intent.getStringExtra(EXTRA_TARGET_DATE)
+        targetNode = intent.getIntExtra(EXTRA_TARGET_NODE, -1)
 
         // Responsively select UA based on screen size:
         // Phones (< 600dp) default to Mobile UA for optimal touch and mobile layout
@@ -223,6 +246,8 @@ class JwglWebActivity : AppCompatActivity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
+        binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
+
         binding.webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress < 100) {
@@ -362,38 +387,187 @@ class JwglWebActivity : AppCompatActivity() {
                     }
                 }
 
-                // If on the Live video platform and a course search query was specified, auto-search it
-                if (url != null && url.contains("live.usst.edu.cn") && !searchQuery.isNullOrBlank()) {
+                // If on the Live video platform and course/date was specified, auto-navigate to playback
+                if (url != null && url.contains("live.usst.edu.cn") && (!searchQuery.isNullOrBlank() || !targetDate.isNullOrBlank())) {
                     val quotedQuery = JSONObject.quote(searchQuery ?: "")
+                    val quotedTargetDate = JSONObject.quote(targetDate ?: "")
+                    val targetNodeVal = targetNode
                     val jsSearch = """
                         (function() {
-                            if (window.__usst_search_injected) return;
-                            var q = $quotedQuery;
-                            if (!q) return;
+                            if (window.__usst_live_nav_running) return;
+                            window.__usst_live_nav_running = true;
+
+                            var courseQuery = $quotedQuery;
+                            var targetDate = $quotedTargetDate;
+                            var targetNode = $targetNodeVal;
+
+                            console.log("Starting USST Live auto-navigation:", courseQuery, targetDate, targetNode);
+
                             var attempts = 0;
+                            var maxAttempts = 75; // ~37.5s max duration
+                            var searchedCourse = false;
+                            var openedCourse = false;
+                            var episodeSelected = false;
+
                             var timer = setInterval(function() {
                                 attempts++;
-                                if (attempts > 30) {
+                                if (attempts > maxAttempts || episodeSelected) {
                                     clearInterval(timer);
+                                    window.__usst_live_nav_running = false;
                                     return;
                                 }
-                                var input = document.querySelector('input[placeholder*="课程名称"]');
-                                if (input) {
-                                    window.__usst_search_injected = true;
-                                    clearInterval(timer);
-                                    input.focus();
-                                    input.value = q;
-                                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                                    var btn = document.querySelector('.search-icon') ? document.querySelector('.search-icon').closest('button') : null;
-                                    if (!btn) {
-                                        var container = input.closest('.el-input');
-                                        if (container && container.parentElement) {
-                                            btn = container.parentElement.querySelector('button');
+
+                                var hash = window.location.hash || "";
+
+                                // ==========================================
+                                // 1. Mobile H5 Flow (jy-mobile-resourcemanage-ui)
+                                // ==========================================
+
+                                // Step A: Switch to "点播" tab if on liveList
+                                if (hash.indexOf('/liveList') !== -1 || (!hash.indexOf('/videoList') !== -1 && !hash.indexOf('/play-video') !== -1)) {
+                                    var tabs = Array.from(document.querySelectorAll('.van-tab'));
+                                    var vodTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === '点播'; });
+                                    if (vodTab && vodTab.getAttribute('aria-selected') !== 'true') {
+                                        vodTab.click();
+                                        return;
+                                    }
+                                }
+
+                                // Step B & C: On videoList, search course and click it
+                                if (hash.indexOf('/videoList') !== -1) {
+                                    var input = document.querySelector('input[placeholder*="课程名称"]');
+                                    if (input && courseQuery) {
+                                        if (!searchedCourse && input.value !== courseQuery) {
+                                            searchedCourse = true;
+                                            input.focus();
+                                            input.value = courseQuery;
+                                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                                            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                            input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                            input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                            return;
+                                        }
+
+                                        if (!openedCourse) {
+                                            var titleEls = Array.from(document.querySelectorAll('.vod-item-title'));
+                                            if (titleEls.length > 0) {
+                                                var targetCourse = titleEls.find(function(el) { return el.innerText && el.innerText.trim() === courseQuery; }) ||
+                                                                     titleEls.find(function(el) { return el.innerText && el.innerText.indexOf(courseQuery) !== -1; }) ||
+                                                                     titleEls.find(function(el) { return el.innerText && courseQuery.indexOf(el.innerText.trim()) !== -1; });
+                                                if (targetCourse) {
+                                                    openedCourse = true;
+                                                    var item = targetCourse.closest('.vod-item') || targetCourse;
+                                                    item.click();
+                                                    return;
+                                                }
+                                            }
                                         }
                                     }
-                                    if (btn) {
-                                        setTimeout(function() { btn.click(); }, 350);
+                                }
+
+                                // Step D: On play-video, locate the episode matching targetDate & targetNode
+                                if (hash.indexOf('/play-video') !== -1) {
+                                    var cards = Array.from(document.querySelectorAll('.selection-card'));
+                                    if (cards.length === 0) {
+                                        return; // still loading episodes
+                                    }
+
+                                    function matchEpisode(cardList) {
+                                        if (!targetDate) return cardList[0];
+                                        
+                                        // 1. Both targetDate AND node
+                                        if (targetNode > 0) {
+                                            var n1 = '第' + targetNode + '节';
+                                            var n2 = '第 ' + targetNode + ' 节';
+                                            var m1 = cardList.find(function(c) {
+                                                var text = c.innerText;
+                                                return text.indexOf(targetDate) !== -1 && (text.indexOf(n1) !== -1 || text.indexOf(n2) !== -1);
+                                            });
+                                            if (m1) return m1;
+                                        }
+
+                                        // 2. Exact targetDate (e.g. 2026-09-30)
+                                        var m2 = cardList.find(function(c) { return c.innerText.indexOf(targetDate) !== -1; });
+                                        if (m2) return m2;
+
+                                        // 3. Short date (MM-dd, e.g. 09-30)
+                                        if (targetDate.indexOf('-') !== -1) {
+                                            var shortDate = targetDate.substring(5);
+                                            var m3 = cardList.find(function(c) { return c.innerText.indexOf(shortDate) !== -1; });
+                                            if (m3) return m3;
+                                        }
+                                        return null;
+                                    }
+
+                                    var matchedCard = matchEpisode(cards);
+
+                                    // If not found in initial horizontal list, try opening the full "共计 X 节" sheet
+                                    if (!matchedCard) {
+                                        var moreBtn = document.querySelector('.title-box-right');
+                                        if (moreBtn && !document.querySelector('.selection-more')) {
+                                            moreBtn.click();
+                                            return;
+                                        }
+                                        var popup = document.querySelector('.selection-more');
+                                        if (popup) {
+                                            var popupCards = Array.from(popup.querySelectorAll('.selection-card'));
+                                            matchedCard = matchEpisode(popupCards);
+                                        }
+                                    }
+
+                                    if (matchedCard) {
+                                        episodeSelected = true;
+                                        clearInterval(timer);
+                                        window.__usst_live_nav_running = false;
+                                        
+                                        var matchedText = matchedCard.innerText.replace(/\s+/g, ' ');
+                                        matchedCard.click();
+
+                                        if (window.AndroidLiveNav && window.AndroidLiveNav.onEpisodeFound) {
+                                            window.AndroidLiveNav.onEpisodeFound(matchedText);
+                                        }
+
+                                        // Auto-start video playback
+                                        setTimeout(function() {
+                                            var playBtn = document.querySelector('.kmedia-mobile-play-btn, .kmd-m-flex-center, .icon-play');
+                                            if (playBtn) playBtn.click();
+                                            var video = document.querySelector('video');
+                                            if (video) {
+                                                video.play().catch(function(e) { console.log("video play error:", e); });
+                                            }
+                                        }, 500);
+                                        return;
+                                    }
+                                }
+
+                                // ==========================================
+                                // 2. Desktop Web Flow (jy-application-resourcemanage-ui)
+                                // ==========================================
+                                if (hash.indexOf('/home') !== -1 || hash.indexOf('/liveCourse') !== -1 || hash.indexOf('/vodCourse') !== -1) {
+                                    var desktopCards = Array.from(document.querySelectorAll('*')).filter(function(el) {
+                                        return el.children.length === 0 && el.innerText && (el.innerText.trim() === courseQuery || el.innerText.indexOf(courseQuery) !== -1);
+                                    });
+                                    if (desktopCards.length > 0 && !openedCourse) {
+                                        openedCourse = true;
+                                        desktopCards[0].click();
+                                        return;
+                                    }
+                                }
+
+                                if (hash.indexOf('/play-center') !== -1 && targetDate) {
+                                    var desktopEpisodes = Array.from(document.querySelectorAll('.bottom-left, .list-item, .time')).filter(function(el) {
+                                        return el.innerText && el.innerText.indexOf(targetDate) !== -1;
+                                    });
+                                    if (desktopEpisodes.length > 0 && !episodeSelected) {
+                                        episodeSelected = true;
+                                        clearInterval(timer);
+                                        window.__usst_live_nav_running = false;
+                                        var dtItem = desktopEpisodes[0].closest('.list-item') || desktopEpisodes[0];
+                                        dtItem.click();
+                                        if (window.AndroidLiveNav && window.AndroidLiveNav.onEpisodeFound) {
+                                            window.AndroidLiveNav.onEpisodeFound(dtItem.innerText.replace(/\s+/g, ' '));
+                                        }
                                     }
                                 }
                             }, 500);

@@ -24,6 +24,8 @@ import cn.edu.usst.jwgl.ui.JwglWebActivity
 class CourseDetailDialog : BottomSheetDialogFragment() {
 
     private lateinit var course: CourseBean
+    private var targetDate: String? = null
+    private var targetWeek: Int = -1
     private var onCourseChangedListener: (() -> Unit)? = null
 
     fun setOnCourseChangedListener(listener: () -> Unit) {
@@ -33,6 +35,8 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val args = arguments ?: return
+        targetDate = args.getString("targetDate")
+        targetWeek = args.getInt("targetWeek", -1)
         course = CourseBean(
             id = args.getInt("id"),
             courseName = args.getString("courseName") ?: "",
@@ -90,6 +94,12 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             // ignore
         }
 
+        // Fallback target date computation if not explicitly passed
+        if (targetDate.isNullOrBlank() && targetWeek > 0 && !table.startDate.isNullOrBlank()) {
+            val dayIndex = if (table.sundayFirst) (if (course.day == 7) 0 else course.day) else (course.day - 1)
+            targetDate = CourseUtils.getFullDateForWeekDay(table.startDate, targetWeek, dayIndex, table.sundayFirst).takeIf { it.isNotBlank() }
+        }
+
         // Time display
         val dayStr = CourseUtils.getDayStr(course.day)
         val endNode = course.startNode + course.step - 1
@@ -99,7 +109,8 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             val endT = times[endNode - 1].endTime
             timeSpan = "  $startT - $endT"
         }
-        tvDetailTime.text = "$dayStr 第 ${course.startNode} - $endNode 节$timeSpan"
+        val datePrefix = if (!targetDate.isNullOrBlank()) "$targetDate ($dayStr)" else dayStr
+        tvDetailTime.text = "$datePrefix 第 ${course.startNode} - $endNode 节$timeSpan"
 
         tvDetailRoom.text = if (course.room.isNullOrBlank()) "未指定地点" else course.room
         tvDetailTeacher.text = if (course.teacher.isNullOrBlank()) "未指定教师" else course.teacher
@@ -113,6 +124,12 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
 
         btnClose.setOnClickListener { dismiss() }
 
+        if (!targetDate.isNullOrBlank()) {
+            btnOpenCourseLive.text = "播放此节回放 ($targetDate)"
+        } else {
+            btnOpenCourseLive.text = "查看课程直录播"
+        }
+
         btnOpenCourseLive.setOnClickListener {
             dismiss()
             try {
@@ -121,12 +138,19 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                 clipboard.setPrimaryClip(clip)
             } catch (_: Exception) {
             }
-            Toast.makeText(context, "正在进入直录播平台，已复制课程名「${course.courseName}」", Toast.LENGTH_SHORT).show()
+            val toastMsg = if (!targetDate.isNullOrBlank()) {
+                "正在进入直录播平台，定位至 $targetDate 第${course.startNode}节 回放..."
+            } else {
+                "正在进入直录播平台，已复制课程名「${course.courseName}」"
+            }
+            Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
             JwglWebActivity.start(
                 context = context,
                 url = JwglWebActivity.LIVE_TARGET_URL,
-                title = "课程直录播 - ${course.courseName}",
-                searchQuery = course.courseName
+                title = "课程回放 - ${course.courseName}",
+                searchQuery = course.courseName,
+                targetDate = targetDate,
+                targetNode = course.startNode
             )
         }
 
@@ -170,7 +194,11 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
     }
 
     companion object {
-        fun newInstance(course: CourseBean): CourseDetailDialog {
+        fun newInstance(
+            course: CourseBean,
+            targetDate: String? = null,
+            targetWeek: Int? = null
+        ): CourseDetailDialog {
             return CourseDetailDialog().apply {
                 arguments = Bundle().apply {
                     putInt("id", course.id)
@@ -185,6 +213,12 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                     putInt("type", course.type)
                     putString("color", course.color)
                     putInt("tableId", course.tableId)
+                    if (targetDate != null) {
+                        putString("targetDate", targetDate)
+                    }
+                    if (targetWeek != null) {
+                        putInt("targetWeek", targetWeek)
+                    }
                 }
             }
         }
