@@ -20,7 +20,7 @@
     <img src="https://img.shields.io/badge/Kotlin-2.0%2B-purple.svg" alt="Kotlin" />
   </a>
   <a href="https://github.com/BigSilverFish/usst-jwgl-client/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/License-MIT%2FGPL-orange.svg" alt="License" />
+    <img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License" />
   </a>
 </p>
 
@@ -269,5 +269,5 @@
 ## 👨‍💻 作者与开源声明
 
 - **作者**：[GitHub@BigSilverFish](https://github.com/BigSilverFish)
-- **开源许可证**：本项目代码基于开源学习目的分享，遵循项目根目录下协议。
+- **开源许可证**：本项目代码遵循 [GNU General Public License v3.0 (GPL v3)](LICENSE) 开源协议，任何修改与衍生版本均须以同等开源许可证公开源代码。
 - **免责声明**：本 App 非上海理工大学官方出品，所有教务数据均来自学校官方教务系统公开接口。请妥善保管个人学号及密码。
