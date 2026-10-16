@@ -942,6 +942,10 @@ class MainActivity : AppCompatActivity() {
             JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
 
+        if (intent.getBooleanExtra("extra_open_live_web", false)) {
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
+        }
+
         if (intent.hasExtra("extra_simulate_hour")) {
             val h = intent.getIntExtra("extra_simulate_hour", -1)
             if (h >= 0) {
@@ -2496,6 +2500,9 @@ class MainActivity : AppCompatActivity() {
         binding.pageMoreFeatures.rowMoreXgWeb.setOnClickListener {
             JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
         }
+        binding.pageMoreFeatures.rowMoreLiveWeb.setOnClickListener {
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
+        }
 
         // Quick Service Entries in Profile (Bottom Bar Mode)
         binding.btnProfileExamQuery.setOnClickListener {
@@ -2509,6 +2516,9 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnProfileXgWeb.setOnClickListener {
             JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
+        }
+        binding.btnProfileLiveWeb.setOnClickListener {
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
         }
 
         // Hamburger Menu Buttons to Open Drawer
@@ -2566,6 +2576,11 @@ class MainActivity : AppCompatActivity() {
         binding.layoutDrawer.drawerItemXgWeb.setOnClickListener {
             closeNavDrawer()
             JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
+        }
+
+        binding.layoutDrawer.drawerItemLiveWeb.setOnClickListener {
+            closeNavDrawer()
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
         }
 
         // Side Navigation Drawer: Logout

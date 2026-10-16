@@ -74,6 +74,32 @@ object JwglClient {
         .writeTimeout(40, TimeUnit.SECONDS)
         .build()
 
+    val noRedirectClient: OkHttpClient = OkHttpClient.Builder()
+        .cookieJar(cookieJar)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    fun getCasRedirectLocation(casServiceUrl: String): String? {
+        val req = Request.Builder()
+            .url(casServiceUrl)
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+        val resp = noRedirectClient.newCall(req).execute()
+        val code = resp.code
+        val location = resp.header("Location")
+        val resolved = if (!location.isNullOrEmpty()) {
+            resp.request.url.resolve(location)?.toString() ?: location
+        } else null
+        resp.close()
+        Log.d(TAG, "getCasRedirectLocation code=$code, location=$resolved")
+        return resolved
+    }
+
     fun clearSession() {
         cookieJar.clear()
     }
