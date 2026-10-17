@@ -100,8 +100,7 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             targetDate = CourseUtils.getFullDateForWeekDay(table.startDate, targetWeek, dayIndex, table.sundayFirst).takeIf { it.isNotBlank() }
         }
 
-        // Time display
-        val dayStr = CourseUtils.getDayStr(course.day)
+        // Time display (只保留节次和具体时间)
         val endNode = course.startNode + course.step - 1
         var timeSpan = ""
         if (course.startNode <= times.size && endNode <= times.size) {
@@ -109,8 +108,8 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             val endT = times[endNode - 1].endTime
             timeSpan = "  $startT - $endT"
         }
-        val datePrefix = if (!targetDate.isNullOrBlank()) "$targetDate ($dayStr)" else dayStr
-        tvDetailTime.text = "$datePrefix 第 ${course.startNode} - $endNode 节$timeSpan"
+        val nodeStr = if (course.step > 1) "第 ${course.startNode} - $endNode 节" else "第 ${course.startNode} 节"
+        tvDetailTime.text = if (timeSpan.isNotEmpty()) "$nodeStr$timeSpan" else nodeStr
 
         tvDetailRoom.text = if (course.room.isNullOrBlank()) "未指定地点" else course.room
         tvDetailTeacher.text = if (course.teacher.isNullOrBlank()) "未指定教师" else course.teacher

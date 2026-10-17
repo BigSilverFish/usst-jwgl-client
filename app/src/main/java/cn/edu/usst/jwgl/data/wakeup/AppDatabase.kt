@@ -458,6 +458,118 @@ class AppDatabase private constructor(context: Context) {
         return nextId
     }
 
+    /**
+     * 针对全校课表课程检测是否与当前课表中的已有课程存在时间冲突
+     */
+    fun findConflictsForMergedCourse(tableId: Int, mergedCourse: MergedSchoolCourse): List<CourseConflictInfo> {
+        val table = tableDao.getTableById(tableId) ?: tableDao.getDefaultTable()
+        val tempDetails = mutableListOf<CourseDetailBean>()
+        for (slot in mergedCourse.slots) {
+            val weekBeans = if (slot.weekList.isNotEmpty()) {
+                CourseUtils.intList2WeekBeanList(slot.weekList)
+            } else if (slot.qsz in 1..30 && slot.jsz >= slot.qsz) {
+                listOf(WeekBean(start = slot.qsz, end = slot.jsz, type = 0))
+            } else {
+                listOf(WeekBean(start = 1, end = table.maxWeek, type = 0))
+            }
+            val startNode = if (slot.jc in 1..table.nodes) slot.jc else 1
+            val step = if (slot.jccd in 1..table.nodes) slot.jccd else 2
+            val day = if (slot.zj in 1..7) slot.zj else 1
+            for (wb in weekBeans) {
+                tempDetails.add(
+                    CourseDetailBean(
+                        id = -1,
+                        day = day,
+                        room = slot.jsdd.ifBlank { "待定地点" },
+                        teacher = mergedCourse.lsmc,
+                        startNode = startNode,
+                        step = step,
+                        startWeek = wb.start,
+                        endWeek = wb.end,
+                        type = wb.type,
+                        tableId = table.id
+                    )
+                )
+            }
+        }
+        return findConflictsForDetails(table.id, excludeCourseId = -1, tempDetails)
+    }
+
+    /**
+     * 针对给定的课程时段列表，在指定课表中检测是否存在时间重叠冲突（同星期 + 节次重叠 + 周次重叠）
+     */
+    fun findConflictsForDetails(
+        tableId: Int,
+        excludeCourseId: Int,
+        newDetails: List<CourseDetailBean>
+    ): List<CourseConflictInfo> {
+        val existingCourses = courseBaseDao.getCourseOfTable(tableId).filter { it.id != excludeCourseId }
+        if (existingCourses.isEmpty() || newDetails.isEmpty()) return emptyList()
+
+        val conflicts = mutableListOf<CourseConflictInfo>()
+
+        for (newDetail in newDetails) {
+            val newWeeks = (newDetail.startWeek..newDetail.endWeek).filter { w ->
+                when (newDetail.type) {
+                    1 -> w % 2 != 0
+                    2 -> w % 2 == 0
+                    else -> true
+                }
+            }.toSet()
+            if (newWeeks.isEmpty()) continue
+
+            val newStartNode = newDetail.startNode
+            val newEndNode = newDetail.startNode + newDetail.step - 1
+
+            for (exist in existingCourses) {
+                if (exist.day != newDetail.day) continue
+
+                val existStartNode = exist.startNode
+                val existEndNode = exist.startNode + exist.step - 1
+
+                // 节次重叠判断
+                val overlapStart = maxOf(newStartNode, existStartNode)
+                val overlapEnd = minOf(newEndNode, existEndNode)
+                if (overlapStart > overlapEnd) continue
+
+                // 周次重叠判断
+                val existWeeks = (exist.startWeek..exist.endWeek).filter { w ->
+                    when (exist.type) {
+                        1 -> w % 2 != 0
+                        2 -> w % 2 == 0
+                        else -> true
+                    }
+                }.toSet()
+
+                val commonWeeks = (newWeeks intersect existWeeks).sorted()
+                if (commonWeeks.isNotEmpty()) {
+                    val existWeekTypeStr = when (exist.type) {
+                        1 -> " (单周)"
+                        2 -> " (双周)"
+                        else -> ""
+                    }
+                    conflicts.add(
+                        CourseConflictInfo(
+                            existingCourseName = exist.courseName,
+                            existingDay = exist.day,
+                            existingStartNode = existStartNode,
+                            existingEndNode = existEndNode,
+                            existingWeeksDesc = "第 ${exist.startWeek} - ${exist.endWeek} 周$existWeekTypeStr",
+                            conflictStartNode = overlapStart,
+                            conflictEndNode = overlapEnd,
+                            conflictWeeks = commonWeeks
+                        )
+                    )
+                }
+            }
+        }
+
+        // 去重
+        return conflicts.distinctBy {
+            "${it.existingCourseName}_${it.existingDay}_${it.conflictStartNode}_${it.conflictEndNode}_${it.conflictWeeks.joinToString()}"
+        }
+    }
+
     val tableDao = TableDaoImpl()
     val courseBaseDao = CourseBaseDaoImpl()
     val courseDetailDao = CourseDetailDaoImpl()

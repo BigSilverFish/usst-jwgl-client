@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -234,6 +235,29 @@ class AddCourseActivity : AppCompatActivity() {
         }
 
         val db = AppDatabase.getDatabase(this)
+        val conflicts = db.findConflictsForDetails(tableId, excludeCourseId = courseId, details)
+        if (conflicts.isNotEmpty()) {
+            val conflictLines = conflicts.joinToString("\n") { it.formatConflictSummary() }
+            val message = "检测到课程与当前课表中的以下课程存在时间冲突：\n\n$conflictLines\n\n是否仍要保存到课表？"
+            MaterialAlertDialogBuilder(this)
+                .setTitle("课程时间冲突提示")
+                .setMessage(message)
+                .setIcon(android.R.drawable.ic_dialog_alert)
+                .setPositiveButton("仍要保存") { _, _ ->
+                    doSaveCourse(db, courseName, details)
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        } else {
+            doSaveCourse(db, courseName, details)
+        }
+    }
+
+    private fun doSaveCourse(
+        db: AppDatabase,
+        courseName: String,
+        details: List<CourseDetailBean>
+    ) {
         val baseBean = CourseBaseBean(
             id = courseId,
             courseName = courseName,

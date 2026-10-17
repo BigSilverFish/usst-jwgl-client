@@ -15,10 +15,13 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.content.Context
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
+import cn.edu.usst.jwgl.data.wakeup.CourseConflictInfo
 import cn.edu.usst.jwgl.data.model.LappCourseItem
 import cn.edu.usst.jwgl.data.network.LappClient
 import cn.edu.usst.jwgl.data.network.LappTerm
@@ -128,10 +131,17 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
             lifecycleScope.launch(Dispatchers.IO) {
                 val db = AppDatabase.getDatabase(ctx)
                 val defaultTable = db.tableDao.getDefaultTable()
-                db.addMergedSchoolCourse(defaultTable.id, mergedCourse)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(ctx, "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！", Toast.LENGTH_SHORT).show()
-                    onCourseAddedListener?.invoke()
+                val conflicts = db.findConflictsForMergedCourse(defaultTable.id, mergedCourse)
+                if (conflicts.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        showCourseConflictDialog(ctx, defaultTable.id, mergedCourse, conflicts)
+                    }
+                } else {
+                    db.addMergedSchoolCourse(defaultTable.id, mergedCourse)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！", Toast.LENGTH_SHORT).show()
+                        onCourseAddedListener?.invoke()
+                    }
                 }
             }
         }
@@ -267,6 +277,33 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
 
         // 默认自动发起一次通用查询展示全校热门排课
         doSearch()
+    }
+
+    private fun showCourseConflictDialog(
+        ctx: Context,
+        tableId: Int,
+        mergedCourse: MergedSchoolCourse,
+        conflicts: List<CourseConflictInfo>
+    ) {
+        val conflictLines = conflicts.joinToString("\n") { it.formatConflictSummary() }
+        val message = "检测到《${mergedCourse.kcmc}》与当前课表中的以下课程存在时间冲突：\n\n$conflictLines\n\n是否仍要将其添加到课表？"
+
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("课程时间冲突提示")
+            .setMessage(message)
+            .setIcon(android.R.drawable.ic_dialog_alert)
+            .setPositiveButton("仍要添加") { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val db = AppDatabase.getDatabase(ctx)
+                    db.addMergedSchoolCourse(tableId, mergedCourse)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！", Toast.LENGTH_SHORT).show()
+                        onCourseAddedListener?.invoke()
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 }
 

@@ -41,6 +41,7 @@ import cn.edu.usst.jwgl.data.model.StudentProfile
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
+import cn.edu.usst.jwgl.data.wakeup.CourseConflictInfo
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
@@ -3024,14 +3025,21 @@ class MainActivity : AppCompatActivity() {
         ) { mergedCourse ->
             lifecycleScope.launch(Dispatchers.IO) {
                 val tableId = currentTable?.id ?: db.tableDao.getDefaultTable().id
-                db.addMergedSchoolCourse(tableId, mergedCourse)
-                withContext(Dispatchers.Main) {
-                    reloadTimetableFromDb()
-                    Toast.makeText(
-                        this@MainActivity,
-                        "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                val conflicts = db.findConflictsForMergedCourse(tableId, mergedCourse)
+                if (conflicts.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        showSchoolCourseConflictDialog(tableId, mergedCourse, conflicts)
+                    }
+                } else {
+                    db.addMergedSchoolCourse(tableId, mergedCourse)
+                    withContext(Dispatchers.Main) {
+                        reloadTimetableFromDb()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }
@@ -3510,6 +3518,35 @@ class MainActivity : AppCompatActivity() {
         }
 
         checkAndLoadDefaultCourseSearch(isUserInitiatedReset = false, forceRefresh = false)
+    }
+
+    private fun showSchoolCourseConflictDialog(
+        tableId: Int,
+        mergedCourse: MergedSchoolCourse,
+        conflicts: List<CourseConflictInfo>
+    ) {
+        val conflictLines = conflicts.joinToString("\n") { it.formatConflictSummary() }
+        val message = "检测到《${mergedCourse.kcmc}》与当前课表中的以下课程存在时间冲突：\n\n$conflictLines\n\n是否仍要将其添加到课表？"
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("课程时间冲突提示")
+            .setMessage(message)
+            .setIcon(android.R.drawable.ic_dialog_alert)
+            .setPositiveButton("仍要添加") { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    db.addMergedSchoolCourse(tableId, mergedCourse)
+                    withContext(Dispatchers.Main) {
+                        reloadTimetableFromDb()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     // ==========================================
