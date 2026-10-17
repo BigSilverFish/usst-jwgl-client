@@ -94,9 +94,9 @@ object LappClient {
         .followRedirects(false)
         .followSslRedirects(false)
         .addInterceptor(httpsRedirectInterceptor)
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
     /**
@@ -452,72 +452,104 @@ val ALL_KNOWN_BUILDINGS = listOf(
         return null
     }
 
+    fun normalizeKeyword(input: String): String {
+        return input.trim()
+            .replace("（", "(")
+            .replace("）", ")")
+            .replace("【", "[")
+            .replace("】", "]")
+            .replace(" ", "")
+            .lowercase()
+    }
+
     fun getFullSchoolScheduleCached(context: Context, xn: String, xq: String): Pair<Long, List<LappCourseItem>>? {
         val key = "${xn.trim()}_${xq.trim()}"
-        fullScheduleMemoryCache[key]?.let { return it }
+        fullScheduleMemoryCache[key]?.let { cached ->
+            if (cached.second.size >= 5000) return cached
+        }
 
         synchronized(fullScheduleMemoryCache) {
-            fullScheduleMemoryCache[key]?.let { return it }
+            fullScheduleMemoryCache[key]?.let { cached ->
+                if (cached.second.size >= 5000) return cached
+            }
 
-            // 1. 优先读取 AES-256-GCM 硬件加密缓存文件 (.enc)
+            // 1. 尝试检测并预备内置 APK 镜像包（Assets）
+            val safeXnUnderscore = xn.replace(Regex("[^a-zA-Z0-9]"), "_")
+            val safeXnDash = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val candidateAssetNames = listOf(
+                "preset_schedule_${safeXnUnderscore}_${safeXq}.json",
+                "preset_schedule_${safeXnDash}_${safeXq}.json"
+            ).distinct()
+
+            var presetPair: Pair<Long, List<LappCourseItem>>? = null
+            for (assetName in candidateAssetNames) {
+                try {
+                    val assetJson = context.assets.open(assetName).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val parsed = tryParseFullScheduleJson(assetJson, System.currentTimeMillis())
+                    if (parsed != null && parsed.second.isNotEmpty()) {
+                        presetPair = parsed
+                        Log.i(TAG, "Successfully loaded preset schedule asset: $assetName (${parsed.second.size} courses)")
+                        break
+                    }
+                } catch (_: Exception) {
+                    // Try next candidate asset name
+                }
+            }
+
+            // 2. 读取 AES-256-GCM 硬件加密缓存文件 (.enc)
             val encFile = getFullEncryptedCacheFile(context, xn, xq)
+            var localPair: Pair<Long, List<LappCourseItem>>? = null
             if (encFile.exists() && encFile.length() > 0L) {
                 try {
                     val jsonStr = cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.readAndDecrypt(context, encFile)
                     if (!jsonStr.isNullOrBlank()) {
-                        val pair = tryParseFullScheduleJson(jsonStr, encFile.lastModified())
-                        if (pair != null && pair.second.isNotEmpty()) {
-                            fullScheduleMemoryCache[key] = pair
-                            return pair
-                        }
+                        localPair = tryParseFullScheduleJson(jsonStr, encFile.lastModified())
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to read encrypted full schedule cache for $key", e)
                 }
             }
 
-            // 2. 兼容读取旧版明文格式缓存 (.json)，并自动静默迁移升级为加密文件
-            val legacyFile = getLegacyCacheFile(context, xn, xq)
-            if (legacyFile.exists() && legacyFile.length() > 0L) {
-                try {
-                    val jsonStr = legacyFile.readText(Charsets.UTF_8)
-                    val pair = tryParseFullScheduleJson(jsonStr, legacyFile.lastModified())
-                    if (pair != null && pair.second.isNotEmpty()) {
-                        saveFullSchoolSchedule(context, xn, xq, pair.second)
+            // 3. 兼容读取旧版明文格式缓存 (.json)
+            if (localPair == null) {
+                val legacyFile = getLegacyCacheFile(context, xn, xq)
+                if (legacyFile.exists() && legacyFile.length() > 0L) {
+                    try {
+                        val jsonStr = legacyFile.readText(Charsets.UTF_8)
+                        localPair = tryParseFullScheduleJson(jsonStr, legacyFile.lastModified())
                         legacyFile.delete()
-                        fullScheduleMemoryCache[key] = pair
-                        return pair
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to read legacy full schedule file cache for $key", e)
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read legacy full schedule file cache for $key", e)
                 }
             }
 
-            // 3. 本地磁盘均无缓存时（冷启动/非校园网），检测并加载 APK 内置镜像包（Assets）
-            val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-            val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-            val presetAssetName = "preset_schedule_${safeXn}_${safeXq}.json"
-            try {
-                val assetManager = context.assets
-                val hasAsset = try {
-                    assetManager.open(presetAssetName).close()
-                    true
-                } catch (_: Exception) { false }
+            // 4. 核心完整性自愈逻辑：
+            // 如果本地缓存数据量异常偏小（例如因分页中断只写了前 1000 条，而全校课表有 9000 多条）：
+            // 判定本地缓存为残缺数据，立刻丢弃残缺缓存并强制回退到内置的完整镜像资产！
+            val presetSize = presetPair?.second?.size ?: 0
+            val localSize = localPair?.second?.size ?: 0
 
-                if (hasAsset) {
-                    Log.i(TAG, "Found built-in schedule preset asset: $presetAssetName, initializing encrypted cache...")
-                    val assetJson = assetManager.open(presetAssetName).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    val pair = tryParseFullScheduleJson(assetJson, System.currentTimeMillis())
-                    if (pair != null && pair.second.isNotEmpty()) {
-                        val savedTime = saveFullSchoolSchedule(context, xn, xq, pair.second)
-                        val resultPair = Pair(savedTime, pair.second)
-                        fullScheduleMemoryCache[key] = resultPair
-                        Log.i(TAG, "Successfully initialized and encrypted $key schedule from preset asset (${pair.second.size} courses)")
-                        return resultPair
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to load preset schedule asset $presetAssetName", e)
+            val isSeverelyIncomplete = localPair == null || localSize < 5000 || localSize < (presetSize * 0.8)
+            if (presetPair != null && isSeverelyIncomplete) {
+                Log.w(TAG, "Local cache is incomplete or severely outdated (localSize=$localSize vs presetSize=$presetSize). Self-healing with built-in asset preset...")
+                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second)
+                val finalPair = Pair(savedTime, presetPair.second)
+                fullScheduleMemoryCache[key] = finalPair
+                return finalPair
+            }
+
+            if (localPair != null && localPair.second.isNotEmpty()) {
+                fullScheduleMemoryCache[key] = localPair
+                return localPair
+            }
+
+            if (presetPair != null && presetPair.second.isNotEmpty()) {
+                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second)
+                val finalPair = Pair(savedTime, presetPair.second)
+                fullScheduleMemoryCache[key] = finalPair
+                return finalPair
             }
 
             return null
@@ -585,7 +617,8 @@ val ALL_KNOWN_BUILDINGS = listOf(
                     rows = rows
                 )
                 if (pageResult.isFailure) {
-                    if (allCourses.isNotEmpty()) break
+                    Log.w(TAG, "fetchSchedulePage failed at page $page (offset ${page * rows}), aborting incomplete sync...")
+                    // 绝不保存残缺分页数据！直接回退到本地/预置完整缓存
                     getFullSchoolScheduleCached(context, xn, xq)?.let { (ts, list) ->
                         lastQueryFromCache = true
                         lastQueryCacheTime = ts
@@ -600,17 +633,21 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 if (pageItems.isEmpty() || allCourses.size >= total) break
             } while (page * rows < total && page < 20)
 
-            if (allCourses.isNotEmpty()) {
+            // 严禁残缺数据覆盖：只有当拉取条数完整（达到后端总数或至少 8000 条）时才允许覆盖保存！
+            if (allCourses.isNotEmpty() && (allCourses.size >= total || allCourses.size >= 8000)) {
                 val savedTs = saveFullSchoolSchedule(context, xn, xq, allCourses)
                 lastQueryFromCache = false
                 lastQueryCacheTime = savedTs
                 Result.success(allCourses)
             } else {
+                Log.w(TAG, "allCourses incomplete (${allCourses.size} < total $total), preserving existing complete cache...")
                 val fallback = getFullSchoolScheduleCached(context, xn, xq)
                 if (fallback != null) {
+                    lastQueryFromCache = true
+                    lastQueryCacheTime = fallback.first
                     Result.success(fallback.second)
                 } else {
-                    Result.failure(Exception("未能拉取到全校课表数据"))
+                    Result.failure(Exception("未能拉取到完整全校课表数据"))
                 }
             }
         } catch (e: Exception) {
@@ -757,7 +794,8 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 filtered = filtered.filter { matchesSection(it, jc) }
             }
             if (kcmc.isNotEmpty()) {
-                filtered = filtered.filter { it.kcmc.contains(kcmc, ignoreCase = true) }
+                val normKcmc = normalizeKeyword(kcmc)
+                filtered = filtered.filter { normalizeKeyword(it.kcmc).contains(normKcmc) }
             }
             if (kcdm.isNotEmpty()) {
                 filtered = filtered.filter { it.kcdm.contains(kcdm, ignoreCase = true) || it.bjmc.contains(kcdm, ignoreCase = true) }

@@ -3310,8 +3310,9 @@ class MainActivity : AppCompatActivity() {
                                 it.kcdm == extractedCode || it.bjmc.contains(extractedCode)
                             }
                         } else if (courseKeyword.isNotBlank()) {
+                            val normKeyword = LappClient.normalizeKeyword(courseKeyword)
                             filtered = filtered.filter {
-                                it.kcmc.contains(courseKeyword, ignoreCase = true) ||
+                                LappClient.normalizeKeyword(it.kcmc).contains(normKeyword) ||
                                 it.kcdm.contains(courseKeyword, ignoreCase = true) ||
                                 it.bjmc.contains(courseKeyword, ignoreCase = true)
                             }
