@@ -499,16 +499,6 @@
                     android:text="官方教务系统 (jwgl)"
                     android:textColor="@color/text_primary"
                     android:textSize="13.5sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/badge_bg"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="2dp"
-                    android:text="网页"
-                    android:textColor="@color/badge_text"
-                    android:textSize="10.5sp" />
             </LinearLayout>
 
             <!-- Xg Web -->
@@ -537,16 +527,6 @@
                     android:text="学工一体化 (new2017)"
                     android:textColor="@color/text_primary"
                     android:textSize="13.5sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/badge_bg"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="2dp"
-                    android:text="小程序"
-                    android:textColor="@color/badge_text"
-                    android:textSize="10.5sp" />
             </LinearLayout>
 
             <!-- Live Video Web -->
@@ -575,16 +555,6 @@
                     android:text="课程直播/点播平台 (live)"
                     android:textColor="@color/text_primary"
                     android:textSize="13.5sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/badge_bg"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="2dp"
-                    android:text="直播"
-                    android:textColor="@color/badge_text"
-                    android:textSize="10.5sp" />
             </LinearLayout>
 
         </LinearLayout>

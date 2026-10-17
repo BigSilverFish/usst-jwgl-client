@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import cn.edu.usst.jwgl.data.model.MergedSchoolCourse
 
 class AppDatabase private constructor(context: Context) {
 
@@ -383,6 +384,78 @@ class AppDatabase private constructor(context: Context) {
         } finally {
             db.endTransaction()
         }
+    }
+
+    /**
+     * 将全校排课查询中的课程直接加入指定的课表并持久化至本地 SQLite 数据库
+     */
+    fun addMergedSchoolCourse(tableId: Int, mergedCourse: MergedSchoolCourse): Int {
+        val table = tableDao.getTableById(tableId) ?: tableDao.getDefaultTable()
+        val nextId = courseBaseDao.getLastIdOfTable(table.id) + 1
+        val color = CourseUtils.getColorHex(nextId - 1)
+        val baseBean = CourseBaseBean(
+            id = nextId,
+            courseName = mergedCourse.kcmc.ifBlank { "未命名课程" },
+            color = color,
+            tableId = table.id
+        )
+        courseBaseDao.insertCourseBase(baseBean)
+
+        val detailsToInsert = mutableListOf<CourseDetailBean>()
+        for (slot in mergedCourse.slots) {
+            val weekBeans = if (slot.weekList.isNotEmpty()) {
+                CourseUtils.intList2WeekBeanList(slot.weekList)
+            } else if (slot.qsz in 1..30 && slot.jsz >= slot.qsz) {
+                listOf(WeekBean(start = slot.qsz, end = slot.jsz, type = 0))
+            } else {
+                listOf(WeekBean(start = 1, end = table.maxWeek, type = 0))
+            }
+            val teacher = if (mergedCourse.lszc.isNotEmpty() && mergedCourse.lszc != "无") {
+                "${mergedCourse.lsmc} (${mergedCourse.lszc})"
+            } else {
+                mergedCourse.lsmc
+            }
+            val room = slot.jsdd.ifBlank { "待定地点" }
+            val startNode = if (slot.jc in 1..table.nodes) slot.jc else 1
+            val step = if (slot.jccd in 1..table.nodes) slot.jccd else 2
+            val day = if (slot.zj in 1..7) slot.zj else 1
+
+            for (wb in weekBeans) {
+                detailsToInsert.add(
+                    CourseDetailBean(
+                        id = nextId,
+                        day = day,
+                        room = room,
+                        teacher = teacher,
+                        startNode = startNode,
+                        step = step,
+                        startWeek = wb.start,
+                        endWeek = wb.end,
+                        type = wb.type,
+                        tableId = table.id
+                    )
+                )
+            }
+        }
+
+        if (detailsToInsert.isNotEmpty()) {
+            courseDetailDao.insertList(detailsToInsert)
+        }
+
+        var tableUpdated = false
+        if (detailsToInsert.any { it.day == 6 } && !table.showSat) {
+            table.showSat = true
+            tableUpdated = true
+        }
+        if (detailsToInsert.any { it.day == 7 } && !table.showSun) {
+            table.showSun = true
+            tableUpdated = true
+        }
+        if (tableUpdated) {
+            tableDao.updateTable(table)
+        }
+
+        return nextId
     }
 
     val tableDao = TableDaoImpl()

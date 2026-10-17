@@ -2735,6 +2735,7 @@ class MainActivity : AppCompatActivity() {
     private val schoolCourseList = mutableListOf<MergedSchoolCourse>()
     private var currentSearchXn = "2026-2027"
     private var currentSearchXq = "1"
+    private var selectedSearchLevel = "ALL" // "ALL", "UNDERGRADUATE", "GRADUATE"
     private var selectedSearchWeek = -1
     private var selectedSearchCollege = ""
     private var selectedSearchDay = -1
@@ -2797,7 +2798,8 @@ class MainActivity : AppCompatActivity() {
                 selectedSearchCollege.isNotEmpty() ||
                 selectedSearchDay != -1 ||
                 selectedSearchWeek != -1 ||
-                selectedSearchSection != "-1"
+                selectedSearchSection != "-1" ||
+                selectedSearchLevel != "ALL"
 
         if (hasActiveSearch && !isUserInitiatedReset) {
             return
@@ -2897,21 +2899,31 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     val merged = MergedSchoolCourse.fromLappItems(validSlotItems)
+                    val levelFiltered = when (selectedSearchLevel) {
+                        "UNDERGRADUATE" -> merged.filter { it.isUndergraduate }
+                        "GRADUATE" -> merged.filter { it.isGraduate }
+                        else -> merged
+                    }
 
-                    if (merged.isNotEmpty()) {
+                    if (levelFiltered.isNotEmpty()) {
                         schoolCourseList.clear()
-                        schoolCourseList.addAll(merged)
+                        schoolCourseList.addAll(levelFiltered)
                         schoolCourseAdapter?.notifyDataSetChanged()
 
                         page.rvCourseList.visibility = View.VISIBLE
                         page.layoutEmptyResults.visibility = View.GONE
-                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 共 ${merged.size} 门$cacheSuffix"
+                        val levelSuffix = when (selectedSearchLevel) {
+                            "UNDERGRADUATE" -> " (本科生)"
+                            "GRADUATE" -> " (研究生)"
+                            else -> ""
+                        }
+                        page.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName}$levelSuffix · 共 ${levelFiltered.size} 门$cacheSuffix"
 
                         if (forceRefresh) {
-                            Toast.makeText(this@MainActivity, "已手动刷新当前时段排课 (共 ${merged.size} 门课程)", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, "已手动刷新当前时段排课 (共 ${levelFiltered.size} 门课程)", Toast.LENGTH_SHORT).show()
                         }
 
-                        val pendingItems = merged.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
+                        val pendingItems = levelFiltered.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
                             .distinctBy { it.kcdm }
                             .take(25)
                         if (pendingItems.isNotEmpty()) {
@@ -3010,15 +3022,18 @@ class MainActivity : AppCompatActivity() {
                 sheet.show(supportFragmentManager, "CourseSyllabus")
             }
         ) { mergedCourse ->
-            val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
-            val semesterKey = "${curXnm}_$curXqm"
-            val customMgr = CustomCourseManager(this)
-            val itemsToAdd = mergedCourse.toCourseItems()
-            for (c in itemsToAdd) {
-                customMgr.addCustomCourse(semesterKey, c)
+            lifecycleScope.launch(Dispatchers.IO) {
+                val tableId = currentTable?.id ?: db.tableDao.getDefaultTable().id
+                db.addMergedSchoolCourse(tableId, mergedCourse)
+                withContext(Dispatchers.Main) {
+                    reloadTimetableFromDb()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
-            Toast.makeText(this, "已成功添加《${mergedCourse.kcmc}》(共${itemsToAdd.size}个时段) 到课表！", Toast.LENGTH_SHORT).show()
-            scheduleAdapter?.refreshAllFragments()
         }
         page.rvCourseList.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
         page.rvCourseList.adapter = schoolCourseAdapter
@@ -3084,6 +3099,13 @@ class MainActivity : AppCompatActivity() {
         )
         val sectionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sectionOptions.map { it.first })
 
+        val levelOptions = listOf(
+            Pair("全部层次 (本科/研究生)", "ALL"),
+            Pair("仅本科生课程", "UNDERGRADUATE"),
+            Pair("仅研究生课程", "GRADUATE")
+        )
+        val levelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, levelOptions.map { it.first })
+
         val defaultColleges = mutableListOf("全部学院")
         val collegeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, defaultColleges)
 
@@ -3100,7 +3122,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 更多筛选弹窗 (收纳 学期、周次、学院、星期、时段)
+        // 更多筛选弹窗 (收纳 学期、培养层次、周次、学院、星期、时段)
         val filterDialog = BottomSheetDialog(this)
         val filterView = layoutInflater.inflate(R.layout.dialog_course_search_filters, null)
         filterDialog.setContentView(filterView)
@@ -3109,6 +3131,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val dialogSpinnerSemester = filterView.findViewById<Spinner>(R.id.dialogSpinnerSemester)
+        val dialogSpinnerLevel = filterView.findViewById<Spinner>(R.id.dialogSpinnerLevel)
         val dialogSpinnerWeek = filterView.findViewById<Spinner>(R.id.dialogSpinnerWeek)
         val dialogSpinnerCollege = filterView.findViewById<Spinner>(R.id.dialogSpinnerCollege)
         val dialogSpinnerDay = filterView.findViewById<Spinner>(R.id.dialogSpinnerDay)
@@ -3119,6 +3142,9 @@ class MainActivity : AppCompatActivity() {
 
         dialogSpinnerSemester.adapter = semAdapter
         dialogSpinnerSemester.setSelection(defaultSemIndex)
+        dialogSpinnerLevel.adapter = levelAdapter
+        val defaultLevelIndex = levelOptions.indexOfFirst { it.second == selectedSearchLevel }.coerceAtLeast(0)
+        dialogSpinnerLevel.setSelection(defaultLevelIndex)
         dialogSpinnerWeek.adapter = weekAdapter
         dialogSpinnerCollege.adapter = collegeAdapter
         dialogSpinnerDay.adapter = dayAdapter
@@ -3128,6 +3154,11 @@ class MainActivity : AppCompatActivity() {
             val conditions = mutableListOf<String>()
             if (currentSearchXn != curYearSpan || currentSearchXq != curTermNum) {
                 conditions.add("${currentSearchXn.takeLast(4)}-${currentSearchXq}")
+            }
+            if (selectedSearchLevel == "UNDERGRADUATE") {
+                conditions.add("本科生")
+            } else if (selectedSearchLevel == "GRADUATE") {
+                conditions.add("研究生")
             }
             if (selectedSearchWeek != -1) {
                 conditions.add("第${selectedSearchWeek}周")
@@ -3159,6 +3190,14 @@ class MainActivity : AppCompatActivity() {
                 val pair = semesterOptions[position].second
                 currentSearchXn = pair.first
                 currentSearchXq = pair.second
+                updateFilterBadge()
+            }
+            override fun onNothingSelected(p0: AdapterView<*>?) {}
+        }
+
+        dialogSpinnerLevel.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
+                selectedSearchLevel = levelOptions[position].second
                 updateFilterBadge()
             }
             override fun onNothingSelected(p0: AdapterView<*>?) {}
@@ -3197,17 +3236,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnCloseFilterDialog.setOnClickListener { filterDialog.dismiss() }
-        btnConfirmFilters.setOnClickListener { filterDialog.dismiss() }
 
         btnResetFilters.setOnClickListener {
             val resetSemIndex = semesterOptions.indexOfFirst { it.second == Pair(curYearSpan, curTermNum) }.coerceAtLeast(0)
             dialogSpinnerSemester.setSelection(resetSemIndex)
+            dialogSpinnerLevel.setSelection(0)
             dialogSpinnerWeek.setSelection(0)
             dialogSpinnerCollege.setSelection(0)
             dialogSpinnerDay.setSelection(0)
             dialogSpinnerSection.setSelection(0)
             currentSearchXn = curYearSpan
             currentSearchXq = curTermNum
+            selectedSearchLevel = "ALL"
             selectedSearchWeek = -1
             selectedSearchCollege = ""
             selectedSearchDay = -1
@@ -3224,7 +3264,7 @@ class MainActivity : AppCompatActivity() {
             val courseKeyword = page.etSearchCourse.text.toString().trim()
             val teacherKeyword = page.etSearchTeacher.text.toString().trim()
 
-            if (courseKeyword.isEmpty() && teacherKeyword.isEmpty() && selectedSearchCollege.isEmpty() && selectedSearchDay == -1 && selectedSearchWeek == -1 && selectedSearchSection == "-1") {
+            if (courseKeyword.isEmpty() && teacherKeyword.isEmpty() && selectedSearchCollege.isEmpty() && selectedSearchDay == -1 && selectedSearchWeek == -1 && selectedSearchSection == "-1" && selectedSearchLevel == "ALL") {
                 if (getCurrentWeekdaySlot() != null) {
                     checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true, forceRefresh = forceRefresh)
                 } else {
@@ -3352,14 +3392,19 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         val merged = MergedSchoolCourse.fromLappItems(filtered)
-                        Log.i("MainActivity", "executeSearch: filtered.size=${filtered.size}, merged.size=${merged.size}")
+                        val levelFiltered = when (selectedSearchLevel) {
+                            "UNDERGRADUATE" -> merged.filter { it.isUndergraduate }
+                            "GRADUATE" -> merged.filter { it.isGraduate }
+                            else -> merged
+                        }
+                        Log.i("MainActivity", "executeSearch: filtered.size=${filtered.size}, merged.size=${merged.size}, levelFiltered.size=${levelFiltered.size}")
 
                         schoolCourseList.clear()
-                        schoolCourseList.addAll(merged)
+                        schoolCourseList.addAll(levelFiltered)
                         schoolCourseAdapter?.notifyDataSetChanged()
 
                         // 异步精确解析尚未匹配到类别的课程（前 25 项，随解析随更新 UI）
-                        val pendingItems = merged.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
+                        val pendingItems = levelFiltered.filter { it.category == "待定" && it.kcdm.isNotEmpty() }
                             .distinctBy { it.kcdm }
                             .take(25)
                         if (pendingItems.isNotEmpty()) {
@@ -3384,7 +3429,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
 
-                        if (merged.isEmpty()) {
+                        if (levelFiltered.isEmpty()) {
                             page.rvCourseList.visibility = View.GONE
                             page.layoutEmptyResults.visibility = View.VISIBLE
                             page.tvEmptyTitle.text = "未找到匹配开课班级"
@@ -3394,12 +3439,17 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             page.rvCourseList.visibility = View.VISIBLE
                             page.layoutEmptyResults.visibility = View.GONE
-                            page.tvCourseSearchSubtitle.text = "检索结果 共 ${merged.size} 个教学班$cacheSuffix"
+                            val levelSuffix = when (selectedSearchLevel) {
+                                "UNDERGRADUATE" -> " [仅本科生]"
+                                "GRADUATE" -> " [仅研究生]"
+                                else -> ""
+                            }
+                            page.tvCourseSearchSubtitle.text = "检索结果 共 ${levelFiltered.size} 个教学班$levelSuffix$cacheSuffix"
                             val codeHint = if (extractedCode != null) " [代码 $extractedCode]" else ""
                             val msg = if (forceRefresh) {
-                                "已刷新排课数据 · 共 ${merged.size} 个教学班$codeHint"
+                                "已刷新排课数据 · 共 ${levelFiltered.size} 个教学班$levelSuffix$codeHint"
                             } else {
-                                "共检索到 ${merged.size} 个教学班$codeHint (共 ${filtered.size} 个上课时段)"
+                                "共检索到 ${levelFiltered.size} 个教学班$levelSuffix$codeHint (共 ${filtered.size} 个上课时段)"
                             }
                             Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                         }
@@ -3425,6 +3475,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        btnConfirmFilters.setOnClickListener {
+            filterDialog.dismiss()
+            executeSearch(forceRefresh = false)
+        }
+
         page.btnDoSearch.setOnClickListener { executeSearch(forceRefresh = false) }
         page.etSearchCourse.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
@@ -3445,7 +3500,8 @@ class MainActivity : AppCompatActivity() {
                     selectedSearchCollege.isNotEmpty() ||
                     selectedSearchDay != -1 ||
                     selectedSearchWeek != -1 ||
-                    selectedSearchSection != "-1"
+                    selectedSearchSection != "-1" ||
+                    selectedSearchLevel != "ALL"
             if (hasActive) {
                 executeSearch(forceRefresh = true)
             } else {

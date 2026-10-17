@@ -18,7 +18,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
 import cn.edu.usst.jwgl.R
-import cn.edu.usst.jwgl.data.local.CustomCourseManager
+import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.model.LappCourseItem
 import cn.edu.usst.jwgl.data.network.LappClient
 import cn.edu.usst.jwgl.data.network.LappTerm
@@ -124,16 +124,16 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
                 sheet.show(parentFragmentManager, "CourseSyllabus")
             }
         ) { mergedCourse ->
-            val context = requireContext()
-            val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
-            val semesterKey = "${curXnm}_$curXqm"
-            val customMgr = CustomCourseManager(context)
-            val items = mergedCourse.toCourseItems()
-            for (item in items) {
-                customMgr.addCustomCourse(semesterKey, item)
+            val ctx = context ?: return@SchoolCourseAdapter
+            lifecycleScope.launch(Dispatchers.IO) {
+                val db = AppDatabase.getDatabase(ctx)
+                val defaultTable = db.tableDao.getDefaultTable()
+                db.addMergedSchoolCourse(defaultTable.id, mergedCourse)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(ctx, "已成功添加《${mergedCourse.kcmc}》(共${mergedCourse.slots.size}个时段) 到课表！", Toast.LENGTH_SHORT).show()
+                    onCourseAddedListener?.invoke()
+                }
             }
-            Toast.makeText(context, "已成功添加《${mergedCourse.kcmc}》(共${items.size}个时段) 到本学期课表！", Toast.LENGTH_SHORT).show()
-            onCourseAddedListener?.invoke()
         }
         rvCourses.layoutManager = LinearLayoutManager(context)
         rvCourses.adapter = adapter
