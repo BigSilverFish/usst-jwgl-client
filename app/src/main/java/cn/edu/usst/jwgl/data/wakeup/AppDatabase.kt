@@ -800,6 +800,11 @@ class AppDatabase private constructor(context: Context) {
                 "id = ? AND tableId = ?",
                 arrayOf(id.toString(), tableId.toString())
             )
+            db.delete(
+                "CourseDetailBean",
+                "id = ? AND tableId = ?",
+                arrayOf(id.toString(), tableId.toString())
+            )
         }
 
         @Synchronized

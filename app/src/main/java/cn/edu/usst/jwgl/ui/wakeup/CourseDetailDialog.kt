@@ -189,7 +189,12 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                 .setPositiveButton("删除") { _, _ ->
                     val detail = CourseUtils.courseBean2DetailBean(course)
                     db.courseDetailDao.deleteCourseDetail(detail)
+                    val remainingDetails = db.courseDetailDao.getDetailByIdOfTable(course.id, course.tableId)
+                    if (remainingDetails.isEmpty()) {
+                        db.courseBaseDao.deleteCourseBase(course.id, course.tableId)
+                    }
                     Toast.makeText(context, "已删除该时间段", Toast.LENGTH_SHORT).show()
+                    (activity as? cn.edu.usst.jwgl.ui.MainActivity)?.reloadTimetableFromDb()
                     onCourseChangedListener?.invoke()
                     dismiss()
                 }
@@ -202,8 +207,21 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                 .setMessage("确定删除《${course.courseName}》及其所有时间段吗？此操作不可恢复。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确认删除") { _, _ ->
-                    db.courseBaseDao.deleteCourseBase(course.id, course.tableId)
+                    val targetName = course.courseName.trim()
+                    val allCoursesInTable = db.courseBaseDao.getCourseOfTable(course.tableId)
+                    val matchingIds = allCoursesInTable
+                        .filter { it.courseName.trim() == targetName }
+                        .map { it.id }
+                        .toMutableSet()
+                    matchingIds.add(course.id)
+
+                    for (cId in matchingIds) {
+                        db.courseDetailDao.deleteByIdOfTable(cId, course.tableId)
+                        db.courseBaseDao.deleteCourseBase(cId, course.tableId)
+                    }
+
                     Toast.makeText(context, "已删除整门课程", Toast.LENGTH_SHORT).show()
+                    (activity as? cn.edu.usst.jwgl.ui.MainActivity)?.reloadTimetableFromDb()
                     onCourseChangedListener?.invoke()
                     dismiss()
                 }

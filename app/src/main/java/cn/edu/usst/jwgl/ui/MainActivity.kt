@@ -1036,7 +1036,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun reloadTimetableFromDb(initialWeek: Int? = null, forceWeek: Boolean = false) {
+    fun reloadTimetableFromDb(initialWeek: Int? = null, forceWeek: Boolean = false) {
         lifecycleScope.launch {
             if (scheduleAdapter == null) {
                 // Prevent race condition on cold startup before initWakeupSchedule completes

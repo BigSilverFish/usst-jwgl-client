@@ -532,7 +532,12 @@ class ScheduleWeekFragment : Fragment() {
                             isCurrentWeek = isWeekActive
                         )
                         dialog.setOnCourseChangedListener {
-                            refresh()
+                            val mainAct = activity as? cn.edu.usst.jwgl.ui.MainActivity
+                            if (mainAct != null) {
+                                mainAct.reloadTimetableFromDb()
+                            } else {
+                                refresh()
+                            }
                         }
                         dialog.show(parentFragmentManager, "CourseDetailDialog")
                     }
