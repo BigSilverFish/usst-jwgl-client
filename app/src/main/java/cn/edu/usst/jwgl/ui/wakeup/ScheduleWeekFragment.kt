@@ -270,6 +270,24 @@ class ScheduleWeekFragment : Fragment() {
         llWeekColumnsContainer.removeAllViews()
 
         val totalDays = 7
+        val visibleDaysCount = run {
+            var count = 0
+            for (i in 0 until totalDays) {
+                val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
+                val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
+                val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
+                val dayExams = if (isExamWeek) cachedExams.filter { it.getDateString() == fullDateStr } else emptyList()
+                val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
+                if (!table.showSat && dayNumber == 6 && !hasContent) continue
+                if (!table.showSun && dayNumber == 7 && !hasContent) continue
+                count++
+            }
+            count.coerceAtLeast(1)
+        }
+        val containerWidth = llWeekColumnsContainer.width.takeIf { it > 0 }
+            ?: (resources.displayMetrics.widthPixels - dpToPx(40f))
+        val estimatedColWidth = ((containerWidth / visibleDaysCount) - dpToPx(2f)).coerceAtLeast(1)
+
         for (i in 0 until totalDays) {
             val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
             val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
@@ -285,7 +303,7 @@ class ScheduleWeekFragment : Fragment() {
             if (!table.showSat && dayNumber == 6 && !hasContent) continue
             if (!table.showSun && dayNumber == 7 && !hasContent) continue
 
-            val dayColumn = FrameLayout(context).apply {
+            val dayColumn = DayColumnLayout(context).apply {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
                     marginStart = dpToPx(1f)
                     marginEnd = dpToPx(1f)
@@ -412,25 +430,56 @@ class ScheduleWeekFragment : Fragment() {
                 }
             }
 
-            for ((course, isWeekActive) in displayList) {
+            val placements = computeCardPlacements(displayList)
+            val gapPx = dpToPx(1.5f).coerceAtLeast(1)
+
+            for (placement in placements) {
+                val course = placement.course
+                val isWeekActive = placement.isWeekActive
+                val colIndex = placement.colIndex
+                val totalCols = placement.totalCols
+
                 val cardHeight = itemHeightPx * course.step + marTopPx * (course.step - 1)
                 val cardTopMargin = (course.startNode - 1) * (itemHeightPx + marTopPx) + marTopPx
+                val isNarrow = totalCols > 1
+
+                val initialWidth = if (!isNarrow) {
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                } else {
+                    val startX = colIndex * estimatedColWidth / totalCols
+                    val endX = (colIndex + 1) * estimatedColWidth / totalCols - (if (colIndex < totalCols - 1) gapPx else 0)
+                    (endX - startX).coerceAtLeast(1)
+                }
+                val initialLeftMargin = if (!isNarrow) {
+                    0
+                } else {
+                    colIndex * estimatedColWidth / totalCols
+                }
 
                 val courseCard = TextView(context).apply {
                     layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        initialWidth,
                         cardHeight
                     ).apply {
                         topMargin = cardTopMargin
+                        leftMargin = initialLeftMargin
                     }
-                    textSize = table.itemTextSize.toFloat()
+                    textSize = if (isNarrow) 9.5f else table.itemTextSize.toFloat()
                     typeface = Typeface.DEFAULT_BOLD
-                    setPadding(dpToPx(4f), dpToPx(4f), dpToPx(4f), dpToPx(4f))
+                    val hPad = if (isNarrow) dpToPx(1.5f) else dpToPx(4f)
+                    val vPad = if (isNarrow) dpToPx(2.5f) else dpToPx(4f)
+                    setPadding(hPad, vPad, hPad, vPad)
                     gravity = Gravity.CENTER
-                    setLineSpacing(0f, 1.1f)
+                    setLineSpacing(0f, 1.0f)
+                    includeFontPadding = false
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    maxLines = if (course.step >= 3) 8 else (course.step * 2).coerceAtLeast(2)
 
                     val bgDrawable = (ContextCompat.getDrawable(context, R.drawable.course_item_bg)!!.mutate()) as GradientDrawable
                     bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
+                    if (isNarrow) {
+                        bgDrawable.cornerRadius = dpToPx(6f).toFloat()
+                    }
 
                     val alphaHex = String.format("%02X", (255 * (table.itemAlpha.coerceIn(0, 100) / 100f)).toInt())
 
@@ -476,12 +525,21 @@ class ScheduleWeekFragment : Fragment() {
                     text = textBuilder.toString()
 
                     setOnClickListener {
-                        val dialog = CourseDetailDialog.newInstance(course, targetDate = fullDateStr, targetWeek = week)
+                        val dialog = CourseDetailDialog.newInstance(
+                            course,
+                            targetDate = fullDateStr,
+                            targetWeek = week,
+                            isCurrentWeek = isWeekActive
+                        )
                         dialog.setOnCourseChangedListener {
                             refresh()
                         }
                         dialog.show(parentFragmentManager, "CourseDetailDialog")
                     }
+                }
+
+                if (isNarrow) {
+                    dayColumn.multiColCards.add(MultiColCardInfo(courseCard, colIndex, totalCols))
                 }
 
                 dayColumn.addView(courseCard)
@@ -565,6 +623,117 @@ class ScheduleWeekFragment : Fragment() {
             .setMessage(sb.toString())
             .setPositiveButton("我知道了", null)
             .show()
+    }
+
+    private data class CardPlacement(
+        val course: CourseBean,
+        val isWeekActive: Boolean,
+        val colIndex: Int,
+        val totalCols: Int
+    )
+
+    private data class MultiColCardInfo(
+        val cardView: View,
+        val colIndex: Int,
+        val totalCols: Int
+    )
+
+    private class DayColumnLayout(context: android.content.Context) : FrameLayout(context) {
+        internal val multiColCards = mutableListOf<MultiColCardInfo>()
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
+            if (availableWidth > 0 && multiColCards.isNotEmpty()) {
+                val gapPx = (context.resources.displayMetrics.density * 1.5f).toInt().coerceAtLeast(1)
+                for (info in multiColCards) {
+                    val startX = info.colIndex * availableWidth / info.totalCols
+                    val endX = (info.colIndex + 1) * availableWidth / info.totalCols - (if (info.colIndex < info.totalCols - 1) gapPx else 0)
+                    val targetWidth = (endX - startX).coerceAtLeast(1)
+                    val lp = info.cardView.layoutParams as? FrameLayout.LayoutParams ?: continue
+                    lp.width = targetWidth
+                    lp.leftMargin = startX
+                }
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        }
+    }
+
+    private fun computeCardPlacements(items: List<Pair<CourseBean, Boolean>>): List<CardPlacement> {
+        if (items.isEmpty()) return emptyList()
+
+        val sortedItems = items.sortedWith(
+            compareBy(
+                { it.first.startNode },
+                { -it.first.step },
+                { it.first.id }
+            )
+        )
+
+        val clusters = mutableListOf<MutableList<Pair<CourseBean, Boolean>>>()
+        var currentCluster = mutableListOf<Pair<CourseBean, Boolean>>()
+        var currentClusterEnd = -1
+
+        for (item in sortedItems) {
+            val course = item.first
+            val courseEnd = course.startNode + course.step - 1
+
+            if (currentCluster.isEmpty()) {
+                currentCluster.add(item)
+                currentClusterEnd = courseEnd
+            } else {
+                if (course.startNode <= currentClusterEnd) {
+                    currentCluster.add(item)
+                    if (courseEnd > currentClusterEnd) {
+                        currentClusterEnd = courseEnd
+                    }
+                } else {
+                    clusters.add(currentCluster)
+                    currentCluster = mutableListOf(item)
+                    currentClusterEnd = courseEnd
+                }
+            }
+        }
+        if (currentCluster.isNotEmpty()) {
+            clusters.add(currentCluster)
+        }
+
+        val result = mutableListOf<CardPlacement>()
+
+        for (cluster in clusters) {
+            if (cluster.size == 1) {
+                val single = cluster[0]
+                result.add(CardPlacement(single.first, single.second, colIndex = 0, totalCols = 1))
+                continue
+            }
+
+            val colEndNodes = mutableListOf<Int>()
+            val assignments = mutableListOf<Triple<CourseBean, Boolean, Int>>()
+
+            for (item in cluster) {
+                val c = item.first
+                val cEnd = c.startNode + c.step - 1
+                var assignedCol = -1
+                for (col in 0 until colEndNodes.size) {
+                    if (colEndNodes[col] < c.startNode) {
+                        assignedCol = col
+                        colEndNodes[col] = cEnd
+                        break
+                    }
+                }
+                if (assignedCol == -1) {
+                    assignedCol = colEndNodes.size
+                    colEndNodes.add(cEnd)
+                }
+                assignments.add(Triple(c, item.second, assignedCol))
+            }
+
+            val totalCols = colEndNodes.size.coerceAtLeast(1)
+            for ((c, isWeekActive, colIndex) in assignments) {
+                result.add(CardPlacement(c, isWeekActive, colIndex, totalCols))
+            }
+        }
+
+        return result
     }
 
     private fun dpToPx(dp: Float): Int {

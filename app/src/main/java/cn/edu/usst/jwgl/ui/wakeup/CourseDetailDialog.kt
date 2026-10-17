@@ -26,6 +26,7 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
     private lateinit var course: CourseBean
     private var targetDate: String? = null
     private var targetWeek: Int = -1
+    private var isCurrentWeek: Boolean = true
     private var onCourseChangedListener: (() -> Unit)? = null
 
     fun setOnCourseChangedListener(listener: () -> Unit) {
@@ -37,6 +38,16 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         val args = arguments ?: return
         targetDate = args.getString("targetDate")
         targetWeek = args.getInt("targetWeek", -1)
+        if (args.containsKey("isCurrentWeek")) {
+            isCurrentWeek = args.getBoolean("isCurrentWeek", true)
+        } else if (targetWeek > 0) {
+            val startWeek = args.getInt("startWeek")
+            val endWeek = args.getInt("endWeek")
+            val type = args.getInt("type")
+            val inRange = targetWeek in startWeek..endWeek
+            val typeMatch = type == 0 || (type == 1 && targetWeek % 2 != 0) || (type == 2 && targetWeek % 2 == 0)
+            isCurrentWeek = inRange && typeMatch
+        }
         course = CourseBean(
             id = args.getInt("id"),
             courseName = args.getString("courseName") ?: "",
@@ -123,10 +134,18 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
 
         btnClose.setOnClickListener { dismiss() }
 
-        if (!targetDate.isNullOrBlank()) {
-            btnOpenCourseLive.text = "播放此节回放 ($targetDate)"
+        if (!isCurrentWeek) {
+            btnOpenCourseLive.visibility = View.GONE
+            (btnEditCourse.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin = 0
         } else {
-            btnOpenCourseLive.text = "查看课程直录播"
+            btnOpenCourseLive.visibility = View.VISIBLE
+            (btnEditCourse.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin =
+                (context.resources.displayMetrics.density * 8).toInt()
+            if (!targetDate.isNullOrBlank()) {
+                btnOpenCourseLive.text = "播放此节回放 ($targetDate)"
+            } else {
+                btnOpenCourseLive.text = "查看课程直录播"
+            }
         }
 
         btnOpenCourseLive.setOnClickListener {
@@ -196,7 +215,8 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         fun newInstance(
             course: CourseBean,
             targetDate: String? = null,
-            targetWeek: Int? = null
+            targetWeek: Int? = null,
+            isCurrentWeek: Boolean = true
         ): CourseDetailDialog {
             return CourseDetailDialog().apply {
                 arguments = Bundle().apply {
@@ -218,6 +238,7 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                     if (targetWeek != null) {
                         putInt("targetWeek", targetWeek)
                     }
+                    putBoolean("isCurrentWeek", isCurrentWeek)
                 }
             }
         }
