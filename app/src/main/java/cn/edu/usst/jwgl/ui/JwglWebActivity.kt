@@ -17,12 +17,26 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.webkit.PermissionRequest
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
@@ -103,11 +117,51 @@ class JwglWebActivity : AppCompatActivity() {
         filePathCallback = null
     }
 
+    private var pendingPermissionRequest: PermissionRequest? = null
+
+    private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            onScanResultReceived(result.contents)
+        } else {
+            onScanCanceled()
+        }
+    }
+
+    private val albumQrLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data?.data != null) {
+            decodeQrFromUri(result.data!!.data!!)
+        }
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pendingPermissionRequest?.grant(pendingPermissionRequest?.resources)
+            pendingPermissionRequest = null
+        } else {
+            pendingPermissionRequest?.deny()
+            pendingPermissionRequest = null
+            Toast.makeText(this, "需要相机权限以进行扫码", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     inner class LiveNavInterface {
         @android.webkit.JavascriptInterface
         fun onEpisodeFound(episodeInfo: String) {
             runOnUiThread {
                 Toast.makeText(this@JwglWebActivity, "已自动跳转至：$episodeInfo", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    inner class TronClassScannerInterface {
+        @android.webkit.JavascriptInterface
+        fun startScan() {
+            runOnUiThread {
+                launchNativeScanner()
             }
         }
     }
@@ -181,6 +235,14 @@ class JwglWebActivity : AppCompatActivity() {
         updateDesktopMenuItemTitle()
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                R.id.action_scan -> {
+                    launchNativeScanner()
+                    true
+                }
+                R.id.action_album_scan -> {
+                    launchAlbumScanner()
+                    true
+                }
                 R.id.action_refresh -> {
                     binding.webView.reload()
                     true
@@ -284,6 +346,7 @@ class JwglWebActivity : AppCompatActivity() {
             textZoom = 100
         }
 
+        WebView.setWebContentsDebuggingEnabled(true)
         applyUserAgent(targetUrl)
 
         val cookieManager = CookieManager.getInstance()
@@ -291,8 +354,25 @@ class JwglWebActivity : AppCompatActivity() {
         cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
+        binding.webView.addJavascriptInterface(TronClassScannerInterface(), "AndroidScannerBridge")
 
         binding.webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                if (request == null) return
+                val resources = request.resources
+                val hasVideo = resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                if (hasVideo) {
+                    if (ContextCompat.checkSelfPermission(this@JwglWebActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(resources)
+                    } else {
+                        pendingPermissionRequest = request
+                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                } else {
+                    request.grant(resources)
+                }
+            }
+
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: android.webkit.ValueCallback<Array<Uri>>?,
@@ -392,6 +472,9 @@ class JwglWebActivity : AppCompatActivity() {
                 Log.d(TAG, "onPageStarted: host=$host, url=$url")
                 if (url != null && !url.contains("authserver/login")) {
                     casAttemptCount = 0
+                }
+                if (url != null && (url.contains(":28080") || url.contains("10.1.15.15"))) {
+                    injectTronClassScannerBridge()
                 }
             }
 
@@ -646,6 +729,11 @@ class JwglWebActivity : AppCompatActivity() {
                     """.trimIndent()
                     view?.evaluateJavascript(jsSearch, null)
                 }
+
+                // Inject TronClass scanner bridge on TronClass pages
+                if (url != null && (url.contains(":28080") || url.contains("10.1.15.15"))) {
+                    injectTronClassScannerBridge()
+                }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -769,6 +857,184 @@ class JwglWebActivity : AppCompatActivity() {
         cookieManager.setCookie("https://ids6.usst.edu.cn/", "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure")
         cookieManager.flush()
         Log.d(TAG, "Synced ${cookies.size} cookies to Android WebView")
+    }
+
+    fun launchNativeScanner() {
+        val options = ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("对准一网畅学二维码（签到 / 课堂互动 / 电脑端登录）")
+            setCameraId(0)
+            setBeepEnabled(true)
+            setBarcodeImageEnabled(false)
+            setOrientationLocked(false)
+        }
+        scanLauncher.launch(options)
+    }
+
+    fun launchAlbumScanner() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        albumQrLauncher.launch(intent)
+    }
+
+    private fun decodeQrFromUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val bitmap = BitmapFactory.decodeStream(stream) ?: return@use
+                    val intArray = IntArray(bitmap.width * bitmap.height)
+                    bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    val source = RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
+                    val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
+                    val hints = mapOf(
+                        DecodeHintType.TRY_HARDER to true,
+                        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)
+                    )
+                    val result = MultiFormatReader().decode(binaryBitmap, hints)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@JwglWebActivity, "相册识码成功", Toast.LENGTH_SHORT).show()
+                        onScanResultReceived(result.text)
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@JwglWebActivity, "未在所选图片中识别到二维码", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun onScanResultReceived(codeStr: String) {
+        Log.d(TAG, "onScanResultReceived: codeStr=$codeStr")
+        val quoted = JSONObject.quote(codeStr)
+        val js = """
+            (function() {
+                try {
+                    if (window.__nativeScanResolve) {
+                        window.__nativeScanResolve({ content: $quoted });
+                        window.__nativeScanResolve = null;
+                    }
+                    var app = document.querySelector('#app');
+                    var vueApp = app ? app.__vue_app__ : null;
+                    var router = vueApp && vueApp.config ? vueApp.config.globalProperties.${'$'}router : null;
+                    if (router) {
+                        router.push({
+                            name: 'scanner',
+                            params: { codeStr: $quoted }
+                        });
+                    }
+                } catch (e) {
+                    console.error('Failed to dispatch scan result', e);
+                }
+            })();
+        """.trimIndent()
+        binding.webView.evaluateJavascript(js, null)
+    }
+
+    private fun onScanCanceled() {
+        val js = """
+            (function() {
+                try {
+                    if (window.__nativeScanReject) {
+                        window.__nativeScanReject(new Error('User cancelled scan'));
+                        window.__nativeScanReject = null;
+                    }
+                    var app = document.querySelector('#app');
+                    var vueApp = app ? app.__vue_app__ : null;
+                    var router = vueApp && vueApp.config ? vueApp.config.globalProperties.${'$'}router : null;
+                    if (router) {
+                        var cur = router.currentRoute.value;
+                        if (cur && (cur.name === 'scanner' || cur.path === '/scanner') && (!cur.params || !cur.params.codeStr)) {
+                            router.go(-1);
+                        }
+                    }
+                } catch (e) {}
+            })();
+        """.trimIndent()
+        binding.webView.evaluateJavascript(js, null)
+    }
+
+    private fun injectTronClassScannerBridge() {
+        val js = """
+            (function() {
+                if (window.__tronclass_scanner_bridge_injected) return;
+                window.__tronclass_scanner_bridge_injected = true;
+
+                // 1. Polyfill window.Capacitor.Plugins.BarcodeScanner
+                if (window.Capacitor && window.Capacitor.Plugins) {
+                    window.Capacitor.Plugins.BarcodeScanner = {
+                        prepare: function() { return Promise.resolve(); },
+                        hideBackground: function() {},
+                        showBackground: function() {},
+                        stopScan: function() { return Promise.resolve(); },
+                        addListener: function() { return { remove: function() {} }; },
+                        startScan: function() {
+                            return new Promise(function(resolve, reject) {
+                                window.__nativeScanResolve = resolve;
+                                window.__nativeScanReject = reject;
+                                if (window.AndroidScannerBridge) {
+                                    window.AndroidScannerBridge.startScan();
+                                }
+                            });
+                        }
+                    };
+                }
+
+                // 2. Intercept click events on scan buttons in capturing phase
+                document.addEventListener('click', function(e) {
+                    try {
+                        var el = e.target;
+                        while (el && el !== document.body && el !== document.documentElement) {
+                            var testId = el.getAttribute ? el.getAttribute('data-testid') : null;
+                            var text = el.innerText ? el.innerText.trim() : '';
+                            var isScan = testId === 'quickscan' ||
+                                         (el.classList && el.classList.contains('home-action__item') && text.indexOf('扫码') !== -1) ||
+                                         (el.classList && el.classList.contains('search-header__quickScan-Fhf2R')) ||
+                                         (text === '扫码' && el.parentElement && el.parentElement.innerText.indexOf('扫码') !== -1);
+                            if (isScan) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.stopImmediatePropagation();
+                                if (window.AndroidScannerBridge) {
+                                    window.AndroidScannerBridge.startScan();
+                                }
+                                return false;
+                            }
+                            el = el.parentElement;
+                        }
+                    } catch (err) {}
+                }, true);
+
+                // 3. Intercept Vue Router beforeEach to /scanner
+                function hookRouter() {
+                    try {
+                        var app = document.querySelector('#app');
+                        var vueApp = app ? app.__vue_app__ : null;
+                        var router = vueApp && vueApp.config ? vueApp.config.globalProperties.${'$'}router : null;
+                        if (router && !window.__tronclass_router_hooked) {
+                            window.__tronclass_router_hooked = true;
+                            router.beforeEach(function(to, from) {
+                                if (to.name === 'scanner' || to.path === '/scanner') {
+                                    if (!to.params?.codeStr && !to.query?.codeStr) {
+                                        if (window.AndroidScannerBridge) {
+                                            window.AndroidScannerBridge.startScan();
+                                        }
+                                        return false;
+                                    }
+                                }
+                            });
+                        }
+                    } catch (err) {}
+                }
+
+                hookRouter();
+                var interval = setInterval(hookRouter, 800);
+                setTimeout(function() { clearInterval(interval); }, 15000);
+            })();
+        """.trimIndent()
+        binding.webView.evaluateJavascript(js, null)
     }
 
     override fun onDestroy() {

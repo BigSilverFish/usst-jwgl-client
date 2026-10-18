@@ -41,3 +41,9 @@
     public static int i(...);
 }
 
+# ZXing Embedded
+-dontwarn com.google.zxing.**
+-dontwarn com.journeyapps.barcodescanner.**
+-keep class com.journeyapps.barcodescanner.** { *; }
+-keep class com.google.zxing.** { *; }
+
