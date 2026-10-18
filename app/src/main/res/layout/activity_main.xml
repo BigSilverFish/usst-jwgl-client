@@ -845,7 +845,7 @@
                                 app:iconSize="15dp" />
                         </LinearLayout>
 
-                        <!-- Row 3: Live Video Web -->
+                        <!-- Row 3: Live Video Web & TronClass Web -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -855,14 +855,33 @@
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btnProfileLiveWeb"
                                 style="@style/Widget.Material3.Button.OutlinedButton"
-                                android:layout_width="match_parent"
+                                android:layout_width="0dp"
                                 android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
                                 android:insetTop="0dp"
                                 android:insetBottom="0dp"
-                                android:text="课程直播与点播平台 (live)"
+                                android:text="直播/点播平台"
                                 android:textSize="12.5sp"
                                 app:cornerRadius="12dp"
                                 app:icon="@drawable/ic_live_video"
+                                app:iconGravity="textStart"
+                                app:iconPadding="6dp"
+                                app:iconSize="15dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnProfileYwcxWeb"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="一网畅学平台"
+                                android:textSize="12.5sp"
+                                app:cornerRadius="12dp"
+                                app:icon="@drawable/ic_school"
                                 app:iconGravity="textStart"
                                 app:iconPadding="6dp"
                                 app:iconSize="15dp" />

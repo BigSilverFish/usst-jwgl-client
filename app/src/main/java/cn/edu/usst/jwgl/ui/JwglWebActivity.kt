@@ -39,6 +39,7 @@ class JwglWebActivity : AppCompatActivity() {
         private const val TAG = "JwglWebActivity"
         private const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
+        const val YWCX_TARGET_URL = "http://10.1.15.15:28080/"
         const val EXTRA_URL = "extra_target_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
@@ -80,6 +81,27 @@ class JwglWebActivity : AppCompatActivity() {
     private var targetDate: String? = null
     private var targetNode: Int = -1
     private var isDesktopMode = false
+    private var filePathCallback: android.webkit.ValueCallback<Array<Uri>>? = null
+
+    private val fileChooserLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val intentData = result.data
+            val results = when {
+                intentData?.data != null -> arrayOf(intentData.data!!)
+                intentData?.clipData != null -> {
+                    val clip = intentData.clipData!!
+                    Array(clip.itemCount) { clip.getItemAt(it).uri }
+                }
+                else -> null
+            }
+            filePathCallback?.onReceiveValue(results)
+        } else {
+            filePathCallback?.onReceiveValue(null)
+        }
+        filePathCallback = null
+    }
 
     inner class LiveNavInterface {
         @android.webkit.JavascriptInterface
@@ -121,7 +143,7 @@ class JwglWebActivity : AppCompatActivity() {
     private fun isAllowedUsstHost(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
         val lower = host.lowercase()
-        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn")
+        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn") || lower == "10.1.15.15"
     }
 
     private fun sanitizeAndValidateUrl(url: String): String {
@@ -138,7 +160,10 @@ class JwglWebActivity : AppCompatActivity() {
         }
         return when (uri.scheme?.lowercase()) {
             "https" -> uri.toString()
-            "http" -> uri.buildUpon().scheme("https").build().toString()
+            "http" -> {
+                if (host == "10.1.15.15") uri.toString()
+                else uri.buildUpon().scheme("https").build().toString()
+            }
             else -> DEFAULT_TARGET_URL
         }
     }
@@ -149,11 +174,7 @@ class JwglWebActivity : AppCompatActivity() {
                 binding.webView.webChromeClient?.onHideCustomView()
                 return@setNavigationOnClickListener
             }
-            if (binding.webView.canGoBack()) {
-                binding.webView.goBack()
-            } else {
-                finish()
-            }
+            performSafeBack()
         }
 
         binding.toolbar.inflateMenu(R.menu.menu_web_activity)
@@ -199,13 +220,36 @@ class JwglWebActivity : AppCompatActivity() {
                     binding.webView.webChromeClient?.onHideCustomView()
                     return
                 }
-                if (binding.webView.canGoBack()) {
-                    binding.webView.goBack()
-                } else {
-                    finish()
-                }
+                performSafeBack()
             }
         })
+    }
+
+    private fun performSafeBack() {
+        if (!binding.webView.canGoBack()) {
+            finish()
+            return
+        }
+        val list = binding.webView.copyBackForwardList()
+        var targetSteps = 0
+        for (i in list.currentIndex - 1 downTo 0) {
+            val itemUrl = list.getItemAtIndex(i)?.url?.lowercase() ?: ""
+            val isAuthOrSplash = itemUrl.contains("/authserver/") ||
+                                 itemUrl.contains("login") ||
+                                 itemUrl.contains("ticket=") ||
+                                 itemUrl.endsWith(":28080/") ||
+                                 itemUrl.endsWith(":28080") ||
+                                 (itemUrl.contains("cas") && itemUrl.contains("service="))
+            if (!isAuthOrSplash) {
+                targetSteps = i - list.currentIndex
+                break
+            }
+        }
+        if (targetSteps < 0) {
+            binding.webView.goBackOrForward(targetSteps)
+        } else {
+            finish()
+        }
     }
 
     private fun applyUserAgent(url: String) {
@@ -229,13 +273,13 @@ class JwglWebActivity : AppCompatActivity() {
             domStorageEnabled = true
             databaseEnabled = true
             allowFileAccess = false
-            allowContentAccess = false
+            allowContentAccess = true
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             mediaPlaybackRequiresUserGesture = false
             textZoom = 100
         }
@@ -249,6 +293,33 @@ class JwglWebActivity : AppCompatActivity() {
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
 
         binding.webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: android.webkit.ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@JwglWebActivity.filePathCallback?.onReceiveValue(null)
+                this@JwglWebActivity.filePathCallback = filePathCallback
+                try {
+                    val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                        type = "*/*"
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                    }
+                    fileChooserLauncher.launch(intent)
+                    return true
+                } catch (e: Exception) {
+                    this@JwglWebActivity.filePathCallback = null
+                    return false
+                }
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: android.webkit.GeolocationPermissions.Callback?
+            ) {
+                callback?.invoke(origin, true, false)
+            }
+
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress < 100) {
                     binding.progressBar.visibility = View.VISIBLE
@@ -592,7 +663,7 @@ class JwglWebActivity : AppCompatActivity() {
                     return true
                 }
 
-                if (scheme == "http") {
+                if (scheme == "http" && host != "10.1.15.15") {
                     val httpsUrl = uri.buildUpon().scheme("https").build().toString()
                     view?.loadUrl(httpsUrl)
                     return true
@@ -607,6 +678,15 @@ class JwglWebActivity : AppCompatActivity() {
         val authPrefs = AuthPreferences(this)
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
+
+        if (targetUrl.contains("10.1.15.15")) {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setCookie("https://ids6.usst.edu.cn/", "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure")
+            cookieManager.flush()
+            binding.layoutLoading.visibility = View.GONE
+            binding.webView.loadUrl(targetUrl)
+            return
+        }
 
         if (targetUrl.contains("live.usst.edu.cn")) {
             val cookieManager = CookieManager.getInstance()

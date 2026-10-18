@@ -947,6 +947,10 @@ class MainActivity : AppCompatActivity() {
             JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
         }
 
+        if (intent.getBooleanExtra("extra_open_ywcx_web", false)) {
+            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
+        }
+
         if (intent.hasExtra("extra_simulate_hour")) {
             val h = intent.getIntExtra("extra_simulate_hour", -1)
             if (h >= 0) {
@@ -2504,6 +2508,9 @@ class MainActivity : AppCompatActivity() {
         binding.pageMoreFeatures.rowMoreLiveWeb.setOnClickListener {
             JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
         }
+        binding.pageMoreFeatures.rowMoreYwcxWeb.setOnClickListener {
+            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
+        }
 
         // Quick Service Entries in Profile (Bottom Bar Mode)
         binding.btnProfileExamQuery.setOnClickListener {
@@ -2520,6 +2527,9 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnProfileLiveWeb.setOnClickListener {
             JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
+        }
+        binding.btnProfileYwcxWeb.setOnClickListener {
+            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
         }
 
         // Hamburger Menu Buttons to Open Drawer
@@ -2582,6 +2592,11 @@ class MainActivity : AppCompatActivity() {
         binding.layoutDrawer.drawerItemLiveWeb.setOnClickListener {
             closeNavDrawer()
             JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
+        }
+
+        binding.layoutDrawer.drawerItemYwcxWeb.setOnClickListener {
+            closeNavDrawer()
+            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
         }
 
         // Side Navigation Drawer: Logout
