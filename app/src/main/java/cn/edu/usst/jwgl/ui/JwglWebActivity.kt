@@ -866,7 +866,8 @@ class JwglWebActivity : AppCompatActivity() {
             setCameraId(0)
             setBeepEnabled(true)
             setBarcodeImageEnabled(false)
-            setOrientationLocked(false)
+            setOrientationLocked(true)
+            setCaptureActivity(PortraitCaptureActivity::class.java)
         }
         scanLauncher.launch(options)
     }
