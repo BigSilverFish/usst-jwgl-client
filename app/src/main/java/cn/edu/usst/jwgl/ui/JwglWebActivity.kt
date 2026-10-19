@@ -53,7 +53,7 @@ class JwglWebActivity : AppCompatActivity() {
         private const val TAG = "JwglWebActivity"
         private const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
-        const val YWCX_TARGET_URL = "http://10.1.15.15:28080/"
+        const val YWCX_TARGET_URL = "http://1906.usst.edu.cn:28080/"
         const val EXTRA_URL = "extra_target_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
@@ -148,6 +148,25 @@ class JwglWebActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingGeolocationCallback: android.webkit.GeolocationPermissions.Callback? = null
+    private var pendingGeolocationOrigin: String? = null
+
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        val granted = fineGranted || coarseGranted
+        if (granted) {
+            pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, true, false)
+        } else {
+            pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)
+            Toast.makeText(this, "需要定位权限以完成课堂签到", Toast.LENGTH_SHORT).show()
+        }
+        pendingGeolocationCallback = null
+        pendingGeolocationOrigin = null
+    }
+
     inner class LiveNavInterface {
         @android.webkit.JavascriptInterface
         fun onEpisodeFound(episodeInfo: String) {
@@ -215,7 +234,7 @@ class JwglWebActivity : AppCompatActivity() {
         return when (uri.scheme?.lowercase()) {
             "https" -> uri.toString()
             "http" -> {
-                if (host == "10.1.15.15") uri.toString()
+                if (host == "10.1.15.15" || uri.port == 28080) uri.toString()
                 else uri.buildUpon().scheme("https").build().toString()
             }
             else -> DEFAULT_TARGET_URL
@@ -334,6 +353,7 @@ class JwglWebActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
+            setGeolocationEnabled(true)
             allowFileAccess = false
             allowContentAccess = true
             useWideViewPort = true
@@ -397,7 +417,28 @@ class JwglWebActivity : AppCompatActivity() {
                 origin: String?,
                 callback: android.webkit.GeolocationPermissions.Callback?
             ) {
-                callback?.invoke(origin, true, false)
+                if (callback == null) return
+                val fineGranted = ContextCompat.checkSelfPermission(
+                    this@JwglWebActivity,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+                val coarseGranted = ContextCompat.checkSelfPermission(
+                    this@JwglWebActivity,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (fineGranted || coarseGranted) {
+                    callback.invoke(origin, true, false)
+                } else {
+                    pendingGeolocationCallback = callback
+                    pendingGeolocationOrigin = origin
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
             }
 
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
