@@ -150,13 +150,18 @@ class TronClassCourseDetailFragment : Fragment() {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val decorView = requireActivity().window.decorView
-            val rootView = decorView.findViewById<ViewGroup>(android.R.id.content) ?: decorView as ViewGroup
-            val windowBackground = decorView.background
+            binding.blurViewCourseDetail.post {
+                val act = activity ?: return@post
+                val decorView = act.window.decorView
+                val rootView = decorView.findViewById<ViewGroup>(android.R.id.content) ?: decorView as ViewGroup
+                val windowBackground = decorView.background
 
-            binding.blurViewCourseDetail.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
+                try {
+                    binding.blurViewCourseDetail.setupWith(rootView, RenderEffectBlur())
+                        .setFrameClearDrawable(windowBackground)
+                        .setBlurRadius(20f)
+                } catch (_: Exception) {}
+            }
         }
 
         setupToolbar()
@@ -258,16 +263,36 @@ class TronClassCourseDetailFragment : Fragment() {
 
         // 0. 本地缓存秒级直出 (离线优先，重新进入或切换 Tab 0ms 瞬间显示，拒绝数秒白屏与假性“暂无”)
         val cacheMgr = TronClassDataCacheManager.getInstance(context)
-        val initialExams = cacheMgr.getCachedCourseExams(courseId)
-        if (initialExams.isNotEmpty()) {
-            cachedExams = initialExams
-            examAdapter.updateData(initialExams)
+        val initialModules = cacheMgr.getCachedCourseModules(courseId)
+        if (initialModules.isNotEmpty()) {
+            cachedModules = initialModules
         }
         val initialSyllabus = cacheMgr.getCachedCourseSyllabus(courseId)
         if (initialSyllabus.isNotEmpty()) {
             cachedActivities = initialSyllabus
+            val initialReads = cacheMgr.getCachedCourseReads(courseId)
+            var completedCount = 0
+            for (act in cachedActivities) {
+                val comp = initialReads[act.id]
+                act.completeness = comp
+                if (comp == "full" || comp == "complete") {
+                    completedCount++
+                }
+            }
+            val totalActs = cachedActivities.size
+            if (totalActs > 0) {
+                val percent = (completedCount * 100) / totalActs
+                binding.progressLearning.progress = percent
+                binding.tvProgressText.text = "已完成 $percent% ($completedCount / $totalActs 项)"
+                binding.layoutLearningProgress.visibility = View.VISIBLE
+            }
             val uiItems = buildCourseStructure(cachedModules, cachedActivities)
             activityAdapter.updateData(uiItems)
+        }
+        val initialExams = cacheMgr.getCachedCourseExams(courseId)
+        if (initialExams.isNotEmpty()) {
+            cachedExams = initialExams
+            examAdapter.updateData(initialExams)
         }
         val initialMembers = cacheMgr.getCachedCourseMembers(courseId)
         if (initialMembers.isNotEmpty()) {
@@ -353,88 +378,118 @@ class TronClassCourseDetailFragment : Fragment() {
             return
         }
 
-        binding.swipeRefresh.isRefreshing = true
+        val hasCache = cachedActivities.isNotEmpty()
+        if (!hasCache || forceRefresh) {
+            binding.swipeRefresh.isRefreshing = true
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            // 并发获取：章节大纲、活动列表、已读/完成进度、测验列表、班级成员、公告
+            val ctx = context ?: return@launch
+            val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
+
+            // 1. 核心大纲/课件优先异步通道 (Modules + Activities + Reads)
             val modulesDef = async { client.fetchCourseModules(courseId) }
             val activitiesDef = async { client.fetchCourseActivities(courseId) }
             val readsDef = async { client.fetchActivityReads(courseId) }
-            val examsDef = async {
-                val res = client.fetchCourseExams(courseId)
-                val list = res.getOrDefault(emptyList())
-                if (list.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        cachedExams = list
-                        examAdapter.updateData(list)
-                        if (binding.tabLayout.selectedTabPosition == 1) {
-                            checkEmptyState(list.isEmpty(), "本课程暂无测验与考试")
-                        }
-                    }
-                }
-                res
-            }
+
+            // 2. 次要信息异步通道 (Exams + Members + Bulletins)
+            val examsDef = async { client.fetchCourseExams(courseId) }
             val membersDef = async { client.fetchCourseMembers(courseId) }
             val bulletinsDef = async { client.fetchCourseBulletins(courseId) }
 
+            // 优先等待核心大纲返回并即时渲染上屏 (避免次要信息拖慢核心课件显示)
             val modulesRes = modulesDef.await()
             val activitiesRes = activitiesDef.await()
             val readsRes = readsDef.await()
+
+            if (modulesRes.isSuccess) {
+                cachedModules = modulesRes.getOrDefault(emptyList())
+                if (cachedModules.isNotEmpty()) {
+                    cacheMgr.saveCourseModules(courseId, cachedModules)
+                }
+            }
+            if (activitiesRes.isSuccess) {
+                cachedActivities = activitiesRes.getOrDefault(emptyList())
+                val readsMap = readsRes.getOrDefault(emptyMap())
+                if (cachedActivities.isNotEmpty()) {
+                    cacheMgr.saveCourseSyllabus(courseId, cachedActivities)
+                }
+                if (readsMap.isNotEmpty()) {
+                    cacheMgr.saveCourseReads(courseId, readsMap)
+                }
+
+                var completedCount = 0
+                for (act in cachedActivities) {
+                    val comp = readsMap[act.id]
+                    act.completeness = comp
+                    if (comp == "full" || comp == "complete") {
+                        completedCount++
+                    }
+                }
+
+                val totalActs = cachedActivities.size
+                if (totalActs > 0) {
+                    val percent = (completedCount * 100) / totalActs
+                    binding.progressLearning.progress = percent
+                    binding.tvProgressText.text = "已完成 $percent% ($completedCount / $totalActs 项)"
+                    binding.layoutLearningProgress.visibility = View.VISIBLE
+
+                    if (percent >= 100) {
+                        binding.btnAutoFastProgress.text = "已满额"
+                        binding.btnAutoFastProgress.isEnabled = false
+                    } else {
+                        binding.btnAutoFastProgress.text = "自动刷课"
+                        binding.btnAutoFastProgress.isEnabled = true
+                    }
+                } else {
+                    binding.layoutLearningProgress.visibility = View.GONE
+                }
+
+                val uiItems = buildCourseStructure(cachedModules, cachedActivities)
+                activityAdapter.updateData(uiItems)
+                if (binding.tabLayout.selectedTabPosition == 0) {
+                    checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
+                }
+            }
+
+            // 次要信息随后就绪，增量写回缓存与 Adapter
             val examsRes = examsDef.await()
+            if (examsRes.isSuccess) {
+                cachedExams = examsRes.getOrDefault(emptyList())
+                if (cachedExams.isNotEmpty()) {
+                    cacheMgr.saveCourseExams(courseId, cachedExams)
+                }
+                examAdapter.updateData(cachedExams)
+                if (binding.tabLayout.selectedTabPosition == 1) {
+                    checkEmptyState(cachedExams.isEmpty(), "本课程暂无测验与考试")
+                }
+            }
+
             val membersRes = membersDef.await()
+            if (membersRes.isSuccess) {
+                cachedMembers = membersRes.getOrDefault(emptyList())
+                if (cachedMembers.isNotEmpty()) {
+                    cacheMgr.saveCourseMembers(courseId, cachedMembers)
+                }
+                memberAdapter.updateData(cachedMembers)
+                if (binding.tabLayout.selectedTabPosition == 2) {
+                    checkEmptyState(cachedMembers.isEmpty(), "暂无班级成员名单")
+                }
+            }
+
             val bulletinsRes = bulletinsDef.await()
+            if (bulletinsRes.isSuccess) {
+                cachedBulletins = bulletinsRes.getOrDefault(emptyList())
+                if (cachedBulletins.isNotEmpty()) {
+                    cacheMgr.saveCourseBulletins(courseId, cachedBulletins)
+                }
+                bulletinAdapter.updateData(cachedBulletins)
+                if (binding.tabLayout.selectedTabPosition == 3) {
+                    checkEmptyState(cachedBulletins.isEmpty(), "暂无课程公告")
+                }
+            }
 
             binding.swipeRefresh.isRefreshing = false
-
-            cachedModules = modulesRes.getOrDefault(emptyList())
-            cachedActivities = activitiesRes.getOrDefault(emptyList())
-            val readsMap = readsRes.getOrDefault(emptyMap())
-            cachedExams = examsRes.getOrDefault(emptyList())
-            cachedMembers = membersRes.getOrDefault(emptyList())
-            cachedBulletins = bulletinsRes.getOrDefault(emptyList())
-
-            // 1. 匹配学习进度并计算统计数据
-            var completedCount = 0
-            for (act in cachedActivities) {
-                val comp = readsMap[act.id]
-                act.completeness = comp
-                if (comp == "full" || comp == "complete") {
-                    completedCount++
-                }
-            }
-
-            val totalActs = cachedActivities.size
-            if (totalActs > 0) {
-                val percent = (completedCount * 100) / totalActs
-                binding.progressLearning.progress = percent
-                binding.tvProgressText.text = "已完成 $percent% ($completedCount / $totalActs 项)"
-                binding.layoutLearningProgress.visibility = View.VISIBLE
-
-                if (percent >= 100) {
-                    binding.btnAutoFastProgress.text = "已满额"
-                    binding.btnAutoFastProgress.isEnabled = false
-                } else {
-                    binding.btnAutoFastProgress.text = "自动刷课"
-                    binding.btnAutoFastProgress.isEnabled = true
-                }
-            } else {
-                binding.layoutLearningProgress.visibility = View.GONE
-            }
-
-            // 2. 更新各个 Tab 的 Adapter
-            val uiItems = buildCourseStructure(cachedModules, cachedActivities)
-            activityAdapter.updateData(uiItems)
-            examAdapter.updateData(cachedExams)
-            memberAdapter.updateData(cachedMembers)
-            bulletinAdapter.updateData(cachedBulletins)
-
-            // 3. 更新当前可见 Tab 的空数据状态
-            when (binding.tabLayout.selectedTabPosition) {
-                0 -> checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
-                1 -> checkEmptyState(cachedExams.isEmpty(), "本课程暂无测验与考试")
-                2 -> checkEmptyState(cachedMembers.isEmpty(), "暂无班级成员名单")
-                3 -> checkEmptyState(cachedBulletins.isEmpty(), "暂无课程公告")
-            }
         }
     }
 

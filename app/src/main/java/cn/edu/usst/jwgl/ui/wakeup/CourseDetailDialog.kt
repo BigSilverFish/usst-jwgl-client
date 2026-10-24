@@ -14,12 +14,15 @@ import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.wakeup.CourseBean
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.ui.JwglWebActivity
+import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseDetailActivity
 
 class CourseDetailDialog : BottomSheetDialogFragment() {
 
@@ -131,6 +134,46 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             else -> " (全周)"
         }
         tvDetailWeeks.text = "第 ${course.startWeek} - ${course.endWeek} 周$typeStr"
+
+        // --- 一网畅学 (TronClass) 深度联动 ---
+        val cardTronClassLink = view.findViewById<MaterialCardView>(R.id.cardTronClassLink)
+        val tvTronClassLinkTitle = view.findViewById<TextView>(R.id.tvTronClassLinkTitle)
+        val tvTronClassLinkSub = view.findViewById<TextView>(R.id.tvTronClassLinkSub)
+
+        try {
+            val cacheMgr = TronClassDataCacheManager.getInstance(context)
+            val cachedCourses = cacheMgr.getCachedCourses()
+            val matchedCourse = TronClassDataCacheManager.findMatchingCourse(course.courseName, cachedCourses)
+
+            if (matchedCourse != null) {
+                cardTronClassLink.visibility = View.VISIBLE
+                tvTronClassLinkTitle.text = "${matchedCourse.getCleanName()} · 课件与大纲"
+
+                val cachedTodos = cacheMgr.getCachedTodos()
+                val courseTodos = cachedTodos.filter {
+                    it.courseId == matchedCourse.id ||
+                    it.getCleanCourseName().equals(matchedCourse.getCleanName(), ignoreCase = true)
+                }
+                val pendingTodos = courseTodos.filter { !it.isOverdue() }
+                if (pendingTodos.isNotEmpty()) {
+                    val mostUrgent = pendingTodos.minByOrNull { it.getRemainingHours() } ?: pendingTodos.first()
+                    tvTronClassLinkSub.text = "待办: ${mostUrgent.getCleanTitle()} (${mostUrgent.getRemainingTimeText()})"
+                    tvTronClassLinkSub.setTextColor(context.getColor(R.color.primary))
+                } else {
+                    tvTronClassLinkSub.text = "点击进入原生课件、测验与大纲"
+                    tvTronClassLinkSub.setTextColor(context.getColor(R.color.text_secondary))
+                }
+
+                cardTronClassLink.setOnClickListener {
+                    dismiss()
+                    TronClassCourseDetailActivity.start(context, matchedCourse)
+                }
+            } else {
+                cardTronClassLink.visibility = View.GONE
+            }
+        } catch (e: Exception) {
+            cardTronClassLink.visibility = View.GONE
+        }
 
         btnClose.setOnClickListener { dismiss() }
 

@@ -28,6 +28,12 @@ class TronClassDataCacheManager(private val context: Context) {
         private const val KEY_TODOS = "tc_cache_todos"
         private const val KEY_TODOS_TIME = "tc_cache_todos_time"
 
+        private const val PREFIX_MODULES = "tc_cache_modules_"
+        private const val PREFIX_MODULES_TIME = "tc_cache_modules_time_"
+
+        private const val PREFIX_READS = "tc_cache_reads_"
+        private const val PREFIX_READS_TIME = "tc_cache_reads_time_"
+
         private const val PREFIX_SYLLABUS = "tc_cache_syllabus_"
         private const val PREFIX_SYLLABUS_TIME = "tc_cache_syllabus_time_"
 
@@ -124,11 +130,36 @@ class TronClassDataCacheManager(private val context: Context) {
             clearDataCache(context)
             clearDownloadFiles(context)
         }
+
+        /**
+         * 智能课表与一网畅学课程匹配器
+         */
+        fun findMatchingCourse(courseName: String, courses: List<TronClassCourse>): TronClassCourse? {
+            if (courses.isEmpty() || courseName.isBlank()) return null
+            val targetClean = courseName.trim()
+                .replace(Regex("""\(.*?\)|（.*?）"""), "")
+                .trim()
+            
+            // 1. 精确 cleanName 匹配
+            val exact = courses.firstOrNull {
+                it.getCleanName().equals(targetClean, ignoreCase = true) ||
+                it.getCleanName().equals(courseName.trim(), ignoreCase = true)
+            }
+            if (exact != null) return exact
+
+            // 2. 包含匹配 (如 "数字图像处理A" vs "数字图像处理")
+            val contains = courses.firstOrNull {
+                val cn = it.getCleanName()
+                cn.contains(targetClean, ignoreCase = true) || targetClean.contains(cn, ignoreCase = true)
+            }
+            return contains
+        }
     }
 
     // --- 1. 我的课程缓存 ---
     fun saveCourses(courses: List<TronClassCourse>) {
         if (courses.isEmpty()) return
+        TronClassPreferences(context).saveCachedCourses(courses)
         prefs.edit()
             .putString(KEY_COURSES, gson.toJson(courses))
             .putLong(KEY_COURSES_TIME, System.currentTimeMillis())
@@ -136,6 +167,8 @@ class TronClassDataCacheManager(private val context: Context) {
     }
 
     fun getCachedCourses(): List<TronClassCourse> {
+        val prefCourses = TronClassPreferences(context).getCachedCourses()
+        if (prefCourses.isNotEmpty()) return prefCourses
         val json = prefs.getString(KEY_COURSES, null) ?: return emptyList()
         return try {
             val type = object : TypeToken<List<TronClassCourse>>() {}.type
@@ -149,6 +182,7 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 2. 待办事项缓存 ---
     fun saveTodos(todos: List<TronClassTodo>) {
+        TronClassPreferences(context).saveCachedTodos(todos)
         prefs.edit()
             .putString(KEY_TODOS, gson.toJson(todos))
             .putLong(KEY_TODOS_TIME, System.currentTimeMillis())
@@ -156,6 +190,8 @@ class TronClassDataCacheManager(private val context: Context) {
     }
 
     fun getCachedTodos(): List<TronClassTodo> {
+        val prefTodos = TronClassPreferences(context).getCachedTodos()
+        if (prefTodos.isNotEmpty()) return prefTodos
         val json = prefs.getString(KEY_TODOS, null) ?: return emptyList()
         return try {
             val type = object : TypeToken<List<TronClassTodo>>() {}.type
@@ -167,7 +203,45 @@ class TronClassDataCacheManager(private val context: Context) {
 
     fun getTodosCacheTime(): Long = prefs.getLong(KEY_TODOS_TIME, 0L)
 
-    // --- 3. 课程章节大纲/课件目录缓存 ---
+    // --- 3. 课程章节目录 (Modules) 缓存 ---
+    fun saveCourseModules(courseId: Long, modules: List<TronClassModule>) {
+        if (modules.isEmpty()) return
+        prefs.edit()
+            .putString(PREFIX_MODULES + courseId, gson.toJson(modules))
+            .putLong(PREFIX_MODULES_TIME + courseId, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedCourseModules(courseId: Long): List<TronClassModule> {
+        val json = prefs.getString(PREFIX_MODULES + courseId, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<TronClassModule>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    // --- 3.1 学习进度 / 完成度映射缓存 ---
+    fun saveCourseReads(courseId: Long, reads: Map<Long, String>) {
+        if (reads.isEmpty()) return
+        prefs.edit()
+            .putString(PREFIX_READS + courseId, gson.toJson(reads))
+            .putLong(PREFIX_READS_TIME + courseId, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedCourseReads(courseId: Long): Map<Long, String> {
+        val json = prefs.getString(PREFIX_READS + courseId, null) ?: return emptyMap()
+        return try {
+            val type = object : TypeToken<Map<Long, String>>() {}.type
+            gson.fromJson(json, type) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    // --- 3.2 课程章节大纲/课件目录缓存 ---
     fun saveCourseSyllabus(courseId: Long, activities: List<TronClassActivityItem>) {
         if (activities.isEmpty()) return
         prefs.edit()

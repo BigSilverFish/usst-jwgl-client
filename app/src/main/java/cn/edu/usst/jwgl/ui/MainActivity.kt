@@ -33,6 +33,7 @@ import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
+import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeDocumentType
@@ -4658,6 +4659,20 @@ class MainActivity : AppCompatActivity() {
         binding.pageTronclass.rvTronClassCourses.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
         binding.pageTronclass.rvTronClassCourses.adapter = tronClassCourseAdapter
 
+        // 🚀 0ms 瞬间秒开：先从本地持久化缓存立即铺满待办与课程列表，拒绝白屏与等待
+        val cacheMgr = TronClassDataCacheManager.getInstance(this)
+        val cachedTodos = cacheMgr.getCachedTodos()
+        if (cachedTodos.isNotEmpty()) {
+            tronClassTodoAdapter.updateData(cachedTodos)
+            binding.pageTronclass.tvTronClassTodoBadge.text = "${cachedTodos.size} 项待办"
+            binding.pageTronclass.tvTronClassEmptyTodos.visibility = View.GONE
+        }
+        val cachedCourses = cacheMgr.getCachedCourses()
+        if (cachedCourses.isNotEmpty()) {
+            allTronClassCourses = cachedCourses
+            setupTronClassSemesterChips(cachedCourses)
+        }
+
         binding.pageTronclass.swipeRefreshTronClass.isEnabled = false
 
 
@@ -4745,9 +4760,22 @@ class MainActivity : AppCompatActivity() {
             autoPerformTronClassSsoLogin()
             return
         }
+        val cacheMgr = TronClassDataCacheManager.getInstance(this)
         if (tronClassCourseAdapter.itemCount == 0) {
-            loadTronClassData(forceRefresh = false)
+            val cachedCourses = cacheMgr.getCachedCourses()
+            if (cachedCourses.isNotEmpty()) {
+                allTronClassCourses = cachedCourses
+                setupTronClassSemesterChips(cachedCourses)
+            }
+            val cachedTodos = cacheMgr.getCachedTodos()
+            if (cachedTodos.isNotEmpty()) {
+                tronClassTodoAdapter.updateData(cachedTodos)
+                binding.pageTronclass.tvTronClassTodoBadge.text = "${cachedTodos.size} 项待办"
+                binding.pageTronclass.tvTronClassEmptyTodos.visibility = View.GONE
+            }
         }
+        val hasCache = tronClassCourseAdapter.itemCount > 0
+        loadTronClassData(forceRefresh = false, silent = hasCache)
     }
 
     private fun autoPerformTronClassSsoLogin() {
@@ -4781,15 +4809,18 @@ class MainActivity : AppCompatActivity() {
         tronClassLoginLauncher.launch(intent)
     }
 
-    private fun loadTronClassData(forceRefresh: Boolean) {
+    private fun loadTronClassData(forceRefresh: Boolean, silent: Boolean = false) {
         if (!tronClassClient.isLoggedIn()) {
             binding.pageTronclass.swipeRefreshTronClass.isRefreshing = false
             return
         }
 
-        binding.pageTronclass.swipeRefreshTronClass.isRefreshing = true
+        if (!silent) {
+            binding.pageTronclass.swipeRefreshTronClass.isRefreshing = true
+        }
 
         lifecycleScope.launch {
+            val cacheMgr = TronClassDataCacheManager.getInstance(this@MainActivity)
             val todosDeferred = async { tronClassClient.fetchTodos() }
             val coursesDeferred = async { tronClassClient.fetchMyCourses() }
             val rollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
@@ -4800,18 +4831,23 @@ class MainActivity : AppCompatActivity() {
 
             binding.pageTronclass.swipeRefreshTronClass.isRefreshing = false
 
-            // 1. 处理待办作业
+            // 1. 处理待办作业并写回缓存
             if (todosRes.isSuccess) {
                 val todos = todosRes.getOrDefault(emptyList())
+                cacheMgr.saveTodos(todos)
                 tronClassTodoAdapter.updateData(todos)
                 TronClassDdlScheduler.schedulePeriodicWork(this@MainActivity)
                 binding.pageTronclass.tvTronClassTodoBadge.text = "${todos.size} 项待办"
                 binding.pageTronclass.tvTronClassEmptyTodos.visibility = if (todos.isEmpty()) View.VISIBLE else View.GONE
             }
 
-            // 2. 处理在读课程（按班级号中学期代号分类）
+            // 2. 处理在读课程并写回缓存
             if (coursesRes.isSuccess) {
-                allTronClassCourses = coursesRes.getOrDefault(emptyList())
+                val courses = coursesRes.getOrDefault(emptyList())
+                if (courses.isNotEmpty()) {
+                    cacheMgr.saveCourses(courses)
+                }
+                allTronClassCourses = courses
                 setupTronClassSemesterChips(allTronClassCourses)
             }
 
