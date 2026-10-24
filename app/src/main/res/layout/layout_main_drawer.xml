@@ -24,6 +24,9 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/bg_glass_top_bar"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
         android:paddingHorizontal="20dp"
         android:paddingTop="36dp"
         android:paddingBottom="16dp">
@@ -547,33 +550,7 @@
                     android:textSize="13.5sp" />
             </LinearLayout>
 
-            <!-- TronClass Web -->
-            <LinearLayout
-                android:id="@+id/drawerItemYwcxWeb"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="10dp">
-
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_school"
-                    app:tint="@color/primary" />
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="14dp"
-                    android:text="一网畅学平台 (TronClass)"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13.5sp" />
-            </LinearLayout>
+            
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

@@ -1581,6 +1581,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupViews() {
+        updateDrawerProfileHeaderVisibility()
         if (isTabletLandscapeMode) {
             binding.rvGrades.layoutManager = GridLayoutManager(this, 2)
             val gapPx = (5 * resources.displayMetrics.density).toInt()
@@ -2077,13 +2078,20 @@ class MainActivity : AppCompatActivity() {
             binding.layoutDrawer.dividerDrawerProfileHeader.visibility = View.VISIBLE
             binding.layoutDrawer.viewDrawerStatusBarTop.visibility = View.GONE
             val profile = currentProfile
-            if (profile != null) {
-                binding.layoutDrawer.tvDrawerStudentName.text = "${profile.name}同学"
-                binding.layoutDrawer.tvDrawerStudentId.text = "学号: ${profile.studentId}"
-                val avatarChar = profile.name.takeIf { it.isNotEmpty() }?.substring(0, 1) ?: "理"
+            if (profile != null && profile.name.isNotBlank()) {
+                val studentName = profile.name.trim()
+                val displayName = if (studentName.endsWith("同学")) studentName else "${studentName}同学"
+                binding.layoutDrawer.tvDrawerStudentName.text = displayName
+                binding.layoutDrawer.tvDrawerStudentId.text = "学号: ${profile.studentId.ifBlank { "--" }}"
+                val avatarChar = studentName.filter { it.isLetter() }.firstOrNull()?.toString() ?: "理"
                 binding.layoutDrawer.tvDrawerAvatar.text = avatarChar
                 val collegeMajor = listOfNotNull(profile.college.takeIf { it.isNotBlank() }, profile.major.takeIf { it.isNotBlank() }).joinToString(" · ")
                 binding.layoutDrawer.tvDrawerCollegeMajor.text = collegeMajor.ifBlank { "上海理工大学" }
+            } else {
+                binding.layoutDrawer.tvDrawerStudentName.text = "同学"
+                binding.layoutDrawer.tvDrawerStudentId.text = "学号: --"
+                binding.layoutDrawer.tvDrawerAvatar.text = "理"
+                binding.layoutDrawer.tvDrawerCollegeMajor.text = "上海理工大学"
             }
         } else {
             binding.layoutDrawer.cardDrawerProfileHeader.visibility = View.GONE
@@ -2105,10 +2113,12 @@ class MainActivity : AppCompatActivity() {
         binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
+        binding.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
         updateReminderSubtitles()
 
-        // Update Drawer Version
+        // Update Drawer Version and Profile Header
         binding.layoutDrawer.tvDrawerVersion.text = "USST JWGL · v${BuildConfig.VERSION_NAME}"
+        updateDrawerProfileHeaderVisibility()
 
         if (profile == null) return
 
@@ -2887,6 +2897,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Side Navigation Drawer: Main Tabs
+        binding.layoutDrawer.cardDrawerProfileHeader.setOnClickListener {
+            closeNavDrawer()
+            switchTab(MainTab.PROFILE)
+        }
         binding.layoutDrawer.drawerNavTimetable.setOnClickListener {
             closeNavDrawer()
             switchTab(MainTab.TIMETABLE)
