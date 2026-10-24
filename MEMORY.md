@@ -115,6 +115,20 @@ app/src/main/java/cn/edu/usst/jwgl/
 5. **平板竖屏界面的局部自适应折叠**：
    - 平板横屏已实现 265dp 常驻侧栏 + 双列优雅适配；在极端长宽比的平板竖屏模式下，空教室与检索栏的个别控件留白仍有微调空间。
 
+### 6. 一网畅学 (TronClass) 架构与性能演进 (1.2.0+)
+- **扫码签到闪退防御**：
+  - `MlKitScannerActivity`、`TronClassExamActivity`、`TronClassDownloadActivity`、`TronClassVideoPlayerActivity` 均已在 `AndroidManifest.xml` 显式注册，避免动态调用时抛出 `ActivityNotFoundException` 导致 App 崩溃。
+- **离线优先 (Stale-While-Revalidate) 架构**：
+  - 彻底杜绝“网络超时才走 catch 读取缓存”的假缓存机制。
+  - 主页与课程详情页进入瞬间（0ms）即从 `TronClassDataCacheManager` 读取本地持久化缓存并直接渲染视图；后台静默同步数据（`silent: Boolean`），同步完成后平滑更新 UI，无任何卡顿和全屏加载圈。
+  - 课程详情页解耦：核心章节活动与进度立刻呈现，次级接口（测验列表、班级成员、课程公告）后台异步填充，消除 `await()` 串行阻塞。
+  - `BlurView` 延迟至视图初次绘制后初始化（`view.post`），消除进入页面时的掉帧与拖拽掉帧。
+- **课表联动一网畅学（第一阶段已落地）**：
+  - 在课表课程弹窗 (`CourseDetailDialog`) 中嵌入 `cardTronClassLink` 智能联动卡片。
+  - 通过 `TronClassDataCacheManager.findMatchingCourse` 自动对齐正方教务课表与畅课教学班。
+  - 动态关联畅课待办，若存在临近作业/测验，实时高亮展示最紧迫待办名及倒计时（如 `待办: 课内实验 (剩 78 天 22 小时)`）。
+  - 点击卡片 0 延迟一键跳转对应课程的原生详情页 (`TronClassCourseDetailActivity`)。
+
 ---
 
 ## 五、 开发过程中必须严格遵守的红线禁忌 (Critical Taboos)
