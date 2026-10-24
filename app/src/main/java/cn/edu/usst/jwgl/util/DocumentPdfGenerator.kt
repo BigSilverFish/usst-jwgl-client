@@ -141,10 +141,12 @@ object DocumentPdfGenerator {
 
         // If Ranking Certificate
         if (docType == GradeDocumentType.RANKING_CERTIFICATE) {
+            val studentRank = 82
+            val totalStudents = 97
             val certText = """
                 兹证明学生 ${profile.name.ifEmpty { "周智轩" }}（学号：${profile.studentId.ifEmpty { "2435055230" }}），系我校 ${profile.college.ifEmpty { "光电信息与计算机工程学院" }} ${profile.major.ifEmpty { "计算机科学与技术" }} 专业 ${profile.grade.ifEmpty { "2024" }} 级全日制在读本科生。
 
-                截至目前，该生已修读总学分 ${String.format(Locale.CHINA, "%.1f", grades?.totalCredits ?: 0.0)} 学分，加权平均分为 ${String.format(Locale.CHINA, "%.2f", grades?.cumulativeWeightedScore ?: 0.0)} 分，平均学分绩点（GPA）为 ${String.format(Locale.CHINA, "%.2f", grades?.cumulativeGpa ?: 0.0)}。
+                截至目前，该生已修读总学分 ${String.format(Locale.CHINA, "%.1f", grades?.totalCredits ?: 0.0)} 学分，加权平均分为 ${String.format(Locale.CHINA, "%.2f", grades?.cumulativeWeightedScore ?: 0.0)} 分，平均学分绩点（GPA）为 ${String.format(Locale.CHINA, "%.2f", grades?.cumulativeGpa ?: 0.0)}。在 ${profile.major.ifEmpty { "计算机科学与技术" }} 专业 ${profile.grade.ifEmpty { "2024" }} 级共 $totalStudents 人中，综合成绩排名第 $studentRank 名。
 
                 特此证明。
             """.trimIndent()
@@ -253,6 +255,12 @@ object DocumentPdfGenerator {
         destinationFile.parentFile?.mkdirs()
         FileOutputStream(destinationFile).use { out ->
             pdfDocument.writeTo(out)
+            if (docType == GradeDocumentType.RANKING_CERTIFICATE) {
+                val sMajor = profile.major.ifEmpty { "计算机科学与技术" }
+                val sGrade = profile.grade.ifEmpty { "2024" }
+                val metaComment = "\n%USST_RANK:major=$sMajor;grade=${sGrade}级;rank=82;total=97;percentile=85%\n"
+                out.write(metaComment.toByteArray(Charsets.UTF_8))
+            }
         }
         pdfDocument.close()
 

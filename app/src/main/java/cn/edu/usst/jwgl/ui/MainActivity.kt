@@ -38,6 +38,13 @@ import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeDocumentType
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
+import cn.edu.usst.jwgl.data.model.StudentRankingInfo
+import cn.edu.usst.jwgl.util.RankingPdfParser
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.text.style.RelativeSizeSpan
+import android.graphics.Typeface
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -1726,6 +1733,7 @@ class MainActivity : AppCompatActivity() {
         binding.swipeRefreshGrades.setOnRefreshListener { loadGrades(isManual = true) }
         binding.btnRefreshGrades.setOnClickListener { loadGrades(isManual = true) }
         binding.btnSelectGradeSemester.setOnClickListener { showGradeSemesterPicker() }
+        binding.btnQueryRanking.setOnClickListener { queryAndShowRanking() }
         binding.btnDownloadGradeReports.setOnClickListener { switchTab(MainTab.GRADE_REPORTS) }
 
         // Profile Refresh
@@ -2692,6 +2700,131 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .safeShow()
+    }
+
+    /**
+     * 成绩查询页面右上角：学业排名查询
+     * 原理：下载排名证明 PDF -> 解析内容 -> 删除临时 PDF -> 呈现草稿样式对话框
+     */
+    private fun queryAndShowRanking() {
+        val auth = AuthPreferences(this)
+        val studentId = auth.getStudentId()
+
+        val progressDialog = MaterialAlertDialogBuilder(this)
+            .setTitle("正在查询排名")
+            .setMessage("正在向教务系统请求排名证明并解析，请稍候...")
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        lifecycleScope.launch {
+            // 原理：下载排名证明pdf -> 解析内容 -> 删除pdf
+            val targetDir = cacheDir
+            val tempFile = java.io.File(targetDir, "temp_ranking_${System.currentTimeMillis()}.pdf")
+
+            try {
+                // 1. 下载排名证明 PDF
+                val result = JwglClient.downloadGradeDocument(
+                    context = this@MainActivity,
+                    docType = GradeDocumentType.RANKING_CERTIFICATE,
+                    destinationFile = tempFile,
+                    studentId = studentId
+                )
+
+                if (result.isFailure) {
+                    progressDialog.dismiss()
+                    val errorMsg = result.exceptionOrNull()?.message ?: "网络连接异常"
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("查询失败")
+                        .setMessage("未能成功获取排名证明：$errorMsg")
+                        .setPositiveButton("确定", null)
+                        .safeShow()
+                    return@launch
+                }
+
+                val downloadedFile = result.getOrNull() ?: tempFile
+
+                // 2. 解析 PDF 内容 (解压 CMap 还原字符流并提取排名)
+                val parseResult = RankingPdfParser.parse(downloadedFile, currentProfile)
+
+                progressDialog.dismiss()
+
+                parseResult.onSuccess { rankingInfo ->
+                    showRankingResultDialog(rankingInfo)
+                }.onFailure { error ->
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("解析失败")
+                        .setMessage("排名证明获取成功，但未能解析出排位信息：${error.message ?: "未匹配到排名数据"}")
+                        .setPositiveButton("确定", null)
+                        .safeShow()
+                }
+            } catch (e: Exception) {
+                progressDialog.dismiss()
+                Toast.makeText(this@MainActivity, "排名查询异常: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                // 3. 严格遵循原理：解析完毕后立即删除临时 PDF 文件
+                try {
+                    if (tempFile.exists()) {
+                        tempFile.delete()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
+     * 展示排名查询结果对话框 (严格与设计草稿样式一致)
+     */
+    private fun showRankingResultDialog(rankingInfo: StudentRankingInfo) {
+        if (isFinishing || isDestroyed) return
+        val dialogView = layoutInflater.inflate(R.layout.dialog_ranking_result, null)
+        val tvMajorGrade = dialogView.findViewById<TextView>(R.id.tvRankingMajorGrade)
+        val tvRankingNum = dialogView.findViewById<TextView>(R.id.tvRankingNum)
+        val tvRankingTotal = dialogView.findViewById<TextView>(R.id.tvRankingTotal)
+        val tvRankingPercentile = dialogView.findViewById<TextView>(R.id.tvRankingPercentile)
+        val btnConfirm = dialogView.findViewById<TextView>(R.id.btnRankingConfirm)
+
+        tvMajorGrade.text = rankingInfo.majorAndGrade
+        tvRankingNum.text = rankingInfo.rank.toString()
+        tvRankingTotal.text = "/${rankingInfo.total}"
+
+        // "百分比排位为 85 %" (其中 85 加粗展示)
+        val percentileStr = rankingInfo.percentile.toString()
+        val fullPercentileText = "百分比排位为 $percentileStr %"
+        val spannable = SpannableString(fullPercentileText)
+        val startIdx = fullPercentileText.indexOf(percentileStr)
+        if (startIdx >= 0) {
+            val endIdx = startIdx + percentileStr.length
+            spannable.setSpan(
+                StyleSpan(Typeface.BOLD),
+                startIdx,
+                endIdx,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            spannable.setSpan(
+                RelativeSizeSpan(1.15f),
+                startIdx,
+                endIdx,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        tvRankingPercentile.text = spannable
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogView)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnConfirm.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        try {
+            dialog.show()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to show ranking dialog", e)
+        }
     }
 
     private fun downloadAndOpenDocument(docType: GradeDocumentType) {

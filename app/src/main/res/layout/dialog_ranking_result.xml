@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:layout_marginHorizontal="28dp"
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="28dp"
+    app:cardElevation="6dp"
+    app:strokeColor="@color/border"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp"
+        android:paddingTop="22dp"
+        android:paddingBottom="20dp">
+
+        <!-- Header: 查询结果 -->
+        <TextView
+            android:id="@+id/tvRankingTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="查询结果"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <!-- Subtitle: 专业与年级 (如: 计算机科学与技术 2024级) -->
+        <TextView
+            android:id="@+id/tvRankingMajorGrade"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="计算机科学与技术 2024级"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            tools:text="计算机科学与技术 2024级" />
+
+        <!-- Main Ranking Display: 82 /97 in UI primary theme red -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:baselineAligned="false"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvRankingNum"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="82"
+                android:textColor="@color/primary"
+                android:textSize="44sp"
+                android:textStyle="bold"
+                tools:text="82" />
+
+            <TextView
+                android:id="@+id/tvRankingTotal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="3dp"
+                android:layout_marginBottom="4dp"
+                android:gravity="bottom"
+                android:text="/97"
+                android:textColor="@color/primary"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                tools:text="/97" />
+        </LinearLayout>
+
+        <!-- Percentile: 百分比排位为 85 % -->
+        <TextView
+            android:id="@+id/tvRankingPercentile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            tools:text="百分比排位为 85 %" />
+
+        <!-- Confirm Button: 我知道了 -->
+        <TextView
+            android:id="@+id/btnRankingConfirm"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginTop="28dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
+            android:text="我知道了"
+            android:textColor="#1976D2"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

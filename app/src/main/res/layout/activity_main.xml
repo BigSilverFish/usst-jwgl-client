@@ -1778,13 +1778,28 @@
                             app:tint="@color/text_secondary" />
                     </LinearLayout>
 
+                    <!-- Query Ranking Button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnQueryRanking"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:layout_marginStart="8dp"
+                        android:padding="0dp"
+                        android:contentDescription="查询排名"
+                        app:icon="@drawable/ic_ranking"
+                        app:iconGravity="textStart"
+                        app:iconPadding="0dp"
+                        app:iconSize="20dp"
+                        app:iconTint="@color/primary" />
+
                     <!-- Download Reports & Certificates Button -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnDownloadGradeReports"
                         style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="6dp"
                         android:padding="0dp"
                         android:contentDescription="下载证明与成绩单"
                         app:icon="@drawable/ic_download"
