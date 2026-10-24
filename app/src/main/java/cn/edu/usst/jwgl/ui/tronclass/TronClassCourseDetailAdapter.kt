@@ -11,8 +11,10 @@ import cn.edu.usst.jwgl.data.model.TronClassActivityItem
 import cn.edu.usst.jwgl.data.model.TronClassModule
 import cn.edu.usst.jwgl.databinding.ItemTronclassActivityBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassModuleHeaderBinding
+import cn.edu.usst.jwgl.databinding.ItemTronclassProgressHeaderBinding
 
 sealed class CourseDetailUiItem {
+    data class ProgressHeader(val completedCount: Int, val totalCount: Int, val percent: Int) : CourseDetailUiItem()
     data class ModuleHeader(val module: TronClassModule, val count: Int) : CourseDetailUiItem()
     data class ActivityItem(val activity: TronClassActivityItem) : CourseDetailUiItem()
 }
@@ -20,12 +22,14 @@ sealed class CourseDetailUiItem {
 class TronClassCourseDetailAdapter(
     private var items: List<CourseDetailUiItem> = emptyList(),
     private val onActivityClick: (TronClassActivityItem) -> Unit,
-    private val onDownloadClick: (TronClassActivityItem) -> Unit
+    private val onDownloadClick: (TronClassActivityItem) -> Unit,
+    private val onAutoBrushClick: () -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
-        const val TYPE_MODULE = 0
-        const val TYPE_ACTIVITY = 1
+        const val TYPE_PROGRESS = 0
+        const val TYPE_MODULE = 1
+        const val TYPE_ACTIVITY = 2
     }
 
     fun updateData(newItems: List<CourseDetailUiItem>) {
@@ -35,6 +39,7 @@ class TronClassCourseDetailAdapter(
 
     override fun getItemViewType(position: Int): Int {
         return when (items[position]) {
+            is CourseDetailUiItem.ProgressHeader -> TYPE_PROGRESS
             is CourseDetailUiItem.ModuleHeader -> TYPE_MODULE
             is CourseDetailUiItem.ActivityItem -> TYPE_ACTIVITY
         }
@@ -43,6 +48,10 @@ class TronClassCourseDetailAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
+            TYPE_PROGRESS -> {
+                val binding = ItemTronclassProgressHeaderBinding.inflate(inflater, parent, false)
+                ProgressHeaderViewHolder(binding)
+            }
             TYPE_MODULE -> {
                 val binding = ItemTronclassModuleHeaderBinding.inflate(inflater, parent, false)
                 ModuleHeaderViewHolder(binding)
@@ -56,12 +65,32 @@ class TronClassCourseDetailAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = items[position]) {
+            is CourseDetailUiItem.ProgressHeader -> (holder as ProgressHeaderViewHolder).bind(item)
             is CourseDetailUiItem.ModuleHeader -> (holder as ModuleHeaderViewHolder).bind(item)
             is CourseDetailUiItem.ActivityItem -> (holder as ActivityViewHolder).bind(item.activity)
         }
     }
 
     override fun getItemCount(): Int = items.size
+
+    inner class ProgressHeaderViewHolder(private val binding: ItemTronclassProgressHeaderBinding) :
+        RecyclerView.ViewHolder(binding.root) {
+
+        fun bind(header: CourseDetailUiItem.ProgressHeader) {
+            binding.progressLearning.progress = header.percent
+            binding.tvProgressText.text = "已完成 ${header.percent}% (${header.completedCount} / ${header.totalCount} 项)"
+            if (header.percent >= 100) {
+                binding.btnAutoFastProgress.text = "已满额"
+                binding.btnAutoFastProgress.isEnabled = false
+            } else {
+                binding.btnAutoFastProgress.text = "自动刷课"
+                binding.btnAutoFastProgress.isEnabled = true
+            }
+            binding.btnAutoFastProgress.setOnClickListener {
+                onAutoBrushClick()
+            }
+        }
+    }
 
     inner class ModuleHeaderViewHolder(private val binding: ItemTronclassModuleHeaderBinding) :
         RecyclerView.ViewHolder(binding.root) {

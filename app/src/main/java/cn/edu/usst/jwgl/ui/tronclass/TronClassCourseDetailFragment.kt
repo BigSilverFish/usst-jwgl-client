@@ -1,4 +1,4 @@
-package cn.edu.usst.jwgl.ui.tronclass
+﻿package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.ProgressDialog
 import android.os.Build
@@ -175,10 +175,15 @@ class TronClassCourseDetailFragment : Fragment() {
         val density = resources.displayMetrics.density
         val hPad = if (isPad) (10 * density).toInt() else 0
 
-        binding.layoutChapters.setPadding(hPad, headerHeight, hPad, navBottom)
+        val wasUnpadded = binding.rvActivities.paddingTop <= (8 * density).toInt()
+        binding.rvActivities.setPadding(hPad, headerHeight, hPad, navBottom)
         binding.rvExams.setPadding(hPad, headerHeight, hPad, navBottom)
         binding.layoutMembers.setPadding(hPad, headerHeight, hPad, navBottom)
         binding.rvBulletins.setPadding(hPad, headerHeight, hPad, navBottom)
+
+        if (wasUnpadded) {
+            (binding.rvActivities.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
+        }
 
         binding.swipeRefresh.setProgressViewOffset(true, headerHeight, headerHeight + (56 * density).toInt())
     }
@@ -202,17 +207,19 @@ class TronClassCourseDetailFragment : Fragment() {
         val context = requireContext()
         val isPad = TabletLayoutHelper.isTabletLandscape(context)
 
-        // 1. 章节课件 Adapter
+        // 1. 章节课件 Adapter (支持在列表顶部自然嵌入学习进度卡片与自动刷课按钮，实现极致0ms原生流式复用)
         activityAdapter = TronClassCourseDetailAdapter(
             onActivityClick = { act -> handleActivityClick(act) },
-            onDownloadClick = { act -> handleDownloadClick(act) }
+            onDownloadClick = { act -> handleDownloadClick(act) },
+            onAutoBrushClick = { startAutoBrushProgress() }
         )
         if (isPad) {
             val gridManager = GridLayoutManager(context, 2)
             gridManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                 override fun getSpanSize(position: Int): Int {
                     return when (activityAdapter.getItemViewType(position)) {
-                        TronClassCourseDetailAdapter.TYPE_MODULE -> 2
+                        TronClassCourseDetailAdapter.TYPE_MODULE,
+                        TronClassCourseDetailAdapter.TYPE_PROGRESS -> 2
                         else -> 1
                     }
                 }
@@ -280,13 +287,7 @@ class TronClassCourseDetailFragment : Fragment() {
                 }
             }
             val totalActs = cachedActivities.size
-            if (totalActs > 0) {
-                val percent = (completedCount * 100) / totalActs
-                binding.progressLearning.progress = percent
-                binding.tvProgressText.text = "已完成 $percent% ($completedCount / $totalActs 项)"
-                binding.layoutLearningProgress.visibility = View.VISIBLE
-            }
-            val uiItems = buildCourseStructure(cachedModules, cachedActivities)
+            val uiItems = buildCourseStructure(cachedModules, cachedActivities, completedCount, totalActs)
             activityAdapter.updateData(uiItems)
         }
         val initialExams = cacheMgr.getCachedCourseExams(courseId)
@@ -305,18 +306,13 @@ class TronClassCourseDetailFragment : Fragment() {
             bulletinAdapter.updateData(initialBulletins)
         }
 
-        // 5. 自动刷课按钮
-        binding.btnAutoFastProgress.setOnClickListener {
-            startAutoBrushProgress()
-        }
-
-        // 6. 四个 Tab 切换
+        // 5. 四个 Tab 切换
         binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab?) {
                 when (tab?.position) {
                     0 -> {
                         // 章节课件 (含顶部的学习进度卡片)
-                        binding.layoutChapters.visibility = View.VISIBLE
+                        binding.rvActivities.visibility = View.VISIBLE
                         binding.rvExams.visibility = View.GONE
                         binding.layoutMembers.visibility = View.GONE
                         binding.rvBulletins.visibility = View.GONE
@@ -324,7 +320,7 @@ class TronClassCourseDetailFragment : Fragment() {
                     }
                     1 -> {
                         // 测验测试
-                        binding.layoutChapters.visibility = View.GONE
+                        binding.rvActivities.visibility = View.GONE
                         binding.rvExams.visibility = View.VISIBLE
                         binding.layoutMembers.visibility = View.GONE
                         binding.rvBulletins.visibility = View.GONE
@@ -332,7 +328,7 @@ class TronClassCourseDetailFragment : Fragment() {
                     }
                     2 -> {
                         // 班级成员
-                        binding.layoutChapters.visibility = View.GONE
+                        binding.rvActivities.visibility = View.GONE
                         binding.rvExams.visibility = View.GONE
                         binding.layoutMembers.visibility = View.VISIBLE
                         binding.rvBulletins.visibility = View.GONE
@@ -340,7 +336,7 @@ class TronClassCourseDetailFragment : Fragment() {
                     }
                     3 -> {
                         // 课程公告
-                        binding.layoutChapters.visibility = View.GONE
+                        binding.rvActivities.visibility = View.GONE
                         binding.rvExams.visibility = View.GONE
                         binding.layoutMembers.visibility = View.GONE
                         binding.rvBulletins.visibility = View.VISIBLE
@@ -428,24 +424,7 @@ class TronClassCourseDetailFragment : Fragment() {
                 }
 
                 val totalActs = cachedActivities.size
-                if (totalActs > 0) {
-                    val percent = (completedCount * 100) / totalActs
-                    binding.progressLearning.progress = percent
-                    binding.tvProgressText.text = "已完成 $percent% ($completedCount / $totalActs 项)"
-                    binding.layoutLearningProgress.visibility = View.VISIBLE
-
-                    if (percent >= 100) {
-                        binding.btnAutoFastProgress.text = "已满额"
-                        binding.btnAutoFastProgress.isEnabled = false
-                    } else {
-                        binding.btnAutoFastProgress.text = "自动刷课"
-                        binding.btnAutoFastProgress.isEnabled = true
-                    }
-                } else {
-                    binding.layoutLearningProgress.visibility = View.GONE
-                }
-
-                val uiItems = buildCourseStructure(cachedModules, cachedActivities)
+                val uiItems = buildCourseStructure(cachedModules, cachedActivities, completedCount, totalActs)
                 activityAdapter.updateData(uiItems)
                 if (binding.tabLayout.selectedTabPosition == 0) {
                     checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
@@ -577,9 +556,15 @@ class TronClassCourseDetailFragment : Fragment() {
 
     private fun buildCourseStructure(
         modules: List<TronClassModule>,
-        activities: List<TronClassActivityItem>
+        activities: List<TronClassActivityItem>,
+        completedCount: Int = -1,
+        totalCount: Int = -1
     ): List<CourseDetailUiItem> {
         val list = mutableListOf<CourseDetailUiItem>()
+        if (totalCount > 0) {
+            val percent = (completedCount * 100) / totalCount
+            list.add(CourseDetailUiItem.ProgressHeader(completedCount, totalCount, percent))
+        }
         val actByModule = activities.groupBy { it.moduleId }
 
         if (modules.isNotEmpty()) {

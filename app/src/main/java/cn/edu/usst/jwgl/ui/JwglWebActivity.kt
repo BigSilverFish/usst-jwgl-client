@@ -54,7 +54,6 @@ class JwglWebActivity : AppCompatActivity() {
         const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
         const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
-        const val YWCX_TARGET_URL = "http://1906.usst.edu.cn:28080/"
         const val EXTRA_URL = "extra_target_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
@@ -145,7 +144,7 @@ class JwglWebActivity : AppCompatActivity() {
         } else {
             pendingPermissionRequest?.deny()
             pendingPermissionRequest = null
-            Toast.makeText(this, "éœ€è¦ç›¸æœºæƒé™ä»¥è¿›è¡Œæ‰«ç ", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "ĞèÒªÏà»úÈ¨ÏŞÒÔ½øĞĞÉ¨Âë", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -162,7 +161,7 @@ class JwglWebActivity : AppCompatActivity() {
             pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, true, false)
         } else {
             pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)
-            Toast.makeText(this, "éœ€è¦å®šä½æƒé™ä»¥å®Œæˆè¯¾å ‚ç­¾åˆ°", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "ĞèÒª¶¨Î»È¨ÏŞÒÔÍê³É¿ÎÌÃÇ©µ½", Toast.LENGTH_SHORT).show()
         }
         pendingGeolocationCallback = null
         pendingGeolocationOrigin = null
@@ -172,16 +171,7 @@ class JwglWebActivity : AppCompatActivity() {
         @android.webkit.JavascriptInterface
         fun onEpisodeFound(episodeInfo: String) {
             runOnUiThread {
-                Toast.makeText(this@JwglWebActivity, "å·²è‡ªåŠ¨è·³è½¬è‡³ï¼š$episodeInfo", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    inner class TronClassScannerInterface {
-        @android.webkit.JavascriptInterface
-        fun startScan() {
-            runOnUiThread {
-                launchNativeScanner()
+                Toast.makeText(this@JwglWebActivity, "ÒÑ×Ô¶¯Ìø×ªÖÁ£º$episodeInfo", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -217,7 +207,7 @@ class JwglWebActivity : AppCompatActivity() {
     private fun isAllowedUsstHost(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
         val lower = host.lowercase()
-        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn") || lower == "10.1.15.15"
+        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn")
     }
 
     private fun sanitizeAndValidateUrl(url: String): String {
@@ -234,10 +224,7 @@ class JwglWebActivity : AppCompatActivity() {
         }
         return when (uri.scheme?.lowercase()) {
             "https" -> uri.toString()
-            "http" -> {
-                if (host == "10.1.15.15" || uri.port == 28080) uri.toString()
-                else uri.buildUpon().scheme("https").build().toString()
-            }
+            "http" -> uri.buildUpon().scheme("https").build().toString()
             else -> DEFAULT_TARGET_URL
         }
     }
@@ -272,7 +259,7 @@ class JwglWebActivity : AppCompatActivity() {
                     applyUserAgent(binding.webView.url ?: targetUrl)
                     updateDesktopMenuItemTitle()
                     binding.webView.reload()
-                    val toastText = if (isDesktopMode) "å·²åˆ‡æ¢è‡³ç”µè„‘ç‰ˆè§†å›¾" else "å·²åˆ‡æ¢è‡³æ‰‹æœºç‰ˆè§†å›¾"
+                    val toastText = if (isDesktopMode) "ÒÑÇĞ»»ÖÁµçÄÔ°æÊÓÍ¼" else "ÒÑÇĞ»»ÖÁÊÖ»ú°æÊÓÍ¼"
                     Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
                     true
                 }
@@ -281,7 +268,7 @@ class JwglWebActivity : AppCompatActivity() {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl)))
                     } catch (e: Exception) {
-                        Toast.makeText(this, "æ— æ³•è°ƒç”¨å¤–éƒ¨æµè§ˆå™¨æ‰“å¼€", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "ÎŞ·¨µ÷ÓÃÍâ²¿ä¯ÀÀÆ÷´ò¿ª", Toast.LENGTH_SHORT).show()
                     }
                     true
                 }
@@ -292,7 +279,7 @@ class JwglWebActivity : AppCompatActivity() {
 
     private fun updateDesktopMenuItemTitle() {
         val menuItem = binding.toolbar.menu.findItem(R.id.action_toggle_desktop) ?: return
-        menuItem.title = if (isDesktopMode) "åˆ‡æ¢ä¸ºæ‰‹æœºç‰ˆ" else "åˆ‡æ¢ä¸ºç”µè„‘ç‰ˆ"
+        menuItem.title = if (isDesktopMode) "ÇĞ»»ÎªÊÖ»ú°æ" else "ÇĞ»»ÎªµçÄÔ°æ"
     }
 
     private fun handleBackPress() {
@@ -319,8 +306,6 @@ class JwglWebActivity : AppCompatActivity() {
             val isAuthOrSplash = itemUrl.contains("/authserver/") ||
                                  itemUrl.contains("login") ||
                                  itemUrl.contains("ticket=") ||
-                                 itemUrl.endsWith(":28080/") ||
-                                 itemUrl.endsWith(":28080") ||
                                  (itemUrl.contains("cas") && itemUrl.contains("service="))
             if (!isAuthOrSplash) {
                 targetSteps = i - list.currentIndex
@@ -375,7 +360,6 @@ class JwglWebActivity : AppCompatActivity() {
         cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
-        binding.webView.addJavascriptInterface(TronClassScannerInterface(), "AndroidScannerBridge")
 
         binding.webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest?) {
@@ -453,7 +437,7 @@ class JwglWebActivity : AppCompatActivity() {
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                if (!title.isNullOrBlank() && !title.startsWith("http") && !title.contains("ç»Ÿä¸€èº«ä»½è®¤è¯") && !title.contains("ç™»å½•")) {
+                if (!title.isNullOrBlank() && !title.startsWith("http") && !title.contains("Í³Ò»Éí·İÈÏÖ¤") && !title.contains("µÇÂ¼")) {
                     binding.toolbar.title = title
                 }
             }
@@ -514,9 +498,6 @@ class JwglWebActivity : AppCompatActivity() {
                 Log.d(TAG, "onPageStarted: host=$host, url=$url")
                 if (url != null && !url.contains("authserver/login")) {
                     casAttemptCount = 0
-                }
-                if (url != null && (url.contains(":28080") || url.contains("10.1.15.15"))) {
-                    injectTronClassScannerBridge()
                 }
             }
 
@@ -619,10 +600,10 @@ class JwglWebActivity : AppCompatActivity() {
                                 // 1. Mobile H5 Flow (jy-mobile-resourcemanage-ui)
                                 // ==========================================
 
-                                // Step A: Switch to "ç‚¹æ’­" tab if on liveList
+                                // Step A: Switch to "µã²¥" tab if on liveList
                                 if (hash.indexOf('/liveList') !== -1 || (!hash.indexOf('/videoList') !== -1 && !hash.indexOf('/play-video') !== -1)) {
                                     var tabs = Array.from(document.querySelectorAll('.van-tab'));
-                                    var vodTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === 'ç‚¹æ’­'; });
+                                    var vodTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === 'µã²¥'; });
                                     if (vodTab && vodTab.getAttribute('aria-selected') !== 'true') {
                                         vodTab.click();
                                         return;
@@ -631,7 +612,7 @@ class JwglWebActivity : AppCompatActivity() {
 
                                 // Step B & C: On videoList, search course and click it
                                 if (hash.indexOf('/videoList') !== -1) {
-                                    var input = document.querySelector('input[placeholder*="è¯¾ç¨‹åç§°"]');
+                                    var input = document.querySelector('input[placeholder*="¿Î³ÌÃû³Æ"]');
                                     if (input && courseQuery) {
                                         if (!searchedCourse && input.value !== courseQuery) {
                                             searchedCourse = true;
@@ -674,8 +655,8 @@ class JwglWebActivity : AppCompatActivity() {
                                         
                                         // 1. Both targetDate AND node
                                         if (targetNode > 0) {
-                                            var n1 = 'ç¬¬' + targetNode + 'èŠ‚';
-                                            var n2 = 'ç¬¬ ' + targetNode + ' èŠ‚';
+                                            var n1 = 'µÚ' + targetNode + '½Ú';
+                                            var n2 = 'µÚ ' + targetNode + ' ½Ú';
                                             var m1 = cardList.find(function(c) {
                                                 var text = c.innerText;
                                                 return text.indexOf(targetDate) !== -1 && (text.indexOf(n1) !== -1 || text.indexOf(n2) !== -1);
@@ -698,7 +679,7 @@ class JwglWebActivity : AppCompatActivity() {
 
                                     var matchedCard = matchEpisode(cards);
 
-                                    // If not found in initial horizontal list, try opening the full "å…±è®¡ X èŠ‚" sheet
+                                    // If not found in initial horizontal list, try opening the full "¹²¼Æ X ½Ú" sheet
                                     if (!matchedCard) {
                                         var moreBtn = document.querySelector('.title-box-right');
                                         if (moreBtn && !document.querySelector('.selection-more')) {
@@ -772,10 +753,6 @@ class JwglWebActivity : AppCompatActivity() {
                     view?.evaluateJavascript(jsSearch, null)
                 }
 
-                // Inject TronClass scanner bridge on TronClass pages
-                if (url != null && (url.contains(":28080") || url.contains("10.1.15.15"))) {
-                    injectTronClassScannerBridge()
-                }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -789,11 +766,11 @@ class JwglWebActivity : AppCompatActivity() {
 
                 if (!isAllowedUsstHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
-                    Toast.makeText(this@JwglWebActivity, "å·²æ‹¦æˆªéæ ¡å›­ç½‘åŸŸåè®¿é—®: ${host ?: ""}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@JwglWebActivity, "ÒÑÀ¹½Ø·ÇĞ£Ô°ÍøÓòÃû·ÃÎÊ: ${host ?: ""}", Toast.LENGTH_SHORT).show()
                     return true
                 }
 
-                if (scheme == "http" && host != "10.1.15.15") {
+                if (scheme == "http") {
                     val httpsUrl = uri.buildUpon().scheme("https").build().toString()
                     view?.loadUrl(httpsUrl)
                     return true
@@ -809,15 +786,6 @@ class JwglWebActivity : AppCompatActivity() {
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
 
-        if (targetUrl.contains("10.1.15.15")) {
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.setCookie("https://ids6.usst.edu.cn/", "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure")
-            cookieManager.flush()
-            binding.layoutLoading.visibility = View.GONE
-            binding.webView.loadUrl(targetUrl)
-            return
-        }
-
         if (targetUrl.contains("live.usst.edu.cn")) {
             val cookieManager = CookieManager.getInstance()
             cookieManager.setCookie("https://ids6.usst.edu.cn/", "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure")
@@ -830,8 +798,8 @@ class JwglWebActivity : AppCompatActivity() {
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
             binding.layoutLoading.visibility = View.VISIBLE
             binding.tvLoadingMessage.text = when {
-                targetUrl.contains("new2017") -> "æ­£åœ¨ä¸ºå­¦å·¥ä¸€ä½“åŒ–è®¤è¯ç»Ÿä¸€ç™»å½•ä¼šè¯..."
-                else -> "æ­£åœ¨ä¸ºæ•™åŠ¡ç³»ç»Ÿè®¤è¯ç½‘é¡µä¼šè¯..."
+                targetUrl.contains("new2017") -> "ÕıÔÚÎªÑ§¹¤Ò»Ìå»¯ÈÏÖ¤Í³Ò»µÇÂ¼»á»°..."
+                else -> "ÕıÔÚÎª½ÌÎñÏµÍ³ÈÏÖ¤ÍøÒ³»á»°..."
             }
 
             lifecycleScope.launch {
@@ -904,7 +872,7 @@ class JwglWebActivity : AppCompatActivity() {
     fun launchNativeScanner() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("å¯¹å‡†ä¸€ç½‘ç•…å­¦äºŒç»´ç ï¼ˆç­¾åˆ° / è¯¾å ‚äº’åŠ¨ / ç”µè„‘ç«¯ç™»å½•ï¼‰")
+            setPrompt("¶Ô×¼Ò»Íø³©Ñ§¶şÎ¬Âë£¨Ç©µ½ / ¿ÎÌÃ»¥¶¯ / µçÄÔ¶ËµÇÂ¼£©")
             setCameraId(0)
             setBeepEnabled(true)
             setBarcodeImageEnabled(false)
@@ -937,13 +905,13 @@ class JwglWebActivity : AppCompatActivity() {
                     )
                     val result = MultiFormatReader().decode(binaryBitmap, hints)
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@JwglWebActivity, "ç›¸å†Œè¯†ç æˆåŠŸ", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@JwglWebActivity, "Ïà²áÊ¶Âë³É¹¦", Toast.LENGTH_SHORT).show()
                         onScanResultReceived(result.text)
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@JwglWebActivity, "æœªåœ¨æ‰€é€‰å›¾ç‰‡ä¸­è¯†åˆ«åˆ°äºŒç»´ç ", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@JwglWebActivity, "Î´ÔÚËùÑ¡Í¼Æ¬ÖĞÊ¶±ğµ½¶şÎ¬Âë", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -994,87 +962,6 @@ class JwglWebActivity : AppCompatActivity() {
                         }
                     }
                 } catch (e) {}
-            })();
-        """.trimIndent()
-        binding.webView.evaluateJavascript(js, null)
-    }
-
-    private fun injectTronClassScannerBridge() {
-        val js = """
-            (function() {
-                if (window.__tronclass_scanner_bridge_injected) return;
-                window.__tronclass_scanner_bridge_injected = true;
-
-                // 1. Polyfill window.Capacitor.Plugins.BarcodeScanner
-                if (window.Capacitor && window.Capacitor.Plugins) {
-                    window.Capacitor.Plugins.BarcodeScanner = {
-                        prepare: function() { return Promise.resolve(); },
-                        hideBackground: function() {},
-                        showBackground: function() {},
-                        stopScan: function() { return Promise.resolve(); },
-                        addListener: function() { return { remove: function() {} }; },
-                        startScan: function() {
-                            return new Promise(function(resolve, reject) {
-                                window.__nativeScanResolve = resolve;
-                                window.__nativeScanReject = reject;
-                                if (window.AndroidScannerBridge) {
-                                    window.AndroidScannerBridge.startScan();
-                                }
-                            });
-                        }
-                    };
-                }
-
-                // 2. Intercept click events on scan buttons in capturing phase
-                document.addEventListener('click', function(e) {
-                    try {
-                        var el = e.target;
-                        while (el && el !== document.body && el !== document.documentElement) {
-                            var testId = el.getAttribute ? el.getAttribute('data-testid') : null;
-                            var text = el.innerText ? el.innerText.trim() : '';
-                            var isScan = testId === 'quickscan' ||
-                                         (el.classList && el.classList.contains('home-action__item') && text.indexOf('æ‰«ç ') !== -1) ||
-                                         (el.classList && el.classList.contains('search-header__quickScan-Fhf2R')) ||
-                                         (text === 'æ‰«ç ' && el.parentElement && el.parentElement.innerText.indexOf('æ‰«ç ') !== -1);
-                            if (isScan) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                e.stopImmediatePropagation();
-                                if (window.AndroidScannerBridge) {
-                                    window.AndroidScannerBridge.startScan();
-                                }
-                                return false;
-                            }
-                            el = el.parentElement;
-                        }
-                    } catch (err) {}
-                }, true);
-
-                // 3. Intercept Vue Router beforeEach to /scanner
-                function hookRouter() {
-                    try {
-                        var app = document.querySelector('#app');
-                        var vueApp = app ? app.__vue_app__ : null;
-                        var router = vueApp && vueApp.config ? vueApp.config.globalProperties.${'$'}router : null;
-                        if (router && !window.__tronclass_router_hooked) {
-                            window.__tronclass_router_hooked = true;
-                            router.beforeEach(function(to, from) {
-                                if (to.name === 'scanner' || to.path === '/scanner') {
-                                    if (!to.params?.codeStr && !to.query?.codeStr) {
-                                        if (window.AndroidScannerBridge) {
-                                            window.AndroidScannerBridge.startScan();
-                                        }
-                                        return false;
-                                    }
-                                }
-                            });
-                        }
-                    } catch (err) {}
-                }
-
-                hookRouter();
-                var interval = setInterval(hookRouter, 800);
-                setTimeout(function() { clearInterval(interval); }, 15000);
             })();
         """.trimIndent()
         binding.webView.evaluateJavascript(js, null)
