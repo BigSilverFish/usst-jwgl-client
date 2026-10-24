@@ -51,7 +51,8 @@ class JwglWebActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "JwglWebActivity"
-        private const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
+        const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
+        const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
         const val YWCX_TARGET_URL = "http://1906.usst.edu.cn:28080/"
         const val EXTRA_URL = "extra_target_url"

@@ -17,6 +17,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -73,6 +74,26 @@
             android:name=".ui.JwglWebActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize" />
+
+        <activity
+            android:name=".ui.tronclass.TronClassActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.tronclass.TronClassLoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.tronclass.TronClassCourseDetailActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.tronclass.TronClassHomeworkActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
 
         <!-- 15-min Course Reminder Receiver -->

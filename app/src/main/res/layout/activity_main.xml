@@ -40,60 +40,46 @@
         android:layout_weight="1">
 
         <!-- 1. Profile Section -->
-        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        <!-- 1. Profile Section -->
+        <FrameLayout
             android:id="@+id/layoutProfile"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@color/background"
             android:visibility="visible">
 
-            <androidx.core.widget.NestedScrollView
-                android:id="@+id/scrollProfile"
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/swipeRefreshProfile"
+                android:enabled="false"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false">
+                android:layout_height="match_parent">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingHorizontal="20dp"
-                android:paddingTop="16dp"
-                android:paddingBottom="24dp">
-
-                <!-- Profile Header Bar -->
-                <LinearLayout
+                <androidx.core.widget.NestedScrollView
+                    android:id="@+id/scrollProfile"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:fillViewport="true">
 
-                    <ImageView
-                        android:id="@+id/btnOpenDrawerProfile"
-                        android:layout_width="38dp"
-                        android:layout_height="38dp"
-                        android:padding="7dp"
-                        android:src="@drawable/ic_menu"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:clickable="true"
-                        android:focusable="true"
-                        app:tint="@color/text_primary"
-                        android:contentDescription="打开侧栏" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:id="@+id/llProfileContent"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="个人与设置"
-                        android:textColor="@color/text_primary"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                        android:orientation="vertical"
+                        android:paddingHorizontal="20dp"
+                        android:paddingBottom="24dp">
+
+                        <!-- Space for Floating Header -->
+                        <View
+                            android:id="@+id/viewProfileHeaderSpacing"
+                            android:layout_width="match_parent"
+                            android:layout_height="64dp" />
 
                 <LinearLayout
                     android:id="@+id/llProfileBody"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
                     android:orientation="vertical">
 
                 <LinearLayout
@@ -492,7 +478,6 @@
                             android:layout_height="1dp"
                             android:layout_marginVertical="8dp"
                             android:background="@color/border" />
-
                         <!-- Drawer Profile Header Toggle Row -->
                         <LinearLayout
                             android:id="@+id/rowDrawerProfileHeader"
@@ -540,7 +525,6 @@
                             android:layout_height="1dp"
                             android:layout_marginVertical="8dp"
                             android:background="@color/border" />
-
 
                         <!-- Course Reminder Row -->
                         <LinearLayout
@@ -851,7 +835,6 @@
                                 app:iconPadding="6dp"
                                 app:iconSize="16dp" />
                         </LinearLayout>
-
                         <!-- Row 2: Official JWGL Web + XG Web -->
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -894,7 +877,7 @@
                                 app:iconSize="15dp" />
                         </LinearLayout>
 
-                        <!-- Row 3: Live Video Web & TronClass Web -->
+                        <!-- Row 3: Live Video Web -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -904,37 +887,21 @@
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btnProfileLiveWeb"
                                 style="@style/Widget.Material3.Button.OutlinedButton"
-                                android:layout_width="0dp"
+                                android:layout_width="match_parent"
                                 android:layout_height="40dp"
-                                android:layout_weight="1"
-                                android:layout_marginEnd="6dp"
                                 android:insetTop="0dp"
                                 android:insetBottom="0dp"
-                                android:text="直播/点播平台"
+                                android:text="直播/点播平台 (live)"
                                 android:textSize="12.5sp"
                                 app:cornerRadius="12dp"
                                 app:icon="@drawable/ic_live_video"
                                 app:iconGravity="textStart"
                                 app:iconPadding="6dp"
                                 app:iconSize="15dp" />
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnProfileYwcxWeb"
-                                style="@style/Widget.Material3.Button.OutlinedButton"
-                                android:layout_width="0dp"
-                                android:layout_height="40dp"
-                                android:layout_weight="1"
-                                android:layout_marginStart="6dp"
-                                android:insetTop="0dp"
-                                android:insetBottom="0dp"
-                                android:text="一网畅学平台"
-                                android:textSize="12.5sp"
-                                app:cornerRadius="12dp"
-                                app:icon="@drawable/ic_school"
-                                app:iconGravity="textStart"
-                                app:iconPadding="6dp"
-                                app:iconSize="15dp" />
                         </LinearLayout>
+
+
+                        
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -1126,9 +1093,79 @@
                 </LinearLayout>
                 </LinearLayout>
 
-            </LinearLayout>
-        </androidx.core.widget.NestedScrollView>
-        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+                    </LinearLayout>
+                </androidx.core.widget.NestedScrollView>
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <!-- Frosted Glass Floating Top Bar -->
+            <eightbitlab.com.blurview.BlurView
+                android:id="@+id/blurViewProfile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top">
+
+                <LinearLayout
+                    android:id="@+id/llProfileHeaderContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_glass_top_bar"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp">
+
+                        <ImageView
+                            android:id="@+id/btnOpenDrawerProfile"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:contentDescription="打开侧边栏"
+                            android:focusable="true"
+                            android:padding="7dp"
+                            android:src="@drawable/ic_menu"
+                            app:tint="@color/text_primary" />
+
+                        <TextView
+                            android:id="@+id/tvProfilePageTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="个人与设置"
+                            android:textColor="@color/text_primary"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRefreshProfile"
+                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:layout_marginStart="6dp"
+                            android:padding="0dp"
+                            android:contentDescription="刷新个人信息"
+                            app:icon="@drawable/ic_refresh"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp"
+                            app:iconSize="20dp"
+                            app:iconTint="@color/primary" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.8dp"
+                        android:background="@color/border" />
+
+                </LinearLayout>
+            </eightbitlab.com.blurview.BlurView>
+
+        </FrameLayout>
 
         <!-- 2. Timetable Section -->
         <FrameLayout
@@ -1837,6 +1874,11 @@
             android:id="@+id/pageMoreFeatures"
             layout="@layout/layout_page_more_features" />
 
+        <!-- 9. TronClass Native Embedded Page -->
+        <include
+            android:id="@+id/pageTronclass"
+            layout="@layout/layout_page_tronclass" />
+
     </FrameLayout>
     </LinearLayout>
 
@@ -1946,7 +1988,44 @@
                         android:textSize="11.5sp" />
                 </LinearLayout>
 
-                <!-- Tab 3: 更多功能 -->
+                <!-- Tab 3: 一网畅学 -->
+                <LinearLayout
+                    android:id="@+id/tabBottomTronClass"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <FrameLayout
+                        android:id="@+id/flBottomPillTronClass"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp">
+
+                        <ImageView
+                            android:id="@+id/ivBottomTronClass"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_school"
+                            app:tint="@color/text_secondary" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tvBottomTronClass"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:singleLine="true"
+                        android:text="一网畅学"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
+
+                <!-- Tab 4: 更多功能 -->
                 <LinearLayout
                     android:id="@+id/tabBottomMore"
                     android:layout_width="0dp"

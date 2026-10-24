@@ -50,6 +50,27 @@ import cn.edu.usst.jwgl.ui.adapter.CourseGradeAdapter
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
+import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
+import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity
+import cn.edu.usst.jwgl.data.local.TronClassCacheManager
+import cn.edu.usst.jwgl.data.model.TronClassCourse
+import cn.edu.usst.jwgl.data.model.TronClassRollcall
+import cn.edu.usst.jwgl.data.model.TronClassTodo
+import cn.edu.usst.jwgl.data.network.TronClassClient
+import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseAdapter
+import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseDetailActivity
+import cn.edu.usst.jwgl.ui.tronclass.TronClassDownloadActivity
+import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseDetailFragment
+import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkFragment
+import cn.edu.usst.jwgl.ui.tronclass.TronClassExamFragment
+import cn.edu.usst.jwgl.ui.tronclass.TronClassDownloadFragment
+import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
+import cn.edu.usst.jwgl.ui.tronclass.TronClassLoginActivity
+import cn.edu.usst.jwgl.ui.tronclass.TronClassTodoAdapter
+import cn.edu.usst.jwgl.ui.tronclass.RadarRollcallBottomSheetDialog
+import android.app.ProgressDialog
+import android.widget.EditText
+import kotlinx.coroutines.async
 import cn.edu.usst.jwgl.util.ApkDownloadHelper
 import cn.edu.usst.jwgl.util.CalendarExportHelper
 import android.Manifest
@@ -128,6 +149,28 @@ class MainActivity : AppCompatActivity() {
         }
         pendingCalendarAction = null
     }
+
+
+
+    private val tronClassLoginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        isAutoAuthenticatingTronClass = false
+        if (res.resultCode == RESULT_OK) {
+            updateTronClassUserHeader()
+            loadTronClassData(forceRefresh = true)
+        } else {
+            updateTronClassUserHeader()
+        }
+    }
+
+    private val tronClassClient by lazy { TronClassClient(this) }
+    private lateinit var tronClassTodoAdapter: TronClassTodoAdapter
+    private lateinit var tronClassCourseAdapter: TronClassCourseAdapter
+    private var allTronClassCourses: List<TronClassCourse> = emptyList()
+    private var currentSelectedSemester: String? = null
+    private var tronClassCourseSearchQuery: String = ""
+    private var tronClassActiveRollcalls: List<TronClassRollcall> = emptyList()
+    private var isTronClassInitialized = false
+    private var isAutoAuthenticatingTronClass = false
 
     fun checkAndRequestCalendarPermission(action: () -> Unit) {
         if (ContextCompat.checkSelfPermission(
@@ -336,18 +379,41 @@ class MainActivity : AppCompatActivity() {
                 binding.pageGradeReports.headerGradeReports.paddingRight,
                 (10 * density).toInt()
             )
+            binding.pageTronclass.llTronClassHeaderContainer.setPadding(
+                binding.pageTronclass.llTronClassHeaderContainer.paddingLeft,
+                statusTopPad,
+                binding.pageTronclass.llTronClassHeaderContainer.paddingRight,
+                0
+            )
+            binding.pageTronclass.llTronClassHeaderContainer.post {
+                updateTronClassHeaderSpacing(binding.pageTronclass.llTronClassHeaderContainer.height)
+            }
+
+            binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.setPadding(
+                binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.paddingLeft,
+                statusTopPad,
+                binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.paddingRight,
+                0
+            )
+            binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
+                updateMoreFeaturesHeaderSpacing(binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height)
+            }
+
+            binding.llProfileHeaderContainer.setPadding(
+                binding.llProfileHeaderContainer.paddingLeft,
+                statusTopPad,
+                binding.llProfileHeaderContainer.paddingRight,
+                0
+            )
+            binding.llProfileHeaderContainer.post {
+                updateProfileHeaderSpacing(binding.llProfileHeaderContainer.height)
+            }
 
             val drawerStatusTop = if (statusBarInsets.top > 0) statusBarInsets.top else (28 * density).toInt()
             if (binding.layoutDrawer.viewDrawerStatusBarTop.layoutParams.height != drawerStatusTop) {
                 binding.layoutDrawer.viewDrawerStatusBarTop.layoutParams.height = drawerStatusTop
                 binding.layoutDrawer.viewDrawerStatusBarTop.requestLayout()
             }
-            binding.layoutDrawer.cardDrawerProfileHeader.setPadding(
-                binding.layoutDrawer.cardDrawerProfileHeader.paddingLeft,
-                drawerStatusTop + (6 * density).toInt(),
-                binding.layoutDrawer.cardDrawerProfileHeader.paddingRight,
-                (14 * density).toInt()
-            )
 
             insets
         }
@@ -382,6 +448,18 @@ class MainActivity : AppCompatActivity() {
                 .setBlurRadius(20f)
 
             binding.pageGradeReports.blurViewGradeReports.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+
+            binding.pageTronclass.blurViewTronClass.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+
+            binding.pageMoreFeatures.blurViewMoreFeatures.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(windowBackground)
+                .setBlurRadius(20f)
+
+            binding.blurViewProfile.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
@@ -449,7 +527,7 @@ class MainActivity : AppCompatActivity() {
                 switchTab(MainTab.TIMETABLE)
             }
         } else {
-            val initialTab = intent.getIntExtra(EXTRA_TAB, 1) // Default to 1 (课程表)
+            val initialTab = intent.getIntExtra(EXTRA_TAB, 1)
             when (initialTab) {
                 0 -> switchTab(MainTab.PROFILE)
                 1 -> switchTab(MainTab.TIMETABLE)
@@ -459,6 +537,7 @@ class MainActivity : AppCompatActivity() {
                 5 -> switchTab(MainTab.EXAM_QUERY)
                 6 -> switchTab(MainTab.GRADE_REPORTS)
                 7 -> switchTab(MainTab.MORE_FEATURES)
+                8 -> switchTab(MainTab.TRONCLASS)
                 else -> switchTab(MainTab.TIMETABLE)
             }
             handleIntentExtras(intent)
@@ -486,6 +565,9 @@ class MainActivity : AppCompatActivity() {
     private var lastNavBarBottomInsetPx: Int = 0
     private var lastStatusTopPadPx: Int = 0
 
+    fun getStatusTopPad(): Int = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * resources.displayMetrics.density).toInt()
+    fun getBottomInset(): Int = lastNavBarBottomInsetPx
+
     private fun isPhoneBottomBarMode(): Boolean {
         return !isTabletLandscapeMode && !isGuestMode &&
                 TimetableSettingHelper.getPhoneNavMode(this) == TimetableSettingHelper.NAV_MODE_BOTTOM
@@ -500,14 +582,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.scrollProfile.setPadding(
             binding.scrollProfile.paddingLeft,
-            statusTopPad,
+            binding.scrollProfile.paddingTop,
             binding.scrollProfile.paddingRight,
             bottomBarHeightPx
         )
-        binding.pageMoreFeatures.llMoreFeaturesContent.setPadding(
-            binding.pageMoreFeatures.llMoreFeaturesContent.paddingLeft,
-            statusTopPad,
-            binding.pageMoreFeatures.llMoreFeaturesContent.paddingRight,
+        binding.pageMoreFeatures.scrollMoreFeatures.setPadding(
+            binding.pageMoreFeatures.scrollMoreFeatures.paddingLeft,
+            binding.pageMoreFeatures.scrollMoreFeatures.paddingTop,
+            binding.pageMoreFeatures.scrollMoreFeatures.paddingRight,
             bottomBarHeightPx
         )
         binding.scrollGrades.setPadding(
@@ -540,6 +622,12 @@ class MainActivity : AppCompatActivity() {
             binding.pageGradeReports.scrollGradeReports.paddingRight,
             bottomBarHeightPx
         )
+        binding.pageTronclass.llTronClassContent.setPadding(
+            binding.pageTronclass.llTronClassContent.paddingLeft,
+            binding.pageTronclass.llTronClassContent.paddingTop,
+            binding.pageTronclass.llTronClassContent.paddingRight,
+            bottomBarHeightPx
+        )
 
         supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
             .forEach { it.applyContentPadding() }
@@ -562,6 +650,8 @@ class MainActivity : AppCompatActivity() {
             binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
             binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
+            binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
 
             binding.rowDoubleTapDrawer.visibility = View.GONE
             binding.dividerDoubleTapDrawer.visibility = View.GONE
@@ -588,8 +678,6 @@ class MainActivity : AppCompatActivity() {
 
         if (isBottomMode) {
             closeNavDrawer()
-            val drawerView = binding.layoutDrawer.root
-            (drawerView.parent as? ViewGroup)?.removeView(drawerView)
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
             binding.blurViewBottomNav.visibility = View.VISIBLE
 
@@ -607,27 +695,14 @@ class MainActivity : AppCompatActivity() {
             binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
             binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
+            binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
+            binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
 
             // Double-tap drawer option is only applicable in Sidebar mode
             binding.rowDoubleTapDrawer.visibility = View.GONE
             binding.dividerDoubleTapDrawer.visibility = View.GONE
         } else {
-            val drawerView = binding.layoutDrawer.root
-            if (drawerView.parent != binding.drawerLayout) {
-                (drawerView.parent as? ViewGroup)?.removeView(drawerView)
-                drawerView.translationX = 0f
-                drawerView.translationY = 0f
-                drawerView.visibility = View.VISIBLE
-                val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
-                    (310 * resources.displayMetrics.density).toInt(),
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                ).apply {
-                    gravity = GravityCompat.START
-                }
-                binding.drawerLayout.addView(drawerView, lp)
-            }
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
-            binding.drawerLayout.closeDrawer(GravityCompat.START, false)
             binding.blurViewBottomNav.visibility = View.GONE
 
             binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
@@ -641,6 +716,9 @@ class MainActivity : AppCompatActivity() {
             binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_menu)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
             binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_menu)
+            binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.VISIBLE
+            binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.VISIBLE
+            binding.pageTronclass.btnOpenDrawerTronClass.setImageResource(R.drawable.ic_menu)
 
             binding.rowDoubleTapDrawer.visibility = View.VISIBLE
             binding.dividerDoubleTapDrawer.visibility = View.VISIBLE
@@ -684,8 +762,8 @@ class MainActivity : AppCompatActivity() {
                 binding.drawerLayout.isDrawerOpen(GravityCompat.START)
     }
 
-    private fun setupTabletLandscapeLayout(config: Configuration? = null) {
-        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this, config)
+    private fun setupTabletLandscapeLayout() {
+        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this)
         if (!isTabletLandscapeMode) return
 
         val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
@@ -712,6 +790,7 @@ class MainActivity : AppCompatActivity() {
         binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.GONE
         binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.GONE
         binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.GONE
+        binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
 
         // 2. 顶部检索栏单行化 (Compact Single-Row Filter Bars in Landscape)
         // 2a. 全校课表检索栏单行化
@@ -799,19 +878,63 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             0.46f
         )
+
+        // 3d. 一网畅学 (Pad横屏双栏自适应：左侧待办与签到，右侧在读课程网格)
+        val tcPage = binding.pageTronclass
+        tcPage.llTronClassBody.orientation = LinearLayout.HORIZONTAL
+        tcPage.llTronClassLeftPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.42f
+        ).apply {
+            marginEnd = dp(16f)
+        }
+        tcPage.llTronClassRightPane.layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.58f
+        )
+
+        // 4. 缃戞牸甯冨眬涓庡垪琛ㄩ€傞厤
+        if (binding.rvGrades.adapter != null) {
+            binding.rvGrades.layoutManager = GridLayoutManager(this, 2)
+        }
+        if (binding.pageCourseSearch.rvCourseList.adapter != null) {
+            binding.pageCourseSearch.rvCourseList.layoutManager = GridLayoutManager(this, 2)
+        }
+        if (binding.pageFreeClassroom.rvFreeClassroomList.adapter != null) {
+            binding.pageFreeClassroom.rvFreeClassroomList.layoutManager = GridLayoutManager(this, 3)
+        }
+        if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
+            binding.pageExamQuery.rvExamQueryList.layoutManager = GridLayoutManager(this, 2)
+        }
+        if (binding.pageTronclass.rvTronClassCourses.adapter != null) {
+            binding.pageTronclass.rvTronClassCourses.layoutManager = GridLayoutManager(this, 2)
+        }
+        gradeReport?.let { populateGradesSemesterMasterList(it) }
     }
 
     private fun restorePortraitLayout() {
         isTabletLandscapeMode = false
         val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
 
-        // 1. Restore Sidebar
+        // 1. 鎭㈠渚ц竟鏍忚嚦鎶藉眽
         val drawerView = binding.layoutDrawer.root
         (drawerView.parent as? ViewGroup)?.removeView(drawerView)
+        if (drawerView.parent == null) {
+            val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
+                (310 * resources.displayMetrics.density).toInt(),
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply {
+                gravity = GravityCompat.START
+            }
+            binding.drawerLayout.addView(drawerView, lp)
+        }
         binding.permanentSidebarContainer.visibility = View.GONE
         binding.viewPermanentSidebarDivider.visibility = View.GONE
+        binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
 
-        // 2. 顶部检索栏恢复纵向单列
+        // 2. 椤堕儴妫€绱㈡爮鎭㈠绾靛悜鍗曞垪
         val csPage = binding.pageCourseSearch
         csPage.cardCourseSearchFilter.orientation = LinearLayout.VERTICAL
         csPage.rowCourseSearchInputs.layoutParams = LinearLayout.LayoutParams(
@@ -840,7 +963,7 @@ class MainActivity : AppCompatActivity() {
             marginStart = 0
         }
 
-        // 3. Restore two-pane to vertical
+        /* 3. Restore two-pane to vertical */
         binding.llGradesBody.orientation = LinearLayout.VERTICAL
         binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -881,7 +1004,20 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
 
-        // 4. Restore list manager
+        val tcPage = binding.pageTronclass
+        tcPage.llTronClassBody.orientation = LinearLayout.VERTICAL
+        tcPage.llTronClassLeftPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginEnd = 0
+        }
+        tcPage.llTronClassRightPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+
+        /* 4. Restore list manager */
         if (binding.rvGrades.adapter != null) {
             binding.rvGrades.layoutManager = LinearLayoutManager(this)
         }
@@ -894,30 +1030,22 @@ class MainActivity : AppCompatActivity() {
         if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
             binding.pageExamQuery.rvExamQueryList.layoutManager = LinearLayoutManager(this)
         }
+        if (tcPage.rvTronClassCourses.adapter != null) {
+            tcPage.rvTronClassCourses.layoutManager = LinearLayoutManager(this)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this, newConfig)
+        val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this)
         if (isTabletLandscape != isTabletLandscapeMode) {
             if (isTabletLandscape) {
-                setupTabletLandscapeLayout(newConfig)
+                setupTabletLandscapeLayout()
             } else {
                 restorePortraitLayout()
             }
             applyPhoneNavigationMode()
             applyContentBottomPadding()
-        }
-
-        val curPage = binding.vpSchedule.currentItem
-        binding.vpSchedule.post {
-            val rv = binding.vpSchedule.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView
-            rv?.scrollToPosition(curPage)
-            binding.vpSchedule.post {
-                binding.vpSchedule.setCurrentItem(curPage, false)
-                scheduleAdapter?.refreshAllFragments()
-                updateWeekHeaderDates(curPage + 1)
-            }
         }
     }
 
@@ -1098,21 +1226,13 @@ class MainActivity : AppCompatActivity() {
             showWeekPickerDialog()
         }
 
-        if (intent.getBooleanExtra("extra_open_jwgl_web", false)) {
-            JwglWebActivity.start(this)
-        }
+        
 
-        if (intent.getBooleanExtra("extra_open_xg_web", false)) {
-            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
-        }
+        
 
-        if (intent.getBooleanExtra("extra_open_live_web", false)) {
-            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
-        }
+        
 
-        if (intent.getBooleanExtra("extra_open_ywcx_web", false)) {
-            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
-        }
+        
 
         if (intent.hasExtra("extra_simulate_hour")) {
             val h = intent.getIntExtra("extra_simulate_hour", -1)
@@ -1175,21 +1295,6 @@ class MainActivity : AppCompatActivity() {
             binding.vpSchedule.adapter = scheduleAdapter
             binding.vpSchedule.offscreenPageLimit = 1
             binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
-
-            binding.vpSchedule.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-                val oldWidth = oldRight - oldLeft
-                val newWidth = right - left
-                if (oldWidth > 0 && newWidth > 0 && oldWidth != newWidth) {
-                    val curPage = binding.vpSchedule.currentItem
-                    val rv = binding.vpSchedule.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView
-                    rv?.scrollToPosition(curPage)
-                    v.post {
-                        binding.vpSchedule.setCurrentItem(curPage, false)
-                        scheduleAdapter?.refreshAllFragments()
-                        updateWeekHeaderDates(curPage + 1)
-                    }
-                }
-            }
 
             binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
@@ -1265,6 +1370,7 @@ class MainActivity : AppCompatActivity() {
     enum class MainTab {
         TIMETABLE,
         GRADES,
+        TRONCLASS,
         MORE_FEATURES,
         COURSE_SEARCH,
         FREE_CLASSROOM,
@@ -1287,6 +1393,7 @@ class MainActivity : AppCompatActivity() {
         binding.pageFreeClassroom.layoutFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
         binding.pageExamQuery.layoutExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
         binding.pageGradeReports.layoutGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
+        binding.pageTronclass.layoutTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
 
         when (tab) {
             MainTab.TIMETABLE -> reloadTimetableFromDb()
@@ -1298,7 +1405,18 @@ class MainActivity : AppCompatActivity() {
                     showOrLoadGrades()
                 }
             }
-            MainTab.MORE_FEATURES -> {}
+            MainTab.TRONCLASS -> {
+                initTronClassPage()
+                binding.pageTronclass.llTronClassHeaderContainer.post {
+                    updateTronClassHeaderSpacing(binding.pageTronclass.llTronClassHeaderContainer.height)
+                }
+                checkAndLoadTronClassData()
+            }
+            MainTab.MORE_FEATURES -> {
+                binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
+                    updateMoreFeaturesHeaderSpacing(binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height)
+                }
+            }
             MainTab.COURSE_SEARCH -> {
                 initCourseSearchPage()
                 checkAndLoadDefaultCourseSearch()
@@ -1324,7 +1442,11 @@ class MainActivity : AppCompatActivity() {
                     updateGradeReportsHeaderSpacing(binding.pageGradeReports.llGradeReportsHeaderContainer.height)
                 }
             }
-            MainTab.PROFILE -> {}
+            MainTab.PROFILE -> {
+                binding.llProfileHeaderContainer.post {
+                    updateProfileHeaderSpacing(binding.llProfileHeaderContainer.height)
+                }
+            }
         }
     }
 
@@ -1364,6 +1486,12 @@ class MainActivity : AppCompatActivity() {
             binding.ivBottomGrades,
             binding.tvBottomGrades,
             tab == MainTab.GRADES
+        )
+        setBottomTabStyle(
+            binding.flBottomPillTronClass,
+            binding.ivBottomTronClass,
+            binding.tvBottomTronClass,
+            tab == MainTab.TRONCLASS
         )
         setBottomTabStyle(
             binding.flBottomPillMore,
@@ -1413,6 +1541,12 @@ class MainActivity : AppCompatActivity() {
             binding.layoutDrawer.ivNavGrades,
             binding.layoutDrawer.tvNavGrades,
             tab == MainTab.GRADES
+        )
+        setNavActive(
+            binding.layoutDrawer.drawerNavTronClass,
+            binding.layoutDrawer.ivNavTronClass,
+            binding.layoutDrawer.tvNavTronClass,
+            tab == MainTab.TRONCLASS
         )
         setNavActive(
             binding.layoutDrawer.drawerItemSchoolSearch,
@@ -1594,8 +1728,8 @@ class MainActivity : AppCompatActivity() {
         binding.btnDownloadGradeReports.setOnClickListener { switchTab(MainTab.GRADE_REPORTS) }
 
         // Profile Refresh
-        binding.layoutProfile.setColorSchemeResources(R.color.primary)
-        binding.layoutProfile.setOnRefreshListener { refreshProfile() }
+        binding.swipeRefreshProfile.isEnabled = false
+        binding.btnRefreshProfile.setOnClickListener { refreshProfile() }
 
         // Dark Mode
         binding.rowDarkMode.setOnClickListener { showDarkModeDialog() }
@@ -1604,6 +1738,15 @@ class MainActivity : AppCompatActivity() {
         binding.rowCourseReminder.setOnClickListener {
             showCourseReminderAdvanceDialog()
         }
+        binding.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
+        binding.rowDrawerProfileHeader.setOnClickListener {
+            binding.switchDrawerProfileHeader.toggle()
+        }
+        binding.switchDrawerProfileHeader.setOnCheckedChangeListener { _, isChecked ->
+            TimetableSettingHelper.setDrawerProfileHeaderEnabled(this, isChecked)
+            updateDrawerProfileHeaderVisibility()
+        }
+
         binding.switchCourseReminder.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1695,15 +1838,6 @@ class MainActivity : AppCompatActivity() {
             TimetableSettingHelper.setDoubleTapOpenDrawerEnabled(this, isChecked)
             val msg = if (isChecked) "已开启双击课表空白处呼出侧栏" else "已关闭双击课表空白处呼出侧栏"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-        }
-
-        binding.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
-        binding.rowDrawerProfileHeader.setOnClickListener {
-            binding.switchDrawerProfileHeader.toggle()
-        }
-        binding.switchDrawerProfileHeader.setOnCheckedChangeListener { _, isChecked ->
-            TimetableSettingHelper.setDrawerProfileHeaderEnabled(this, isChecked)
-            updateDrawerProfileHeaderVisibility()
         }
 
     }
@@ -1971,9 +2105,7 @@ class MainActivity : AppCompatActivity() {
         binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
-        binding.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
         updateReminderSubtitles()
-        updateDrawerProfileHeaderVisibility()
 
         // Update Drawer Version
         binding.layoutDrawer.tvDrawerVersion.text = "USST JWGL · v${BuildConfig.VERSION_NAME}"
@@ -1990,14 +2122,6 @@ class MainActivity : AppCompatActivity() {
         binding.tvClass.text = profile.className.ifEmpty { "--" }
         binding.tvGrade.text = if (profile.grade.isNotEmpty()) "${profile.grade}级 (${profile.durationYears}年制)" else "--"
         binding.tvGender.text = profile.gender.ifEmpty { "--" }
-
-        // Populate Drawer Student Info
-        binding.layoutDrawer.tvDrawerStudentName.text = studentName
-        binding.layoutDrawer.tvDrawerStudentId.text = "学号: ${profile.studentId.ifEmpty { "--" }}"
-        val col = profile.college.ifEmpty { "上海理工大学" }
-        val maj = profile.major.ifEmpty { "" }
-        binding.layoutDrawer.tvDrawerCollegeMajor.text = if (maj.isNotEmpty()) "$col · $maj" else col
-        binding.layoutDrawer.tvDrawerAvatar.text = if (studentName.isNotEmpty()) studentName.take(1) else "理"
     }
 
     private fun showDarkModeDialog() {
@@ -2201,7 +2325,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshProfile() {
-        binding.layoutProfile.isRefreshing = true
+        binding.swipeRefreshProfile.isRefreshing = true
         lifecycleScope.launch {
             try {
                 val auth = AuthPreferences(this@MainActivity)
@@ -2224,7 +2348,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e("MainActivity", "refreshProfile error", e)
                 Toast.makeText(this@MainActivity, "个人信息更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
-                binding.layoutProfile.isRefreshing = false
+                binding.swipeRefreshProfile.isRefreshing = false
             }
         }
     }
@@ -2646,6 +2770,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        supportFragmentManager.addOnBackStackChangedListener {
+            val count = supportFragmentManager.backStackEntryCount
+            binding.pageTronclass.flTronClassSecondaryContainer.visibility = if (count > 0) View.VISIBLE else View.GONE
+        }
+
         // Back press handling: close drawer first if opened
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -2653,6 +2782,8 @@ class MainActivity : AppCompatActivity() {
                     finish()
                 } else if (isNavDrawerOpen()) {
                     closeNavDrawer()
+                } else if (currentTab == MainTab.TRONCLASS && supportFragmentManager.backStackEntryCount > 0) {
+                    supportFragmentManager.popBackStack()
                 } else if (isPhoneBottomBarMode() && (
                         currentTab == MainTab.COURSE_SEARCH ||
                         currentTab == MainTab.FREE_CLASSROOM ||
@@ -2677,6 +2808,13 @@ class MainActivity : AppCompatActivity() {
         binding.tabBottomGrades.setOnClickListener {
             switchTab(MainTab.GRADES)
         }
+        binding.tabBottomTronClass.setOnClickListener {
+            if (currentTab == MainTab.TRONCLASS && supportFragmentManager.backStackEntryCount > 0) {
+                clearTronClassBackStack()
+            } else {
+                switchTab(MainTab.TRONCLASS)
+            }
+        }
         binding.tabBottomMore.setOnClickListener {
             switchTab(MainTab.MORE_FEATURES)
         }
@@ -2685,6 +2823,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // More Features Hub Page (Bottom Bar Mode)
+        binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.setOnClickListener {
+            openNavDrawer()
+        }
         binding.pageMoreFeatures.rowMoreCourseSearch.setOnClickListener {
             switchTab(MainTab.COURSE_SEARCH)
         }
@@ -2698,30 +2839,21 @@ class MainActivity : AppCompatActivity() {
             switchTab(MainTab.GRADE_REPORTS)
         }
         binding.pageMoreFeatures.rowMoreWidgetPin.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val appWidgetManager = getSystemService(android.appwidget.AppWidgetManager::class.java)
-                val provider = android.content.ComponentName(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java)
-                if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
-                    appWidgetManager.requestPinAppWidget(provider, null, null)
-                } else {
-                    Toast.makeText(this, "当前手机桌面启动器不支持自动添加，请在桌面空白处长按手动添加小组件", Toast.LENGTH_LONG).show()
-                }
-            } else {
-                Toast.makeText(this, "请在手机桌面空白处长按手动添加今日课表小组件", Toast.LENGTH_LONG).show()
-            }
+            handleWidgetPinRequest()
         }
+
         binding.pageMoreFeatures.rowMoreJwglWeb.setOnClickListener {
-            JwglWebActivity.start(this)
+            JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
         }
+
         binding.pageMoreFeatures.rowMoreXgWeb.setOnClickListener {
-            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
+            JwglWebActivity.start(this, JwglWebActivity.XG_TARGET_URL, "学工一体化 (new2017)")
         }
+
         binding.pageMoreFeatures.rowMoreLiveWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播平台 (live)")
         }
-        binding.pageMoreFeatures.rowMoreYwcxWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
-        }
+                        
 
         // Quick Service Entries in Profile (Bottom Bar Mode)
         binding.btnProfileExamQuery.setOnClickListener {
@@ -2730,19 +2862,19 @@ class MainActivity : AppCompatActivity() {
         binding.btnProfileGradeReports.setOnClickListener {
             switchTab(MainTab.GRADE_REPORTS)
         }
+
         binding.btnProfileJwglWeb.setOnClickListener {
-            JwglWebActivity.start(this)
-        }
-        binding.btnProfileXgWeb.setOnClickListener {
-            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
-        }
-        binding.btnProfileLiveWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
-        }
-        binding.btnProfileYwcxWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
+            JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
         }
 
+        binding.btnProfileXgWeb.setOnClickListener {
+            JwglWebActivity.start(this, JwglWebActivity.XG_TARGET_URL, "学工一体化 (new2017)")
+        }
+
+        binding.btnProfileLiveWeb.setOnClickListener {
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播平台 (live)")
+        }
+                                
         // Hamburger Menu Buttons to Open Drawer
         binding.btnOpenDrawerTimetable.setOnClickListener {
             openNavDrawer()
@@ -2789,25 +2921,32 @@ class MainActivity : AppCompatActivity() {
             switchTab(MainTab.GRADE_REPORTS)
         }
 
-
         binding.layoutDrawer.drawerItemJwglWeb.setOnClickListener {
             closeNavDrawer()
-            JwglWebActivity.start(this)
+            JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
         }
 
         binding.layoutDrawer.drawerItemXgWeb.setOnClickListener {
             closeNavDrawer()
-            JwglWebActivity.start(this, "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx", "学工一体化")
+            JwglWebActivity.start(this, JwglWebActivity.XG_TARGET_URL, "学工一体化 (new2017)")
         }
 
         binding.layoutDrawer.drawerItemLiveWeb.setOnClickListener {
             closeNavDrawer()
-            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播")
+            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播平台 (live)")
         }
 
-        binding.layoutDrawer.drawerItemYwcxWeb.setOnClickListener {
+
+        
+        
+        
+        binding.layoutDrawer.drawerNavTronClass.setOnClickListener {
             closeNavDrawer()
-            JwglWebActivity.start(this, JwglWebActivity.YWCX_TARGET_URL, "一网畅学平台 (TronClass)")
+            if (currentTab == MainTab.TRONCLASS && supportFragmentManager.backStackEntryCount > 0) {
+                clearTronClassBackStack()
+            } else {
+                switchTab(MainTab.TRONCLASS)
+            }
         }
 
         // Side Navigation Drawer: Logout
@@ -3229,14 +3368,7 @@ class MainActivity : AppCompatActivity() {
                 openNavDrawer()
             }
         }
-        page.btnOpenLappWeb.setOnClickListener {
-            JwglWebActivity.start(
-                this,
-                "https://lapp.usst.edu.cn/_web/_customizes/usst/schoolTimetable/mobile/permit/pc/pub/index.html",
-                "全校课表"
-            )
-        }
-
+        
         schoolCourseAdapter = SchoolCourseAdapter(
             schoolCourseList,
             onSyllabusClick = { course ->
@@ -4299,5 +4431,771 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-}
 
+    // ==========================================
+    // --- 9. TronClass Native Embedded Page ---
+    // ==========================================
+    private fun updateMoreFeaturesHeaderSpacing(headerHeight: Int) {
+        val params = binding.pageMoreFeatures.viewMoreFeaturesHeaderSpacing.layoutParams
+        if (params.height != headerHeight) {
+            params.height = headerHeight
+            binding.pageMoreFeatures.viewMoreFeaturesHeaderSpacing.layoutParams = params
+        }
+    }
+
+    private fun updateProfileHeaderSpacing(headerHeight: Int) {
+        val params = binding.viewProfileHeaderSpacing.layoutParams
+        if (params.height != headerHeight) {
+            params.height = headerHeight
+            binding.viewProfileHeaderSpacing.layoutParams = params
+        }
+    }
+
+    private fun updateTronClassHeaderSpacing(headerHeight: Int) {
+        val params = binding.pageTronclass.viewTronClassHeaderSpacing.layoutParams
+        if (params.height != headerHeight) {
+            params.height = headerHeight
+            binding.pageTronclass.viewTronClassHeaderSpacing.layoutParams = params
+        }
+    }
+
+    private fun initTronClassPage() {
+        if (isTronClassInitialized) return
+        isTronClassInitialized = true
+
+        binding.pageTronclass.btnOpenDrawerTronClass.setOnClickListener {
+            openNavDrawer()
+        }
+
+        binding.pageTronclass.btnRefreshTronClass.setOnClickListener {
+            loadTronClassData(forceRefresh = true)
+        }
+
+        binding.pageTronclass.btnTronClassDownloads.setOnClickListener {
+            openTronClassDownloads()
+        }
+
+        binding.pageTronclass.btnTronClassCacheManager.setOnClickListener {
+            val sheet = cn.edu.usst.jwgl.ui.tronclass.TronClassCacheBottomSheet.newInstance()
+            sheet.setOnCacheClearedListener {
+                loadTronClassData(forceRefresh = true)
+            }
+            sheet.show(supportFragmentManager, cn.edu.usst.jwgl.ui.tronclass.TronClassCacheBottomSheet.TAG)
+        }
+
+        binding.pageTronclass.etTronClassCourseSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                tronClassCourseSearchQuery = s?.toString()?.trim() ?: ""
+                binding.pageTronclass.btnTronClassCourseSearchClear.visibility =
+                    if (tronClassCourseSearchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                val latestSemester = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.distinct().sortedDescending().firstOrNull() ?: ""
+                renderFilteredCourses(latestSemester)
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        binding.pageTronclass.btnTronClassCourseSearchClear.setOnClickListener {
+            binding.pageTronclass.etTronClassCourseSearch.setText("")
+        }
+
+        tronClassTodoAdapter = TronClassTodoAdapter { todo ->
+            openTronClassHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
+        }
+        binding.pageTronclass.rvTronClassTodos.layoutManager = LinearLayoutManager(this)
+        binding.pageTronclass.rvTronClassTodos.adapter = tronClassTodoAdapter
+
+        tronClassCourseAdapter = TronClassCourseAdapter { course ->
+            openTronClassCourseDetail(course)
+        }
+        binding.pageTronclass.rvTronClassCourses.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
+        binding.pageTronclass.rvTronClassCourses.adapter = tronClassCourseAdapter
+
+        binding.pageTronclass.swipeRefreshTronClass.isEnabled = false
+
+
+
+        binding.pageTronclass.btnTronClassSmartSign.setOnClickListener {
+            triggerSmartRollcall()
+        }
+
+        binding.pageTronclass.btnTronClassLoginPrompt.setOnClickListener {
+            promptTronClassLogin()
+        }
+
+        binding.pageTronclass.btnTronClassQuickSign.setOnClickListener {
+            triggerSmartRollcall()
+        }
+
+        updateTronClassUserHeader()
+    }
+
+    fun openTronClassCourseDetail(course: TronClassCourse) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        val fragment = TronClassCourseDetailFragment.newInstance(course)
+        pushTronClassSecondaryFragment(fragment, "course_detail_${course.id}")
+    }
+
+    fun openTronClassCourseDetail(courseId: Long, courseName: String) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        val fragment = TronClassCourseDetailFragment.newInstance(courseId, courseName)
+        pushTronClassSecondaryFragment(fragment, "course_detail_$courseId")
+    }
+
+    fun openTronClassHomework(activityId: Long, courseId: Long, title: String, courseName: String) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        val fragment = TronClassHomeworkFragment.newInstance(activityId, courseId, title, courseName)
+        pushTronClassSecondaryFragment(fragment, "homework_$activityId")
+    }
+
+    fun openTronClassExam(examId: Long, courseId: Long, title: String, courseName: String) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        val fragment = TronClassExamFragment.newInstance(examId, courseId, title, courseName)
+        pushTronClassSecondaryFragment(fragment, "exam_$examId")
+    }
+
+    fun openTronClassDownloads() {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        val fragment = TronClassDownloadFragment.newInstance()
+        pushTronClassSecondaryFragment(fragment, "downloads")
+    }
+
+    private fun pushTronClassSecondaryFragment(fragment: androidx.fragment.app.Fragment, tag: String) {
+        binding.pageTronclass.flTronClassSecondaryContainer.visibility = View.VISIBLE
+        supportFragmentManager.beginTransaction()
+            .setCustomAnimations(
+                android.R.anim.fade_in,
+                android.R.anim.fade_out,
+                android.R.anim.fade_in,
+                android.R.anim.fade_out
+            )
+            .replace(R.id.flTronClassSecondaryContainer, fragment, tag)
+            .addToBackStack(tag)
+            .commit()
+    }
+
+    fun clearTronClassBackStack() {
+        while (supportFragmentManager.backStackEntryCount > 0) {
+            supportFragmentManager.popBackStackImmediate()
+        }
+        binding.pageTronclass.flTronClassSecondaryContainer.visibility = View.GONE
+    }
+
+    private fun checkAndLoadTronClassData() {
+        if (!tronClassClient.isLoggedIn()) {
+            updateTronClassUserHeader()
+            // 首次点进一网畅学，若尚未完成畅课认证，自动静默触发 SSO 认证直登
+            autoPerformTronClassSsoLogin()
+            return
+        }
+        if (tronClassCourseAdapter.itemCount == 0) {
+            loadTronClassData(forceRefresh = false)
+        }
+    }
+
+    private fun autoPerformTronClassSsoLogin() {
+        if (isAutoAuthenticatingTronClass) return
+        isAutoAuthenticatingTronClass = true
+        binding.pageTronclass.tvTronClassUserName.text = "正在同步认证..."
+        binding.pageTronclass.tvTronClassUserNo.text = "正在通过学校统一身份认证 (SSO) 直连一网畅学..."
+        binding.pageTronclass.btnTronClassLoginPrompt.visibility = View.GONE
+        promptTronClassLogin()
+    }
+
+    private fun updateTronClassUserHeader() {
+        if (tronClassClient.isLoggedIn()) {
+            val name = tronClassClient.getUserName()
+            val no = tronClassClient.getUserNo()
+            val displayName = if (name.endsWith("同学")) name else "${name}同学"
+            binding.pageTronclass.tvTronClassUserName.text = displayName
+            binding.pageTronclass.tvTronClassUserNo.text = if (no.isNotBlank()) "学号: $no" else "已登录"
+            binding.pageTronclass.btnTronClassSmartSign.visibility = View.VISIBLE
+            binding.pageTronclass.btnTronClassLoginPrompt.visibility = View.GONE
+        } else {
+            binding.pageTronclass.tvTronClassUserName.text = "同学，你好！"
+            binding.pageTronclass.tvTronClassUserNo.text = "点击下方按钮授权登录"
+            binding.pageTronclass.btnTronClassSmartSign.visibility = View.GONE
+            binding.pageTronclass.btnTronClassLoginPrompt.visibility = View.VISIBLE
+        }
+    }
+
+    private fun promptTronClassLogin() {
+        val intent = Intent(this, TronClassLoginActivity::class.java)
+        tronClassLoginLauncher.launch(intent)
+    }
+
+    private fun loadTronClassData(forceRefresh: Boolean) {
+        if (!tronClassClient.isLoggedIn()) {
+            binding.pageTronclass.swipeRefreshTronClass.isRefreshing = false
+            return
+        }
+
+        binding.pageTronclass.swipeRefreshTronClass.isRefreshing = true
+
+        lifecycleScope.launch {
+            val todosDeferred = async { tronClassClient.fetchTodos() }
+            val coursesDeferred = async { tronClassClient.fetchMyCourses() }
+            val rollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
+
+            val todosRes = todosDeferred.await()
+            val coursesRes = coursesDeferred.await()
+            val rollcallsRes = rollcallsDeferred.await()
+
+            binding.pageTronclass.swipeRefreshTronClass.isRefreshing = false
+
+            // 1. 处理待办作业
+            if (todosRes.isSuccess) {
+                val todos = todosRes.getOrDefault(emptyList())
+                tronClassTodoAdapter.updateData(todos)
+                TronClassDdlScheduler.schedulePeriodicWork(this@MainActivity)
+                binding.pageTronclass.tvTronClassTodoBadge.text = "${todos.size} 项待办"
+                binding.pageTronclass.tvTronClassEmptyTodos.visibility = if (todos.isEmpty()) View.VISIBLE else View.GONE
+            }
+
+            // 2. 处理在读课程（按班级号中学期代号分类）
+            if (coursesRes.isSuccess) {
+                allTronClassCourses = coursesRes.getOrDefault(emptyList())
+                setupTronClassSemesterChips(allTronClassCourses)
+            }
+
+            // 3. 处理正在进行的课堂签到
+            if (rollcallsRes.isSuccess) {
+                tronClassActiveRollcalls = rollcallsRes.getOrDefault(emptyList())
+                if (tronClassActiveRollcalls.isNotEmpty()) {
+                    val r = tronClassActiveRollcalls.first()
+                    binding.pageTronclass.cardTronClassActiveRollcall.visibility = View.VISIBLE
+                    val typeDesc = r.getTypeDisplayName()
+                    val btnText = when (r.getNormalizedType()) {
+                        "number" -> "口令签到"
+                        "radar" -> "雷达签到"
+                        "self_registration" -> "自主签到"
+                        else -> "扫码签到"
+                    }
+                    binding.pageTronclass.tvTronClassActiveRollcallInfo.text = "课程: ${r.courseName ?: "课堂教学"} · $typeDesc"
+                    binding.pageTronclass.btnTronClassQuickSign.text = btnText
+                    updateSmartSignButtonState()
+                } else {
+                    binding.pageTronclass.cardTronClassActiveRollcall.visibility = View.GONE
+                    updateSmartSignButtonState()
+                }
+            }
+        }
+    }
+
+    // Google ML Kit 高灵敏扫码器 Launcher
+    private val tronClassMlKitScannerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val rawContents = result.data?.getStringExtra(MlKitScannerActivity.EXTRA_SCAN_RESULT) ?: ""
+            if (rawContents.isNotBlank()) {
+                handleTronClassScannedQrResult(rawContents)
+            }
+        }
+    }
+
+    private fun startTronClassQrScan() {
+        val intent = Intent(this, MlKitScannerActivity::class.java)
+        tronClassMlKitScannerLauncher.launch(intent)
+    }
+
+    private fun handleTronClassScannedQrResult(rawContents: String) {
+        val parsed = tronClassClient.parseRollcallQr(rawContents)
+        if (parsed != null) {
+            val progress = ProgressDialog(this).apply {
+                setMessage("正在向一网畅学提交扫码签到...")
+                setCancelable(false)
+                show()
+            }
+
+            lifecycleScope.launch {
+                val res = tronClassClient.answerQRRollcall(parsed.rollcallId, parsed.qrData)
+                progress.dismiss()
+
+                val result = res.getOrNull()
+                if (result != null && result.success) {
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("🎉 签到成功！")
+                        .setMessage(result.message)
+                        .setPositiveButton("太棒了", null)
+                        .show()
+                    loadTronClassData(forceRefresh = true)
+                } else {
+                    val msg = result?.message ?: res.exceptionOrNull()?.message ?: "未知签到错误"
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("签到结果反馈")
+                        .setMessage(msg)
+                        .setPositiveButton("确定", null)
+                        .show()
+                }
+            }
+        } else {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("二维码提示")
+                .setMessage("未能识别为有效的课堂签到二维码：\n$rawContents\n\n请确认教师屏幕上的签到二维码是否已刷新。")
+                .setPositiveButton("确定", null)
+                .show()
+        }
+    }
+
+    /**
+     * 单一合并签到核心入口：根据当前点名类型全自动分流
+     */
+    private fun triggerSmartRollcall() {
+        if (!tronClassClient.isLoggedIn()) {
+            promptTronClassLogin()
+            return
+        }
+
+        // 1. 若当前内存中已有拉取到的点名记录，直接按类型分流
+        val active = tronClassActiveRollcalls.firstOrNull()
+        if (active != null) {
+            dispatchRollcallByType(active)
+            return
+        }
+
+        // 2. 若暂无缓存，实时探测一次进行中的课堂点名
+        val progress = ProgressDialog(this).apply {
+            setMessage("正在探测是否有进行中的课堂签到...")
+            setCancelable(false)
+            show()
+        }
+
+        lifecycleScope.launch {
+            val res = tronClassClient.fetchOngoingRollcalls()
+            progress.dismiss()
+
+            val list = res.getOrDefault(emptyList())
+            tronClassActiveRollcalls = list
+            updateSmartSignButtonState()
+
+            val found = list.firstOrNull()
+            if (found != null) {
+                dispatchRollcallByType(found)
+            } else {
+                // 3. 确实暂无进行中点名，弹出便捷自选向导（绝无死循环！）
+                showManualRollcallGuideDialog()
+            }
+        }
+    }
+
+    /**
+     * 依据点名类型精准分流，杜绝混淆
+     */
+    private fun dispatchRollcallByType(rollcall: TronClassRollcall) {
+        when (rollcall.getNormalizedType()) {
+            "radar" -> {
+                showTronClassRadarRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
+            }
+            "number" -> {
+                showTronClassNumberRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
+            }
+            "qr_code" -> {
+                startTronClassQrScan()
+            }
+            else -> {
+                showManualRollcallGuideDialog(rollcall.getEffectiveId(), rollcall.courseName)
+            }
+        }
+    }
+
+    /**
+     * 手动选择签到向导面板（彻底消除死循环）
+     */
+    private fun showManualRollcallGuideDialog(designatedId: Long? = null, courseName: String? = null) {
+        val options = arrayOf(
+            "📷 启动扫码签到 (针对教师投影仪二维码)",
+            "🔢 输入口令签到 (针对数字签到码)",
+            "📡 雷达定位签到 (上理教学楼基准/GPS)",
+            "🔄 刷新点名状态"
+        )
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (courseName != null) "课程签到 · $courseName" else "课堂签到向导")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> startTronClassQrScan()
+                    1 -> showTronClassNumberRollcallDialog(designatedId, courseName)
+                    2 -> showTronClassRadarRollcallDialog(designatedId, courseName)
+                    3 -> loadTronClassData(forceRefresh = true)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showTronClassRadarRollcallDialog(
+        designatedRollcallId: Long? = null,
+        courseName: String? = null,
+        classroom: String? = null
+    ) {
+        val rollcallId = designatedRollcallId ?: tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "radar" }?.getEffectiveId() ?: tronClassActiveRollcalls.firstOrNull()?.getEffectiveId()
+
+        if (rollcallId == null || rollcallId <= 0L) {
+            // 没有明确的雷达点名 ID，提供手动输入或选择教学楼
+            val input = EditText(this@MainActivity).apply {
+                hint = "请输入雷达点名 ID（选填）"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                setPadding(48, 36, 48, 36)
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("雷达定位签到")
+                .setMessage("当前无进行中的雷达点名。若教师已发起，可输入点名 ID 或直接进入定位面板：")
+                .setView(input)
+                .setPositiveButton("进入定位") { _, _ ->
+                    val id = input.text.toString().trim().toLongOrNull() ?: 0L
+                    val dialog = RadarRollcallBottomSheetDialog.newInstance(
+                        rollcallId = id,
+                        courseName = courseName ?: "课堂雷达签到",
+                        classroom = classroom
+                    )
+                    dialog.setOnSignSuccessListener {
+                        loadTronClassData(forceRefresh = true)
+                    }
+                    dialog.show(supportFragmentManager, "RadarRollcallBottomSheet")
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+
+        val dialog = RadarRollcallBottomSheetDialog.newInstance(
+            rollcallId = rollcallId,
+            courseName = courseName ?: tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == rollcallId }?.courseName,
+            classroom = classroom
+        )
+        dialog.setOnSignSuccessListener {
+            loadTronClassData(forceRefresh = true)
+        }
+        dialog.show(supportFragmentManager, "RadarRollcallBottomSheet")
+    }
+
+    private fun showTronClassNumberRollcallDialog(
+        designatedRollcallId: Long? = null,
+        designatedCourseName: String? = null
+    ) {
+        val targetRollcall = designatedRollcallId?.let { id -> tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == id } }
+            ?: tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "number" }
+            ?: tronClassActiveRollcalls.firstOrNull()
+
+        val courseName = designatedCourseName ?: targetRollcall?.courseName
+        val titleText = if (!courseName.isNullOrBlank()) "口令签到 · $courseName" else "数字口令签到"
+
+        val input = EditText(this).apply {
+            hint = "请输入4位或6位数字签到码"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setPadding(48, 36, 48, 36)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(titleText)
+            .setMessage(if (targetRollcall != null) "已连接课堂点名，请输入教师发布的数字口令：" else "请输入教师发布的数字签到码：")
+            .setView(input)
+            .setPositiveButton("提交签到") { _, _ ->
+                val code = input.text.toString().trim()
+                if (code.isEmpty()) {
+                    Toast.makeText(this, "签到码不能为空", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                val progress = ProgressDialog(this).apply {
+                    setMessage("正在提交签到口令...")
+                    setCancelable(false)
+                    show()
+                }
+
+                lifecycleScope.launch {
+                    var rollcallId = designatedRollcallId ?: targetRollcall?.getEffectiveId() ?: 0L
+                    if (rollcallId <= 0L) {
+                        val freshList = tronClassClient.fetchOngoingRollcalls().getOrDefault(emptyList())
+                        tronClassActiveRollcalls = freshList
+                        rollcallId = freshList.firstOrNull()?.getEffectiveId() ?: 0L
+                    }
+
+                    val res = tronClassClient.answerNumberRollcall(rollcallId, code)
+                    progress.dismiss()
+
+                    val result = res.getOrNull()
+                    if (result != null && result.success) {
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("🎉 签到成功！")
+                            .setMessage(result.message)
+                            .setPositiveButton("太棒了", null)
+                            .show()
+                        loadTronClassData(forceRefresh = true)
+                    } else {
+                        val msg = result?.message ?: res.exceptionOrNull()?.message ?: "签到失败，请检查口令"
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("签到未通过")
+                            .setMessage(msg)
+                            .setPositiveButton("重试") { _, _ ->
+                                showTronClassNumberRollcallDialog(rollcallId, courseName)
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun updateSmartSignButtonState() {
+        val active = tronClassActiveRollcalls.firstOrNull()
+        if (active != null) {
+            when (active.getNormalizedType()) {
+                "radar" -> {
+                    binding.pageTronclass.btnTronClassSmartSign.text = "📡 雷达签到"
+                }
+                "number" -> {
+                    binding.pageTronclass.btnTronClassSmartSign.text = "🔢 口令签到"
+                }
+                "self_registration" -> {
+                    binding.pageTronclass.btnTronClassSmartSign.text = "✍️ 自主签到"
+                }
+                else -> {
+                    binding.pageTronclass.btnTronClassSmartSign.text = "📷 扫码签到"
+                }
+            }
+        } else {
+            binding.pageTronclass.btnTronClassSmartSign.text = "⚡ 课堂签到"
+        }
+    }
+
+    private fun setupTronClassSemesterChips(courses: List<TronClassCourse>) {
+        if (courses.isEmpty()) {
+            binding.pageTronclass.hsvTronClassSemesters.visibility = View.GONE
+            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "本学期在读课程"
+            binding.pageTronclass.tvTronClassCourseBadge.text = "0 门"
+            binding.pageTronclass.tvTronClassEmptyCourses.visibility = View.VISIBLE
+            tronClassCourseAdapter.updateData(emptyList())
+            return
+        }
+
+        binding.pageTronclass.hsvTronClassSemesters.visibility = View.VISIBLE
+        binding.pageTronclass.tvTronClassEmptyCourses.visibility = View.GONE
+
+        // 提取所有不重复的学期代号并倒序排列 (如 "2026-2027-1", "2025-2026-2", ...)
+        val semesterCodes = courses.mapNotNull { it.extractSemesterCode() }
+            .distinct()
+            .sortedDescending()
+
+        val latestSemester = semesterCodes.firstOrNull() ?: ""
+        if (currentSelectedSemester == null || (!semesterCodes.contains(currentSelectedSemester) && currentSelectedSemester != "OTHER")) {
+            currentSelectedSemester = latestSemester
+        }
+
+        val chipGroup = binding.pageTronclass.chipGroupTronClassSemesters
+        chipGroup.removeAllViews()
+
+        for (code in semesterCodes) {
+            val chip = com.google.android.material.chip.Chip(this).apply {
+                isCheckable = true
+                val label = if (code == latestSemester) "$code (本学期)" else code
+                text = label
+                textSize = 12f
+                isChecked = (code == currentSelectedSemester)
+                chipCornerRadius = 24f
+                setChipBackgroundColorResource(if (isChecked) R.color.primary else R.color.surface)
+                setTextColor(ContextCompat.getColor(this@MainActivity, if (isChecked) R.color.on_primary else R.color.text_primary))
+                setOnClickListener {
+                    currentSelectedSemester = code
+                    renderFilteredCourses(latestSemester)
+                    for (i in 0 until chipGroup.childCount) {
+                        val c = chipGroup.getChildAt(i) as? com.google.android.material.chip.Chip ?: continue
+                        val active = (c == this)
+                        c.isChecked = active
+                        c.setChipBackgroundColorResource(if (active) R.color.primary else R.color.surface)
+                        c.setTextColor(ContextCompat.getColor(this@MainActivity, if (active) R.color.on_primary else R.color.text_primary))
+                    }
+                }
+            }
+            chipGroup.addView(chip)
+        }
+
+        val otherCount = courses.count { it.extractSemesterCode() == null }
+        if (otherCount > 0) {
+            val otherChip = com.google.android.material.chip.Chip(this).apply {
+                isCheckable = true
+                text = "其他课程"
+                textSize = 12f
+                isChecked = (currentSelectedSemester == "OTHER")
+                chipCornerRadius = 24f
+                setChipBackgroundColorResource(if (isChecked) R.color.primary else R.color.surface)
+                setTextColor(ContextCompat.getColor(this@MainActivity, if (isChecked) R.color.on_primary else R.color.text_primary))
+                setOnClickListener {
+                    currentSelectedSemester = "OTHER"
+                    renderFilteredCourses(latestSemester)
+                    for (i in 0 until chipGroup.childCount) {
+                        val c = chipGroup.getChildAt(i) as? com.google.android.material.chip.Chip ?: continue
+                        val active = (c == this)
+                        c.isChecked = active
+                        c.setChipBackgroundColorResource(if (active) R.color.primary else R.color.surface)
+                        c.setTextColor(ContextCompat.getColor(this@MainActivity, if (active) R.color.on_primary else R.color.text_primary))
+                    }
+                }
+            }
+            chipGroup.addView(otherChip)
+        }
+
+        renderFilteredCourses(latestSemester)
+    }
+
+    private fun renderFilteredCourses(latestSemester: String) {
+        val selected = currentSelectedSemester
+        var filtered = when (selected) {
+            "OTHER" -> allTronClassCourses.filter { it.extractSemesterCode() == null }
+            null, "" -> allTronClassCourses
+            else -> allTronClassCourses.filter { it.extractSemesterCode() == selected }
+        }
+
+        if (tronClassCourseSearchQuery.isNotBlank()) {
+            val q = tronClassCourseSearchQuery.lowercase()
+            filtered = allTronClassCourses.filter { course ->
+                val nameMatch = course.name.lowercase().contains(q) || course.getCleanName().lowercase().contains(q)
+                val codeMatch = course.courseCode?.lowercase()?.contains(q) == true
+                val teacherMatch = (course.teacher?.lowercase()?.contains(q) == true) ||
+                        course.instructors.any { it.lowercase().contains(q) }
+                nameMatch || codeMatch || teacherMatch
+            }
+        }
+
+        tronClassCourseAdapter.updateData(filtered)
+        binding.pageTronclass.tvTronClassCourseBadge.text = "${filtered.size} 门"
+
+        if (tronClassCourseSearchQuery.isNotBlank()) {
+            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "搜索结果 (\"$tronClassCourseSearchQuery\")"
+        } else if (selected == latestSemester) {
+            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "本学期在读课程"
+        } else if (selected == "OTHER") {
+            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "其他/拓展课程"
+        } else {
+            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "${selected} 学期课程"
+        }
+
+        binding.pageTronclass.tvTronClassEmptyCourses.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        binding.pageTronclass.tvTronClassEmptyCourses.text = if (tronClassCourseSearchQuery.isNotBlank()) {
+            "未找到匹配的课程，请尝试更换关键词"
+        } else {
+            "暂无课程数据，点击右上角刷新获取"
+        }
+    }
+
+
+    private fun showTronClassTodoDetailDialog(todo: TronClassTodo) {
+        val msg = StringBuilder()
+            .append("课程：${todo.getCleanCourseName()}\n")
+            .append("作业：${todo.getCleanTitle()}\n")
+            .append("截止时间：${todo.getFormattedDeadline()}\n")
+            .append("当前状态：${todo.getRemainingTimeText()}\n\n")
+            .append("提示：点击“进入作业答题”可直接在客户端内提交作业与附件。")
+            .toString()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("作业详情")
+            .setMessage(msg)
+            .setPositiveButton("进入作业答题") { _, _ ->
+                openTronClassHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
+            }
+            .setNeutralButton("课程章节与课件") { _, _ ->
+                openTronClassCourseDetail(todo.courseId, todo.getCleanCourseName())
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun handleWidgetPinRequest() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val appWidgetManager = getSystemService(android.appwidget.AppWidgetManager::class.java)
+            val provider = android.content.ComponentName(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java)
+            var pinSent = false
+            if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
+                val successIntent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java).apply {
+                    action = cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                }
+                val successPendingIntent = android.app.PendingIntent.getBroadcast(
+                    this,
+                    0,
+                    successIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                pinSent = appWidgetManager.requestPinAppWidget(provider, null, successPendingIntent)
+            }
+            showWidgetPinGuidanceDialog(pinSent)
+        } else {
+            showWidgetPinGuidanceDialog(false)
+        }
+    }
+
+    private fun showWidgetPinGuidanceDialog(autoPinTriggered: Boolean) {
+        val msg = StringBuilder()
+        if (autoPinTriggered) {
+            msg.append("已向系统发送添加桌面微件请求！\n\n")
+        } else {
+            msg.append("当前手机桌面启动器未支持自动添加微件。\n\n")
+        }
+        msg.append("📌【国内定制系统（小米/红米 HyperOS、华为鸿蒙、OPPO ColorOS、vivo OriginOS 等）注意事项】\n")
+            .append("1. 国产系统为保障桌面安全，默认会静默拦截第三方 App 的微件添加请求，常表现为点击后界面没有任何反应。\n")
+            .append("2. 如未弹出系统添加确认框，请点击下方【前往权限设置】开启本应用的“桌面快捷方式”或“添加桌面小部件”权限。\n\n")
+            .append("💡【最推荐：桌面手动捏合添加（100%成功）】\n")
+            .append("👉 返回手机桌面 -> 双指捏合或长按空白处 -> 点击底部【微件 / 小组件 / 插件】 -> 搜索或下滑找到【上理教务】的【今日课表】拖拽到桌面即可！")
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("添加今日课表小组件")
+            .setMessage(msg.toString())
+            .setPositiveButton("我知道了", null)
+            .setNeutralButton("前往权限设置") { _, _ ->
+                openAppPermissionSettings()
+            }
+            .setNegativeButton("再次尝试自动添加") { _, _ ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val appWidgetManager = getSystemService(android.appwidget.AppWidgetManager::class.java)
+                    val provider = android.content.ComponentName(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java)
+                    if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
+                        val successIntent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java).apply {
+                            action = cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                        }
+                        val successPendingIntent = android.app.PendingIntent.getBroadcast(
+                            this,
+                            0,
+                            successIntent,
+                            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                        )
+                        appWidgetManager.requestPinAppWidget(provider, null, successPendingIntent)
+                        Toast.makeText(this, "已再次触发系统微件添加请求", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun openAppPermissionSettings() {
+        try {
+            val miuiIntent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                putExtra("extra_pkgname", packageName)
+            }
+            startActivity(miuiIntent)
+            return
+        } catch (_: Exception) {}
+
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = android.net.Uri.fromParts("package", packageName, null)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "请前往手机“设置 - 应用设置”开启桌面权限", Toast.LENGTH_SHORT).show()
+        }
+    }
+}

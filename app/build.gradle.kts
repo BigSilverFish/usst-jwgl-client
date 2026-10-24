@@ -90,8 +90,20 @@ dependencies {
 
     // Security - Encrypted SharedPreferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // QR Code Scanning - Google ML Kit
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
-    // QR Code Scanning
+    // CameraX
+    val cameraxVersion = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
+    // WorkManager (Background DDL Reminders)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // 保留 ZXing 作为基础 fallback
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     testImplementation("junit:junit:4.13.2")
