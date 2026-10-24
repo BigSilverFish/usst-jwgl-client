@@ -76,9 +76,10 @@
             android:configChanges="orientation|screenSize" />
 
         <activity
-            android:name=".ui.tronclass.TronClassActivity"
+            android:name=".ui.scanner.MlKitScannerActivity"
             android:exported="false"
-            android:screenOrientation="portrait" />
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.UsstJwgl" />
 
         <activity
             android:name=".ui.tronclass.TronClassLoginActivity"
@@ -95,6 +96,20 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <activity
+            android:name=".ui.tronclass.TronClassExamActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.tronclass.TronClassDownloadActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.tronclass.TronClassVideoPlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize" />
 
         <!-- 15-min Course Reminder Receiver -->
         <receiver
