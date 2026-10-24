@@ -14,10 +14,10 @@ object TabletLayoutHelper {
     /**
      * 判断当前是否处于大屏（Pad/平板）横屏模式
      */
-    fun isTabletLandscape(context: Context): Boolean {
-        val config = context.resources.configuration
-        return config.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-                config.screenWidthDp >= 600
+    fun isTabletLandscape(context: Context, config: Configuration? = null): Boolean {
+        val cfg = config ?: context.resources.configuration
+        return cfg.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                cfg.screenWidthDp >= 600
     }
 
     /**

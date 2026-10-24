@@ -94,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_PROFILE = "extra_student_profile"
         const val EXTRA_TAB = "extra_tab"
         const val EXTRA_GUEST_MODE = "extra_guest_mode"
+        private const val KEY_SAVED_TAB_NAME = "key_saved_tab_name"
         var topBarHeightPx: Int = 0
         var bottomBarHeightPx: Int = 0
     }
@@ -336,6 +337,18 @@ class MainActivity : AppCompatActivity() {
                 (10 * density).toInt()
             )
 
+            val drawerStatusTop = if (statusBarInsets.top > 0) statusBarInsets.top else (28 * density).toInt()
+            if (binding.layoutDrawer.viewDrawerStatusBarTop.layoutParams.height != drawerStatusTop) {
+                binding.layoutDrawer.viewDrawerStatusBarTop.layoutParams.height = drawerStatusTop
+                binding.layoutDrawer.viewDrawerStatusBarTop.requestLayout()
+            }
+            binding.layoutDrawer.cardDrawerProfileHeader.setPadding(
+                binding.layoutDrawer.cardDrawerProfileHeader.paddingLeft,
+                drawerStatusTop + (6 * density).toInt(),
+                binding.layoutDrawer.cardDrawerProfileHeader.paddingRight,
+                (14 * density).toInt()
+            )
+
             insets
         }
 
@@ -428,20 +441,28 @@ class MainActivity : AppCompatActivity() {
             showAuthorDisclaimerDialog(allowDismiss = false)
         }
 
-        val initialTab = intent.getIntExtra(EXTRA_TAB, 1) // Default to 1 (课程表)
-        when (initialTab) {
-            0 -> switchTab(MainTab.PROFILE)
-            1 -> switchTab(MainTab.TIMETABLE)
-            2 -> switchTab(MainTab.GRADES)
-            3 -> switchTab(MainTab.COURSE_SEARCH)
-            4 -> switchTab(MainTab.FREE_CLASSROOM)
-            5 -> switchTab(MainTab.EXAM_QUERY)
-            6 -> switchTab(MainTab.GRADE_REPORTS)
-            7 -> switchTab(MainTab.MORE_FEATURES)
-            else -> switchTab(MainTab.TIMETABLE)
+        val savedTabName = savedInstanceState?.getString(KEY_SAVED_TAB_NAME)
+        if (savedTabName != null) {
+            try {
+                switchTab(MainTab.valueOf(savedTabName))
+            } catch (e: Exception) {
+                switchTab(MainTab.TIMETABLE)
+            }
+        } else {
+            val initialTab = intent.getIntExtra(EXTRA_TAB, 1) // Default to 1 (课程表)
+            when (initialTab) {
+                0 -> switchTab(MainTab.PROFILE)
+                1 -> switchTab(MainTab.TIMETABLE)
+                2 -> switchTab(MainTab.GRADES)
+                3 -> switchTab(MainTab.COURSE_SEARCH)
+                4 -> switchTab(MainTab.FREE_CLASSROOM)
+                5 -> switchTab(MainTab.EXAM_QUERY)
+                6 -> switchTab(MainTab.GRADE_REPORTS)
+                7 -> switchTab(MainTab.MORE_FEATURES)
+                else -> switchTab(MainTab.TIMETABLE)
+            }
+            handleIntentExtras(intent)
         }
-
-        handleIntentExtras(intent)
 
         // 异步预热全校课表本地缓存至内存（避免用户切换至全校课表或空教室自习查询时等待）
         lifecycleScope.launch(Dispatchers.IO) {
@@ -567,6 +588,8 @@ class MainActivity : AppCompatActivity() {
 
         if (isBottomMode) {
             closeNavDrawer()
+            val drawerView = binding.layoutDrawer.root
+            (drawerView.parent as? ViewGroup)?.removeView(drawerView)
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
             binding.blurViewBottomNav.visibility = View.VISIBLE
 
@@ -589,7 +612,22 @@ class MainActivity : AppCompatActivity() {
             binding.rowDoubleTapDrawer.visibility = View.GONE
             binding.dividerDoubleTapDrawer.visibility = View.GONE
         } else {
+            val drawerView = binding.layoutDrawer.root
+            if (drawerView.parent != binding.drawerLayout) {
+                (drawerView.parent as? ViewGroup)?.removeView(drawerView)
+                drawerView.translationX = 0f
+                drawerView.translationY = 0f
+                drawerView.visibility = View.VISIBLE
+                val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
+                    (310 * resources.displayMetrics.density).toInt(),
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                ).apply {
+                    gravity = GravityCompat.START
+                }
+                binding.drawerLayout.addView(drawerView, lp)
+            }
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
+            binding.drawerLayout.closeDrawer(GravityCompat.START, false)
             binding.blurViewBottomNav.visibility = View.GONE
 
             binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
@@ -646,8 +684,8 @@ class MainActivity : AppCompatActivity() {
                 binding.drawerLayout.isDrawerOpen(GravityCompat.START)
     }
 
-    private fun setupTabletLandscapeLayout() {
-        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this)
+    private fun setupTabletLandscapeLayout(config: Configuration? = null) {
+        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this, config)
         if (!isTabletLandscapeMode) return
 
         val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
@@ -761,6 +799,131 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             0.46f
         )
+    }
+
+    private fun restorePortraitLayout() {
+        isTabletLandscapeMode = false
+        val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
+
+        // 1. Restore Sidebar
+        val drawerView = binding.layoutDrawer.root
+        (drawerView.parent as? ViewGroup)?.removeView(drawerView)
+        binding.permanentSidebarContainer.visibility = View.GONE
+        binding.viewPermanentSidebarDivider.visibility = View.GONE
+
+        // 2. 顶部检索栏恢复纵向单列
+        val csPage = binding.pageCourseSearch
+        csPage.cardCourseSearchFilter.orientation = LinearLayout.VERTICAL
+        csPage.rowCourseSearchInputs.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        csPage.rowCourseSearchActions.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dp(8f)
+            marginStart = 0
+        }
+
+        val fcPage = binding.pageFreeClassroom
+        fcPage.cardFreeClassroomFilter.orientation = LinearLayout.VERTICAL
+        fcPage.rowFreeClassroom1.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        fcPage.rowFreeClassroom2.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dp(6f)
+            marginStart = 0
+        }
+
+        // 3. Restore two-pane to vertical
+        binding.llGradesBody.orientation = LinearLayout.VERTICAL
+        binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginEnd = 0
+        }
+        binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8f)
+        binding.cardGradesSemesterMaster.visibility = View.GONE
+
+        binding.llProfileBody.orientation = LinearLayout.VERTICAL
+        binding.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginEnd = 0
+        }
+        binding.llProfileRightPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
+
+        val grPage = binding.pageGradeReports
+        grPage.llReportsBody.orientation = LinearLayout.VERTICAL
+        grPage.llReportsLeftPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginEnd = 0
+        }
+        grPage.llReportsRightPane.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+
+        // 4. Restore list manager
+        if (binding.rvGrades.adapter != null) {
+            binding.rvGrades.layoutManager = LinearLayoutManager(this)
+        }
+        if (csPage.rvCourseList.adapter != null) {
+            csPage.rvCourseList.layoutManager = LinearLayoutManager(this)
+        }
+        if (fcPage.rvFreeClassroomList.adapter != null) {
+            fcPage.rvFreeClassroomList.layoutManager = LinearLayoutManager(this)
+        }
+        if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
+            binding.pageExamQuery.rvExamQueryList.layoutManager = LinearLayoutManager(this)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this, newConfig)
+        if (isTabletLandscape != isTabletLandscapeMode) {
+            if (isTabletLandscape) {
+                setupTabletLandscapeLayout(newConfig)
+            } else {
+                restorePortraitLayout()
+            }
+            applyPhoneNavigationMode()
+            applyContentBottomPadding()
+        }
+
+        val curPage = binding.vpSchedule.currentItem
+        binding.vpSchedule.post {
+            val rv = binding.vpSchedule.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView
+            rv?.scrollToPosition(curPage)
+            binding.vpSchedule.post {
+                binding.vpSchedule.setCurrentItem(curPage, false)
+                scheduleAdapter?.refreshAllFragments()
+                updateWeekHeaderDates(curPage + 1)
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_SAVED_TAB_NAME, currentTab.name)
     }
 
     override fun onResume() {
@@ -1012,6 +1175,21 @@ class MainActivity : AppCompatActivity() {
             binding.vpSchedule.adapter = scheduleAdapter
             binding.vpSchedule.offscreenPageLimit = 1
             binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
+
+            binding.vpSchedule.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                val oldWidth = oldRight - oldLeft
+                val newWidth = right - left
+                if (oldWidth > 0 && newWidth > 0 && oldWidth != newWidth) {
+                    val curPage = binding.vpSchedule.currentItem
+                    val rv = binding.vpSchedule.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView
+                    rv?.scrollToPosition(curPage)
+                    v.post {
+                        binding.vpSchedule.setCurrentItem(curPage, false)
+                        scheduleAdapter?.refreshAllFragments()
+                        updateWeekHeaderDates(curPage + 1)
+                    }
+                }
+            }
 
             binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
@@ -1519,6 +1697,15 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
+        binding.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
+        binding.rowDrawerProfileHeader.setOnClickListener {
+            binding.switchDrawerProfileHeader.toggle()
+        }
+        binding.switchDrawerProfileHeader.setOnCheckedChangeListener { _, isChecked ->
+            TimetableSettingHelper.setDrawerProfileHeaderEnabled(this, isChecked)
+            updateDrawerProfileHeaderVisibility()
+        }
+
     }
 
     private fun loadTimetableFromNetwork() {
@@ -1749,6 +1936,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateDrawerProfileHeaderVisibility() {
+        val isEnabled = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
+        if (isEnabled && !isGuestMode) {
+            binding.layoutDrawer.cardDrawerProfileHeader.visibility = View.VISIBLE
+            binding.layoutDrawer.dividerDrawerProfileHeader.visibility = View.VISIBLE
+            binding.layoutDrawer.viewDrawerStatusBarTop.visibility = View.GONE
+            val profile = currentProfile
+            if (profile != null) {
+                binding.layoutDrawer.tvDrawerStudentName.text = "${profile.name}同学"
+                binding.layoutDrawer.tvDrawerStudentId.text = "学号: ${profile.studentId}"
+                val avatarChar = profile.name.takeIf { it.isNotEmpty() }?.substring(0, 1) ?: "理"
+                binding.layoutDrawer.tvDrawerAvatar.text = avatarChar
+                val collegeMajor = listOfNotNull(profile.college.takeIf { it.isNotBlank() }, profile.major.takeIf { it.isNotBlank() }).joinToString(" · ")
+                binding.layoutDrawer.tvDrawerCollegeMajor.text = collegeMajor.ifBlank { "上海理工大学" }
+            }
+        } else {
+            binding.layoutDrawer.cardDrawerProfileHeader.visibility = View.GONE
+            binding.layoutDrawer.dividerDrawerProfileHeader.visibility = View.GONE
+            binding.layoutDrawer.viewDrawerStatusBarTop.visibility = View.VISIBLE
+        }
+    }
+
     private fun displayProfile(profile: StudentProfile?) {
         currentProfile = profile
         binding.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
@@ -1762,7 +1971,9 @@ class MainActivity : AppCompatActivity() {
         binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
+        binding.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
         updateReminderSubtitles()
+        updateDrawerProfileHeaderVisibility()
 
         // Update Drawer Version
         binding.layoutDrawer.tvDrawerVersion.text = "USST JWGL · v${BuildConfig.VERSION_NAME}"

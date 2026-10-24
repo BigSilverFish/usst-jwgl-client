@@ -108,8 +108,22 @@ class ScheduleWeekFragment : Fragment() {
     fun refresh() {
         if (isAdded) {
             applyContentPadding()
-            renderSchedule()
+            view?.post {
+                if (isAdded) {
+                    renderSchedule()
+                }
+            }
             hasRendered = true
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyContentPadding()
+        view?.post {
+            if (isAdded) {
+                renderSchedule()
+            }
         }
     }
 
@@ -394,8 +408,11 @@ class ScheduleWeekFragment : Fragment() {
             }
 
             // 2. Add non-current week courses without overlapping, prioritizing the course closest in time
+            // 需求：显示非本周课程应当只显示未开始的课程，彻底去掉已结束课程（endWeek < week）的显示
             if (table.showOtherWeekCourse && !resolved.isSwapped) {
-                val inactiveCourses = dayCourses.filter { !activeCourses.contains(it) }
+                val inactiveCourses = dayCourses.filter { c ->
+                    !activeCourses.contains(c) && (c.endWeek >= week)
+                }
 
                 // Lower score means closer in time to the current displayed week
                 fun getDistanceScore(c: CourseBean): Double {
@@ -403,9 +420,7 @@ class ScheduleWeekFragment : Fragment() {
                         // Alternate week (单双周) within valid range
                         week in c.startWeek..c.endWeek -> 0.5
                         // Upcoming in future weeks
-                        c.startWeek > week -> (c.startWeek - week).toDouble()
-                        // Past ended weeks: penalty so upcoming courses are preferred
-                        else -> (week - c.endWeek).toDouble() + 50.0
+                        else -> (c.startWeek - week).toDouble()
                     }
                 }
 

@@ -7,9 +7,20 @@ object TimetableSettingHelper {
     private const val KEY_DAY_PART_DIVIDERS = "day_part_dividers_enabled"
     private const val KEY_NAV_MODE = "phone_nav_mode" // 0 = 侧栏模式 (默认), 1 = 底栏模式
     private const val KEY_DOUBLE_TAP_DRAWER = "double_tap_timetable_open_drawer"
+    private const val KEY_DRAWER_PROFILE_HEADER = "drawer_profile_header_enabled"
 
     const val NAV_MODE_DRAWER = 0
     const val NAV_MODE_BOTTOM = 1
+
+    fun isDrawerProfileHeaderEnabled(context: Context): Boolean {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getBoolean(KEY_DRAWER_PROFILE_HEADER, true)
+    }
+
+    fun setDrawerProfileHeaderEnabled(context: Context, enabled: Boolean) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putBoolean(KEY_DRAWER_PROFILE_HEADER, enabled).apply()
+    }
 
     fun isDayPartDividersEnabled(context: Context): Boolean {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

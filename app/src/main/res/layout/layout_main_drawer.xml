@@ -10,8 +10,16 @@
     android:focusable="true"
     android:orientation="vertical">
 
+    <!-- Top Spacing for Status Bar when profile header is hidden -->
+    <View
+        android:id="@+id/viewDrawerStatusBarTop"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:visibility="gone" />
+
     <!-- Top Header: Student Profile Card -->
     <LinearLayout
+        android:id="@+id/cardDrawerProfileHeader"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -75,10 +83,10 @@
     </LinearLayout>
 
     <View
+        android:id="@+id/dividerDrawerProfileHeader"
         android:layout_width="match_parent"
         android:layout_height="0.8dp"
         android:background="@color/border" />
-
     <!-- Scrollable Drawer Items -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
@@ -134,13 +142,6 @@
                     android:textColor="@color/text_primary"
                     android:textSize="14.5sp"
                     android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
             <!-- Nav Item: 学业情况查询 -->
@@ -172,15 +173,39 @@
                     android:textColor="@color/text_primary"
                     android:textSize="14.5sp"
                     android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
+
+            <!-- Nav Item: TronClass -->
+            <LinearLayout
+                android:id="@+id/drawerNavTronClass"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="10dp">
+
+                <ImageView
+                    android:id="@+id/ivNavTronClass"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:src="@drawable/ic_school"
+                    app:tint="@color/primary" />
+
+                <TextView
+                    android:id="@+id/tvNavTronClass"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="14dp"
+                    android:text="&#x4E00;&#x7F51;&#x7545;&#x5B66; (TronClass)"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <!-- Nav Item: 个人与设置 -->
             <LinearLayout
@@ -211,13 +236,6 @@
                     android:textColor="@color/text_primary"
                     android:textSize="14.5sp"
                     android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
             <View
@@ -283,13 +301,6 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
             <!-- Feature: 空教室自习查询 -->
@@ -337,13 +348,6 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
             <!-- Feature: 考试日程查询 -->
@@ -391,13 +395,6 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
             <!-- Feature: 成绩单与证明下载 -->
@@ -445,13 +442,6 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
             </LinearLayout>
 
             <View

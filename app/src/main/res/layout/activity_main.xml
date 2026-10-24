@@ -493,6 +493,55 @@
                             android:layout_marginVertical="8dp"
                             android:background="@color/border" />
 
+                        <!-- Drawer Profile Header Toggle Row -->
+                        <LinearLayout
+                            android:id="@+id/rowDrawerProfileHeader"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="6dp"
+                            android:background="?attr/selectableItemBackground">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingEnd="12dp">
+
+                                <TextView
+                                    android:id="@+id/tvDrawerProfileHeaderTitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="侧栏顶部显示个人信息"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvDrawerProfileHeaderSubtitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="在侧边栏顶部展示姓名、学号与院系卡片"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/switchDrawerProfileHeader"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="8dp"
+                            android:background="@color/border" />
+
+
                         <!-- Course Reminder Row -->
                         <LinearLayout
                             android:id="@+id/rowCourseReminder"

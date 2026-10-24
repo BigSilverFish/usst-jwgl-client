@@ -18,3 +18,27 @@ keystore/
 keystore.properties
 scratch/
 
+
+# Python scripts & bytecode (strictly prevent uploading temp scripts)
+*.py
+*.pyc
+__pycache__/
+/scratch/
+
+# Temporary reverse-engineering scripts & dump files
+tronclass_*.js
+tronclass_env.js
+tronclass_jump.js
+tronclass_app.js
+tronclass_apis_dump.txt
+*_sample.json
+activity_*.json
+activities_sample.json
+modules_sample.json
+repl_*.txt
+target_*.txt
+tail_methods.txt
+submission_methods.txt
+recovered_snippet.txt
+usst_hosts.sh
+*.apk
