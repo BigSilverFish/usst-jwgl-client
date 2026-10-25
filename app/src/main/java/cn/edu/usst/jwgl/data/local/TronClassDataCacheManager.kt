@@ -28,7 +28,6 @@ class TronClassDataCacheManager(private val context: Context) {
     private val memExams = ConcurrentHashMap<Long, List<TronClassExam>>()
     private val memMembers = ConcurrentHashMap<Long, List<TronClassMember>>()
     private val memBulletins = ConcurrentHashMap<Long, List<TronClassBulletin>>()
-    private val memProgress = ConcurrentHashMap<Long, Int>()
 
     companion object {
         private const val TAG = "TronClassDataCache"
@@ -48,8 +47,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
         private const val PREFIX_SYLLABUS = "tc_cache_syllabus_"
         private const val PREFIX_SYLLABUS_TIME = "tc_cache_syllabus_time_"
-
-        private const val PREFIX_PROGRESS = "tc_cache_progress_"
 
         private const val PREFIX_EXAMS = "tc_cache_exams_"
         private const val PREFIX_EXAMS_TIME = "tc_cache_exams_time_"
@@ -310,36 +307,22 @@ class TronClassDataCacheManager(private val context: Context) {
         }
     }
 
-    // --- 3.3 课程学习进度缓存 ---
-    fun saveCourseProgress(courseId: Long, percent: Int) {
-        memProgress[courseId] = percent
-        prefs.edit().putInt(PREFIX_PROGRESS + courseId, percent).apply()
-    }
-
-    fun getCachedCourseProgress(courseId: Long): Int? {
-        memProgress[courseId]?.let { return it }
-        if (prefs.contains(PREFIX_PROGRESS + courseId)) {
-            val p = prefs.getInt(PREFIX_PROGRESS + courseId, -1)
-            if (p >= 0) {
-                memProgress[courseId] = p
-                return p
+    /**
+     * 计算并获取课程当前缓存的总体学习进度百分比（0 ~ 100，若未缓存或无课件则返回 -1）
+     */
+    fun getCourseProgressPercent(courseId: Long): Int {
+        val activities = getCachedCourseSyllabus(courseId)
+        if (activities.isEmpty()) return -1
+        val reads = getCachedCourseReads(courseId)
+        var completedCount = 0
+        for (act in activities) {
+            val comp = reads[act.id]
+            if (comp == "full" || comp == "complete") {
+                completedCount++
             }
         }
-        val syllabus = getCachedCourseSyllabus(courseId)
-        if (syllabus.isNotEmpty()) {
-            val reads = getCachedCourseReads(courseId)
-            var completed = 0
-            for (act in syllabus) {
-                val comp = reads[act.id]
-                if (comp == "full" || comp == "complete") {
-                    completed++
-                }
-            }
-            val percent = (completed * 100) / syllabus.size
-            saveCourseProgress(courseId, percent)
-            return percent
-        }
-        return null
+        val total = activities.size
+        return if (total > 0) (completedCount * 100) / total else -1
     }
 
     // --- 4. 课程测验考试列表缓存 ---
@@ -460,7 +443,6 @@ class TronClassDataCacheManager(private val context: Context) {
         memExams.clear()
         memMembers.clear()
         memBulletins.clear()
-        memProgress.clear()
         prefs.edit().clear().apply()
         return size
     }

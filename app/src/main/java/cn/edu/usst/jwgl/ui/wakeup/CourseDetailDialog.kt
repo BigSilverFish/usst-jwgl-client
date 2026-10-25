@@ -16,15 +16,16 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.data.model.TronClassTodo
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.wakeup.CourseBean
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.ui.JwglWebActivity
 import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseDetailActivity
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -153,56 +154,75 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             if (matchedCourse != null) {
                 cardTronClassLink.visibility = View.VISIBLE
 
-                // 第一行：“进入一网畅学·学习进度xx%”（如无学习进度则不显示）
-                fun updateTitleWithProgress(progress: Int?) {
-                    if (progress != null) {
-                        tvTronClassLinkTitle.text = "进入一网畅学·学习进度${progress}%"
+                fun updateLinkContent(percent: Int, todos: List<TronClassTodo>) {
+                    if (percent > 0) {
+                        tvTronClassLinkTitle.text = "进入一网畅学（学习进度${percent}%）"
                     } else {
                         tvTronClassLinkTitle.text = "进入一网畅学"
                     }
+
+                    val courseTodos = todos.filter {
+                        it.courseId == matchedCourse.id ||
+                        it.getCleanCourseName().equals(matchedCourse.getCleanName(), ignoreCase = true)
+                    }
+                    val pendingTodos = courseTodos.filter { !it.isOverdue() }
+                    if (pendingTodos.isNotEmpty()) {
+                        val mostUrgent = pendingTodos.minByOrNull { it.getRemainingHours() } ?: pendingTodos.first()
+                        val remainingText = mostUrgent.getRemainingTimeText().replace(" ", "")
+                        val rawTitle = mostUrgent.getCleanTitle()
+                        val displayTitle = if (rawTitle.length > 10) rawTitle.take(10) + "…" else rawTitle
+                        tvTronClassLinkSub.text = "待办：${displayTitle}（$remainingText）"
+                        tvTronClassLinkSub.setTextColor(context.getColor(R.color.primary))
+                    } else {
+                        tvTronClassLinkSub.text = "当前暂无待办事项"
+                        tvTronClassLinkSub.setTextColor(context.getColor(R.color.text_secondary))
+                    }
                 }
 
-                val cachedProgress = cacheMgr.getCachedCourseProgress(matchedCourse.id)
-                updateTitleWithProgress(cachedProgress)
-
-                // 第二行：“当前暂无待办事项”或“待办：xxxxx（剩x天x小时）”
+                // 1. 本地缓存秒级直出 (0ms 渲染)
+                val initialPercent = cacheMgr.getCourseProgressPercent(matchedCourse.id)
                 val cachedTodos = cacheMgr.getCachedTodos()
-                val courseTodos = cachedTodos.filter {
-                    it.courseId == matchedCourse.id ||
-                    it.getCleanCourseName().equals(matchedCourse.getCleanName(), ignoreCase = true)
-                }
-                val pendingTodos = courseTodos.filter { !it.isOverdue() }
-                if (pendingTodos.isNotEmpty()) {
-                    val mostUrgent = pendingTodos.minByOrNull { it.getRemainingHours() } ?: pendingTodos.first()
-                    tvTronClassLinkSub.text = "待办：${mostUrgent.getCleanTitle()}（${mostUrgent.getRemainingTimeText()}）"
-                    tvTronClassLinkSub.setTextColor(context.getColor(R.color.primary))
-                } else {
-                    tvTronClassLinkSub.text = "当前暂无待办事项"
-                    tvTronClassLinkSub.setTextColor(context.getColor(R.color.text_secondary))
-                }
+                updateLinkContent(initialPercent, cachedTodos)
 
-                // 本地无缓存时静默异步拉取进度并更新
-                if (cachedProgress == null) {
-                    val client = TronClassClient(context)
-                    viewLifecycleOwner.lifecycleScope.launch {
+                // 2. 若本地暂无该课程的大纲进度缓存或待办缓存，则后台轻量静默获取并补全更新
+                if (initialPercent < 0 || cachedTodos.isEmpty()) {
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                         try {
-                            val activitiesRes = withContext(Dispatchers.IO) { client.fetchCourseActivities(matchedCourse.id) }
-                            val readsRes = withContext(Dispatchers.IO) { client.fetchActivityReads(matchedCourse.id) }
-                            val activities = activitiesRes.getOrNull()
-                            val reads = readsRes.getOrNull()
-                            if (!activities.isNullOrEmpty() && reads != null) {
-                                cacheMgr.saveCourseSyllabus(matchedCourse.id, activities)
-                                cacheMgr.saveCourseReads(matchedCourse.id, reads)
-                                var completed = 0
-                                for (act in activities) {
-                                    val comp = reads[act.id]
-                                    if (comp == "full" || comp == "complete") {
-                                        completed++
+                            val client = TronClassClient(context)
+                            var updatedPercent = initialPercent
+                            var updatedTodos = cachedTodos
+
+                            if (cachedTodos.isEmpty()) {
+                                val todosRes = client.fetchTodos()
+                                if (todosRes.isSuccess) {
+                                    val fetched = todosRes.getOrDefault(emptyList())
+                                    if (fetched.isNotEmpty()) {
+                                        cacheMgr.saveTodos(fetched)
+                                        updatedTodos = fetched
                                     }
                                 }
-                                val percent = (completed * 100) / activities.size
-                                cacheMgr.saveCourseProgress(matchedCourse.id, percent)
-                                updateTitleWithProgress(percent)
+                            }
+
+                            if (initialPercent < 0) {
+                                val actsRes = client.fetchCourseActivities(matchedCourse.id)
+                                val readsRes = client.fetchActivityReads(matchedCourse.id)
+                                if (actsRes.isSuccess) {
+                                    val acts = actsRes.getOrDefault(emptyList())
+                                    val reads = readsRes.getOrDefault(emptyMap())
+                                    if (acts.isNotEmpty()) {
+                                        cacheMgr.saveCourseSyllabus(matchedCourse.id, acts)
+                                        if (reads.isNotEmpty()) {
+                                            cacheMgr.saveCourseReads(matchedCourse.id, reads)
+                                        }
+                                        updatedPercent = cacheMgr.getCourseProgressPercent(matchedCourse.id)
+                                    }
+                                }
+                            }
+
+                            withContext(Dispatchers.Main) {
+                                if (isAdded && !isDetached && this@CourseDetailDialog.view != null) {
+                                    updateLinkContent(updatedPercent, updatedTodos)
+                                }
                             }
                         } catch (_: Exception) {}
                     }
