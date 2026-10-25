@@ -85,7 +85,7 @@ data class AppVersionInfo(
         } else {
             tag
         }
-        return "https://ghproxy.net/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/$effectiveTag/app-release.apk"
+        return "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/$effectiveTag/app-release.apk"
     }
 
     /**

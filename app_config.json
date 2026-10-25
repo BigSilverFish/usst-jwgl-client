@@ -5,7 +5,7 @@
     "release_date": "2026-10-25",
     "release_notes": "1. 一网畅学原生化集成：支持 CAS SSO 自动登录、课程大纲课件学习、测验查看、成员与公告，内置自动刷课与学习进度统计；\n2. 原生高精签到：集成 ML Kit 极速离线二维码扫码（锁定竖屏修复闪退），支持 GPS 定位签到与口令签到；\n3. 0ms 秒开架构与瘦身：清理遗留死资源极致瘦身，优化多级缓存消除嵌套滑动卡顿，实现 0ms 极速秒开；\n4. 课表与一网畅学联动：课表详情弹窗新增联动卡片，直观呈现学习进度百分比与待办倒计时，一键秒级直达；\n5. 作业截止二级提醒：新增截止前 24 小时预警与 1-3 小时临期提醒独立开关及自定义提前量，精准防漏交；\n6. 全校课表自愈与功能增强：支持一键添至本地课表数据库、新增本研培养层次筛选、离线镜像自愈与关键词全半角归一化；\n7. 成绩排名与 CID-CMap PDF 解析：新增成绩排名查询，独创轻量 PDF 字符流解码器精准提取班级/专业排名；\n8. 课表冲突并排渲染：冲突课程等宽并排展示，彻底修复删除整门课程残留问题；\n9. 细节与交互优化：作业页面底部安全间距、软键盘顶起防遮挡、多行回车提交，侧栏学籍卡片隐私隐藏，平板横竖屏适配。",
     "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.0",
-    "apk_url": "https://ghproxy.net/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.0/app-release.apk",
+    "apk_url": "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.0/app-release.apk",
     "force_update": false
   },
   "semester_config": {
