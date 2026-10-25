@@ -122,7 +122,13 @@ object CoordinateUtils {
         CampusBuilding("b_jx", "机械工程馆", "军工路516号", 31.28950, 121.55480, listOf("机械馆", "工程馆", "机械工程馆")),
         CampusBuilding("b_ts", "军工路516号图书馆", "军工路516号", 31.29120, 121.55300, listOf("图书馆", "516图")),
         CampusBuilding("b_ty", "体育活动中心 / 操场", "军工路516号", 31.29380, 121.55280, listOf("体育馆", "操场", "风雨操场")),
-        CampusBuilding("b_1100_j", "军工路1100号教学楼", "军工路1100号", 31.29760, 121.55050, listOf("1100号", "1100", "水产路", "1100号教学楼")),
+        // 军工路1100号校区教学楼及设施 (来源于 OpenStreetMap 实测坐标转换 GCJ-02)
+        CampusBuilding("b_1100_qx", "勤学楼", "军工路1100号", 31.30242, 121.54448, listOf("勤学", "勤学楼")),
+        CampusBuilding("b_1100_bx", "博学楼", "军工路1100号", 31.30244, 121.54500, listOf("博学", "博学楼")),
+        CampusBuilding("b_1100_lx", "乐学楼", "军工路1100号", 31.30221, 121.54440, listOf("乐学", "乐学楼")),
+        CampusBuilding("b_1100_gw", "格物楼", "军工路1100号", 31.30272, 121.54374, listOf("格物", "格物楼")),
+        CampusBuilding("b_1100_dl", "达理楼", "军工路1100号", 31.30219, 121.54382, listOf("达理", "达理楼", "1100号图书馆", "1100图")),
+        CampusBuilding("b_1100_j", "军工路1100号校区（通用）", "军工路1100号", 31.29760, 121.55050, listOf("1100号", "1100", "水产路", "1100号教学楼")),
         CampusBuilding("b_334_j", "军工路334号校区", "军工路334号", 31.28350, 121.55800, listOf("334号", "334", "出版高等专科"))
     )
 
@@ -133,12 +139,18 @@ object CoordinateUtils {
         if (placeOrRoom.isNullOrBlank()) return null
         val lower = placeOrRoom.trim().lowercase()
 
-        // 优先精确/别名命中
+        // 1. 全名优先匹配
         for (b in USST_BUILDINGS) {
             if (lower.contains(b.name.lowercase())) return b
-            for (alias in b.aliases) {
-                if (lower.contains(alias.lowercase())) return b
-            }
+        }
+
+        // 2. 别名匹配（按别名长度倒序，优先命中具体别名，避免通用词提前拦截）
+        val allAliases = USST_BUILDINGS.flatMap { b ->
+            b.aliases.map { alias -> alias to b }
+        }.sortedByDescending { it.first.length }
+
+        for ((alias, b) in allAliases) {
+            if (lower.contains(alias.lowercase())) return b
         }
 
         // 默认匹配一教
