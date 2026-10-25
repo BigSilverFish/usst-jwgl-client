@@ -136,6 +136,31 @@
                 android:textSize="16sp"
                 app:cornerRadius="26dp" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSsoLogin"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="10dp"
+                android:text="官方SSO页面登录"
+                android:textColor="@color/primary"
+                android:textSize="14sp"
+                app:cornerRadius="24dp"
+                app:icon="@drawable/ic_school"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp"
+                app:iconSize="18dp"
+                app:iconTint="@color/primary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="6dp"
+                android:text="如遇验证码拦截，可直接使用官方网页认证"
+                android:textColor="@color/text_tertiary"
+                android:textSize="11.5sp" />
+
             <ProgressBar
                 android:id="@+id/progressBar"
                 android:layout_width="wrap_content"

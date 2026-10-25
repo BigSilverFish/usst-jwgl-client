@@ -22,6 +22,18 @@ class MemoryCookieJar : CookieJar {
         }
     }
 
+    fun addCookies(cookies: List<Cookie>) {
+        synchronized(lock) {
+            for (cookie in cookies) {
+                cookieStore.removeAll { 
+                    it.name == cookie.name && it.domain == cookie.domain && it.path == cookie.path 
+                }
+                cookieStore.add(cookie)
+                Log.d("MemoryCookieJar", "Manually added cookie: ${cookie.name} domain=${cookie.domain} path=${cookie.path}")
+            }
+        }
+    }
+
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
         val validCookies = ArrayList<Cookie>()
         val now = System.currentTimeMillis()

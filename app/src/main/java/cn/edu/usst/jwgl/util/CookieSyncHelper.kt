@@ -58,4 +58,56 @@ object CookieSyncHelper {
             Log.e(TAG, "Failed to sync cookies to WebView", e)
         }
     }
+
+    /**
+     * 将 Android 系统 WebView CookieManager 中的 Cookie 同步至 JwglClient (OkHttp)
+     */
+    fun syncWebViewCookiesToJwgl() {
+        try {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.flush()
+
+            val targets = listOf(
+                "https://jwgl.usst.edu.cn/jwglxt/" to "jwgl.usst.edu.cn",
+                "https://jwgl.usst.edu.cn/" to "jwgl.usst.edu.cn",
+                "https://ids6.usst.edu.cn/authserver/" to "ids6.usst.edu.cn",
+                "https://ids6.usst.edu.cn/" to "ids6.usst.edu.cn",
+                "https://ehall.usst.edu.cn/" to "ehall.usst.edu.cn",
+                "https://usst.edu.cn/" to "usst.edu.cn"
+            )
+
+            val cookiesToAdd = mutableListOf<Cookie>()
+            for ((url, domain) in targets) {
+                val cookieHeader = cookieManager.getCookie(url) ?: continue
+                val parts = cookieHeader.split(";")
+                for (part in parts) {
+                    val trimmed = part.trim()
+                    if (trimmed.isEmpty()) continue
+                    val eqIdx = trimmed.indexOf('=')
+                    if (eqIdx > 0) {
+                        val name = trimmed.substring(0, eqIdx).trim()
+                        val value = trimmed.substring(eqIdx + 1).trim()
+                        try {
+                            val cookie = Cookie.Builder()
+                                .name(name)
+                                .value(value)
+                                .domain(domain)
+                                .path("/")
+                                .build()
+                            cookiesToAdd.add(cookie)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Skipping invalid cookie format: $name", e)
+                        }
+                    }
+                }
+            }
+
+            if (cookiesToAdd.isNotEmpty()) {
+                JwglClient.addCookies(cookiesToAdd)
+                Log.d(TAG, "Successfully synced ${cookiesToAdd.size} cookies from WebView to JwglClient")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync cookies from WebView to JwglClient", e)
+        }
+    }
 }

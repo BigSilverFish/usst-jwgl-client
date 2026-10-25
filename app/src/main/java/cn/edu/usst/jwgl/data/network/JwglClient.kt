@@ -106,6 +106,10 @@ object JwglClient {
 
     fun getCookies(): List<okhttp3.Cookie> = cookieJar.getAllCookies()
 
+    fun addCookies(cookies: List<okhttp3.Cookie>) {
+        cookieJar.addCookies(cookies)
+    }
+
     fun hasValidSession(): Boolean {
         val cookies = cookieJar.getAllCookies()
         return cookies.any { it.name.contains("JSESSIONID", ignoreCase = true) || it.name.contains("CASTGC", ignoreCase = true) }

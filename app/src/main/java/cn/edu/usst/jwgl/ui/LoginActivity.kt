@@ -136,6 +136,12 @@ class LoginActivity : AppCompatActivity() {
             performLogin(studentId, password, isAuto = false)
         }
 
+        binding.btnSsoLogin.setOnClickListener {
+            val studentId = binding.etStudentId.text?.toString()?.trim() ?: ""
+            val password = binding.etPassword.text?.toString()?.trim() ?: ""
+            SsoLoginActivity.start(this@LoginActivity, studentId, password)
+        }
+
         binding.btnGuestCourseSearch.setOnClickListener {
             val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_GUEST_MODE, true)
@@ -176,7 +182,12 @@ class LoginActivity : AppCompatActivity() {
             }.onFailure { error ->
                 setLoadingState(false, false)
                 val msg = error.message ?: "登录失败，请检查网络或账号密码"
-                binding.tvError.text = msg
+                val displayMsg = if (msg.contains("验证码") || msg.contains("认证") || msg.contains("authserver") || msg.contains("失败")) {
+                    "$msg\n💡 如遇到图片验证码或滑块，可直接点击上方【官方SSO页面登录】完成验证"
+                } else {
+                    msg
+                }
+                binding.tvError.text = displayMsg
                 binding.tvError.visibility = View.VISIBLE
             }
         }
@@ -184,6 +195,7 @@ class LoginActivity : AppCompatActivity() {
 
     private fun setLoadingState(isLoading: Boolean, isAuto: Boolean = false) {
         binding.btnLogin.isEnabled = !isLoading
+        binding.btnSsoLogin.isEnabled = !isLoading
         binding.etStudentId.isEnabled = !isLoading
         binding.etPassword.isEnabled = !isLoading
         binding.cbAutoLogin.isEnabled = !isLoading
