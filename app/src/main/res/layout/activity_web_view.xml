@@ -12,6 +12,13 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
+        <!-- Status Bar Spacer -->
+        <View
+            android:id="@+id/viewStatusBarSpacer"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:background="@color/surface" />
+
         <!-- Top App Bar -->
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"

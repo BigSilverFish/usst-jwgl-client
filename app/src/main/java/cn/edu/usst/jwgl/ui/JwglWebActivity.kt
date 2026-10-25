@@ -29,14 +29,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.common.HybridBinarizer
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import android.content.res.Configuration
+import androidx.core.view.ViewCompat
+import androidx.core.view.updatePadding
 import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
@@ -120,21 +115,7 @@ class JwglWebActivity : AppCompatActivity() {
 
     private var pendingPermissionRequest: PermissionRequest? = null
 
-    private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
-        if (result.contents != null) {
-            onScanResultReceived(result.contents)
-        } else {
-            onScanCanceled()
-        }
-    }
 
-    private val albumQrLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK && result.data?.data != null) {
-            decodeQrFromUri(result.data!!.data!!)
-        }
-    }
 
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -179,8 +160,29 @@ class JwglWebActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = !isDarkMode
+
         binding = ActivityWebViewBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        val density = resources.displayMetrics.density
+        val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        val fallbackStatusTop = if (resId > 0) maxOf(resources.getDimensionPixelSize(resId), (36 * density).toInt()) else (36 * density).toInt()
+        binding.viewStatusBarSpacer.layoutParams.height = fallbackStatusTop
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val statusBar = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val navBar = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val topPad = if (statusBar.top > 0) statusBar.top else fallbackStatusTop
+            binding.viewStatusBarSpacer.layoutParams.height = topPad
+            binding.viewStatusBarSpacer.requestLayout()
+            binding.layoutNormalWeb.updatePadding(bottom = navBar.bottom)
+            insets
+        }
 
         val rawTargetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_TARGET_URL
         val targetUrl = sanitizeAndValidateUrl(rawTargetUrl)
@@ -258,14 +260,6 @@ class JwglWebActivity : AppCompatActivity() {
         updateDesktopMenuItemTitle()
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                R.id.action_scan -> {
-                    launchNativeScanner()
-                    true
-                }
-                R.id.action_album_scan -> {
-                    launchAlbumScanner()
-                    true
-                }
                 R.id.action_refresh -> {
                     binding.webView.reload()
                     true
@@ -887,103 +881,7 @@ class JwglWebActivity : AppCompatActivity() {
         Log.d(TAG, "Synced ${cookies.size} cookies to Android WebView")
     }
 
-    fun launchNativeScanner() {
-        val options = ScanOptions().apply {
-            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("对准一网畅学二维码（签到 / 课堂互动 / 电脑端登录）")
-            setCameraId(0)
-            setBeepEnabled(true)
-            setBarcodeImageEnabled(false)
-            setOrientationLocked(true)
-            setCaptureActivity(PortraitCaptureActivity::class.java)
-        }
-        scanLauncher.launch(options)
-    }
 
-    fun launchAlbumScanner() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-            type = "image/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
-        }
-        albumQrLauncher.launch(intent)
-    }
-
-    private fun decodeQrFromUri(uri: Uri) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    val bitmap = BitmapFactory.decodeStream(stream) ?: return@use
-                    val intArray = IntArray(bitmap.width * bitmap.height)
-                    bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                    val source = RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
-                    val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
-                    val hints = mapOf(
-                        DecodeHintType.TRY_HARDER to true,
-                        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)
-                    )
-                    val result = MultiFormatReader().decode(binaryBitmap, hints)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@JwglWebActivity, "相册识码成功", Toast.LENGTH_SHORT).show()
-                        onScanResultReceived(result.text)
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@JwglWebActivity, "未在所选图片中识别到二维码", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    private fun onScanResultReceived(codeStr: String) {
-        Log.d(TAG, "onScanResultReceived: codeStr=$codeStr")
-        val quoted = JSONObject.quote(codeStr)
-        val js = """
-            (function() {
-                try {
-                    if (window.__nativeScanResolve) {
-                        window.__nativeScanResolve({ content: $quoted });
-                        window.__nativeScanResolve = null;
-                    }
-                    var app = document.querySelector('#app');
-                    var vueApp = app ? app.__vue_app__ : null;
-                    var router = vueApp && vueApp.config ? vueApp.config.globalProperties.${'$'}router : null;
-                    if (router) {
-                        router.push({
-                            name: 'scanner',
-                            params: { codeStr: $quoted }
-                        });
-                    }
-                } catch (e) {
-                    console.error('Failed to dispatch scan result', e);
-                }
-            })();
-        """.trimIndent()
-        binding.webView.evaluateJavascript(js, null)
-    }
-
-    private fun onScanCanceled() {
-        val js = """
-            (function() {
-                try {
-                    if (window.__nativeScanReject) {
-                        window.__nativeScanReject(new Error('User cancelled scan'));
-                        window.__nativeScanReject = null;
-                    }
-                    var app = document.querySelector('#app');
-                    var vueApp = app ? app.__vue_app__ : null;
-                    var router = vueApp && vueApp.config ? vueApp.config.globalProperties.${'$'}router : null;
-                    if (router) {
-                        var cur = router.currentRoute.value;
-                        if (cur && (cur.name === 'scanner' || cur.path === '/scanner') && (!cur.params || !cur.params.codeStr)) {
-                            router.go(-1);
-                        }
-                    }
-                } catch (e) {}
-            })();
-        """.trimIndent()
-        binding.webView.evaluateJavascript(js, null)
-    }
 
     override fun onDestroy() {
         if (customVideoView != null) {
