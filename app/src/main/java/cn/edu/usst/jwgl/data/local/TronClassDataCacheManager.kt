@@ -28,6 +28,7 @@ class TronClassDataCacheManager(private val context: Context) {
     private val memExams = ConcurrentHashMap<Long, List<TronClassExam>>()
     private val memMembers = ConcurrentHashMap<Long, List<TronClassMember>>()
     private val memBulletins = ConcurrentHashMap<Long, List<TronClassBulletin>>()
+    private val memProgress = ConcurrentHashMap<Long, Int>()
 
     companion object {
         private const val TAG = "TronClassDataCache"
@@ -47,6 +48,8 @@ class TronClassDataCacheManager(private val context: Context) {
 
         private const val PREFIX_SYLLABUS = "tc_cache_syllabus_"
         private const val PREFIX_SYLLABUS_TIME = "tc_cache_syllabus_time_"
+
+        private const val PREFIX_PROGRESS = "tc_cache_progress_"
 
         private const val PREFIX_EXAMS = "tc_cache_exams_"
         private const val PREFIX_EXAMS_TIME = "tc_cache_exams_time_"
@@ -307,6 +310,38 @@ class TronClassDataCacheManager(private val context: Context) {
         }
     }
 
+    // --- 3.3 课程学习进度缓存 ---
+    fun saveCourseProgress(courseId: Long, percent: Int) {
+        memProgress[courseId] = percent
+        prefs.edit().putInt(PREFIX_PROGRESS + courseId, percent).apply()
+    }
+
+    fun getCachedCourseProgress(courseId: Long): Int? {
+        memProgress[courseId]?.let { return it }
+        if (prefs.contains(PREFIX_PROGRESS + courseId)) {
+            val p = prefs.getInt(PREFIX_PROGRESS + courseId, -1)
+            if (p >= 0) {
+                memProgress[courseId] = p
+                return p
+            }
+        }
+        val syllabus = getCachedCourseSyllabus(courseId)
+        if (syllabus.isNotEmpty()) {
+            val reads = getCachedCourseReads(courseId)
+            var completed = 0
+            for (act in syllabus) {
+                val comp = reads[act.id]
+                if (comp == "full" || comp == "complete") {
+                    completed++
+                }
+            }
+            val percent = (completed * 100) / syllabus.size
+            saveCourseProgress(courseId, percent)
+            return percent
+        }
+        return null
+    }
+
     // --- 4. 课程测验考试列表缓存 ---
     fun saveCourseExams(courseId: Long, exams: List<TronClassExam>) {
         if (exams.isEmpty()) return
@@ -425,6 +460,7 @@ class TronClassDataCacheManager(private val context: Context) {
         memExams.clear()
         memMembers.clear()
         memBulletins.clear()
+        memProgress.clear()
         prefs.edit().clear().apply()
         return size
     }

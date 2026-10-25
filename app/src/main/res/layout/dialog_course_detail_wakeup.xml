@@ -224,7 +224,7 @@
                     android:id="@+id/tvTronClassLinkTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="一网畅学 · 课件与作业"
+                    android:text="进入一网畅学"
                     android:textColor="@color/text_primary"
                     android:textSize="14sp"
                     android:textStyle="bold" />
@@ -234,7 +234,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="点击进入原生课件、测验与大纲"
+                    android:text="当前暂无待办事项"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
