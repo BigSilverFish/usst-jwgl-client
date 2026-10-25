@@ -3,6 +3,7 @@ package cn.edu.usst.jwgl.ui.tronclass
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
@@ -101,13 +102,23 @@ object TronClassImageLoader {
         try {
             val tcClient = TronClassClient(context)
             val reqBuilder = Request.Builder().url(url)
-            val sessionId = tcClient.getSessionId()
-            if (!sessionId.isNullOrBlank()) {
-                reqBuilder.header("x-session-id", sessionId)
-                reqBuilder.header("Cookie", "session=$sessionId; x-session-id=$sessionId")
+            val uri = runCatching { Uri.parse(url) }.getOrNull()
+            val host = uri?.host?.lowercase() ?: ""
+            val isHttps = "https".equals(uri?.scheme, ignoreCase = true)
+            val isTrustedHost = host == "1906.usst.edu.cn" ||
+                                host.endsWith(".usst.edu.cn") ||
+                                host.endsWith(".tronclass.com.cn") ||
+                                host == "tronclass.com.cn"
+
+            if (isHttps && isTrustedHost) {
+                val sessionId = tcClient.getSessionId()
+                if (!sessionId.isNullOrBlank()) {
+                    reqBuilder.header("x-session-id", sessionId)
+                    reqBuilder.header("Cookie", "session=$sessionId; x-session-id=$sessionId")
+                }
+                reqBuilder.header("Referer", "https://1906.usst.edu.cn/")
             }
             reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android; TronClass)")
-            reqBuilder.header("Referer", "https://1906.usst.edu.cn/")
 
             val resp = okHttpClient.newCall(reqBuilder.build()).execute()
             if (!resp.isSuccessful) return@withContext null

@@ -128,7 +128,8 @@ class TronClassHtmlImageGetter(
 
     private fun resolveFullUrl(source: String): String {
         return when {
-            source.startsWith("http://") || source.startsWith("https://") -> source
+            source.startsWith("http://") -> "https://" + source.substring(7)
+            source.startsWith("https://") -> source
             source.startsWith("/") -> "${TronClassClient.BASE_URL}$source"
             else -> "${TronClassClient.BASE_URL}/$source"
         }

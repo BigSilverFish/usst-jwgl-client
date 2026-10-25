@@ -2,6 +2,9 @@ package cn.edu.usst.jwgl.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import cn.edu.usst.jwgl.data.model.TronClassCourse
@@ -11,10 +14,46 @@ import java.util.UUID
 class TronClassPreferences(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+    private val securePrefs: SharedPreferences = createSecurePrefs(context)
     private val gson = Gson()
 
+    init {
+        migratePlaintextTokensIfNeeded()
+    }
+
+    private fun migratePlaintextTokensIfNeeded() {
+        if (prefs.contains(KEY_SESSION_ID) || prefs.contains(KEY_REFRESH_TOKEN)) {
+            val oldSessionId = prefs.getString(KEY_SESSION_ID, null)
+            val oldRefreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
+            val oldUserId = prefs.getLong(KEY_USER_ID, 0L)
+            val oldUserName = prefs.getString(KEY_USER_NAME, null)
+            val oldUserNo = prefs.getString(KEY_USER_NO, null)
+            val oldUserEmail = prefs.getString(KEY_USER_EMAIL, null)
+
+            securePrefs.edit().apply {
+                if (!oldSessionId.isNullOrBlank()) putString(KEY_SESSION_ID, oldSessionId)
+                if (!oldRefreshToken.isNullOrBlank()) putString(KEY_REFRESH_TOKEN, oldRefreshToken)
+                if (oldUserId > 0) putLong(KEY_USER_ID, oldUserId)
+                if (!oldUserName.isNullOrBlank()) putString(KEY_USER_NAME, oldUserName)
+                if (!oldUserNo.isNullOrBlank()) putString(KEY_USER_NO, oldUserNo)
+                if (!oldUserEmail.isNullOrBlank()) putString(KEY_USER_EMAIL, oldUserEmail)
+            }.apply()
+
+            prefs.edit()
+                .remove(KEY_SESSION_ID)
+                .remove(KEY_REFRESH_TOKEN)
+                .remove(KEY_USER_ID)
+                .remove(KEY_USER_NAME)
+                .remove(KEY_USER_NO)
+                .remove(KEY_USER_EMAIL)
+                .apply()
+        }
+    }
+
     companion object {
+        private const val TAG = "TronClassPreferences"
         private const val PREF_NAME = "usst_tronclass_prefs"
+        private const val SECURE_PREF_NAME = "usst_tronclass_secure_prefs"
         private const val KEY_SESSION_ID = "tc_session_id"
         private const val KEY_REFRESH_TOKEN = "tc_refresh_token"
         private const val KEY_USER_ID = "tc_user_id"
@@ -28,6 +67,73 @@ class TronClassPreferences(context: Context) {
         private const val KEY_DDL_24H_ENABLED = "tc_ddl_24h_enabled"
         private const val KEY_DDL_URGENT_ENABLED = "tc_ddl_urgent_enabled"
         private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
+
+        private val volatileMemoryFallback = InMemorySharedPreferences()
+
+        private fun createSecurePrefs(context: Context): SharedPreferences {
+            return try {
+                createEncryptedPrefsInternal(context)
+            } catch (firstEx: Exception) {
+                Log.w(TAG, "EncryptedSharedPreferences init failed, resetting keyset and retrying", firstEx)
+                try {
+                    context.deleteSharedPreferences(SECURE_PREF_NAME)
+                    createEncryptedPrefsInternal(context)
+                } catch (retryEx: Exception) {
+                    Log.e(TAG, "Hardware keystore unavailable; using volatile RAM-only store", retryEx)
+                    volatileMemoryFallback
+                }
+            }
+        }
+
+        private fun createEncryptedPrefsInternal(context: Context): SharedPreferences {
+            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            return EncryptedSharedPreferences.create(
+                SECURE_PREF_NAME,
+                masterKeyAlias,
+                context,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
+    }
+
+    private class InMemorySharedPreferences : SharedPreferences {
+        private val map = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+        override fun getAll(): MutableMap<String, *> = HashMap(map)
+        override fun getString(key: String?, defValue: String?): String? = (map[key] as? String) ?: defValue
+        @Suppress("UNCHECKED_CAST")
+        override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+            (map[key] as? Set<String>)?.toMutableSet() ?: defValues
+        override fun getInt(key: String?, defValue: Int): Int = (map[key] as? Int) ?: defValue
+        override fun getLong(key: String?, defValue: Long): Long = (map[key] as? Long) ?: defValue
+        override fun getFloat(key: String?, defValue: Float): Float = (map[key] as? Float) ?: defValue
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean = (map[key] as? Boolean) ?: defValue
+        override fun contains(key: String?): Boolean = key != null && map.containsKey(key)
+
+        override fun edit(): SharedPreferences.Editor = object : SharedPreferences.Editor {
+            private val pending = HashMap<String, Any?>()
+            private var clearFlag = false
+
+            override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor = apply { if (key != null) pending[key] = values?.toSet() }
+            override fun putInt(key: String?, value: Int): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putLong(key: String?, value: Long): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putFloat(key: String?, value: Float): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor = apply { if (key != null) pending[key] = value }
+            override fun remove(key: String?): SharedPreferences.Editor = apply { if (key != null) pending[key] = null }
+            override fun clear(): SharedPreferences.Editor = apply { clearFlag = true }
+            override fun commit(): Boolean { apply(); return true }
+            override fun apply() {
+                if (clearFlag) map.clear()
+                for ((k, v) in pending) {
+                    if (v == null) map.remove(k) else map[k] = v
+                }
+            }
+        }
+
+        override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+        override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
     }
 
     fun isLoggedIn(): Boolean {
@@ -35,40 +141,40 @@ class TronClassPreferences(context: Context) {
         return !sid.isNullOrBlank()
     }
 
-    fun getSessionId(): String? = prefs.getString(KEY_SESSION_ID, null)
+    fun getSessionId(): String? = securePrefs.getString(KEY_SESSION_ID, null)
 
     fun setSessionId(sessionId: String?) {
-        prefs.edit().putString(KEY_SESSION_ID, sessionId).apply()
+        securePrefs.edit().putString(KEY_SESSION_ID, sessionId).apply()
     }
 
-    fun getRefreshToken(): String? = prefs.getString(KEY_REFRESH_TOKEN, null)
+    fun getRefreshToken(): String? = securePrefs.getString(KEY_REFRESH_TOKEN, null)
 
     fun setRefreshToken(token: String?) {
-        prefs.edit().putString(KEY_REFRESH_TOKEN, token).apply()
+        securePrefs.edit().putString(KEY_REFRESH_TOKEN, token).apply()
     }
 
-    fun getUserId(): Long = prefs.getLong(KEY_USER_ID, 0L)
+    fun getUserId(): Long = securePrefs.getLong(KEY_USER_ID, 0L)
 
     fun setUserId(userId: Long) {
-        prefs.edit().putLong(KEY_USER_ID, userId).apply()
+        securePrefs.edit().putLong(KEY_USER_ID, userId).apply()
     }
 
-    fun getUserName(): String? = prefs.getString(KEY_USER_NAME, null)
+    fun getUserName(): String? = securePrefs.getString(KEY_USER_NAME, null)
 
     fun setUserName(name: String?) {
-        prefs.edit().putString(KEY_USER_NAME, name).apply()
+        securePrefs.edit().putString(KEY_USER_NAME, name).apply()
     }
 
-    fun getUserNo(): String? = prefs.getString(KEY_USER_NO, null)
+    fun getUserNo(): String? = securePrefs.getString(KEY_USER_NO, null)
 
     fun setUserNo(userNo: String?) {
-        prefs.edit().putString(KEY_USER_NO, userNo).apply()
+        securePrefs.edit().putString(KEY_USER_NO, userNo).apply()
     }
 
-    fun getUserEmail(): String? = prefs.getString(KEY_USER_EMAIL, null)
+    fun getUserEmail(): String? = securePrefs.getString(KEY_USER_EMAIL, null)
 
     fun setUserEmail(email: String?) {
-        prefs.edit().putString(KEY_USER_EMAIL, email).apply()
+        securePrefs.edit().putString(KEY_USER_EMAIL, email).apply()
     }
 
     fun getDeviceId(): String {
@@ -88,7 +194,7 @@ class TronClassPreferences(context: Context) {
         userNo: String? = null,
         userEmail: String? = null
     ) {
-        prefs.edit()
+        securePrefs.edit()
             .putString(KEY_SESSION_ID, sessionId)
             .apply {
                 if (refreshToken != null) putString(KEY_REFRESH_TOKEN, refreshToken)
@@ -101,6 +207,15 @@ class TronClassPreferences(context: Context) {
     }
 
     fun clearSession() {
+        securePrefs.edit()
+            .remove(KEY_SESSION_ID)
+            .remove(KEY_REFRESH_TOKEN)
+            .remove(KEY_USER_ID)
+            .remove(KEY_USER_NAME)
+            .remove(KEY_USER_NO)
+            .remove(KEY_USER_EMAIL)
+            .apply()
+
         prefs.edit()
             .remove(KEY_SESSION_ID)
             .remove(KEY_REFRESH_TOKEN)

@@ -130,12 +130,12 @@ class TronClassLoginActivity : AppCompatActivity() {
         ws.databaseEnabled = true
         ws.useWideViewPort = true
         ws.loadWithOverviewMode = true
-        ws.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        ws.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         ws.cacheMode = WebSettings.LOAD_DEFAULT
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
+        cookieManager.setAcceptThirdPartyCookies(binding.webView, false)
 
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -148,8 +148,8 @@ class TronClassLoginActivity : AppCompatActivity() {
                 binding.progressBar.visibility = View.GONE
                 super.onPageFinished(view, url)
 
-                // 若 CAS Cookie 失效重新跳转到 ids6 认证登录页，自动填入账密并提交
-                if (url != null && (url.contains("ids6.usst.edu.cn/authserver/login") || url.contains("ids6-443.webvpn.usst.edu.cn/authserver/login"))) {
+                // 若 CAS Cookie 失效重新跳转到 ids6 认证登录页，在源地址合法且当前 WebView 真实 URL 匹配时自动填入账密并提交
+                if (isTrustedCasLoginUrl(url) && isTrustedCasLoginUrl(view?.url)) {
                     val auth = AuthPreferences(this@TronClassLoginActivity)
                     val studentId = auth.getStudentId()
                     val password = auth.getPassword()
@@ -188,36 +188,89 @@ class TronClassLoginActivity : AppCompatActivity() {
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url?.toString() ?: return false
-                return handleInterceptUrl(url)
+                val uri = request?.url ?: return false
+                val url = uri.toString()
+                if (handleInterceptUrl(url)) {
+                    return true
+                }
+                val scheme = uri.scheme?.lowercase() ?: return true
+                if (scheme != "https") {
+                    Log.w(TAG, "Blocked non-HTTPS navigation in TronClass login: $url")
+                    return true
+                }
+                val host = uri.host
+                if (!isAllowedNavigationHost(host)) {
+                    Log.w(TAG, "Blocked navigation to external host in TronClass login: $host")
+                    return true
+                }
+                return false
             }
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 if (url == null) return false
-                return handleInterceptUrl(url)
+                if (handleInterceptUrl(url)) {
+                    return true
+                }
+                return try {
+                    val uri = Uri.parse(url)
+                    val scheme = uri.scheme?.lowercase() ?: return true
+                    if (scheme != "https") return true
+                    val host = uri.host
+                    !isAllowedNavigationHost(host)
+                } catch (_: Exception) {
+                    true
+                }
             }
         }
+    }
+
+    private fun isTrustedCasLoginUrl(rawUrl: String?): Boolean {
+        if (rawUrl.isNullOrBlank()) return false
+        return try {
+            val uri = Uri.parse(rawUrl)
+            val scheme = uri.scheme?.lowercase()
+            val host = uri.host?.lowercase()
+            val path = uri.path?.lowercase() ?: ""
+            scheme == "https" &&
+                (host == "ids6.usst.edu.cn" || host == "ids6-443.webvpn.usst.edu.cn") &&
+                path.startsWith("/authserver/login")
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isAllowedNavigationHost(host: String?): Boolean {
+        if (host.isNullOrBlank()) return false
+        val lower = host.lowercase()
+        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn") ||
+               lower == "tronclass.com.cn" || lower.endsWith(".tronclass.com.cn")
     }
 
     private fun handleInterceptUrl(url: String): Boolean {
         Log.d(TAG, "Navigating to URL: $url")
 
-        // 拦截 OAuth 回调: https://mobile-download.tronclass.com.cn/callback.html?code=...
-        if (url.startsWith("https://mobile-download.tronclass.com.cn/callback.html") ||
-            url.contains("callback.html?code=")
-        ) {
+        // 拦截 OAuth 回调: scheme 必须为 https, host 必须为 mobile-download.tronclass.com.cn, path 必须以 /callback.html 开头
+        return try {
             val uri = Uri.parse(url)
-            val code = uri.getQueryParameter("code")
-
-            if (!code.isNullOrBlank()) {
-                Log.d(TAG, "OAuth authorization code captured: $code")
-                performTokenExchange(code)
-                return true
+            val scheme = uri.scheme?.lowercase()
+            val host = uri.host?.lowercase()
+            val path = uri.path ?: ""
+            if (scheme == "https" && host == "mobile-download.tronclass.com.cn" && path.startsWith("/callback.html")) {
+                val code = uri.getQueryParameter("code")
+                if (!code.isNullOrBlank()) {
+                    Log.d(TAG, "OAuth authorization code captured: $code")
+                    performTokenExchange(code)
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
             }
+        } catch (e: Exception) {
+            false
         }
-
-        return false
     }
 
     private fun performTokenExchange(code: String) {

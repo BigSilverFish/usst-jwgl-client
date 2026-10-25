@@ -121,6 +121,7 @@ import java.util.Calendar
 class MainActivity : AppCompatActivity() {
 
     companion object {
+        private const val TAG = "MainActivity"
         const val EXTRA_PROFILE = "extra_student_profile"
         const val EXTRA_TAB = "extra_tab"
         const val EXTRA_GUEST_MODE = "extra_guest_mode"
@@ -3230,6 +3231,8 @@ class MainActivity : AppCompatActivity() {
         binding.btnLogout.setOnClickListener {
             JwglClient.clearSession()
             AuthPreferences(this).clearAutoLogin()
+            TronClassPreferences(this).clearSession()
+            TronClassDataCacheManager.clearDataCache(this)
             val intent = Intent(this, LoginActivity::class.java).apply {
                 putExtra(LoginActivity.EXTRA_FROM_LOGOUT, true)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -4877,6 +4880,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAndLoadTronClassData() {
+        val currentJwglStudentId = AuthPreferences(this).getStudentId().trim()
+        val tcPrefs = TronClassPreferences(this)
+        val tcUserNo = tcPrefs.getUserNo()?.trim()
+
+        if (currentJwglStudentId.isNotEmpty() && !tcUserNo.isNullOrEmpty() && !tcUserNo.equals(currentJwglStudentId, ignoreCase = true)) {
+            Log.w(TAG, "TronClass account ($tcUserNo) does not match current JWGL student ($currentJwglStudentId). Forcing session reset.")
+            tcPrefs.clearSession()
+            TronClassDataCacheManager.clearDataCache(this)
+            tronClassCourseAdapter.updateData(emptyList())
+            tronClassTodoAdapter.updateData(emptyList())
+            allTronClassCourses = emptyList()
+        }
+
         if (!tronClassClient.isLoggedIn()) {
             updateTronClassUserHeader()
             // 首次点进一网畅学，若尚未完成畅课认证，自动静默触发 SSO 认证直登

@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
+import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import java.util.Locale
@@ -70,7 +71,14 @@ class TronClassClient(private val context: Context) {
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
 
             val sessionId = prefs.getSessionId()
-            if (!sessionId.isNullOrBlank() && !orig.headers.names().contains("x-session-id")) {
+            val host = orig.url.host.lowercase()
+            val isHttps = orig.isHttps
+            val isTrustedHost = host == "1906.usst.edu.cn" ||
+                                host.endsWith(".usst.edu.cn") ||
+                                host.endsWith(".tronclass.com.cn") ||
+                                host == "tronclass.com.cn"
+
+            if (isHttps && isTrustedHost && !sessionId.isNullOrBlank() && !orig.headers.names().contains("x-session-id")) {
                 reqBuilder.header("x-session-id", sessionId)
             }
 
@@ -192,10 +200,15 @@ class TronClassClient(private val context: Context) {
                 }
 
                 // 解析用户信息
-                val userId = json.optLong("user_id", json.optLong("id", 0L))
-                val userName = json.optString("name", "")
-                val userNo = json.optString("user_no", "")
-                val userEmail = json.optString("email", "")
+                val userObj = json.optJSONObject("user")
+                val userId = json.optLong("user_id", json.optLong("id", userObj?.optLong("id", 0L) ?: 0L))
+                val userName = json.optString("name", userObj?.optString("name", ""))
+                var userNo = json.optString("user_no", userObj?.optString("user_no", ""))
+                val userEmail = json.optString("email", userObj?.optString("email", ""))
+
+                if (userNo.isBlank()) {
+                    userNo = AuthPreferences(context).getStudentId().trim()
+                }
 
                 prefs.saveSession(
                     sessionId = sessionId,

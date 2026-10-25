@@ -37,6 +37,7 @@ import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
@@ -144,7 +145,7 @@ class JwglWebActivity : AppCompatActivity() {
         } else {
             pendingPermissionRequest?.deny()
             pendingPermissionRequest = null
-            Toast.makeText(this, "ĞèÒªÏà»úÈ¨ÏŞÒÔ½øĞĞÉ¨Âë", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "éœ€è¦ç›¸æœºæƒé™ä»¥è¿›è¡Œæ‰«ç ", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -161,7 +162,7 @@ class JwglWebActivity : AppCompatActivity() {
             pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, true, false)
         } else {
             pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)
-            Toast.makeText(this, "ĞèÒª¶¨Î»È¨ÏŞÒÔÍê³É¿ÎÌÃÇ©µ½", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "éœ€è¦å®šä½æƒé™ä»¥å®Œæˆè¯¾å ‚ç­¾åˆ°", Toast.LENGTH_SHORT).show()
         }
         pendingGeolocationCallback = null
         pendingGeolocationOrigin = null
@@ -171,7 +172,7 @@ class JwglWebActivity : AppCompatActivity() {
         @android.webkit.JavascriptInterface
         fun onEpisodeFound(episodeInfo: String) {
             runOnUiThread {
-                Toast.makeText(this@JwglWebActivity, "ÒÑ×Ô¶¯Ìø×ªÖÁ£º$episodeInfo", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@JwglWebActivity, "å·²è‡ªåŠ¨è·³è½¬è‡³ï¼š$episodeInfo", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -208,6 +209,21 @@ class JwglWebActivity : AppCompatActivity() {
         if (host.isNullOrBlank()) return false
         val lower = host.lowercase()
         return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn")
+    }
+
+    private fun isTrustedCasLoginUrl(rawUrl: String?): Boolean {
+        if (rawUrl.isNullOrBlank()) return false
+        return try {
+            val uri = Uri.parse(rawUrl)
+            val scheme = uri.scheme?.lowercase()
+            val host = uri.host?.lowercase()
+            val path = uri.path?.lowercase() ?: ""
+            scheme == "https" &&
+                (host == "ids6.usst.edu.cn" || host == "ids6-443.webvpn.usst.edu.cn") &&
+                path.startsWith("/authserver/login")
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun sanitizeAndValidateUrl(url: String): String {
@@ -259,7 +275,7 @@ class JwglWebActivity : AppCompatActivity() {
                     applyUserAgent(binding.webView.url ?: targetUrl)
                     updateDesktopMenuItemTitle()
                     binding.webView.reload()
-                    val toastText = if (isDesktopMode) "ÒÑÇĞ»»ÖÁµçÄÔ°æÊÓÍ¼" else "ÒÑÇĞ»»ÖÁÊÖ»ú°æÊÓÍ¼"
+                    val toastText = if (isDesktopMode) "å·²åˆ‡æ¢è‡³ç”µè„‘ç‰ˆè§†å›¾" else "å·²åˆ‡æ¢è‡³æ‰‹æœºç‰ˆè§†å›¾"
                     Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
                     true
                 }
@@ -268,7 +284,7 @@ class JwglWebActivity : AppCompatActivity() {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl)))
                     } catch (e: Exception) {
-                        Toast.makeText(this, "ÎŞ·¨µ÷ÓÃÍâ²¿ä¯ÀÀÆ÷´ò¿ª", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "æ— æ³•è°ƒç”¨å¤–éƒ¨æµè§ˆå™¨æ‰“å¼€", Toast.LENGTH_SHORT).show()
                     }
                     true
                 }
@@ -279,7 +295,7 @@ class JwglWebActivity : AppCompatActivity() {
 
     private fun updateDesktopMenuItemTitle() {
         val menuItem = binding.toolbar.menu.findItem(R.id.action_toggle_desktop) ?: return
-        menuItem.title = if (isDesktopMode) "ÇĞ»»ÎªÊÖ»ú°æ" else "ÇĞ»»ÎªµçÄÔ°æ"
+        menuItem.title = if (isDesktopMode) "åˆ‡æ¢ä¸ºæ‰‹æœºç‰ˆ" else "åˆ‡æ¢ä¸ºç”µè„‘ç‰ˆ"
     }
 
     private fun handleBackPress() {
@@ -347,17 +363,19 @@ class JwglWebActivity : AppCompatActivity() {
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             mediaPlaybackRequiresUserGesture = false
             textZoom = 100
         }
 
-        WebView.setWebContentsDebuggingEnabled(true)
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         applyUserAgent(targetUrl)
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
+        cookieManager.setAcceptThirdPartyCookies(binding.webView, false)
 
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
 
@@ -437,7 +455,7 @@ class JwglWebActivity : AppCompatActivity() {
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                if (!title.isNullOrBlank() && !title.startsWith("http") && !title.contains("Í³Ò»Éí·İÈÏÖ¤") && !title.contains("µÇÂ¼")) {
+                if (!title.isNullOrBlank() && !title.startsWith("http") && !title.contains("ç»Ÿä¸€èº«ä»½è®¤è¯") && !title.contains("ç™»å½•")) {
                     binding.toolbar.title = title
                 }
             }
@@ -496,7 +514,7 @@ class JwglWebActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageStarted: host=$host, url=$url")
-                if (url != null && !url.contains("authserver/login")) {
+                if (!isTrustedCasLoginUrl(url)) {
                     casAttemptCount = 0
                 }
             }
@@ -507,8 +525,8 @@ class JwglWebActivity : AppCompatActivity() {
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageFinished: host=$host, url=$url")
 
-                // Auto-fill and submit unified auth (CAS) if landing on the login page
-                if (url != null && (url.contains("ids6.usst.edu.cn/authserver/login") || url.contains("ids6-443.webvpn.usst.edu.cn/authserver/login"))) {
+                // Auto-fill and submit unified auth (CAS) if landing on the login page (strictly validated)
+                if (isTrustedCasLoginUrl(url) && isTrustedCasLoginUrl(view?.url)) {
                     if (casAttemptCount < 3) {
                         val auth = AuthPreferences(this@JwglWebActivity)
                         val studentId = auth.getStudentId()
@@ -600,10 +618,10 @@ class JwglWebActivity : AppCompatActivity() {
                                 // 1. Mobile H5 Flow (jy-mobile-resourcemanage-ui)
                                 // ==========================================
 
-                                // Step A: Switch to "µã²¥" tab if on liveList
+                                // Step A: Switch to "ç‚¹æ’­" tab if on liveList
                                 if (hash.indexOf('/liveList') !== -1 || (!hash.indexOf('/videoList') !== -1 && !hash.indexOf('/play-video') !== -1)) {
                                     var tabs = Array.from(document.querySelectorAll('.van-tab'));
-                                    var vodTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === 'µã²¥'; });
+                                    var vodTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === 'ç‚¹æ’­'; });
                                     if (vodTab && vodTab.getAttribute('aria-selected') !== 'true') {
                                         vodTab.click();
                                         return;
@@ -612,7 +630,7 @@ class JwglWebActivity : AppCompatActivity() {
 
                                 // Step B & C: On videoList, search course and click it
                                 if (hash.indexOf('/videoList') !== -1) {
-                                    var input = document.querySelector('input[placeholder*="¿Î³ÌÃû³Æ"]');
+                                    var input = document.querySelector('input[placeholder*="è¯¾ç¨‹åç§°"]');
                                     if (input && courseQuery) {
                                         if (!searchedCourse && input.value !== courseQuery) {
                                             searchedCourse = true;
@@ -655,8 +673,8 @@ class JwglWebActivity : AppCompatActivity() {
                                         
                                         // 1. Both targetDate AND node
                                         if (targetNode > 0) {
-                                            var n1 = 'µÚ' + targetNode + '½Ú';
-                                            var n2 = 'µÚ ' + targetNode + ' ½Ú';
+                                            var n1 = 'ç¬¬' + targetNode + 'èŠ‚';
+                                            var n2 = 'ç¬¬ ' + targetNode + ' èŠ‚';
                                             var m1 = cardList.find(function(c) {
                                                 var text = c.innerText;
                                                 return text.indexOf(targetDate) !== -1 && (text.indexOf(n1) !== -1 || text.indexOf(n2) !== -1);
@@ -679,7 +697,7 @@ class JwglWebActivity : AppCompatActivity() {
 
                                     var matchedCard = matchEpisode(cards);
 
-                                    // If not found in initial horizontal list, try opening the full "¹²¼Æ X ½Ú" sheet
+                                    // If not found in initial horizontal list, try opening the full "å…±è®¡ X èŠ‚" sheet
                                     if (!matchedCard) {
                                         var moreBtn = document.querySelector('.title-box-right');
                                         if (moreBtn && !document.querySelector('.selection-more')) {
@@ -766,7 +784,7 @@ class JwglWebActivity : AppCompatActivity() {
 
                 if (!isAllowedUsstHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
-                    Toast.makeText(this@JwglWebActivity, "ÒÑÀ¹½Ø·ÇĞ£Ô°ÍøÓòÃû·ÃÎÊ: ${host ?: ""}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@JwglWebActivity, "å·²æ‹¦æˆªéæ ¡å›­ç½‘åŸŸåè®¿é—®: ${host ?: ""}", Toast.LENGTH_SHORT).show()
                     return true
                 }
 
@@ -798,8 +816,8 @@ class JwglWebActivity : AppCompatActivity() {
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
             binding.layoutLoading.visibility = View.VISIBLE
             binding.tvLoadingMessage.text = when {
-                targetUrl.contains("new2017") -> "ÕıÔÚÎªÑ§¹¤Ò»Ìå»¯ÈÏÖ¤Í³Ò»µÇÂ¼»á»°..."
-                else -> "ÕıÔÚÎª½ÌÎñÏµÍ³ÈÏÖ¤ÍøÒ³»á»°..."
+                targetUrl.contains("new2017") -> "æ­£åœ¨ä¸ºå­¦å·¥ä¸€ä½“åŒ–è®¤è¯ç»Ÿä¸€ç™»å½•ä¼šè¯..."
+                else -> "æ­£åœ¨ä¸ºæ•™åŠ¡ç³»ç»Ÿè®¤è¯ç½‘é¡µä¼šè¯..."
             }
 
             lifecycleScope.launch {
@@ -872,7 +890,7 @@ class JwglWebActivity : AppCompatActivity() {
     fun launchNativeScanner() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("¶Ô×¼Ò»Íø³©Ñ§¶şÎ¬Âë£¨Ç©µ½ / ¿ÎÌÃ»¥¶¯ / µçÄÔ¶ËµÇÂ¼£©")
+            setPrompt("å¯¹å‡†ä¸€ç½‘ç•…å­¦äºŒç»´ç ï¼ˆç­¾åˆ° / è¯¾å ‚äº’åŠ¨ / ç”µè„‘ç«¯ç™»å½•ï¼‰")
             setCameraId(0)
             setBeepEnabled(true)
             setBarcodeImageEnabled(false)
@@ -905,13 +923,13 @@ class JwglWebActivity : AppCompatActivity() {
                     )
                     val result = MultiFormatReader().decode(binaryBitmap, hints)
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@JwglWebActivity, "Ïà²áÊ¶Âë³É¹¦", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@JwglWebActivity, "ç›¸å†Œè¯†ç æˆåŠŸ", Toast.LENGTH_SHORT).show()
                         onScanResultReceived(result.text)
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@JwglWebActivity, "Î´ÔÚËùÑ¡Í¼Æ¬ÖĞÊ¶±ğµ½¶şÎ¬Âë", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@JwglWebActivity, "æœªåœ¨æ‰€é€‰å›¾ç‰‡ä¸­è¯†åˆ«åˆ°äºŒç»´ç ", Toast.LENGTH_SHORT).show()
                 }
             }
         }
