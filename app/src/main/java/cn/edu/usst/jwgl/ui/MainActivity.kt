@@ -387,6 +387,7 @@ class MainActivity : AppCompatActivity() {
 
             val statusTopPad = statusBarInsets.top + (8 * density).toInt()
             lastStatusTopPadPx = statusTopPad
+            lastStatusBarTopPx = statusBarInsets.top
 
             applyContentBottomPadding()
 
@@ -600,8 +601,10 @@ class MainActivity : AppCompatActivity() {
 
     private var lastNavBarBottomInsetPx: Int = 0
     private var lastStatusTopPadPx: Int = 0
+    private var lastStatusBarTopPx: Int = 0
 
     fun getStatusTopPad(): Int = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * resources.displayMetrics.density).toInt()
+    fun getStatusBarTop(): Int = lastStatusBarTopPx.takeIf { it > 0 } ?: (24 * resources.displayMetrics.density).toInt()
     fun getBottomInset(): Int = lastNavBarBottomInsetPx
 
     private fun isPhoneBottomBarMode(): Boolean {

@@ -1,6 +1,11 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
+import android.Manifest
 import android.app.ProgressDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
@@ -17,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -77,6 +83,57 @@ class TronClassHomeworkFragment : Fragment() {
         }
     }
 
+    private var currentPhotoFile: File? = null
+
+    private val takePictureLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val photoFile = currentPhotoFile
+        if (success && photoFile != null && photoFile.exists() && photoFile.length() > 0L) {
+            val pending = LocalPendingFile(
+                file = photoFile,
+                displayName = photoFile.name,
+                size = photoFile.length()
+            )
+            pendingLocalFiles.add(pending)
+            renderPendingFiles()
+            Toast.makeText(context, "拍照成功，已添加为作业附件", Toast.LENGTH_SHORT).show()
+        } else {
+            photoFile?.let { if (it.exists() && it.length() == 0L) it.delete() }
+        }
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            launchCamera()
+        } else {
+            Toast.makeText(context, "未授予相机权限，无法拍照", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun takePhoto() {
+        val ctx = context ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            launchCamera()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun launchCamera() {
+        val ctx = context ?: return
+        try {
+            val tempDir = File(ctx.cacheDir, "pending_uploads").apply { mkdirs() }
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val photoFile = File(tempDir, "IMG_${timeStamp}.jpg")
+            currentPhotoFile = photoFile
+            val photoUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", photoFile)
+            takePictureLauncher.launch(photoUri)
+        } catch (e: Exception) {
+            Toast.makeText(ctx, "调起相机失败: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     companion object {
         private const val ARG_ACTIVITY_ID = "arg_activity_id"
         private const val ARG_COURSE_ID = "arg_course_id"
@@ -122,11 +179,12 @@ class TronClassHomeworkFragment : Fragment() {
 
         val density = resources.displayMetrics.density
         val mainAct = activity as? MainActivity
-        val statusTopPad = mainAct?.getStatusTopPad() ?: (32 * density).toInt()
+        val statusBarTop = mainAct?.getStatusBarTop() ?: (24 * density).toInt()
+        val initialPad = statusBarTop + (2 * density).toInt()
 
         binding.llHeaderBarContainer.setPadding(
             binding.llHeaderBarContainer.paddingLeft,
-            statusTopPad,
+            initialPad,
             binding.llHeaderBarContainer.paddingRight,
             0
         )
@@ -167,7 +225,7 @@ class TronClassHomeworkFragment : Fragment() {
             val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
             val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            val pad = statusBars.top + (8 * density).toInt()
+            val pad = statusBars.top + (2 * density).toInt()
 
             binding.llHeaderBarContainer.setPadding(
                 binding.llHeaderBarContainer.paddingLeft,
@@ -234,6 +292,10 @@ class TronClassHomeworkFragment : Fragment() {
             params.height = headerHeight
             b.viewHeaderSpacing.layoutParams = params
         }
+        val density = resources.displayMetrics.density
+        val startOffset = headerHeight
+        val endOffset = headerHeight + (56 * density).toInt()
+        b.swipeRefresh.setProgressViewOffset(true, startOffset, endOffset)
     }
 
     private fun setupViews() {
@@ -241,6 +303,19 @@ class TronClassHomeworkFragment : Fragment() {
         binding.tvHeaderSubtitle.text = courseNameText
         binding.btnBack.setOnClickListener {
             requireActivity().onBackPressedDispatcher.onBackPressed()
+        }
+
+        binding.btnCopyTitle.setOnClickListener {
+            val title = binding.tvHomeworkTitle.text?.toString()?.trim().orEmpty()
+            val reqDesc = binding.tvRequirementDesc.text?.toString()?.trim().orEmpty()
+            val copyText = if (reqDesc.isNotBlank() && reqDesc != "教师未提供文字说明") {
+                "【题目】$title\n\n【要求说明】\n$reqDesc"
+            } else {
+                title
+            }
+            val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("作业题目", copyText))
+            Toast.makeText(requireContext(), "已复制作业题目与要求至剪贴板", Toast.LENGTH_SHORT).show()
         }
 
         val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
@@ -271,6 +346,10 @@ class TronClassHomeworkFragment : Fragment() {
 
         binding.btnAddAttachment.setOnClickListener {
             filePickerLauncher.launch("*/*")
+        }
+
+        binding.btnCameraSubmit.setOnClickListener {
+            takePhoto()
         }
 
         binding.btnSubmitHomework.setOnClickListener {
@@ -682,6 +761,7 @@ class TronClassHomeworkFragment : Fragment() {
         binding.llUploadProgress.visibility = View.VISIBLE
         binding.btnSubmitHomework.isEnabled = false
         binding.btnAddAttachment.isEnabled = false
+        binding.btnCameraSubmit.isEnabled = false
 
         viewLifecycleOwner.lifecycleScope.launch {
             val uploadedList = mutableListOf<TronClassUpload>()
@@ -713,6 +793,7 @@ class TronClassHomeworkFragment : Fragment() {
                         b2.llUploadProgress.visibility = View.GONE
                         b2.btnSubmitHomework.isEnabled = true
                         b2.btnAddAttachment.isEnabled = true
+                        b2.btnCameraSubmit.isEnabled = true
                         return@launch
                     }
                     pf.uploadResult = upItem
@@ -721,6 +802,7 @@ class TronClassHomeworkFragment : Fragment() {
                     b2.llUploadProgress.visibility = View.GONE
                     b2.btnSubmitHomework.isEnabled = true
                     b2.btnAddAttachment.isEnabled = true
+                    b2.btnCameraSubmit.isEnabled = true
 
                     val err = upRes.exceptionOrNull()?.message ?: "文件上传失败"
                     MaterialAlertDialogBuilder(context)
@@ -750,6 +832,7 @@ class TronClassHomeworkFragment : Fragment() {
             b4.llUploadProgress.visibility = View.GONE
             b4.btnSubmitHomework.isEnabled = true
             b4.btnAddAttachment.isEnabled = true
+            b4.btnCameraSubmit.isEnabled = true
 
             if (submitRes.isSuccess) {
                 pendingLocalFiles.clear()

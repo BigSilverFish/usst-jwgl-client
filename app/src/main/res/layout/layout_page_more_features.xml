@@ -29,19 +29,11 @@
             android:layout_width="match_parent"
             android:layout_height="64dp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="14dp"
-            android:text="全校开课查询 · 空教室查询 · 考表 · 成绩证明"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
-
         <!-- Card 1: 全校特色服务 (4 Core Features) -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             app:cardBackgroundColor="@color/surface"
             app:cardCornerRadius="16dp"
             app:cardElevation="1dp"

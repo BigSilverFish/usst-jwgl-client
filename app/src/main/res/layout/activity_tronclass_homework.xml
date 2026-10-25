@@ -467,29 +467,48 @@
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="14dp"
-                                    android:orientation="horizontal">
+                                    android:orientation="vertical">
 
-                                    <com.google.android.material.button.MaterialButton
-                                        android:id="@+id/btnAddAttachment"
-                                        style="@style/Widget.Material3.Button.OutlinedButton"
-                                        android:layout_width="0dp"
-                                        android:layout_height="48dp"
-                                        android:layout_marginEnd="8dp"
-                                        android:layout_weight="1"
-                                        android:text="选择手机文件"
-                                        android:textSize="13.5sp"
-                                        app:cornerRadius="12dp"
-                                        app:icon="@drawable/ic_upload" />
+                                    <LinearLayout
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:orientation="horizontal">
+
+                                        <com.google.android.material.button.MaterialButton
+                                            android:id="@+id/btnAddAttachment"
+                                            style="@style/Widget.Material3.Button.OutlinedButton"
+                                            android:layout_width="0dp"
+                                            android:layout_height="48dp"
+                                            android:layout_marginEnd="6dp"
+                                            android:layout_weight="1"
+                                            android:text="选择文件"
+                                            android:textSize="13.5sp"
+                                            app:cornerRadius="12dp"
+                                            app:icon="@drawable/ic_upload" />
+
+                                        <com.google.android.material.button.MaterialButton
+                                            android:id="@+id/btnCameraSubmit"
+                                            style="@style/Widget.Material3.Button.OutlinedButton"
+                                            android:layout_width="0dp"
+                                            android:layout_height="48dp"
+                                            android:layout_marginStart="6dp"
+                                            android:layout_weight="1"
+                                            android:text="拍照提交"
+                                            android:textSize="13.5sp"
+                                            app:cornerRadius="12dp"
+                                            app:icon="@drawable/ic_camera" />
+
+                                    </LinearLayout>
 
                                     <com.google.android.material.button.MaterialButton
                                         android:id="@+id/btnSubmitHomework"
                                         style="@style/Widget.Material3.Button"
-                                        android:layout_width="0dp"
+                                        android:layout_width="match_parent"
                                         android:layout_height="48dp"
-                                        android:layout_marginStart="8dp"
-                                        android:layout_weight="1"
+                                        android:layout_marginTop="10dp"
                                         android:text="确认提交"
-                                        android:textSize="13.5sp"
+                                        android:textSize="14sp"
+                                        android:textStyle="bold"
                                         app:cornerRadius="12dp" />
 
                                 </LinearLayout>
@@ -566,6 +585,20 @@
                         android:textSize="11.5sp"
                         tools:text="数字图像处理A" />
                 </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCopyTitle"
+                    style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:padding="0dp"
+                    android:contentDescription="复制题目"
+                    app:icon="@drawable/ic_content_copy"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="20dp"
+                    app:iconTint="@color/primary" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnRefresh"

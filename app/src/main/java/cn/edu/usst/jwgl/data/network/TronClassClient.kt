@@ -1075,12 +1075,35 @@ suspend fun fetchSubmissionDetail(
         submissionId: Long? = null
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val url = if (isResubmit) {
-                "$BASE_URL/api/course/activities/$activityId/submissions?retract=true"
-            } else {
-                "$BASE_URL/api/course/activities/$activityId/submissions"
+            if (isResubmit) {
+                // 1. 若为重新提交，先自动执行撤回 (retract)，使作业恢复至可提交状态
+                val retractUrl = "$BASE_URL/api/course/activities/$activityId/submissions?retract=true"
+                val retractPayload = JSONObject().apply {
+                    put("comment", comment)
+                    put("is_draft", false)
+                    val upArr = org.json.JSONArray()
+                    for (u in uploads) {
+                        val item = JSONObject().apply {
+                            put("id", u.id)
+                            put("name", u.name)
+                        }
+                        upArr.put(item)
+                    }
+                    put("uploads", upArr)
+                    if (submissionId != null && submissionId > 0) {
+                        put("submission_id", submissionId)
+                    }
+                }
+                val retractReq = Request.Builder()
+                    .url(retractUrl)
+                    .put(retractPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                val retractResp = okHttpClient.newCall(retractReq).execute()
+                Log.d(TAG, "submitHomework retract response code: ${retractResp.code}")
             }
 
+            // 2. 发起正式提交 (POST /api/course/activities/{activityId}/submissions)
+            val submitUrl = "$BASE_URL/api/course/activities/$activityId/submissions"
             val payload = JSONObject().apply {
                 put("comment", comment)
                 put("is_draft", false)
@@ -1093,17 +1116,10 @@ suspend fun fetchSubmissionDetail(
                     upArr.put(item)
                 }
                 put("uploads", upArr)
-                if (isResubmit && submissionId != null && submissionId > 0) {
-                    put("submission_id", submissionId)
-                }
             }
 
             val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val req = if (isResubmit) {
-                Request.Builder().url(url).put(reqBody).build()
-            } else {
-                Request.Builder().url(url).post(reqBody).build()
-            }
+            val req = Request.Builder().url(submitUrl).post(reqBody).build()
 
             val resp = okHttpClient.newCall(req).execute()
             val code = resp.code
@@ -1114,9 +1130,9 @@ suspend fun fetchSubmissionDetail(
                 Result.success(true)
             } else {
                 if (code == 401 && refreshSession().isSuccess) {
-                    return@withContext submitHomework(activityId, comment, uploads, isResubmit, submissionId)
+                    return@withContext submitHomework(activityId, comment, uploads, false, submissionId)
                 }
-                Result.failure(Exception("æäº¤ä½ä¸å¤±è´¥: HTTP $code $body"))
+                Result.failure(Exception("提交作业失败: HTTP $code $body"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "submitHomework error", e)
