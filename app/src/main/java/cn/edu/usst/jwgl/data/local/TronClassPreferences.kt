@@ -25,6 +25,9 @@ class TronClassPreferences(context: Context) {
         private const val KEY_LAST_SYNC_TIME = "tc_last_sync_time"
         private const val KEY_CACHED_TODOS = "tc_cached_todos"
         private const val KEY_CACHED_COURSES = "tc_cached_courses"
+        private const val KEY_DDL_24H_ENABLED = "tc_ddl_24h_enabled"
+        private const val KEY_DDL_URGENT_ENABLED = "tc_ddl_urgent_enabled"
+        private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
     }
 
     fun isLoggedIn(): Boolean {
@@ -145,4 +148,25 @@ class TronClassPreferences(context: Context) {
             emptyList()
         }
     }
+
+    fun isDdlReminder24hEnabled(): Boolean = prefs.getBoolean(KEY_DDL_24H_ENABLED, true)
+
+    fun setDdlReminder24hEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DDL_24H_ENABLED, enabled).apply()
+    }
+
+    fun isDdlReminderUrgentEnabled(): Boolean = prefs.getBoolean(KEY_DDL_URGENT_ENABLED, true)
+
+    fun setDdlReminderUrgentEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DDL_URGENT_ENABLED, enabled).apply()
+    }
+
+    fun getDdlReminderUrgentHours(): Int = prefs.getInt(KEY_DDL_URGENT_HOURS, 2)
+
+    fun setDdlReminderUrgentHours(hours: Int) {
+        val clamped = hours.coerceIn(1, 3)
+        prefs.edit().putInt(KEY_DDL_URGENT_HOURS, clamped).apply()
+    }
+
+    fun isAnyDdlReminderEnabled(): Boolean = isDdlReminder24hEnabled() || isDdlReminderUrgentEnabled()
 }

@@ -61,6 +61,7 @@ import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
 import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity
 import cn.edu.usst.jwgl.data.local.TronClassCacheManager
+import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.TronClassTodo
@@ -224,7 +225,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private enum class ReminderType { COURSE, EXAM }
+    private enum class ReminderType { COURSE, EXAM, TRONCLASS_24H, TRONCLASS_URGENT }
     private var pendingReminderType: ReminderType? = null
 
     private var activeDisclaimerDialog: androidx.appcompat.app.AlertDialog? = null
@@ -248,6 +249,22 @@ class MainActivity : AppCompatActivity() {
                     val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
                     Toast.makeText(this, "已开启考前 $text 提醒", Toast.LENGTH_SHORT).show()
                 }
+                ReminderType.TRONCLASS_24H -> {
+                    binding.switchTronClassDdl24h.isChecked = true
+                    TronClassPreferences(this).setDdlReminder24hEnabled(true)
+                    updateReminderSubtitles()
+                    TronClassDdlScheduler.scheduleFromPreferences(this)
+                    Toast.makeText(this, "已开启作业截止 24 小时预警", Toast.LENGTH_SHORT).show()
+                }
+                ReminderType.TRONCLASS_URGENT -> {
+                    binding.switchTronClassDdlUrgent.isChecked = true
+                    val prefs = TronClassPreferences(this)
+                    prefs.setDdlReminderUrgentEnabled(true)
+                    updateReminderSubtitles()
+                    TronClassDdlScheduler.scheduleFromPreferences(this)
+                    val text = "${prefs.getDdlReminderUrgentHours()} 小时"
+                    Toast.makeText(this, "已开启作业临期提前 $text 提醒", Toast.LENGTH_SHORT).show()
+                }
                 null -> {}
             }
         } else {
@@ -260,6 +277,16 @@ class MainActivity : AppCompatActivity() {
                 ReminderType.EXAM -> {
                     binding.switchExamReminder.isChecked = false
                     CourseReminderManager.setExamReminderEnabled(this, false)
+                    updateReminderSubtitles()
+                }
+                ReminderType.TRONCLASS_24H -> {
+                    binding.switchTronClassDdl24h.isChecked = false
+                    TronClassPreferences(this).setDdlReminder24hEnabled(false)
+                    updateReminderSubtitles()
+                }
+                ReminderType.TRONCLASS_URGENT -> {
+                    binding.switchTronClassDdlUrgent.isChecked = false
+                    TronClassPreferences(this).setDdlReminderUrgentEnabled(false)
                     updateReminderSubtitles()
                 }
                 null -> {}
@@ -1801,6 +1828,60 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // TronClass DDL 24h Reminder Row & Switch
+        val tcPrefs = TronClassPreferences(this)
+        binding.rowTronClassDdl24h.setOnClickListener {
+            binding.switchTronClassDdl24h.toggle()
+        }
+        binding.switchTronClassDdl24h.isChecked = tcPrefs.isDdlReminder24hEnabled()
+        binding.switchTronClassDdl24h.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        pendingReminderType = ReminderType.TRONCLASS_24H
+                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        return@setOnCheckedChangeListener
+                    }
+                }
+                tcPrefs.setDdlReminder24hEnabled(true)
+                updateReminderSubtitles()
+                TronClassDdlScheduler.scheduleFromPreferences(this)
+                Toast.makeText(this, "已开启作业截止 24 小时预警", Toast.LENGTH_SHORT).show()
+            } else {
+                tcPrefs.setDdlReminder24hEnabled(false)
+                updateReminderSubtitles()
+                TronClassDdlScheduler.scheduleFromPreferences(this)
+                Toast.makeText(this, "已关闭作业截止 24 小时预警", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // TronClass DDL Urgent (1-3h) Reminder Row & Switch
+        binding.rowTronClassDdlUrgent.setOnClickListener {
+            showTronClassDdlUrgentAdvanceDialog()
+        }
+        binding.switchTronClassDdlUrgent.isChecked = tcPrefs.isDdlReminderUrgentEnabled()
+        binding.switchTronClassDdlUrgent.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        pendingReminderType = ReminderType.TRONCLASS_URGENT
+                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        return@setOnCheckedChangeListener
+                    }
+                }
+                tcPrefs.setDdlReminderUrgentEnabled(true)
+                updateReminderSubtitles()
+                TronClassDdlScheduler.scheduleFromPreferences(this)
+                val hours = tcPrefs.getDdlReminderUrgentHours()
+                Toast.makeText(this, "已开启作业临期提前 ${hours} 小时提醒", Toast.LENGTH_SHORT).show()
+            } else {
+                tcPrefs.setDdlReminderUrgentEnabled(false)
+                updateReminderSubtitles()
+                TronClassDdlScheduler.scheduleFromPreferences(this)
+                Toast.makeText(this, "已关闭作业临期提醒", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         // Powerful AlarmClock Reminder Row & Switch
         binding.rowPowerfulReminder.setOnClickListener {
             binding.switchPowerfulReminder.toggle()
@@ -2119,6 +2200,9 @@ class MainActivity : AppCompatActivity() {
         binding.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(TimetableSettingHelper.getPhoneNavMode(this))
         binding.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
         binding.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
+        val tcPrefs = TronClassPreferences(this)
+        binding.switchTronClassDdl24h.isChecked = tcPrefs.isDdlReminder24hEnabled()
+        binding.switchTronClassDdlUrgent.isChecked = tcPrefs.isDdlReminderUrgentEnabled()
         binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
@@ -2195,6 +2279,20 @@ class MainActivity : AppCompatActivity() {
             "已关闭 · 点击可设置提前时长"
         }
 
+        val tcPrefs = TronClassPreferences(this)
+        binding.tvTronClassDdl24hSubtitle.text = if (tcPrefs.isDdlReminder24hEnabled()) {
+            "截止前 24 小时首轮预警"
+        } else {
+            "已关闭首轮预警"
+        }
+
+        val urgentHours = tcPrefs.getDdlReminderUrgentHours()
+        binding.tvTronClassDdlUrgentSubtitle.text = if (tcPrefs.isDdlReminderUrgentEnabled()) {
+            "提前 $urgentHours 小时 · 点击设置"
+        } else {
+            "已关闭 · 点击可设置提前时长"
+        }
+
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
             "已开启系统时钟穿透 · 状态栏显示 ⏰ 标记，防杀防漏"
@@ -2253,6 +2351,31 @@ class MainActivity : AppCompatActivity() {
                 updateReminderSubtitles()
                 val text = CourseReminderManager.formatAdvanceMinutes(chosenMins)
                 Toast.makeText(this, "已设置考前 $text 提醒", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showTronClassDdlUrgentAdvanceDialog() {
+        val options = arrayOf(
+            "提前 1 小时",
+            "提前 2 小时 (推荐)",
+            "提前 3 小时"
+        )
+        val values = intArrayOf(1, 2, 3)
+        val tcPrefs = TronClassPreferences(this)
+        val currentHours = tcPrefs.getDdlReminderUrgentHours()
+        val selectedIdx = values.indexOf(currentHours).let { if (it >= 0) it else 1 }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("作业临期提醒时间")
+            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
+                val chosenHours = values[which]
+                tcPrefs.setDdlReminderUrgentHours(chosenHours)
+                updateReminderSubtitles()
+                TronClassDdlScheduler.scheduleFromPreferences(this)
+                Toast.makeText(this, "已设置作业临期提前 $chosenHours 小时提醒", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -4836,7 +4959,7 @@ class MainActivity : AppCompatActivity() {
                 val todos = todosRes.getOrDefault(emptyList())
                 cacheMgr.saveTodos(todos)
                 tronClassTodoAdapter.updateData(todos)
-                TronClassDdlScheduler.schedulePeriodicWork(this@MainActivity)
+                TronClassDdlScheduler.scheduleFromPreferences(this@MainActivity)
                 binding.pageTronclass.tvTronClassTodoBadge.text = "${todos.size} 项待办"
                 binding.pageTronclass.tvTronClassEmptyTodos.visibility = if (todos.isEmpty()) View.VISIBLE else View.GONE
             }

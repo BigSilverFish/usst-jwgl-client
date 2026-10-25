@@ -120,6 +120,11 @@
             android:name=".receiver.CourseReminderReceiver"
             android:exported="false" />
 
+        <!-- TronClass DDL Reminder Receiver -->
+        <receiver
+            android:name=".receiver.TronClassDdlReceiver"
+            android:exported="false" />
+
         <!-- Reboot & Time Change Receiver to re-arm alarms -->
         <receiver
             android:name=".receiver.BootReceiver"

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.util.CourseReminderManager
+import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,6 +32,9 @@ class BootReceiver : BroadcastReceiver() {
 
                     // 3. Update home screen timetable widgets
                     cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(context)
+
+                    // 4. Reschedule TronClass DDL reminders
+                    TronClassDdlScheduler.scheduleFromPreferences(context)
                 } catch (_: Exception) {
                 } finally {
                     pendingResult.finish()
@@ -39,4 +43,3 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 }
-
