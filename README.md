@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.4">
-    <img src="https://img.shields.io/badge/Release-v1.1.4-blue.svg" alt="Release v1.1.4" />
+  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.0">
+    <img src="https://img.shields.io/badge/Release-v1.2.0-blue.svg" alt="Release v1.2.0" />
   </a>
   <a href="https://developer.android.com">
     <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-green.svg" alt="Android 7.0+" />
@@ -205,6 +205,36 @@
 
 ## 📝 版本更新历史 (Changelog)
 
+### v1.2.0 (2026-10-25)
+- **🎓 一网畅学 (TronClass) 全面原生重构与深度集成**：
+  - **原生化集成**：告别外部网页跳转，底栏常驻专属 Tab，CAS SSO 自动无感兑换凭证；
+  - **课程二级详情页全量原生化**：章节课件（支持多媒体、进度跟踪、附件离线下载与在线预览）、测验考试列表、班级成员与课程公告四大 Tab；
+  - **极速自动刷课与进度追踪**：多课件并发自动同步已读状态，实时展示课程总体学习进度百分比（如 `已完成 85% (74/87项)`）；
+  - **原生高精度扫码与签到**：集成 Google ML Kit 离线二维码极速扫描器（锁定竖屏、解决旋转闪退），支持 GPS 经纬度定位自动上报、数字口令签到与普通签到。
+- **⚡ 0ms 极速秒开架构与 APK 瘦身**：
+  - 彻底清除 10MB+ 遗留内网静态网页死资源，安装包极致瘦身；
+  - 消除嵌套滑动卡顿，改用单一高性能 `ConcatAdapter`，重构多级内存/磁盘持久化缓存体系，实现 0ms 极速秒开。
+- **🔗 课表与一网畅学深度联动**：
+  - 课表课程详情弹窗新增专属联动卡片，智能归一化匹配教务课程；
+  - 双行动态状态呈现：第一行展示 `进入一网畅学（学习进度xx%）`（无进度时自动隐藏后缀），第二行优先高亮紧迫待办 `待办：xxxxx（剩x天x小时）` 或 `当前暂无待办事项`；
+  - 点击一键直达对应课程详情。
+- **🏫 全校课表检索与自愈缓存系统升级**：
+  - **添至课表修复**：支持将全校课程一键添加并持久化至本地 SQLite 数据库，自动分配主题色并级联联动周六日视图；
+  - **培养层次筛选**：高级筛选新增“本科生/研究生”过滤选项；
+  - **防残缺覆盖与自愈**：严禁弱网异常残缺数据覆盖本地库，集成内置 APK 镜像包实现离线自愈修复，超时调优（15s/25s）；
+  - **关键词智能归一化**：支持全半角符号、空格及大小写智能清洗，大幅提高模糊搜索容错率；
+  - **大屏自适应**：平板横屏自适应双列网格排版，搜索筛选紧凑单行。
+- **📊 成绩排名查询与 CID-CMap PDF 解码引擎**：
+  - 新增学生多维成绩排名查询；
+  - 独创轻量级 CID-CMap 嵌入式 PDF 字符流无损解码器，无需庞大外部库即可精准解析非标准字符流与班级/专业/年级排名。
+- **📅 课表冲突并排分离与删除优化**：
+  - 同一时段重叠冲突课程自动并排分离等宽渲染，告别卡片重叠遮挡；
+  - 彻底修复删除整门课程的历史残留缺陷，支持级联全时段清理与多周全局联动刷新；
+  - 规范时间格式为「节次 + 时间」，非本周课程自动隐藏回放跳转。
+- **📱 隐私设置与平板适配**：
+  - 侧栏个人学籍信息与照片支持在设置中自主开启/关闭；
+  - 修复平板横竖屏切换时课表方向错位问题，精简冗余图标。
+
 ### v1.1.4 (2026-10-16)
 - **📺 课程直播/点播深度集成与课表一键直达对应日期回放**：
   - **课表智能跳转回放**：在课表上点击任意课程，弹窗清晰显示当堂课实际公历日期（如 `2026-10-14 (周三) 第 8 - 10 节`）与一键「播放此节回放 (yyyy-MM-dd)」专属按钮；
@@ -256,12 +286,12 @@
 ## 📥 下载与安装
 
 > [!NOTE]
-> **升级建议**：建议所有用户更新至最新 **v1.1.4** 版本，享受课程直播/点播深度集成、课表一键直达对应日期课堂回放与更优质的响应式交互体验！
+> **升级建议**：建议所有用户更新至最新 **v1.2.0** 版本，享受课程直播/点播深度集成、课表一键直达对应日期课堂回放与更优质的响应式交互体验！
 
 请前往 [Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 下载最新发布的 Release 安装包：
 
-- **最新稳定版**：[v1.1.4 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.1.4)
-- **直接下载 APK**：[app-release.apk](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.1.4/app-release.apk)
+- **最新稳定版**：[v1.2.0 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.0)
+- **直接下载 APK**：[app-release.apk](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.0/app-release.apk)
 - **安装要求**：Android 7.0 (API 24) 及以上版本的安卓设备。
 
 ---
