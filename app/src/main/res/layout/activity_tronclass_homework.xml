@@ -400,8 +400,11 @@
                                         android:id="@+id/etSubmissionComment"
                                         android:layout_width="match_parent"
                                         android:layout_height="wrap_content"
-                                        android:gravity="top"
-                                        android:lines="3"
+                                        android:gravity="top|start"
+                                        android:inputType="textMultiLine"
+                                        android:minLines="3"
+                                        android:maxLines="8"
+                                        android:scrollbars="vertical"
                                         android:textColor="@color/text_primary"
                                         android:textSize="14sp" />
 

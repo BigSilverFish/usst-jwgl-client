@@ -107,11 +107,17 @@ class TronClassExamFragment : Fragment() {
             binding.llHeaderBarContainer.post {
                 updateHeaderSpacing(binding.llHeaderBarContainer.height)
             }
+            val bHeight = MainActivity.bottomBarHeightPx
+            val bottomPadding = if (bHeight > 0) {
+                bHeight + (24 * density).toInt()
+            } else {
+                navBars.bottom + (36 * density).toInt()
+            }
             binding.scrollView.setPadding(
                 binding.scrollView.paddingLeft,
                 binding.scrollView.paddingTop,
                 binding.scrollView.paddingRight,
-                navBars.bottom + (16 * density).toInt()
+                bottomPadding
             )
             insets
         }

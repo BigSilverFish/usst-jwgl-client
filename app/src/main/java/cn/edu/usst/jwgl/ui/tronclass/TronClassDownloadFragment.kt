@@ -83,11 +83,17 @@ class TronClassDownloadFragment : Fragment() {
                 val headerH = binding.llHeaderBarContainer.height
                 val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
                 val hPad = if (isPad) (10 * density).toInt() else 0
+                val bHeight = MainActivity.bottomBarHeightPx
+                val bottomPadding = if (bHeight > 0) {
+                    bHeight + (24 * density).toInt()
+                } else {
+                    navBars.bottom + (24 * density).toInt()
+                }
                 binding.rvDownloads.setPadding(
                     hPad,
                     headerH + (6 * density).toInt(),
                     hPad,
-                    navBars.bottom + (16 * density).toInt()
+                    bottomPadding
                 )
             }
             insets

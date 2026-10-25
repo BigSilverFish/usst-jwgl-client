@@ -1,13 +1,16 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.ProgressDialog
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.text.SpannableStringBuilder
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -66,6 +69,7 @@ class TronClassHomeworkFragment : Fragment() {
 
     private val pendingLocalFiles = mutableListOf<LocalPendingFile>()
     private var isResubmitMode: Boolean = false
+    private var globalLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
 
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -130,9 +134,37 @@ class TronClassHomeworkFragment : Fragment() {
             updateHeaderSpacing(binding.llHeaderBarContainer.height)
         }
 
+        fun updateScrollViewBottomPadding(keypadHeight: Int) {
+            val navBars = ViewCompat.getRootWindowInsets(binding.root)
+                ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+
+            val bottomPadding = if (keypadHeight > 0) {
+                keypadHeight + (24 * density).toInt()
+            } else {
+                val bHeight = MainActivity.bottomBarHeightPx
+                if (bHeight > 0) {
+                    bHeight + (24 * density).toInt()
+                } else {
+                    navBars + (36 * density).toInt()
+                }
+            }
+
+            if (binding.scrollView.paddingBottom != bottomPadding) {
+                binding.scrollView.setPadding(
+                    binding.scrollView.paddingLeft,
+                    binding.scrollView.paddingTop,
+                    binding.scrollView.paddingRight,
+                    bottomPadding
+                )
+            }
+        }
+
+        updateScrollViewBottomPadding(0)
+
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
             val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             val pad = statusBars.top + (8 * density).toInt()
 
             binding.llHeaderBarContainer.setPadding(
@@ -144,14 +176,36 @@ class TronClassHomeworkFragment : Fragment() {
             binding.llHeaderBarContainer.post {
                 updateHeaderSpacing(binding.llHeaderBarContainer.height)
             }
-            binding.scrollView.setPadding(
-                binding.scrollView.paddingLeft,
-                binding.scrollView.paddingTop,
-                binding.scrollView.paddingRight,
-                navBars.bottom + (16 * density).toInt()
-            )
+
+            val imeHeight = ime.bottom
+            val isImeVisible = insets.isVisible(WindowInsetsCompat.Type.ime()) || imeHeight > 0
+            val keyboardHeight = if (isImeVisible) imeHeight else 0
+            updateScrollViewBottomPadding(keyboardHeight)
+
+            if (keyboardHeight > 0) {
+                binding.scrollView.post {
+                    binding.scrollView.smoothScrollTo(0, binding.llHomeworkRootContainer.bottom)
+                }
+            }
+
             insets
         }
+
+        globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+            val rect = Rect()
+            binding.root.getWindowVisibleDisplayFrame(rect)
+            val screenHeight = binding.root.rootView.height
+            val keypadHeight = screenHeight - rect.bottom
+            val isKeyboardOpen = keypadHeight > screenHeight * 0.15
+            val effectiveKeypad = if (isKeyboardOpen) keypadHeight else 0
+            updateScrollViewBottomPadding(effectiveKeypad)
+            if (isKeyboardOpen && (isResubmitMode || binding.etSubmissionComment.hasFocus())) {
+                binding.scrollView.post {
+                    binding.scrollView.smoothScrollTo(0, binding.llHomeworkRootContainer.bottom)
+                }
+            }
+        }
+        binding.root.viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val decorView = requireActivity().window.decorView
@@ -232,9 +286,21 @@ class TronClassHomeworkFragment : Fragment() {
             }
 
             if (isResubmitMode) {
-                binding.scrollView.post {
-                    binding.scrollView.smoothScrollTo(0, binding.cardSubmitAction.bottom)
+                if (binding.etSubmissionComment.text.isNullOrBlank()) {
+                    val prevComment = submissionDetail?.comment?.trim()
+                    if (!prevComment.isNullOrBlank()) {
+                        val cleanPrev = HtmlCompat.fromHtml(
+                            prevComment.replace("\r\n", "<br/>").replace("\n", "<br/>"),
+                            HtmlCompat.FROM_HTML_MODE_LEGACY
+                        ).toString().trim()
+                        binding.etSubmissionComment.setText(cleanPrev)
+                        binding.etSubmissionComment.setSelection(cleanPrev.length)
+                    }
                 }
+                binding.scrollView.postDelayed({
+                    binding.scrollView.smoothScrollTo(0, binding.llHomeworkRootContainer.bottom)
+                    binding.etSubmissionComment.requestFocus()
+                }, 100)
             }
         }
     }
@@ -386,8 +452,16 @@ class TronClassHomeworkFragment : Fragment() {
 
             val studentComment = sub?.comment?.trim()
             if (!studentComment.isNullOrBlank()) {
-                val spannedStudent = HtmlCompat.fromHtml(studentComment, HtmlCompat.FROM_HTML_MODE_LEGACY)
-                binding.tvStudentComment.text = "提交说明：${spannedStudent.trim()}"
+                val formattedComment = studentComment.replace("\r\n", "<br/>").replace("\n", "<br/>")
+                val spannedStudent = HtmlCompat.fromHtml(formattedComment, HtmlCompat.FROM_HTML_MODE_LEGACY)
+                val trimmed = spannedStudent.trim()
+                binding.tvStudentComment.text = SpannableStringBuilder().apply {
+                    append("提交说明：")
+                    if (trimmed.contains("\n")) {
+                        append("\n")
+                    }
+                    append(trimmed)
+                }
                 binding.tvStudentComment.visibility = View.VISIBLE
             } else {
                 binding.tvStudentComment.visibility = View.GONE
@@ -571,9 +645,9 @@ class TronClassHomeworkFragment : Fragment() {
 
     private fun performHomeworkSubmission() {
         val context = context ?: return
-        val comment = binding.etSubmissionComment.text?.toString()?.trim() ?: ""
+        val rawComment = binding.etSubmissionComment.text?.toString()?.trim() ?: ""
 
-        if (pendingLocalFiles.isEmpty() && comment.isBlank()) {
+        if (pendingLocalFiles.isEmpty() && rawComment.isBlank()) {
             Toast.makeText(context, "请选择至少一个附件文件或输入提交说明", Toast.LENGTH_SHORT).show()
             return
         }
@@ -582,7 +656,12 @@ class TronClassHomeworkFragment : Fragment() {
             .setTitle("确认提交作业？")
             .setMessage("将上传 ${pendingLocalFiles.size} 个附件文件并提交至一网畅学平台。")
             .setPositiveButton("立即提交") { _, _ ->
-                executeUploadAndSubmit(comment)
+                val formattedComment = if (rawComment.isNotBlank()) {
+                    rawComment.split("\r\n", "\n").joinToString("<br/>") { line ->
+                        line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    }
+                } else ""
+                executeUploadAndSubmit(formattedComment)
             }
             .setNegativeButton("取消", null)
             .show()
@@ -781,6 +860,10 @@ class TronClassHomeworkFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        globalLayoutListener?.let {
+            _binding?.root?.viewTreeObserver?.removeOnGlobalLayoutListener(it)
+        }
+        globalLayoutListener = null
         _binding = null
     }
 }
