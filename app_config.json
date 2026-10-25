@@ -1,11 +1,11 @@
 {
   "app_version": {
-    "version_code": 8,
-    "version_name": "1.2.0",
+    "version_code": 9,
+    "version_name": "1.2.1",
     "release_date": "2026-10-25",
-    "release_notes": "1. 一网畅学原生化集成：支持 CAS SSO 自动登录、课程大纲课件学习、测验查看、成员与公告，内置自动刷课与学习进度统计；\n2. 原生高精签到：集成 ML Kit 极速离线二维码扫码（锁定竖屏修复闪退），支持 GPS 定位签到与口令签到；\n3. 0ms 秒开架构与瘦身：清理遗留死资源极致瘦身，优化多级缓存消除嵌套滑动卡顿，实现 0ms 极速秒开；\n4. 课表与一网畅学联动：课表详情弹窗新增联动卡片，直观呈现学习进度百分比与待办倒计时，一键秒级直达；\n5. 作业截止二级提醒：新增截止前 24 小时预警与 1-3 小时临期提醒独立开关及自定义提前量，精准防漏交；\n6. 全校课表自愈与功能增强：支持一键添至本地课表数据库、新增本研培养层次筛选、离线镜像自愈与关键词全半角归一化；\n7. 成绩排名与 CID-CMap PDF 解析：新增成绩排名查询，独创轻量 PDF 字符流解码器精准提取班级/专业排名；\n8. 课表冲突并排渲染：冲突课程等宽并排展示，彻底修复删除整门课程残留问题；\n9. 细节与交互优化：作业页面底部安全间距、软键盘顶起防遮挡、多行回车提交，侧栏学籍卡片隐私隐藏，平板横竖屏适配。",
-    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.0",
-    "apk_url": "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.0/app-release.apk",
+    "release_notes": "1. 安全规范专项加固：全面消除安全复审中的 7 项隐患，网络配置强制开启全局 HTTPS，禁止明文 HTTP 通信；\n2. 凭据硬件加密：一网畅学 Token/Session 升级为 Google Jetpack EncryptedSharedPreferences (AES-256 SIV/GCM) 硬件级加密存储，自动完成旧版明文无感迁移与擦除；\n3. 统一认证严格校验：CAS SSO 登录页限制严格 HTTPS 与官方认证域名/路径白名单校验，杜绝钓鱼劫持与外部跳转；\n4. 敏感凭据防泄漏：OkHttp 拦截器与图片加载器限制仅向官方受信任 HTTPS 域名发送 Session 凭证，富文本图片禁用 Cookie；\n5. 账号隔离与防串染：退出登录时联动清除畅课会话与数据缓存，进入畅课时强校验教务学号一致性，防止跨账号本地数据串染；\n6. WebView 与存储收窄：生产环境彻底禁用 WebView 远程调试端口，禁用混合内容与第三方 Cookie；收窄 FileProvider 映射范围至指定私有目录，杜绝越权遍历；\n7. 极致精简：移除非必要 32 位 armv7 架构库，保持 64 位高效运行与极致轻量包体积。",
+    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.1",
+    "apk_url": "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.1/app-release.apk",
     "force_update": false
   },
   "semester_config": {

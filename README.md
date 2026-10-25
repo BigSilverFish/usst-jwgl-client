@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.0">
-    <img src="https://img.shields.io/badge/Release-v1.2.0-blue.svg" alt="Release v1.2.0" />
+  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.1">
+    <img src="https://img.shields.io/badge/Release-v1.2.1-blue.svg" alt="Release v1.2.1" />
   </a>
   <a href="https://developer.android.com">
     <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-green.svg" alt="Android 7.0+" />
@@ -205,6 +205,18 @@
 
 ## 📝 版本更新历史 (Changelog)
 
+### v1.2.1 (2026-10-25)
+- **🔒 安全规范专项加固（全面消除复审报告中 7 项 P1/P2 级隐患）**：
+  - **网络策略强制全局 HTTPS**：恢复 `network_security_config.xml` 全局禁用明文 HTTP (`cleartextTrafficPermitted="false"`)，彻底杜绝中间人篡改与明文泄漏；
+  - **畅课凭据 Keystore 硬件级加密**：`TronClassPreferences` 全面升级为 Google Jetpack `EncryptedSharedPreferences` (AES-256 SIV/GCM) 硬件级加密，启动时自动无感迁移旧版明文凭据并安全擦除，遭遇硬件 Keystore 损坏自动重置并提供纯内存运行回退；
+  - **CAS SSO 统一认证严格源与路径校验**：废弃松散的 URL 子串包含判断，严格核验 HTTPS scheme、官方认证域名（`ids6.usst.edu.cn` 与 `ids6-443.webvpn.usst.edu.cn`）与 `/authserver/login` 路径前缀，注入前校验真实当前源与回调目标一致，增加登录白名单导航控制；
+  - **敏感凭证防外泄隔离**：OkHttp 拦截器与图片加载器限制仅向受信任的官方 HTTPS 域名（`*.usst.edu.cn`、`*.tronclass.com.cn`）发送 `x-session-id` 与鉴权 Cookie，富文本渲染自动升级 HTTPS 并阻断 Cookie；
+  - **账号一致性核验与彻底退出**：退出登录时联动清除畅课 Token 与离线数据缓存，进入畅课时比对当前教务学号一致性，防止多账号在同一设备登录产生本地数据串染；
+  - **WebView 安全加固**：生产 Release 构建关闭 `setWebContentsDebuggingEnabled` 远程调试端口，禁用混合内容 (`MIXED_CONTENT_NEVER_ALLOW`) 与第三方 Cookie；
+  - **存储暴露面收窄**：`file_paths.xml` 移除所有 `path="."` 根目录映射，严格收窄为业务使用的私有下载与成绩单报表子目录。
+- **📦 架构精简与安装包优化**：
+  - 彻底剔除 32 位 `armeabi-v7a` 冗余架构库，聚焦 64 位主流平台（`arm64-v8a`），安装包极致轻量。
+
 ### v1.2.0 (2026-10-25)
 - **🎓 一网畅学 (TronClass) 全面原生重构与深度集成**：
   - **原生化集成**：告别外部网页跳转，底栏常驻专属 Tab，CAS SSO 自动无感兑换凭证；
@@ -297,12 +309,12 @@
 ## 📥 下载与安装
 
 > [!NOTE]
-> **升级建议**：建议所有用户更新至最新 **v1.2.0** 版本，享受一网畅学原生化深度集成、0ms 秒开、扫码定位签到、作业截止二级提醒与更优质的联动体验！
+> **升级建议**：建议所有用户更新至最新 **v1.2.1** 版本，享受更强固的企业级凭据硬件加密、严格 CAS 统一认证校验、0ms 秒开与原生畅课教学体验！
 
 请前往 [Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 下载最新发布的 Release 安装包：
 
-- **最新稳定版**：[v1.2.0 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.0)
-- **直接下载 APK**：[app-release.apk](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.0/app-release.apk)
+- **最新稳定版**：[v1.2.1 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.1)
+- **直接下载 APK**：[app-release.apk](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.1/app-release.apk)
 - **安装要求**：Android 7.0 (API 24) 及以上版本的安卓设备。
 
 ---
