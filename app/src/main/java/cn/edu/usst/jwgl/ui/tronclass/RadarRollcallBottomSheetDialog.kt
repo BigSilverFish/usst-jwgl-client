@@ -46,6 +46,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var selectedAccuracy: Double = 15.0
 
     private var onSignSuccessListener: (() -> Unit)? = null
+    private var activeLocationListener: LocationListener? = null
 
     private val requestLocationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -55,8 +56,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         if (fineGranted || coarseGranted) {
             fetchDeviceLocation()
         } else {
-            binding.tvGpsStatus.text = "定位权限被拒绝，已自动回退到上理教学楼基准"
-            binding.rbModeBuilding.isChecked = true
+            val b = _binding ?: return@registerForActivityResult
+            b.tvGpsStatus.text = "定位权限被拒绝，已自动回退到上理教学楼基准"
+            b.rbModeBuilding.isChecked = true
             updateModeVisibility()
         }
     }
@@ -219,13 +221,20 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         try {
             val listener = object : LocationListener {
                 override fun onLocationChanged(loc: Location) {
+                    if (_binding == null || !isAdded) {
+                        try { locationManager.removeUpdates(this) } catch (_: Exception) {}
+                        activeLocationListener = null
+                        return
+                    }
                     handleReceivedLocation(loc)
-                    locationManager.removeUpdates(this)
+                    try { locationManager.removeUpdates(this) } catch (_: Exception) {}
+                    activeLocationListener = null
                 }
                 override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
                 override fun onProviderEnabled(provider: String) {}
                 override fun onProviderDisabled(provider: String) {}
             }
+            activeLocationListener = listener
 
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
@@ -233,13 +242,15 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener)
             }
         } catch (e: Exception) {
-            if (bestLocation == null) {
-                binding.tvGpsStatus.text = "定位获取异常: ${e.message}，建议切回教学楼基准"
+            val b = _binding
+            if (b != null && bestLocation == null) {
+                b.tvGpsStatus.text = "定位获取异常: ${e.message}，建议切回教学楼基准"
             }
         }
     }
 
     private fun handleReceivedLocation(loc: Location) {
+        val b = _binding ?: return
         if (!isAdded) return
         // 原生 GPS 产生 WGS-84 坐标，必须转换为 GCJ-02 火星坐标上报
         val (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(loc.latitude, loc.longitude)
@@ -247,19 +258,19 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         selectedLongitude = gcjLng
         selectedAccuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 20.0
 
-        binding.tvGpsStatus.text = String.format(
+        b.tvGpsStatus.text = String.format(
             Locale.CHINA,
             "定位成功 (GPS原生转火星坐标，精度 ±%.0fm)",
             selectedAccuracy
         )
-        binding.tvCoordinatesDisplay.text = String.format(
+        b.tvCoordinatesDisplay.text = String.format(
             Locale.CHINA,
             "纬度: %.6f, 经度: %.6f",
             selectedLatitude,
             selectedLongitude
         )
-        binding.tvAccuracyTip.text = String.format(Locale.CHINA, "定位精度: ±%.0fm", selectedAccuracy)
-        binding.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位"
+        b.tvAccuracyTip.text = String.format(Locale.CHINA, "定位精度: ±%.0fm", selectedAccuracy)
+        b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位"
     }
 
     private fun submitRadarRollcall() {
@@ -284,11 +295,12 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             )
 
             if (!isAdded) return@launch
+            val b = _binding ?: return@launch
 
-            binding.btnSubmitRadar.isEnabled = true
-            binding.btnSubmitRadar.text = "立即雷达签到"
-            binding.progressRadarSubmitting.visibility = View.GONE
-            binding.btnCancelRadar.isEnabled = true
+            b.btnSubmitRadar.isEnabled = true
+            b.btnSubmitRadar.text = "立即雷达签到"
+            b.progressRadarSubmitting.visibility = View.GONE
+            b.btnCancelRadar.isEnabled = true
 
             val res = result.getOrNull()
             if (res != null && res.success) {
@@ -317,6 +329,13 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        activeLocationListener?.let {
+            try {
+                val lm = context?.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                lm?.removeUpdates(it)
+            } catch (_: Exception) {}
+        }
+        activeLocationListener = null
         _binding = null
     }
 

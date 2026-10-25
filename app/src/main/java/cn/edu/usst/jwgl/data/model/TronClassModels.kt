@@ -44,14 +44,16 @@ data class TronClassTodo(
 ) : Serializable {
 
     fun getCleanTitle(): String {
-        return title.trim()
+        return (title ?: "").trim().ifBlank { "未命名待办" }
     }
 
     fun getCleanCourseName(): String {
         // Strip trailing course code if present: e.g. "数字图像处理A(2026-2027-1)-12003270-01" -> "数字图像处理A"
+        val cName = (courseName ?: "").trim()
+        if (cName.isBlank()) return "未知课程"
         val regex = Regex("""^(.*?)\([0-9]{4}-[0-9]{4}-[0-9]+\)""")
-        val match = regex.find(courseName)
-        return match?.groupValues?.get(1)?.trim() ?: courseName.trim()
+        val match = regex.find(cName)
+        return match?.groupValues?.get(1)?.trim()?.ifBlank { cName } ?: cName
     }
 
     fun getDeadlineDate(): Date? {
@@ -154,14 +156,16 @@ data class TronClassCourse(
     ) : Serializable
 
     fun getCleanName(): String {
+        val n = (name ?: "").trim()
+        if (n.isBlank()) return "未命名课程"
         val regex = Regex("""^(.*?)\([0-9]{4}-[0-9]{4}-[0-9]+\)""")
-        val match = regex.find(name)
-        return match?.groupValues?.get(1)?.trim() ?: name.trim()
+        val match = regex.find(n)
+        return match?.groupValues?.get(1)?.trim()?.ifBlank { n } ?: n
     }
 
     fun extractSemesterCode(): String? {
         val regex = Regex("""\(?([0-9]{4}-[0-9]{4}-[0-9]+)\)?""")
-        val match = regex.find(courseCode ?: "") ?: regex.find(name)
+        val match = regex.find(courseCode ?: "") ?: regex.find(name ?: "")
         return match?.groupValues?.get(1)
     }
 
@@ -240,7 +244,7 @@ data class TronClassModule(
     val id: Long,
 
     @SerializedName("name")
-    val name: String,
+    val name: String? = null,
 
     @SerializedName("sort")
     val sort: Int = 0,
@@ -251,7 +255,7 @@ data class TronClassModule(
     @SerializedName("syllabuses")
     val syllabuses: List<TronClassSyllabus>? = null
 ) : Serializable {
-    fun getCleanName(): String = name.trim()
+    fun getCleanName(): String = (name ?: "").trim().ifBlank { "未命名章节" }
 }
 
 data class TronClassSyllabus(
@@ -267,7 +271,7 @@ data class TronClassUpload(
     val id: Long,
 
     @SerializedName("name")
-    val name: String,
+    val name: String? = null,
 
     @SerializedName("size")
     val size: Long = 0,
@@ -299,9 +303,10 @@ data class TronClassUpload(
     }
 
     fun getExtension(): String {
-        val idx = name.lastIndexOf('.')
-        return if (idx >= 0 && idx < name.length - 1) {
-            name.substring(idx + 1).lowercase()
+        val safeName = name ?: return ""
+        val idx = safeName.lastIndexOf('.')
+        return if (idx >= 0 && idx < safeName.length - 1) {
+            safeName.substring(idx + 1).lowercase()
         } else ""
     }
 
@@ -313,10 +318,10 @@ data class TronClassActivityItem(
     val id: Long,
 
     @SerializedName("title")
-    val title: String,
+    val title: String? = null,
 
     @SerializedName("type")
-    val type: String, // "material", "online_video", "homework"
+    val type: String? = null, // "material", "online_video", "homework"
 
     @SerializedName("course_id")
     val courseId: Long = 0,
@@ -352,7 +357,7 @@ data class TronClassActivityItem(
 
     fun getFirstUpload(): TronClassUpload? = uploads?.firstOrNull()
 
-    fun getCleanTitle(): String = title.trim()
+    fun getCleanTitle(): String = (title ?: "").trim().ifBlank { "未命名课件或活动" }
 
     fun getVideoDuration(): Double {
         uploads?.forEach { up ->
@@ -482,7 +487,7 @@ data class TronClassSubmissionCorrect(
  */
 data class TronClassMember(
     val id: Long,
-    val name: String,
+    val name: String? = null,
     val userNo: String? = null,
     val role: String = "student", // "instructor", "ta", "student"
     val roleName: String = "学生", // "任课教师", "助教", "学生"
@@ -493,7 +498,7 @@ data class TronClassMember(
 ) : Serializable {
     fun isInstructor(): Boolean = role == "instructor"
     fun isTA(): Boolean = role == "ta"
-    fun getDisplayName(): String = name.trim()
+    fun getDisplayName(): String = (name ?: "").trim().ifBlank { "未知成员" }
 }
 
 /**
@@ -516,7 +521,7 @@ data class TronClassExam(
     val id: Long,
 
     @SerializedName("title")
-    val title: String,
+    val title: String? = null,
 
     @SerializedName("type")
     val type: String? = "exam",
@@ -548,8 +553,8 @@ data class TronClassExam(
     var score: Double? = null,
     var scoreRule: String? = null
 ) : Serializable {
-    fun getCleanTitle(): String = title.trim()
-    fun hasSubmitted(): Boolean = (submittedTimes ?: 0) > 0 || (score != null && !score!!.isNaN())
+    fun getCleanTitle(): String = (title ?: "").trim().ifBlank { "未命名测验" }
+    fun hasSubmitted(): Boolean = (submittedTimes ?: 0) > 0 || (score?.isNaN() == false)
 
     fun getFormattedLimitTime(): String {
         return if (limitTime != null && limitTime > 0) "限时 ${limitTime} 分钟" else "不限时"
@@ -610,8 +615,8 @@ data class TronClassExamSubmission(
  */
 data class TronClassSubject(
     val id: Long,
-    val title: String,
-    val type: String, // "single_selection", "multiple_selection", "true_false", "fill_in_blank", "short_answer"
+    val title: String? = null,
+    val type: String? = "single_selection", // "single_selection", "multiple_selection", "true_false", "fill_in_blank", "short_answer"
     val point: Double? = null,
     val options: List<TronClassSubjectOption> = emptyList(),
     val myAnswer: Any? = null,
@@ -624,8 +629,8 @@ data class TronClassSubject(
     val teacherComment: String? = null
 ) : Serializable {
     fun getCleanTitle(): String {
-        val raw = if (!description.isNullOrBlank()) description else title
-        return raw.trim()
+        val raw = if (!description.isNullOrBlank()) description else (title ?: "")
+        return raw.trim().ifBlank { "题目" }
     }
 
     fun getTypeName(): String = when (type) {
@@ -643,10 +648,10 @@ data class TronClassSubject(
  */
 data class TronClassSubjectOption(
     val id: Long,
-    val content: String,
+    val content: String? = null,
     val isAnswer: Boolean = false
 ) : Serializable {
-    fun getCleanContent(): String = content.trim()
+    fun getCleanContent(): String = (content ?: "").trim()
 }
 
 /**

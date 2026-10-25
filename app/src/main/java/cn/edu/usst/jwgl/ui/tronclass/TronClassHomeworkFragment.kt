@@ -131,11 +131,13 @@ class TronClassHomeworkFragment : Fragment() {
             0
         )
         binding.llHeaderBarContainer.post {
-            updateHeaderSpacing(binding.llHeaderBarContainer.height)
+            val b = _binding ?: return@post
+            updateHeaderSpacing(b.llHeaderBarContainer.height)
         }
 
         fun updateScrollViewBottomPadding(keypadHeight: Int) {
-            val navBars = ViewCompat.getRootWindowInsets(binding.root)
+            val b = _binding ?: return
+            val navBars = ViewCompat.getRootWindowInsets(b.root)
                 ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
 
             val bottomPadding = if (keypadHeight > 0) {
@@ -149,11 +151,11 @@ class TronClassHomeworkFragment : Fragment() {
                 }
             }
 
-            if (binding.scrollView.paddingBottom != bottomPadding) {
-                binding.scrollView.setPadding(
-                    binding.scrollView.paddingLeft,
-                    binding.scrollView.paddingTop,
-                    binding.scrollView.paddingRight,
+            if (b.scrollView.paddingBottom != bottomPadding) {
+                b.scrollView.setPadding(
+                    b.scrollView.paddingLeft,
+                    b.scrollView.paddingTop,
+                    b.scrollView.paddingRight,
                     bottomPadding
                 )
             }
@@ -174,7 +176,8 @@ class TronClassHomeworkFragment : Fragment() {
                 0
             )
             binding.llHeaderBarContainer.post {
-                updateHeaderSpacing(binding.llHeaderBarContainer.height)
+                val b = _binding ?: return@post
+                updateHeaderSpacing(b.llHeaderBarContainer.height)
             }
 
             val imeHeight = ime.bottom
@@ -184,7 +187,8 @@ class TronClassHomeworkFragment : Fragment() {
 
             if (keyboardHeight > 0) {
                 binding.scrollView.post {
-                    binding.scrollView.smoothScrollTo(0, binding.llHomeworkRootContainer.bottom)
+                    val b = _binding ?: return@post
+                    b.scrollView.smoothScrollTo(0, b.llHomeworkRootContainer.bottom)
                 }
             }
 
@@ -192,16 +196,18 @@ class TronClassHomeworkFragment : Fragment() {
         }
 
         globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+            val b = _binding ?: return@OnGlobalLayoutListener
             val rect = Rect()
-            binding.root.getWindowVisibleDisplayFrame(rect)
-            val screenHeight = binding.root.rootView.height
+            b.root.getWindowVisibleDisplayFrame(rect)
+            val screenHeight = b.root.rootView.height
             val keypadHeight = screenHeight - rect.bottom
             val isKeyboardOpen = keypadHeight > screenHeight * 0.15
             val effectiveKeypad = if (isKeyboardOpen) keypadHeight else 0
             updateScrollViewBottomPadding(effectiveKeypad)
-            if (isKeyboardOpen && (isResubmitMode || binding.etSubmissionComment.hasFocus())) {
-                binding.scrollView.post {
-                    binding.scrollView.smoothScrollTo(0, binding.llHomeworkRootContainer.bottom)
+            if (isKeyboardOpen && (isResubmitMode || b.etSubmissionComment.hasFocus())) {
+                b.scrollView.post {
+                    val currentB = _binding ?: return@post
+                    currentB.scrollView.smoothScrollTo(0, currentB.llHomeworkRootContainer.bottom)
                 }
             }
         }
@@ -222,10 +228,11 @@ class TronClassHomeworkFragment : Fragment() {
     }
 
     private fun updateHeaderSpacing(headerHeight: Int) {
-        val params = binding.viewHeaderSpacing.layoutParams
+        val b = _binding ?: return
+        val params = b.viewHeaderSpacing.layoutParams
         if (params.height != headerHeight) {
             params.height = headerHeight
-            binding.viewHeaderSpacing.layoutParams = params
+            b.viewHeaderSpacing.layoutParams = params
         }
     }
 
@@ -298,15 +305,16 @@ class TronClassHomeworkFragment : Fragment() {
                     }
                 }
                 binding.scrollView.postDelayed({
-                    binding.scrollView.smoothScrollTo(0, binding.llHomeworkRootContainer.bottom)
-                    binding.etSubmissionComment.requestFocus()
+                    val b = _binding ?: return@postDelayed
+                    b.scrollView.smoothScrollTo(0, b.llHomeworkRootContainer.bottom)
+                    b.etSubmissionComment.requestFocus()
                 }, 100)
             }
         }
     }
 
     private fun loadData(forceRefresh: Boolean) {
-        binding.swipeRefresh.isRefreshing = true
+        _binding?.swipeRefresh?.isRefreshing = true
 
         viewLifecycleOwner.lifecycleScope.launch {
             val detailDeferred = async { client.fetchActivityDetail(activityId) }
@@ -315,7 +323,8 @@ class TronClassHomeworkFragment : Fragment() {
             val detailRes = detailDeferred.await()
             val subRes = subDeferred.await()
 
-            binding.swipeRefresh.isRefreshing = false
+            val b = _binding ?: return@launch
+            b.swipeRefresh.isRefreshing = false
 
             if (detailRes.isSuccess) {
                 activityDetail = detailRes.getOrNull()
@@ -329,6 +338,7 @@ class TronClassHomeworkFragment : Fragment() {
     }
 
     private fun renderUi() {
+        if (_binding == null) return
         val act = activityDetail
         val sub = submissionDetail
         val context = context ?: return
@@ -569,7 +579,7 @@ class TronClassHomeworkFragment : Fragment() {
                     context,
                     TronClassDownloadedItem(
                         fileId = upload.id.toString(),
-                        fileName = upload.name,
+                        fileName = upload.name ?: "附件",
                         courseId = courseId,
                         courseName = courseNameText,
                         filePath = destFile.absolutePath,
@@ -678,28 +688,39 @@ class TronClassHomeworkFragment : Fragment() {
 
             // 1. Upload each pending file
             for ((idx, pf) in pendingLocalFiles.withIndex()) {
-                if (pf.uploadResult != null) {
-                    uploadedList.add(pf.uploadResult!!)
+                val existingUp = pf.uploadResult
+                if (existingUp != null) {
+                    uploadedList.add(existingUp)
                     continue
                 }
 
-                binding.tvUploadStatusText.text = "正在上传 (${idx + 1}/${pendingLocalFiles.size}): ${pf.displayName}"
-                binding.progressBarUpload.progress = 0
-                binding.tvUploadProgressPercent.text = "0%"
+                val b1 = _binding ?: return@launch
+                b1.tvUploadStatusText.text = "正在上传 (${idx + 1}/${pendingLocalFiles.size}): ${pf.displayName}"
+                b1.progressBarUpload.progress = 0
+                b1.tvUploadProgressPercent.text = "0%"
 
                 val upRes = client.uploadFile(pf.file, pf.displayName) { percent ->
-                    binding.progressBarUpload.progress = percent
-                    binding.tvUploadProgressPercent.text = "$percent%"
+                    activity?.runOnUiThread {
+                        val pb = _binding ?: return@runOnUiThread
+                        pb.progressBarUpload.progress = percent
+                        pb.tvUploadProgressPercent.text = "$percent%"
+                    }
                 }
 
+                val b2 = _binding ?: return@launch
                 if (upRes.isSuccess) {
-                    val upItem = upRes.getOrNull()!!
+                    val upItem = upRes.getOrNull() ?: run {
+                        b2.llUploadProgress.visibility = View.GONE
+                        b2.btnSubmitHomework.isEnabled = true
+                        b2.btnAddAttachment.isEnabled = true
+                        return@launch
+                    }
                     pf.uploadResult = upItem
                     uploadedList.add(upItem)
                 } else {
-                    binding.llUploadProgress.visibility = View.GONE
-                    binding.btnSubmitHomework.isEnabled = true
-                    binding.btnAddAttachment.isEnabled = true
+                    b2.llUploadProgress.visibility = View.GONE
+                    b2.btnSubmitHomework.isEnabled = true
+                    b2.btnAddAttachment.isEnabled = true
 
                     val err = upRes.exceptionOrNull()?.message ?: "文件上传失败"
                     MaterialAlertDialogBuilder(context)
@@ -712,7 +733,8 @@ class TronClassHomeworkFragment : Fragment() {
             }
 
             // 2. Submit homework payload
-            binding.tvUploadStatusText.text = "正在提交作业数据..."
+            val b3 = _binding ?: return@launch
+            b3.tvUploadStatusText.text = "正在提交作业数据..."
             val isResubmit = submissionDetail?.isSubmitted() == true
             val submissionId = submissionDetail?.id
 
@@ -724,9 +746,10 @@ class TronClassHomeworkFragment : Fragment() {
                 submissionId = submissionId
             )
 
-            binding.llUploadProgress.visibility = View.GONE
-            binding.btnSubmitHomework.isEnabled = true
-            binding.btnAddAttachment.isEnabled = true
+            val b4 = _binding ?: return@launch
+            b4.llUploadProgress.visibility = View.GONE
+            b4.btnSubmitHomework.isEnabled = true
+            b4.btnAddAttachment.isEnabled = true
 
             if (submitRes.isSuccess) {
                 pendingLocalFiles.clear()

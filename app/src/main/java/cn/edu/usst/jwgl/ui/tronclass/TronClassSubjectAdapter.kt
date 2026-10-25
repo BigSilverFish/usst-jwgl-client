@@ -166,9 +166,9 @@ class TronClassSubjectAdapter(
             subject.options.forEachIndexed { idx, opt ->
                 val letter = if (idx < optionLetters.size) optionLetters[idx] else "${idx + 1}"
                 val optText = try {
-                    Html.fromHtml(opt.content, Html.FROM_HTML_MODE_LEGACY).trimEnd()
+                    Html.fromHtml(opt.content ?: "", Html.FROM_HTML_MODE_LEGACY).trimEnd()
                 } catch (_: Exception) {
-                    opt.content.trim()
+                    opt.getCleanContent()
                 }
 
                 val isMyChoice = userChosenOptIds.contains(opt.id)

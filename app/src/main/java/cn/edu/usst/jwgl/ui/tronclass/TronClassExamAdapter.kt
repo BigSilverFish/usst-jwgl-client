@@ -46,7 +46,7 @@ class TronClassExamAdapter(
                 binding.tvExamStatusBadge.text = scoreStr
                 binding.tvExamStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
                 binding.tvExamStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
-            } else if (exam.submittedTimes != null && exam.submittedTimes!! > 0) {
+            } else if ((exam.submittedTimes ?: 0) > 0) {
                 binding.tvExamStatusBadge.text = "已提交(${exam.submittedTimes}次)"
                 binding.tvExamStatusBadge.setBackgroundColor(Color.parseColor("#E3F2FD"))
                 binding.tvExamStatusBadge.setTextColor(Color.parseColor("#1565C0"))
@@ -69,11 +69,13 @@ class TronClassExamAdapter(
             val limitStr = exam.getFormattedLimitTime()
             parts.add(limitStr)
 
-            if (exam.subjectsCount != null && exam.subjectsCount!! > 0) {
-                parts.add("${exam.subjectsCount} 题")
+            val subjCount = exam.subjectsCount ?: 0
+            if (subjCount > 0) {
+                parts.add("$subjCount 题")
             }
-            if (exam.totalPoints != null && exam.totalPoints!! > 0) {
-                val pt = if (exam.totalPoints!! % 1.0 == 0.0) exam.totalPoints!!.toInt().toString() else exam.totalPoints.toString()
+            val totalPts = exam.totalPoints
+            if (totalPts != null && totalPts > 0) {
+                val pt = if (totalPts % 1.0 == 0.0) totalPts.toInt().toString() else totalPts.toString()
                 parts.add("总分 $pt")
             }
 

@@ -88,8 +88,9 @@ class TronClassClient(private val context: Context) {
         val tcName = prefs.getUserName()
         if (!tcName.isNullOrBlank() && tcName != "同学") return tcName
         val globalProfile = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getProfile()
-        if (!globalProfile?.name.isNullOrBlank()) {
-            return globalProfile!!.name
+        val gName = globalProfile?.name?.trim()
+        if (!gName.isNullOrBlank()) {
+            return gName
         }
         return "同学"
     }

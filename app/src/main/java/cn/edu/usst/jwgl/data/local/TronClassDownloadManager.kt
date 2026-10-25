@@ -34,7 +34,7 @@ data class TronClassDownloadedItem(
     }
 
     fun getExtension(): String {
-        return fileName.substringAfterLast('.', "").lowercase()
+        return (fileName ?: "").substringAfterLast('.', "").lowercase()
     }
 }
 

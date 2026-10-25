@@ -28,7 +28,7 @@ class TronClassMemberAdapter(
             allMembers
         } else {
             allMembers.filter { m ->
-                m.name.lowercase().contains(q) ||
+                (m.name?.lowercase()?.contains(q) == true) ||
                         (m.userNo?.lowercase()?.contains(q) == true) ||
                         (m.klass?.lowercase()?.contains(q) == true) ||
                         (m.department?.lowercase()?.contains(q) == true) ||
@@ -60,7 +60,7 @@ class TronClassMemberAdapter(
             binding.tvName.text = member.getDisplayName()
 
             // Avatar initial
-            val firstChar = member.name.firstOrNull()?.toString() ?: "U"
+            val firstChar = member.name?.firstOrNull()?.toString() ?: "U"
             binding.tvAvatar.text = firstChar
 
             // Role tag styling

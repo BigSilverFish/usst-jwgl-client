@@ -83,7 +83,7 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
             title: String,
             courseName: String,
             uploadId: Long,
-            uploadName: String
+            uploadName: String? = null
         ) {
             val intent = Intent(context, TronClassVideoPlayerActivity::class.java).apply {
                 putExtra("activity_id", activityId)
@@ -91,7 +91,7 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
                 putExtra("title", title)
                 putExtra("course_name", courseName)
                 putExtra("upload_id", uploadId)
-                putExtra("upload_name", uploadName)
+                putExtra("upload_name", uploadName ?: "章节视频")
             }
             context.startActivity(intent)
         }
@@ -191,10 +191,8 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
 
     private fun prepareAndPlayVideo() {
         val cachedFile = cacheManager.getExistingFile(uploadId, uploadName)
-        val isCached = cachedFile != null && cachedFile.exists() && cachedFile.length() > 0
-
-        val uri: Uri = if (isCached) {
-            Log.d(TAG, "Playing from local offline cache: ${cachedFile!!.absolutePath}")
+        val uri: Uri = if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
+            Log.d(TAG, "Playing from local offline cache: ${cachedFile.absolutePath}")
             Uri.fromFile(cachedFile)
         } else {
             val streamUrl = client.getVideoStreamUrl(uploadId)

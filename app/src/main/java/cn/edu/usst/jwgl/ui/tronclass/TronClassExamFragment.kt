@@ -90,7 +90,8 @@ class TronClassExamFragment : Fragment() {
             0
         )
         binding.llHeaderBarContainer.post {
-            updateHeaderSpacing(binding.llHeaderBarContainer.height)
+            val b = _binding ?: return@post
+            updateHeaderSpacing(b.llHeaderBarContainer.height)
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
@@ -105,7 +106,8 @@ class TronClassExamFragment : Fragment() {
                 0
             )
             binding.llHeaderBarContainer.post {
-                updateHeaderSpacing(binding.llHeaderBarContainer.height)
+                val b = _binding ?: return@post
+                updateHeaderSpacing(b.llHeaderBarContainer.height)
             }
             val bHeight = MainActivity.bottomBarHeightPx
             val bottomPadding = if (bHeight > 0) {
@@ -138,10 +140,11 @@ class TronClassExamFragment : Fragment() {
     }
 
     private fun updateHeaderSpacing(headerHeight: Int) {
-        val params = binding.viewHeaderSpacing.layoutParams
+        val b = _binding ?: return
+        val params = b.viewHeaderSpacing.layoutParams
         if (params.height != headerHeight) {
             params.height = headerHeight
-            binding.viewHeaderSpacing.layoutParams = params
+            b.viewHeaderSpacing.layoutParams = params
         }
     }
 
@@ -212,14 +215,15 @@ class TronClassExamFragment : Fragment() {
             }
         }
 
-        binding.swipeRefresh.isRefreshing = true
+        _binding?.swipeRefresh?.isRefreshing = true
 
         viewLifecycleOwner.lifecycleScope.launch {
             val res = client.fetchExamDetail(examId, targetSubmissionId)
-            binding.swipeRefresh.isRefreshing = false
+            val b = _binding ?: return@launch
+            b.swipeRefresh.isRefreshing = false
 
             if (res.isSuccess) {
-                val detail = res.getOrNull()!!
+                val detail = res.getOrNull() ?: return@launch
                 examDetail = detail
                 displayExamDetail(detail)
             } else {
@@ -232,8 +236,9 @@ class TronClassExamFragment : Fragment() {
     }
 
     private fun displayExamDetail(detail: TronClassExamDetail) {
+        val b = _binding ?: return
         val exam = detail.exam
-        binding.tvExamTitle.text = exam.getCleanTitle()
+        b.tvExamTitle.text = exam.getCleanTitle()
 
         // 1. 起止时间与时长
         val timeRange = exam.getFormattedTimeRange()
@@ -242,7 +247,7 @@ class TronClassExamFragment : Fragment() {
             timeRange.isNotBlank() -> "$timeRange · $limitTimeText"
             else -> limitTimeText
         }
-        binding.tvExamTimeRangeDetail.text = scheduleText
+        b.tvExamTimeRangeDetail.text = scheduleText
 
         // 2. 计分规则标签
         val rule = detail.scoreRule ?: exam.scoreRule
@@ -253,10 +258,10 @@ class TronClassExamFragment : Fragment() {
                 "average" -> "取平均分"
                 else -> rule
             }
-            binding.tvScoreRuleBadge.visibility = View.VISIBLE
-            binding.tvScoreRuleBadge.text = ruleText
+            b.tvScoreRuleBadge.visibility = View.VISIBLE
+            b.tvScoreRuleBadge.text = ruleText
         } else {
-            binding.tvScoreRuleBadge.visibility = View.GONE
+            b.tvScoreRuleBadge.visibility = View.GONE
         }
 
         // 3. 得分展示 (防止 NaN)
@@ -265,35 +270,35 @@ class TronClassExamFragment : Fragment() {
 
         if (currentSc != null && !currentSc.isNaN()) {
             val scText = if (currentSc % 1.0 == 0.0) "${currentSc.toInt()} 分" else "$currentSc 分"
-            binding.tvScoreValue.text = scText
+            b.tvScoreValue.text = scText
             val tipPrefix = if (detail.submissions.size > 1) "当前查看作答得分" else "已完成测验"
-            binding.tvExamStatusTip.text = "$tipPrefix，以下为您作答的试卷分析与标准答案"
+            b.tvExamStatusTip.text = "$tipPrefix，以下为您作答的试卷分析与标准答案"
         } else if (finalSc != null && !finalSc.isNaN()) {
             val scText = if (finalSc % 1.0 == 0.0) "${finalSc.toInt()} 分" else "$finalSc 分"
-            binding.tvScoreValue.text = scText
-            binding.tvExamStatusTip.text = "已完成测验，试卷已评阅"
+            b.tvScoreValue.text = scText
+            b.tvExamStatusTip.text = "已完成测验，试卷已评阅"
         } else if (detail.submissionId != null || detail.submissions.isNotEmpty()) {
-            binding.tvScoreValue.text = "已提交"
-            binding.tvExamStatusTip.text = "试卷已成功提交，等待教师评阅打分"
+            b.tvScoreValue.text = "已提交"
+            b.tvExamStatusTip.text = "试卷已成功提交，等待教师评阅打分"
         } else {
-            binding.tvScoreValue.text = "未作答"
-            binding.tvExamStatusTip.text = if (exam.isClosed) "该测验已截止" else "请仔细审题并在规定时限内作答"
+            b.tvScoreValue.text = "未作答"
+            b.tvExamStatusTip.text = if (exam.isClosed) "该测验已截止" else "请仔细审题并在规定时限内作答"
         }
 
         // 4. 作答时限与题目量
         if (exam.limitTime != null && exam.limitTime > 0) {
-            binding.tvTimeLimitValue.text = "${exam.limitTime} 分钟"
+            b.tvTimeLimitValue.text = "${exam.limitTime} 分钟"
         } else {
-            binding.tvTimeLimitValue.text = "不限时"
+            b.tvTimeLimitValue.text = "不限时"
         }
 
         val count = if (detail.subjects.isNotEmpty()) detail.subjects.size else (exam.subjectsCount ?: 0)
-        binding.tvQuestionsCount.text = "$count 题"
+        b.tvQuestionsCount.text = "$count 题"
 
         // 5. 多次作答记录轮次切换器
         if (detail.submissions.size > 1) {
-            binding.layoutSubmissionsSwitcher.visibility = View.VISIBLE
-            binding.chipGroupSubmissions.removeAllViews()
+            b.layoutSubmissionsSwitcher.visibility = View.VISIBLE
+            b.chipGroupSubmissions.removeAllViews()
 
             detail.submissions.forEach { sub ->
                 val chip = com.google.android.material.chip.Chip(requireContext()).apply {
@@ -311,10 +316,10 @@ class TronClassExamFragment : Fragment() {
                         }
                     }
                 }
-                binding.chipGroupSubmissions.addView(chip)
+                b.chipGroupSubmissions.addView(chip)
             }
         } else {
-            binding.layoutSubmissionsSwitcher.visibility = View.GONE
+            b.layoutSubmissionsSwitcher.visibility = View.GONE
         }
 
         // 6. 是否处于查卷复习模式
@@ -328,9 +333,9 @@ class TronClassExamFragment : Fragment() {
 
         // 7. 底部提交按钮
         if (!isReviewMode && exam.isStarted && !exam.isClosed) {
-            binding.layoutBottomAction.visibility = View.VISIBLE
+            b.layoutBottomAction.visibility = View.VISIBLE
         } else {
-            binding.layoutBottomAction.visibility = View.GONE
+            b.layoutBottomAction.visibility = View.GONE
         }
     }
 

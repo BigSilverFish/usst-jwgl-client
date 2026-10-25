@@ -1,4 +1,4 @@
-﻿package cn.edu.usst.jwgl.ui.tronclass
+package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.ProgressDialog
 import android.os.Build
@@ -126,7 +126,8 @@ class TronClassCourseDetailFragment : Fragment() {
             0
         )
         binding.llHeaderBarContainer.post {
-            val headerHeight = binding.llHeaderBarContainer.height
+            val b = _binding ?: return@post
+            val headerHeight = b.llHeaderBarContainer.height
             val navBottom = mainAct?.getBottomInset() ?: (16 * density).toInt()
             applyContentPadding(headerHeight, navBottom)
         }
@@ -143,7 +144,8 @@ class TronClassCourseDetailFragment : Fragment() {
                 0
             )
             binding.llHeaderBarContainer.post {
-                val headerHeight = binding.llHeaderBarContainer.height
+                val b = _binding ?: return@post
+                val headerHeight = b.llHeaderBarContainer.height
                 applyContentPadding(headerHeight, navBars.bottom)
             }
             insets
@@ -151,13 +153,14 @@ class TronClassCourseDetailFragment : Fragment() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             binding.blurViewCourseDetail.post {
+                val b = _binding ?: return@post
                 val act = activity ?: return@post
                 val decorView = act.window.decorView
                 val rootView = decorView.findViewById<ViewGroup>(android.R.id.content) ?: decorView as ViewGroup
                 val windowBackground = decorView.background
 
                 try {
-                    binding.blurViewCourseDetail.setupWith(rootView, RenderEffectBlur())
+                    b.blurViewCourseDetail.setupWith(rootView, RenderEffectBlur())
                         .setFrameClearDrawable(windowBackground)
                         .setBlurRadius(20f)
                 } catch (_: Exception) {}
@@ -170,22 +173,23 @@ class TronClassCourseDetailFragment : Fragment() {
     }
 
     private fun applyContentPadding(headerHeight: Int, navBottom: Int) {
+        val b = _binding ?: return
         val context = context ?: return
         val isPad = TabletLayoutHelper.isTabletLandscape(context)
         val density = resources.displayMetrics.density
         val hPad = if (isPad) (10 * density).toInt() else 0
 
-        val wasUnpadded = binding.rvActivities.paddingTop <= (8 * density).toInt()
-        binding.rvActivities.setPadding(hPad, headerHeight, hPad, navBottom)
-        binding.rvExams.setPadding(hPad, headerHeight, hPad, navBottom)
-        binding.layoutMembers.setPadding(hPad, headerHeight, hPad, navBottom)
-        binding.rvBulletins.setPadding(hPad, headerHeight, hPad, navBottom)
+        val wasUnpadded = b.rvActivities.paddingTop <= (8 * density).toInt()
+        b.rvActivities.setPadding(hPad, headerHeight, hPad, navBottom)
+        b.rvExams.setPadding(hPad, headerHeight, hPad, navBottom)
+        b.layoutMembers.setPadding(hPad, headerHeight, hPad, navBottom)
+        b.rvBulletins.setPadding(hPad, headerHeight, hPad, navBottom)
 
         if (wasUnpadded) {
-            (binding.rvActivities.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
+            (b.rvActivities.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
         }
 
-        binding.swipeRefresh.setProgressViewOffset(true, headerHeight, headerHeight + (56 * density).toInt())
+        b.swipeRefresh.setProgressViewOffset(true, headerHeight, headerHeight + (56 * density).toInt())
     }
 
     private fun setupToolbar() {
@@ -355,16 +359,17 @@ class TronClassCourseDetailFragment : Fragment() {
     }
 
     private fun checkEmptyState(isEmpty: Boolean, msg: String) {
-        if (isEmpty && binding.swipeRefresh.isRefreshing) {
+        val b = _binding ?: return
+        if (isEmpty && b.swipeRefresh.isRefreshing) {
             // 加载中且暂无本地缓存时，不提前展示误导性的“暂无”，避免白屏跳变
-            binding.layoutEmpty.visibility = View.GONE
+            b.layoutEmpty.visibility = View.GONE
             return
         }
         if (isEmpty) {
-            binding.layoutEmpty.visibility = View.VISIBLE
-            binding.tvEmptyMessage.text = msg
+            b.layoutEmpty.visibility = View.VISIBLE
+            b.tvEmptyMessage.text = msg
         } else {
-            binding.layoutEmpty.visibility = View.GONE
+            b.layoutEmpty.visibility = View.GONE
         }
     }
 
@@ -376,7 +381,7 @@ class TronClassCourseDetailFragment : Fragment() {
 
         val hasCache = cachedActivities.isNotEmpty()
         if (!hasCache || forceRefresh) {
-            binding.swipeRefresh.isRefreshing = true
+            _binding?.swipeRefresh?.isRefreshing = true
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -397,6 +402,8 @@ class TronClassCourseDetailFragment : Fragment() {
             val modulesRes = modulesDef.await()
             val activitiesRes = activitiesDef.await()
             val readsRes = readsDef.await()
+
+            val b1 = _binding ?: return@launch
 
             if (modulesRes.isSuccess) {
                 cachedModules = modulesRes.getOrDefault(emptyList())
@@ -426,49 +433,52 @@ class TronClassCourseDetailFragment : Fragment() {
                 val totalActs = cachedActivities.size
                 val uiItems = buildCourseStructure(cachedModules, cachedActivities, completedCount, totalActs)
                 activityAdapter.updateData(uiItems)
-                if (binding.tabLayout.selectedTabPosition == 0) {
+                if (b1.tabLayout.selectedTabPosition == 0) {
                     checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
                 }
             }
 
             // 次要信息随后就绪，增量写回缓存与 Adapter
             val examsRes = examsDef.await()
+            val b2 = _binding ?: return@launch
             if (examsRes.isSuccess) {
                 cachedExams = examsRes.getOrDefault(emptyList())
                 if (cachedExams.isNotEmpty()) {
                     cacheMgr.saveCourseExams(courseId, cachedExams)
                 }
                 examAdapter.updateData(cachedExams)
-                if (binding.tabLayout.selectedTabPosition == 1) {
+                if (b2.tabLayout.selectedTabPosition == 1) {
                     checkEmptyState(cachedExams.isEmpty(), "本课程暂无测验与考试")
                 }
             }
 
             val membersRes = membersDef.await()
+            val b3 = _binding ?: return@launch
             if (membersRes.isSuccess) {
                 cachedMembers = membersRes.getOrDefault(emptyList())
                 if (cachedMembers.isNotEmpty()) {
                     cacheMgr.saveCourseMembers(courseId, cachedMembers)
                 }
                 memberAdapter.updateData(cachedMembers)
-                if (binding.tabLayout.selectedTabPosition == 2) {
+                if (b3.tabLayout.selectedTabPosition == 2) {
                     checkEmptyState(cachedMembers.isEmpty(), "暂无班级成员名单")
                 }
             }
 
             val bulletinsRes = bulletinsDef.await()
+            val b4 = _binding ?: return@launch
             if (bulletinsRes.isSuccess) {
                 cachedBulletins = bulletinsRes.getOrDefault(emptyList())
                 if (cachedBulletins.isNotEmpty()) {
                     cacheMgr.saveCourseBulletins(courseId, cachedBulletins)
                 }
                 bulletinAdapter.updateData(cachedBulletins)
-                if (binding.tabLayout.selectedTabPosition == 3) {
+                if (b4.tabLayout.selectedTabPosition == 3) {
                     checkEmptyState(cachedBulletins.isEmpty(), "暂无课程公告")
                 }
             }
 
-            binding.swipeRefresh.isRefreshing = false
+            b4.swipeRefresh.isRefreshing = false
         }
     }
 
@@ -677,7 +687,7 @@ class TronClassCourseDetailFragment : Fragment() {
                     viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                         client.logActivityRead(act.id)
                     }
-                    cacheManager.openFile(existingFile!!)
+                    existingFile?.let { cacheManager.openFile(it) }
                 }
                 .setNeutralButton("重新下载") { _, _ ->
                     startDownload(upload, act.id)
@@ -724,7 +734,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         context,
                         TronClassDownloadedItem(
                             fileId = upload.id.toString(),
-                            fileName = upload.name,
+                            fileName = upload.name ?: "课件",
                             courseId = courseId,
                             courseName = courseName,
                             filePath = destFile.absolutePath,

@@ -56,11 +56,12 @@ class TronClassDownloadFragment : Fragment() {
         )
 
         binding.llHeaderBarContainer.post {
-            val headerH = binding.llHeaderBarContainer.height
-            val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
+            val b = _binding ?: return@post
+            val headerH = b.llHeaderBarContainer.height
+            val isPad = context?.let { TabletLayoutHelper.isTabletLandscape(it) } ?: false
             val hPad = if (isPad) (10 * density).toInt() else 0
             val navBottom = mainAct?.getBottomInset() ?: (16 * density).toInt()
-            binding.rvDownloads.setPadding(
+            b.rvDownloads.setPadding(
                 hPad,
                 headerH + (6 * density).toInt(),
                 hPad,
@@ -80,8 +81,9 @@ class TronClassDownloadFragment : Fragment() {
                 0
             )
             binding.llHeaderBarContainer.post {
-                val headerH = binding.llHeaderBarContainer.height
-                val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
+                val b = _binding ?: return@post
+                val headerH = b.llHeaderBarContainer.height
+                val isPad = context?.let { TabletLayoutHelper.isTabletLandscape(it) } ?: false
                 val hPad = if (isPad) (10 * density).toInt() else 0
                 val bHeight = MainActivity.bottomBarHeightPx
                 val bottomPadding = if (bHeight > 0) {
@@ -89,7 +91,7 @@ class TronClassDownloadFragment : Fragment() {
                 } else {
                     navBars.bottom + (24 * density).toInt()
                 }
-                binding.rvDownloads.setPadding(
+                b.rvDownloads.setPadding(
                     hPad,
                     headerH + (6 * density).toInt(),
                     hPad,

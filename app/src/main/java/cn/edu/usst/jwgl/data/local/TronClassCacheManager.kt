@@ -17,28 +17,28 @@ class TronClassCacheManager(private val context: Context) {
         }
     }
 
-    fun sanitizeFileName(rawName: String): String {
-        return rawName.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+    fun sanitizeFileName(rawName: String?): String {
+        return (rawName ?: "").replace(Regex("""[\\/:*?"<>|]"""), "_").trim().ifBlank { "attachment" }
     }
 
-    fun getFile(uploadId: Long, rawName: String): File {
+    fun getFile(uploadId: Long, rawName: String?): File {
         val cleanName = sanitizeFileName(rawName)
         return File(getCacheDir(), "${uploadId}_$cleanName")
     }
 
-    fun getLegacyFile(rawName: String): File {
+    fun getLegacyFile(rawName: String?): File {
         val cleanName = sanitizeFileName(rawName)
         return File(getCacheDir(), cleanName)
     }
 
-    fun isCached(uploadId: Long, rawName: String): Boolean {
+    fun isCached(uploadId: Long, rawName: String?): Boolean {
         val f1 = getFile(uploadId, rawName)
         if (f1.exists() && f1.length() > 0) return true
         val f2 = getLegacyFile(rawName)
         return f2.exists() && f2.length() > 0
     }
 
-    fun getExistingFile(uploadId: Long, rawName: String): File? {
+    fun getExistingFile(uploadId: Long, rawName: String?): File? {
         val f1 = getFile(uploadId, rawName)
         if (f1.exists() && f1.length() > 0) return f1
         val f2 = getLegacyFile(rawName)
