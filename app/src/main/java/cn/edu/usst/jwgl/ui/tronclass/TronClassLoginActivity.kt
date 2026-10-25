@@ -49,7 +49,6 @@ class TronClassLoginActivity : AppCompatActivity() {
         client = TronClassClient(this)
 
         setupToolbar()
-        setupFastImport()
         setupWebView()
         startUnifiedAuthFlow()
     }
@@ -57,26 +56,6 @@ class TronClassLoginActivity : AppCompatActivity() {
     private fun setupToolbar() {
         binding.toolbar.setNavigationOnClickListener {
             finish()
-        }
-    }
-
-    private fun setupFastImport() {
-        binding.btnImportFromApp.setOnClickListener {
-            binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMsg.text = "正在从本机畅课App读取登录凭据..."
-
-            lifecycleScope.launch {
-                val res = client.importFromLocalTronClassApp()
-                binding.layoutLoading.visibility = View.GONE
-                if (res.isSuccess) {
-                    Toast.makeText(this@TronClassLoginActivity, "导入成功！欢迎 ${client.getUserName()}", Toast.LENGTH_SHORT).show()
-                    setResult(RESULT_OK)
-                    finish()
-                } else {
-                    val err = res.exceptionOrNull()?.message ?: "导入失败"
-                    Toast.makeText(this@TronClassLoginActivity, err, Toast.LENGTH_SHORT).show()
-                }
-            }
         }
     }
 
@@ -130,12 +109,12 @@ class TronClassLoginActivity : AppCompatActivity() {
         ws.databaseEnabled = true
         ws.useWideViewPort = true
         ws.loadWithOverviewMode = true
-        ws.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        ws.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         ws.cacheMode = WebSettings.LOAD_DEFAULT
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(binding.webView, false)
+        cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -194,8 +173,8 @@ class TronClassLoginActivity : AppCompatActivity() {
                     return true
                 }
                 val scheme = uri.scheme?.lowercase() ?: return true
-                if (scheme != "https") {
-                    Log.w(TAG, "Blocked non-HTTPS navigation in TronClass login: $url")
+                if (scheme != "http" && scheme != "https") {
+                    Log.w(TAG, "Blocked unsupported scheme navigation in TronClass login: $url")
                     return true
                 }
                 val host = uri.host
@@ -215,7 +194,7 @@ class TronClassLoginActivity : AppCompatActivity() {
                 return try {
                     val uri = Uri.parse(url)
                     val scheme = uri.scheme?.lowercase() ?: return true
-                    if (scheme != "https") return true
+                    if (scheme != "http" && scheme != "https") return true
                     val host = uri.host
                     !isAllowedNavigationHost(host)
                 } catch (_: Exception) {

@@ -24,41 +24,6 @@
         android:indeterminate="true"
         android:visibility="gone" />
 
-    <!-- Fast Import Card -->
-    <LinearLayout
-        android:id="@+id/layoutFastImport"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/surface"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="10dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="手机已安装畅课官方App？"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnImportFromApp"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="一键免密导入"
-            android:textSize="12sp"
-            app:cornerRadius="8dp" />
-
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/border" />
-
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">

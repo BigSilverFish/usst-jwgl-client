@@ -191,6 +191,7 @@ class TronClassClient(private val context: Context) {
                 }
 
                 val json = JSONObject(respBody)
+                Log.d(TAG, "Session exchange response: $respBody")
                 if (sessionId.isNullOrBlank()) {
                     sessionId = json.optString("session_id", "")
                 }
@@ -202,24 +203,50 @@ class TronClassClient(private val context: Context) {
                 // 解析用户信息
                 val userObj = json.optJSONObject("user")
                 val userId = json.optLong("user_id", json.optLong("id", userObj?.optLong("id", 0L) ?: 0L))
-                val userName = json.optString("name", userObj?.optString("name", ""))
-                var userNo = json.optString("user_no", userObj?.optString("user_no", ""))
-                val userEmail = json.optString("email", userObj?.optString("email", ""))
+                val userName = if (json.has("name")) json.optString("name", "") else (userObj?.optString("name", "") ?: "")
+                var userNo = if (json.has("user_no")) json.optString("user_no", "") else (userObj?.optString("user_no", "") ?: "")
+                val userEmail = if (json.has("email")) json.optString("email", "") else (userObj?.optString("email", "") ?: "")
 
                 if (userNo.isBlank()) {
                     userNo = AuthPreferences(context).getStudentId().trim()
                 }
 
+                // 若基础信息不完整，尝试从 /api/users/me 获取详情补充
+                var finalUserId = userId
+                var finalUserName = userName
+                var finalUserNo = userNo
+                var finalUserEmail = userEmail
+                if (finalUserId == 0L || finalUserName.isBlank()) {
+                    try {
+                        val meReq = Request.Builder()
+                            .url("$BASE_URL/api/users/me")
+                            .header("Accept", "application/json")
+                            .header("x-session-id", sessionId)
+                            .header("Cookie", "session_id=$sessionId")
+                            .build()
+                        val meResp = okHttpClient.newCall(meReq).execute()
+                        if (meResp.isSuccessful) {
+                            val meJson = JSONObject(meResp.body?.string() ?: "")
+                            if (finalUserId == 0L) finalUserId = meJson.optLong("id", 0L)
+                            if (finalUserName.isBlank()) finalUserName = meJson.optString("name", "")
+                            if (finalUserNo.isBlank()) finalUserNo = meJson.optString("user_no", "")
+                            if (finalUserEmail.isBlank()) finalUserEmail = meJson.optString("email", "")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to fetch user profile via /users/me", e)
+                    }
+                }
+
                 prefs.saveSession(
                     sessionId = sessionId,
                     refreshToken = refreshToken,
-                    userId = userId,
-                    userName = if (userName.isNotBlank()) userName else null,
-                    userNo = if (userNo.isNotBlank()) userNo else null,
-                    userEmail = if (userEmail.isNotBlank()) userEmail else null
+                    userId = finalUserId,
+                    userName = if (finalUserName.isNotBlank()) finalUserName else null,
+                    userNo = if (finalUserNo.isNotBlank()) finalUserNo else null,
+                    userEmail = if (finalUserEmail.isNotBlank()) finalUserEmail else null
                 )
 
-                Log.d(TAG, "TronClass session established successfully! User: $userName ($userNo)")
+                Log.d(TAG, "TronClass session established successfully! User: $finalUserName ($finalUserNo)")
                 Result.success(true)
             } catch (e: Exception) {
                 Log.e(TAG, "exchangeAccessTokenForSession failed", e)
@@ -269,80 +296,7 @@ class TronClassClient(private val context: Context) {
     }
 
     /**
-     * 4. 尝试从应用私有缓存直接导入会话 (如果存在)
-     */
-    suspend fun importFromLocalTronClassApp(): Result<Boolean> = withContext(Dispatchers.IO) {
-        try {
-            val candidates = listOf(
-                File(context.filesDir, "TCMobileSQLite.db"),
-                File(context.cacheDir, "TCMobileSQLite.db")
-            )
-
-            var dbFile: File? = null
-            for (f in candidates) {
-                if (f.exists() && f.canRead()) {
-                    dbFile = f
-                    break
-                }
-            }
-
-            if (dbFile == null || !dbFile.exists()) {
-                return@withContext Result.failure(Exception("未在本地找到已缓存的畅课数据文件"))
-            }
-
-            // 解析 SQLite
-            val db = android.database.sqlite.SQLiteDatabase.openDatabase(
-                dbFile.absolutePath,
-                null,
-                android.database.sqlite.SQLiteDatabase.OPEN_READONLY
-            )
-            val cursor = db.rawQuery("SELECT value FROM cacheData WHERE name = 'state' LIMIT 1", null)
-            var jsonStr: String? = null
-            if (cursor.moveToFirst()) {
-                jsonStr = cursor.getString(0)
-            }
-            cursor.close()
-            db.close()
-
-            if (jsonStr.isNullOrBlank()) {
-                return@withContext Result.failure(Exception("畅课数据库中无登录态记录"))
-            }
-
-            val rootJson = JSONObject(jsonStr)
-            val profile = rootJson.optJSONObject("profile")?.optJSONObject("userInfo")
-            val userId = profile?.optLong("id") ?: 0L
-            val userNo = profile?.optString("userNo", "") ?: ""
-            val userName = profile?.optString("name", "") ?: ""
-            val userEmail = profile?.optString("email", "") ?: ""
-
-            // 检查是否有直接保存的 sessionID
-            var sessionId = rootJson.optString("sessionID", "")
-            if (sessionId.isBlank()) {
-                sessionId = rootJson.optJSONObject("login")?.optString("sessionID", "") ?: ""
-            }
-
-            // 同时也从 Default/Cookies 读取或者从 LevelDB
-            if (sessionId.isNotBlank()) {
-                prefs.saveSession(
-                    sessionId = sessionId,
-                    userId = userId,
-                    userName = userName,
-                    userNo = userNo,
-                    userEmail = userEmail
-                )
-                Log.d(TAG, "Successfully imported session from local app: $userName ($sessionId)")
-                return@withContext Result.success(true)
-            }
-
-            Result.failure(Exception("未能从畅课数据库中解析到有效 SessionID"))
-        } catch (e: Exception) {
-            Log.e(TAG, "importFromLocalTronClassApp error", e)
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * 5. 获取待办作业与测验列表 (/api/todos)
+     * 4. 获取待办作业与测验列表 (/api/todos)
      */
     suspend fun fetchTodos(): Result<List<TronClassTodo>> = withContext(Dispatchers.IO) {
         try {
