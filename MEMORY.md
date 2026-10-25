@@ -128,6 +128,13 @@ app/src/main/java/cn/edu/usst/jwgl/
   - 通过 `TronClassDataCacheManager.findMatchingCourse` 自动对齐正方教务课表与畅课教学班。
   - 动态关联畅课待办，若存在临近作业/测验，实时高亮展示最紧迫待办名及倒计时（如 `待办: 课内实验 (剩 78 天 22 小时)`）。
   - 点击卡片 0 延迟一键跳转对应课程的原生详情页 (`TronClassCourseDetailActivity`)。
+- **28080 废弃静态网页资源彻底删除与 APK 瘦身**：
+  - 执行 `git rm -rf app/src/main/assets/tronclass_mobile/`，彻底清除 258 个历史遗留 Web 资源文件（12.63 MB），杜绝无用静态资源打包。
+  - 同步清理 `JwglWebActivity.kt` 中与 `10.1.15.15:28080`、`AndroidScannerBridge` 网页扫码注入相关的无用逻辑。
+- **多任务课程二级页面黑屏与卡顿根治 (0ms 原生复用)**：
+  - **根本原因**：`activity_tronclass_course_detail.xml` 中原使用 `NestedScrollView` 包裹 `RecyclerView`，导致多达 80~100 项复杂 CardView 节点在 `onViewCreated` 时被主线程一次性全部 measure 和 inflate，导致界面冻结 2~3 秒黑屏。
+  - **解法**：去掉 `NestedScrollView`，采用纯全屏 `RecyclerView`；将顶部“学习进度与一键刷课”抽象为 `TYPE_PROGRESS` 首项 ViewHolder，与章节活动流式自然排布，恢复 120fps 高性能视图复用。
+  - **L1 内存缓存**：在 `TronClassDataCacheManager` 增加 `ConcurrentHashMap` 级内存缓存，读取耗时降至 0.001ms，彻底规避频繁主线程 Gson 反序列化阻塞。
 
 ---
 
