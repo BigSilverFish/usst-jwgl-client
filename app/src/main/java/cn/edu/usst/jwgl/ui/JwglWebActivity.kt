@@ -37,6 +37,7 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.ActivityWebViewBinding
+import cn.edu.usst.jwgl.util.CookieSyncHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,6 +49,7 @@ class JwglWebActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "JwglWebActivity"
         const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
+        const val SSO_ENTRY_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
         const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
         const val EXTRA_URL = "extra_target_url"
@@ -221,8 +223,8 @@ class JwglWebActivity : AppCompatActivity() {
             val host = uri.host?.lowercase()
             val path = uri.path?.lowercase() ?: ""
             scheme == "https" &&
-                (host == "ids6.usst.edu.cn" || host == "ids6-443.webvpn.usst.edu.cn") &&
-                path.startsWith("/authserver/login")
+                (host == "ids6.usst.edu.cn" || host == "ids6-443.webvpn.usst.edu.cn" || host == "cas.usst.edu.cn" || host == "ids.usst.edu.cn") &&
+                (path.startsWith("/authserver/login") || path.startsWith("/cas/login"))
         } catch (_: Exception) {
             false
         }
@@ -369,7 +371,7 @@ class JwglWebActivity : AppCompatActivity() {
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(binding.webView, false)
+        cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
 
@@ -508,6 +510,11 @@ class JwglWebActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageStarted: host=$host, url=$url")
+                if (url != null && url.contains("login_slogin.html")) {
+                    Log.d(TAG, "onPageStarted detected login_slogin.html, redirecting to SSO entry: $SSO_ENTRY_URL")
+                    view?.loadUrl(SSO_ENTRY_URL)
+                    return
+                }
                 if (!isTrustedCasLoginUrl(url)) {
                     casAttemptCount = 0
                 }
@@ -519,9 +526,20 @@ class JwglWebActivity : AppCompatActivity() {
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageFinished: host=$host, url=$url")
 
+                if (url != null && url.contains("login_slogin.html")) {
+                    Log.d(TAG, "onPageFinished detected login_slogin.html, redirecting to SSO entry: $SSO_ENTRY_URL")
+                    view?.loadUrl(SSO_ENTRY_URL)
+                    return
+                }
+
+                // If on a successful destination page, sync fresh cookies back to JwglClient
+                if (url != null && (url.contains("jwglxt") || url.contains("index_initMenu") || url.contains("live.usst.edu.cn"))) {
+                    CookieSyncHelper.syncWebViewCookiesToJwgl()
+                }
+
                 // Auto-fill and submit unified auth (CAS) if landing on the login page (strictly validated)
-                if (isTrustedCasLoginUrl(url) && isTrustedCasLoginUrl(view?.url)) {
-                    if (casAttemptCount < 3) {
+                if (isTrustedCasLoginUrl(url) || isTrustedCasLoginUrl(view?.url)) {
+                    if (casAttemptCount < 5) {
                         val auth = AuthPreferences(this@JwglWebActivity)
                         val studentId = auth.getStudentId()
                         val password = auth.getPassword()
@@ -535,7 +553,7 @@ class JwglWebActivity : AppCompatActivity() {
                                     if (window._usstCasAutoLoginRunning) return;
                                     window._usstCasAutoLoginRunning = true;
 
-                                    var errEl = document.querySelector("#msg, .auth_error");
+                                    var errEl = document.querySelector("#msg, .auth_error, #showErrorTip, .error-message");
                                     if (errEl && errEl.innerText && errEl.innerText.trim().length > 0 && window.getComputedStyle(errEl).display !== 'none') {
                                         console.log("CAS error message visible, skipping auto-login:", errEl.innerText);
                                         return;
@@ -547,6 +565,7 @@ class JwglWebActivity : AppCompatActivity() {
                                         var u = document.querySelector("#username") || document.querySelector("input[name='username']");
                                         var p = document.querySelector("#password") || document.querySelector("input[name='password']");
                                         var btn = document.querySelector("button.auth_login_btn") || 
+                                                  document.querySelector(".auth_login_btn") || 
                                                   document.querySelector("button[type='submit']") || 
                                                   document.querySelector("input[type='submit']") || 
                                                   document.getElementById("login_submit");
@@ -563,7 +582,7 @@ class JwglWebActivity : AppCompatActivity() {
                                             setTimeout(function() {
                                                 console.log("Triggering CAS form submit...");
                                                 btn.click();
-                                            }, 250);
+                                            }, 200);
                                         } else if (attempts > 30) {
                                             clearInterval(timer);
                                             window._usstCasAutoLoginRunning = false;
@@ -776,6 +795,13 @@ class JwglWebActivity : AppCompatActivity() {
                     return true
                 }
 
+                val urlStr = uri.toString()
+                if (urlStr.contains("login_slogin.html")) {
+                    Log.d(TAG, "Intercepted login_slogin.html navigation, redirecting to SSO entry: $SSO_ENTRY_URL")
+                    view?.loadUrl(SSO_ENTRY_URL)
+                    return true
+                }
+
                 if (!isAllowedUsstHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
                     Toast.makeText(this@JwglWebActivity, "已拦截非校园网域名访问: ${host ?: ""}", Toast.LENGTH_SHORT).show()
@@ -790,6 +816,29 @@ class JwglWebActivity : AppCompatActivity() {
 
                 return false
             }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url == null) return false
+                val uri = Uri.parse(url)
+                val scheme = uri.scheme?.lowercase() ?: return true
+                val host = uri.host
+                if (scheme != "http" && scheme != "https") return true
+                if (url.contains("login_slogin.html")) {
+                    Log.d(TAG, "Intercepted login_slogin.html navigation (legacy), redirecting to SSO entry: $SSO_ENTRY_URL")
+                    view?.loadUrl(SSO_ENTRY_URL)
+                    return true
+                }
+                if (!isAllowedUsstHost(host)) {
+                    return true
+                }
+                if (scheme == "http") {
+                    val httpsUrl = uri.buildUpon().scheme("https").build().toString()
+                    view?.loadUrl(httpsUrl)
+                    return true
+                }
+                return false
+            }
         }
     }
 
@@ -798,25 +847,39 @@ class JwglWebActivity : AppCompatActivity() {
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
 
-        if (targetUrl.contains("live.usst.edu.cn")) {
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.setCookie("https://ids6.usst.edu.cn/", "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure")
-            cookieManager.flush()
-            binding.layoutLoading.visibility = View.GONE
-            binding.webView.loadUrl(LIVE_TARGET_URL)
-            return
+        // 1. 同步 JwglClient (OkHttp) 已有的 CAS SSO 与教务 Cookie (尤其是 CASTGC) 至 WebView
+        CookieSyncHelper.syncJwglCookiesToWebView()
+
+        val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
+        val isWebVpnXg = targetUrl.contains("new2017.webvpn.usst.edu.cn")
+        val isJwgl = targetUrl == DEFAULT_TARGET_URL || targetUrl.contains("jwgl.usst.edu.cn")
+
+        val effectiveTargetUrl = when {
+            isLiveUrl -> LIVE_TARGET_URL
+            isWebVpnXg -> "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
+            isJwgl && targetUrl == DEFAULT_TARGET_URL -> SSO_ENTRY_URL
+            else -> targetUrl
         }
 
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
+            // 如果已有有效会话，直接载入目标 URL（凭证已通过 CookieSyncHelper 注入）
+            if (JwglClient.hasValidSession() && !isWebVpnXg) {
+                binding.layoutLoading.visibility = View.GONE
+                binding.webView.loadUrl(effectiveTargetUrl)
+                return
+            }
+
+            // 若尚未建立有效会话，后台发起 SSO 会话建立与凭据同步
             binding.layoutLoading.visibility = View.VISIBLE
             binding.tvLoadingMessage.text = when {
-                targetUrl.contains("new2017") -> "正在为学工一体化认证统一登录会话..."
-                else -> "正在为教务系统认证网页会话..."
+                isWebVpnXg -> "正在为学工一体化认证统一登录会话..."
+                isLiveUrl -> "正在为课程直录播平台认证统一登录会话..."
+                else -> "正在为教务系统认证统一登录会话..."
             }
 
             lifecycleScope.launch {
                 val loginResult = withContext(Dispatchers.IO) {
-                    if (targetUrl.contains("new2017.webvpn.usst.edu.cn")) {
+                    if (isWebVpnXg) {
                         JwglClient.loginWebVpn(studentId, password)
                     } else {
                         JwglClient.login(studentId, password).map { Unit }
@@ -824,61 +887,17 @@ class JwglWebActivity : AppCompatActivity() {
                 }
 
                 loginResult.onSuccess {
-                    val finalUrl = withContext(Dispatchers.IO) {
-                        if (targetUrl.contains("new2017.webvpn.usst.edu.cn")) {
-                            "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
-                        } else {
-                            targetUrl
-                        }
-                    }
-                    syncCookiesToWebView()
-                    binding.webView.loadUrl(finalUrl)
+                    CookieSyncHelper.syncJwglCookiesToWebView()
+                    binding.webView.loadUrl(effectiveTargetUrl)
                 }.onFailure { e ->
-                    Log.w(TAG, "SSO login refresh failed", e)
-                    syncCookiesToWebView()
-                    val fallbackUrl = when {
-                        targetUrl.contains("new2017.webvpn.usst.edu.cn") ->
-                            "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
-                        else -> targetUrl
-                    }
-                    binding.webView.loadUrl(fallbackUrl)
+                    Log.w(TAG, "SSO login refresh failed, fallback to direct load with JS autofill", e)
+                    CookieSyncHelper.syncJwglCookiesToWebView()
+                    binding.webView.loadUrl(effectiveTargetUrl)
                 }
             }
         } else {
-            val urlToLoad = when {
-                targetUrl.contains("new2017.webvpn.usst.edu.cn") ->
-                    "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
-                else -> targetUrl
-            }
-            binding.webView.loadUrl(urlToLoad)
+            binding.webView.loadUrl(effectiveTargetUrl)
         }
-    }
-
-    private fun syncCookiesToWebView() {
-        val cookieManager = CookieManager.getInstance()
-        val cookies = JwglClient.getCookies()
-
-        for (cookie in cookies) {
-            val cleanDomain = cookie.domain.trimStart('.')
-            if (!isAllowedUsstHost(cleanDomain)) continue
-
-            val secureAttr = if (cookie.secure) "; Secure" else ""
-            val httpOnlyAttr = if (cookie.httpOnly) "; HttpOnly" else ""
-
-            // 1. Origin URL with original path
-            val originUrl = "https://$cleanDomain${cookie.path}"
-            val exactCookieStr = "${cookie.name}=${cookie.value}; Path=${cookie.path}$secureAttr$httpOnlyAttr"
-            cookieManager.setCookie(originUrl, exactCookieStr)
-
-            // 2. Set with root Path=/ so all subpaths (e.g. /authserver/login) inherit it
-            val rootCookieStr = "${cookie.name}=${cookie.value}; Path=/$secureAttr$httpOnlyAttr"
-            cookieManager.setCookie("https://$cleanDomain/", rootCookieStr)
-        }
-
-        // Pre-configure LOCALE to avoid page reload loops in CAS login-language.js
-        cookieManager.setCookie("https://ids6.usst.edu.cn/", "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure")
-        cookieManager.flush()
-        Log.d(TAG, "Synced ${cookies.size} cookies to Android WebView")
     }
 
 

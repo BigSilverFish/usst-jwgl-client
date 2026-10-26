@@ -41,6 +41,9 @@ object CookieSyncHelper {
                     val domainCookieStr = "${cookie.name}=${cookie.value}; Domain=.usst.edu.cn; Path=/$secureAttr$httpOnlyAttr"
                     cookieManager.setCookie("https://usst.edu.cn/", domainCookieStr)
                     cookieManager.setCookie("https://ids6.usst.edu.cn/", rootCookieStr)
+                    cookieManager.setCookie("https://cas.usst.edu.cn/", rootCookieStr)
+                    cookieManager.setCookie("https://jwgl.usst.edu.cn/", rootCookieStr)
+                    cookieManager.setCookie("https://live.usst.edu.cn/", rootCookieStr)
                     cookieManager.setCookie("https://ehall.usst.edu.cn/", rootCookieStr)
                     cookieManager.setCookie("https://1906.usst.edu.cn/", rootCookieStr)
                     cookieManager.setCookie("https://1906.usst.edu.cn:8600/", rootCookieStr)
@@ -50,6 +53,10 @@ object CookieSyncHelper {
             // 预配置 LOCALE，避免 CAS 语言重载循环
             cookieManager.setCookie(
                 "https://ids6.usst.edu.cn/",
+                "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure"
+            )
+            cookieManager.setCookie(
+                "https://cas.usst.edu.cn/",
                 "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure"
             )
             cookieManager.flush()
@@ -72,6 +79,9 @@ object CookieSyncHelper {
                 "https://jwgl.usst.edu.cn/" to "jwgl.usst.edu.cn",
                 "https://ids6.usst.edu.cn/authserver/" to "ids6.usst.edu.cn",
                 "https://ids6.usst.edu.cn/" to "ids6.usst.edu.cn",
+                "https://cas.usst.edu.cn/authserver/" to "cas.usst.edu.cn",
+                "https://cas.usst.edu.cn/" to "cas.usst.edu.cn",
+                "https://live.usst.edu.cn/" to "live.usst.edu.cn",
                 "https://ehall.usst.edu.cn/" to "ehall.usst.edu.cn",
                 "https://usst.edu.cn/" to "usst.edu.cn"
             )
