@@ -114,24 +114,26 @@ object CoordinateUtils {
      */
     val USST_BUILDINGS = listOf(
         // 军工路516号校区
-        CampusBuilding("b_516_1j_m", "一教中", "军工路516号", 31.29464, 121.55350, listOf("一教中", "一教中区", "一教", "1教", "第一教学楼")),
+        CampusBuilding("b_516_1j_m", "一教中", "军工路516号", 31.29464, 121.55350, listOf("一教中", "一教中区", "第一教学楼中")),
         CampusBuilding("b_516_1j_e", "一教东", "军工路516号", 31.29480, 121.55410, listOf("一教东", "一教东区", "第一教学楼东")),
         CampusBuilding("b_516_1j_w", "一教西", "军工路516号", 31.29420, 121.55317, listOf("一教西", "一教西区", "第一教学楼西")),
-        CampusBuilding("b_516_3j_e", "三教东", "军工路516号", 31.29795, 121.55377, listOf("三教东", "三教东区", "三教", "3教", "第三教学楼", "第三教学楼东")),
+        CampusBuilding("b_516_3j_e", "三教东", "军工路516号", 31.29795, 121.55377, listOf("三教东", "三教东区", "第三教学楼东")),
         CampusBuilding("b_516_3j_w", "三教西", "军工路516号", 31.29773, 121.55332, listOf("三教西", "三教西区", "第三教学楼西")),
-        CampusBuilding("b_516_4j_e", "四教东", "军工路516号", 31.28953, 121.55543, listOf("四教东", "四教东区", "四教", "4教", "第四教学楼", "第四教学楼东")),
+        CampusBuilding("b_516_4j_e", "四教东", "军工路516号", 31.28953, 121.55543, listOf("四教东", "四教东区", "第四教学楼东")),
         CampusBuilding("b_516_4j_w", "四教西", "军工路516号", 31.28953, 121.55486, listOf("四教西", "四教西区", "第四教学楼西")),
-        CampusBuilding("b_516_zh_a", "综合楼A区", "军工路516号", 31.29286, 121.55070, listOf("综合楼A区", "综合楼A", "综楼A")),
-        CampusBuilding("b_516_zh_b", "综合楼B区", "军工路516号", 31.29330, 121.55136, listOf("综合楼B区", "综合楼B", "综楼B")),
-        CampusBuilding("b_516_zh_c", "综合楼C区", "军工路516号", 31.29241, 121.55112, listOf("综合楼C区", "综合楼C", "综楼C")),
-        CampusBuilding("b_516_zh_d", "综合楼D区", "军工路516号", 31.29285, 121.55145, listOf("综合楼D区", "综合楼D", "综楼D", "综合楼", "教学综合楼", "综楼")),
-        CampusBuilding("b_516_zy", "卓越楼", "军工路516号", 31.29168, 121.55278, listOf("卓越楼", "卓越")),
+        // 综合楼A/B/C/D区为四座相互独立的教学楼
+        CampusBuilding("b_516_zh_a", "综合楼A区", "军工路516号", 31.29286, 121.55070, listOf("综合楼A区", "综合楼A", "综A", "综楼A", "综合A", "教学综合楼A区", "教学综合楼A")),
+        CampusBuilding("b_516_zh_b", "综合楼B区", "军工路516号", 31.29330, 121.55136, listOf("综合楼B区", "综合楼B", "综B", "综楼B", "综合B", "教学综合楼B区", "教学综合楼B")),
+        CampusBuilding("b_516_zh_c", "综合楼C区", "军工路516号", 31.29241, 121.55112, listOf("综合楼C区", "综合楼C", "综C", "综楼C", "综合C", "教学综合楼C区", "教学综合楼C")),
+        CampusBuilding("b_516_zh_d", "综合楼D区", "军工路516号", 31.29285, 121.55145, listOf("综合楼D区", "综合楼D", "综D", "综楼D", "综合D", "教学综合楼D区", "教学综合楼D")),
+        CampusBuilding("b_516_zy", "卓越楼", "军工路516号", 31.29168, 121.55278, listOf("卓越楼", "卓越", "卓越工程大楼")),
         CampusBuilding("b_516_ggsy", "公共实验楼", "军工路516号", 31.29362, 121.55280, listOf("公共实验楼", "公实楼", "实验楼")),
         CampusBuilding("b_516_jsz", "计算中心", "军工路516号", 31.29829, 121.55274, listOf("计算中心", "计算机中心", "机房")),
         CampusBuilding("b_516_gys", "光仪所", "军工路516号", 31.29620, 121.55153, listOf("光仪所", "上海光学仪器研究所", "光仪所辅房")),
         CampusBuilding("b_516_gh", "国合楼", "军工路516号", 31.29045, 121.55408, listOf("国合楼", "国合", "国际交流合作楼")),
-        CampusBuilding("b_516_ty", "体育活动中心", "军工路516号", 31.29549, 121.55000, listOf("体育活动中心", "体育馆", "风雨操场")),
+        CampusBuilding("b_516_580_ty", "580体育活动中心", "军工路516号", 31.29549, 121.55000, listOf("580体育活动中心", "580体育馆", "580操场", "体育活动中心", "体育馆", "风雨操场")),
         CampusBuilding("b_516_xty", "新体育健身中心", "军工路516号", 31.29410, 121.55573, listOf("新体育健身中心", "健身中心", "新体育中心", "体育健身中心")),
+        CampusBuilding("b_516_bxty", "北校田径场", "军工路516号", 31.29412, 121.55474, listOf("北校田径场", "北田径场", "北区操场", "北操", "北操场")),
 
         // 军工路1100号校区
         CampusBuilding("b_1100_qx", "勤学楼", "军工路1100号", 31.30242, 121.54448, listOf("勤学", "勤学楼")),
@@ -145,13 +147,13 @@ object CoordinateUtils {
     )
 
     /**
-     * 根据教室名称或课程地点模糊匹配最近或对应的教学楼
+     * 根据教室名称或课程地点智能模糊匹配最近或对应的教学楼/签到覆盖点位
      */
     fun findMatchingBuilding(placeOrRoom: String?): CampusBuilding? {
         if (placeOrRoom.isNullOrBlank()) return null
         val lower = placeOrRoom.trim().lowercase()
 
-        // 1. 全名按长度降序优先匹配（避免短名如“体育活动中心”提前拦截“1100体育活动中心”）
+        // 1. 全名按长度降序优先匹配（避免短名提前拦截长名，如“580体育活动中心”与“1100体育活动中心”）
         val sortedByName = USST_BUILDINGS.sortedByDescending { it.name.length }
         for (b in sortedByName) {
             if (lower.contains(b.name.lowercase())) return b
@@ -166,17 +168,70 @@ object CoordinateUtils {
             if (lower.contains(alias.lowercase())) return b
         }
 
-        // 3. 通用关键字兜底匹配
-        if (lower.contains("一") || lower.contains("1")) {
-            return USST_BUILDINGS.find { it.id == "b_516_1j_m" } ?: USST_BUILDINGS.firstOrNull()
+        // 3. 多覆盖点单体建筑智能分流（一教、三教、四教是单栋大体量建筑，多个点位用于解决定位覆盖度问题）
+        val roomOffset = extractRoomOffset(lower)
+
+        // 3.1 第一教学楼（一教）：东、中、西多点覆盖
+        if (lower.contains("一教") || lower.contains("第一教学楼") || lower.contains("1教")) {
+            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_1j_e" }
+            if (lower.contains("西")) return USST_BUILDINGS.find { it.id == "b_516_1j_w" }
+            if (lower.contains("中")) return USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+            if (roomOffset != null) {
+                return when {
+                    roomOffset <= 19 -> USST_BUILDINGS.find { it.id == "b_516_1j_w" }
+                    roomOffset in 20..35 -> USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+                    else -> USST_BUILDINGS.find { it.id == "b_516_1j_e" }
+                } ?: USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+            }
+            return USST_BUILDINGS.find { it.id == "b_516_1j_m" }
         }
-        if (lower.contains("三") || lower.contains("3")) {
+
+        // 3.2 第三教学楼（三教）：东、西多点覆盖
+        if (lower.contains("三教") || lower.contains("第三教学楼") || lower.contains("3教")) {
+            if (lower.contains("西")) return USST_BUILDINGS.find { it.id == "b_516_3j_w" }
+            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_3j_e" }
+            if (roomOffset != null) {
+                return if (roomOffset <= 10) {
+                    USST_BUILDINGS.find { it.id == "b_516_3j_w" }
+                } else {
+                    USST_BUILDINGS.find { it.id == "b_516_3j_e" }
+                } ?: USST_BUILDINGS.find { it.id == "b_516_3j_e" }
+            }
             return USST_BUILDINGS.find { it.id == "b_516_3j_e" }
         }
-        if (lower.contains("四") || lower.contains("4")) {
+
+        // 3.3 第四教学楼（四教）：东、西多点覆盖
+        if (lower.contains("四教") || lower.contains("第四教学楼") || lower.contains("4教")) {
+            if (lower.contains("西")) return USST_BUILDINGS.find { it.id == "b_516_4j_w" }
+            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_4j_e" }
+            if (roomOffset != null) {
+                return if (roomOffset <= 12) {
+                    USST_BUILDINGS.find { it.id == "b_516_4j_w" }
+                } else {
+                    USST_BUILDINGS.find { it.id == "b_516_4j_e" }
+                } ?: USST_BUILDINGS.find { it.id == "b_516_4j_e" }
+            }
             return USST_BUILDINGS.find { it.id == "b_516_4j_e" }
         }
 
+        // 3.4 综合楼独立4座楼兜底（若未在别名命中，按分区字母匹配）
+        if (lower.contains("综合楼") || lower.contains("教学综合楼") || lower.contains("综楼")) {
+            return when {
+                lower.contains("a") -> USST_BUILDINGS.find { it.id == "b_516_zh_a" }
+                lower.contains("b") -> USST_BUILDINGS.find { it.id == "b_516_zh_b" }
+                lower.contains("c") -> USST_BUILDINGS.find { it.id == "b_516_zh_c" }
+                lower.contains("d") -> USST_BUILDINGS.find { it.id == "b_516_zh_d" }
+                else -> USST_BUILDINGS.find { it.id == "b_516_zh_a" }
+            }
+        }
+
         return null
+    }
+
+    private fun extractRoomOffset(input: String): Int? {
+        val matches = Regex("""(\d{3,4})""").findAll(input).toList()
+        if (matches.isEmpty()) return null
+        val lastNum = matches.last().value.toIntOrNull() ?: return null
+        return lastNum % 100
     }
 }

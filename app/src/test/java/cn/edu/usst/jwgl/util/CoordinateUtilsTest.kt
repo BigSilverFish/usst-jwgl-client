@@ -7,8 +7,8 @@ class CoordinateUtilsTest {
 
     @Test
     fun testBuildingCount() {
-        // 18 from 516 campus + 8 from 1100 campus = 26
-        assertEquals(26, CoordinateUtils.USST_BUILDINGS.size)
+        // 19 from 516 campus + 8 from 1100 campus = 27
+        assertEquals(27, CoordinateUtils.USST_BUILDINGS.size)
     }
 
     @Test
@@ -52,69 +52,81 @@ class CoordinateUtilsTest {
     }
 
     @Test
-    fun testFindMatchingBuilding_MainCampusBuildings() {
-        val b1m = CoordinateUtils.findMatchingBuilding("一教101")
-        assertNotNull(b1m)
-        assertEquals("一教中", b1m?.name)
+    fun testFindMatchingBuilding_CoverageRouting_Building1() {
+        // Explicit directions
+        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("一教东201")?.name)
+        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教西102")?.name)
+        assertEquals("一教中", CoordinateUtils.findMatchingBuilding("一教中101")?.name)
 
-        val b1e = CoordinateUtils.findMatchingBuilding("一教东201")
-        assertNotNull(b1e)
-        assertEquals("一教东", b1e?.name)
+        // Room number based routing
+        // Offset <= 19 -> 一教西
+        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教101")?.name)
+        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教 204")?.name)
+        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教116")?.name)
 
-        val b1w = CoordinateUtils.findMatchingBuilding("一教西102")
-        assertNotNull(b1w)
-        assertEquals("一教西", b1w?.name)
+        // Offset 20..35 -> 一教中
+        assertEquals("一教中", CoordinateUtils.findMatchingBuilding("一教221")?.name)
+        assertEquals("一教中", CoordinateUtils.findMatchingBuilding("第一教学楼330")?.name)
 
-        val b3e = CoordinateUtils.findMatchingBuilding("三教201")
-        assertNotNull(b3e)
-        assertEquals("三教东", b3e?.name)
+        // Offset >= 36 -> 一教东
+        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("一教340")?.name)
+        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("第一教学楼150")?.name)
 
-        val b3w = CoordinateUtils.findMatchingBuilding("三教西105")
-        assertNotNull(b3w)
-        assertEquals("三教西", b3w?.name)
+        // Default when no room number or direction
+        assertEquals("一教中", CoordinateUtils.findMatchingBuilding("第一教学楼")?.name)
+        assertEquals("一教中", CoordinateUtils.findMatchingBuilding("一教")?.name)
+    }
 
-        val b4e = CoordinateUtils.findMatchingBuilding("四教302")
-        assertNotNull(b4e)
-        assertEquals("四教东", b4e?.name)
+    @Test
+    fun testFindMatchingBuilding_CoverageRouting_Building3And4() {
+        // Building 3
+        assertEquals("三教西", CoordinateUtils.findMatchingBuilding("三教西105")?.name)
+        assertEquals("三教东", CoordinateUtils.findMatchingBuilding("三教东201")?.name)
+        assertEquals("三教西", CoordinateUtils.findMatchingBuilding("三教106")?.name) // offset 6 <= 10
+        assertEquals("三教东", CoordinateUtils.findMatchingBuilding("三教217")?.name) // offset 17 >= 11
+        assertEquals("三教东", CoordinateUtils.findMatchingBuilding("三教")?.name)
 
-        val b4w = CoordinateUtils.findMatchingBuilding("四教西201")
-        assertNotNull(b4w)
-        assertEquals("四教西", b4w?.name)
+        // Building 4
+        assertEquals("四教西", CoordinateUtils.findMatchingBuilding("四教西201")?.name)
+        assertEquals("四教东", CoordinateUtils.findMatchingBuilding("四教东302")?.name)
+        assertEquals("四教西", CoordinateUtils.findMatchingBuilding("四教105")?.name) // offset 5 <= 12
+        assertEquals("四教东", CoordinateUtils.findMatchingBuilding("四教221")?.name) // offset 21 >= 13
+        assertEquals("四教东", CoordinateUtils.findMatchingBuilding("四教")?.name)
+    }
 
-        val zha = CoordinateUtils.findMatchingBuilding("综合楼A区201")
-        assertNotNull(zha)
-        assertEquals("综合楼A区", zha?.name)
+    @Test
+    fun testFindMatchingBuilding_IndependentComprehensiveBuildings() {
+        // Zone A
+        assertEquals("综合楼A区", CoordinateUtils.findMatchingBuilding("综合楼A区201")?.name)
+        assertEquals("综合楼A区", CoordinateUtils.findMatchingBuilding("综A101")?.name)
+        assertEquals("综合楼A区", CoordinateUtils.findMatchingBuilding("综合A204")?.name)
 
-        val zhd = CoordinateUtils.findMatchingBuilding("教学综合楼301")
-        assertNotNull(zhd)
-        assertEquals("综合楼D区", zhd?.name)
+        // Zone B
+        assertEquals("综合楼B区", CoordinateUtils.findMatchingBuilding("综合楼B区105")?.name)
+        assertEquals("综合楼B区", CoordinateUtils.findMatchingBuilding("综B203")?.name)
 
-        val zy = CoordinateUtils.findMatchingBuilding("卓越楼101")
-        assertNotNull(zy)
-        assertEquals("卓越楼", zy?.name)
+        // Zone C
+        assertEquals("综合楼C区", CoordinateUtils.findMatchingBuilding("综合楼C区317")?.name)
+        assertEquals("综合楼C区", CoordinateUtils.findMatchingBuilding("综C110")?.name)
 
-        val ggsy = CoordinateUtils.findMatchingBuilding("公共实验楼302")
-        assertNotNull(ggsy)
-        assertEquals("公共实验楼", ggsy?.name)
+        // Zone D
+        assertEquals("综合楼D区", CoordinateUtils.findMatchingBuilding("综合楼D区402")?.name)
+        assertEquals("综合楼D区", CoordinateUtils.findMatchingBuilding("综D301")?.name)
 
-        val jsz = CoordinateUtils.findMatchingBuilding("计算中心机房")
-        assertNotNull(jsz)
-        assertEquals("计算中心", jsz?.name)
+        // Fallback for general 综合楼 without zone
+        assertEquals("综合楼A区", CoordinateUtils.findMatchingBuilding("教学综合楼")?.name)
+    }
 
-        val gys = CoordinateUtils.findMatchingBuilding("光仪所201")
-        assertNotNull(gys)
-        assertEquals("光仪所", gys?.name)
-
-        val gh = CoordinateUtils.findMatchingBuilding("国合楼报告厅")
-        assertNotNull(gh)
-        assertEquals("国合楼", gh?.name)
-
-        val ty = CoordinateUtils.findMatchingBuilding("体育活动中心")
-        assertNotNull(ty)
-        assertEquals("体育活动中心", ty?.name)
-
-        val xty = CoordinateUtils.findMatchingBuilding("新体育健身中心")
-        assertNotNull(xty)
-        assertEquals("新体育健身中心", xty?.name)
+    @Test
+    fun testFindMatchingBuilding_OtherPoints() {
+        assertEquals("卓越楼", CoordinateUtils.findMatchingBuilding("卓越楼101")?.name)
+        assertEquals("公共实验楼", CoordinateUtils.findMatchingBuilding("公共实验楼302")?.name)
+        assertEquals("计算中心", CoordinateUtils.findMatchingBuilding("计算中心机房")?.name)
+        assertEquals("光仪所", CoordinateUtils.findMatchingBuilding("光仪所201")?.name)
+        assertEquals("国合楼", CoordinateUtils.findMatchingBuilding("国合楼报告厅")?.name)
+        assertEquals("580体育活动中心", CoordinateUtils.findMatchingBuilding("580体育活动中心")?.name)
+        assertEquals("580体育活动中心", CoordinateUtils.findMatchingBuilding("体育活动中心")?.name)
+        assertEquals("新体育健身中心", CoordinateUtils.findMatchingBuilding("新体育健身中心")?.name)
+        assertEquals("北校田径场", CoordinateUtils.findMatchingBuilding("北校田径场")?.name)
     }
 }
