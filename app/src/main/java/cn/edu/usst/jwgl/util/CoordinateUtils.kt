@@ -178,9 +178,9 @@ object CoordinateUtils {
             if (lower.contains("中")) return USST_BUILDINGS.find { it.id == "b_516_1j_m" }
             if (roomOffset != null) {
                 return when {
-                    roomOffset <= 19 -> USST_BUILDINGS.find { it.id == "b_516_1j_w" }
+                    roomOffset <= 19 -> USST_BUILDINGS.find { it.id == "b_516_1j_e" }
                     roomOffset in 20..35 -> USST_BUILDINGS.find { it.id == "b_516_1j_m" }
-                    else -> USST_BUILDINGS.find { it.id == "b_516_1j_e" }
+                    else -> USST_BUILDINGS.find { it.id == "b_516_1j_w" }
                 } ?: USST_BUILDINGS.find { it.id == "b_516_1j_m" }
             }
             return USST_BUILDINGS.find { it.id == "b_516_1j_m" }

@@ -59,18 +59,18 @@ class CoordinateUtilsTest {
         assertEquals("一教中", CoordinateUtils.findMatchingBuilding("一教中101")?.name)
 
         // Room number based routing
-        // Offset <= 19 -> 一教西
-        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教101")?.name)
-        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教 204")?.name)
-        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教116")?.name)
+        // Offset <= 19 -> 一教东
+        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("一教101")?.name)
+        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("一教 204")?.name)
+        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("一教116")?.name)
 
         // Offset 20..35 -> 一教中
         assertEquals("一教中", CoordinateUtils.findMatchingBuilding("一教221")?.name)
         assertEquals("一教中", CoordinateUtils.findMatchingBuilding("第一教学楼330")?.name)
 
-        // Offset >= 36 -> 一教东
-        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("一教340")?.name)
-        assertEquals("一教东", CoordinateUtils.findMatchingBuilding("第一教学楼150")?.name)
+        // Offset >= 36 -> 一教西
+        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("一教340")?.name)
+        assertEquals("一教西", CoordinateUtils.findMatchingBuilding("第一教学楼150")?.name)
 
         // Default when no room number or direction
         assertEquals("一教中", CoordinateUtils.findMatchingBuilding("第一教学楼")?.name)
