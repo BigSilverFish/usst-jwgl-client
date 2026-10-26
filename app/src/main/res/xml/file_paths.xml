@@ -5,6 +5,5 @@
     <files-path name="internal_files_download" path="Download/" />
     <files-path name="internal_files_downloads" path="downloads/" />
     <cache-path name="pending_uploads" path="pending_uploads/" />
-    <cache-path name="cache_root" path="." />
     <cache-path name="internal_cache_pdf" path="grade_reports/" />
 </paths>

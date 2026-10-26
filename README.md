@@ -168,11 +168,11 @@
 | 安全维度 | 加固措施与实现原理 |
 | :--- | :--- |
 | **凭据硬件级加密** | 教务账密与畅课凭据全面采用 Google Jetpack `EncryptedSharedPreferences` + Android Keystore (AES-256 SIV/GCM) 硬件级加密存储；冷启动自动无感迁移旧版明文数据并安全抹除；退出登录时全量清空所有凭据与离线缓存。 |
-| **通信传输安全** | `network_security_config.xml` 全局强制禁用明文 HTTP (`cleartextTrafficPermitted="false"`)，彻底杜绝 Wi-Fi 局域网窃听与中间人劫持；OkHttp 拦截器严格校验目标域名白名单，防范鉴权 Session 凭证外泄。 |
+| **通信传输安全** | `network_security_config.xml` 默认全局禁用明文 HTTP (`cleartextTrafficPermitted="false"`)，同时针对校方部分历史教务系统与内网直录播服务器尚未部署 SSL/HTTPS 的客观情况，仅对 `*.usst.edu.cn` 校园受信域名保留必要的明文通信白名单例外；OkHttp 拦截器严格校验目标域名白名单，防范鉴权 Session 凭证外泄至第三方。 |
 | **CAS SSO 严格校验** | 严格核验 HTTPS scheme、官方认证权威域名（`ids6.usst.edu.cn`、`ids6-443.webvpn.usst.edu.cn`）及 `/authserver/login` 路径前缀，彻底防御钓鱼页面劫持。 |
 | **多账号防串染** | 进入畅课与教务前校验当前学号一致性，检测到账号切换自动刷新并重建离线缓存，防止多账号在同一设备使用产生数据串染。 |
-| **WebView 安全沙箱** | 生产 Release 构建全局关闭远程调试 (`setWebContentsDebuggingEnabled=false`)；全面禁用混合内容与第三方 Cookie。 |
-| **存储暴露收窄** | `FileProvider` 路径严格收缩在私有下载与报表目录（`Download/` 与 `grade_reports/`），禁止全盘目录遍历；禁用系统备份 (`allowBackup="false"`)。 |
+| **WebView 安全沙箱** | 生产 Release 构建全局关闭远程调试 (`setWebContentsDebuggingEnabled=false`)；全面禁用混合内容。 |
+| **存储暴露收窄** | `FileProvider` 路径严格收缩在私有下载（`Download/`、`downloads/`）、拍照暂存（`pending_uploads/`）与成绩报表（`grade_reports/`）等专有业务子目录，坚决杜绝根目录及全盘目录遍历暴露；禁用系统备份 (`allowBackup="false"`)。 |
 | **纯净本地运行** | **本 App 为开源学习交流项目，不设任何收集个人信息的外部中心服务器，全部教务数据与凭据均在本地受保护存储区运行。** |
 
 ---
@@ -182,7 +182,7 @@
 - **核心语言**：Kotlin 2.0+（全协程高并发异步架构）
 - **目标平台**：Android 7.0+ (API Level 24 ~ 36)，专为 64 位平台优化（`arm64-v8a`）
 - **UI 框架**：Material Design 3 (Material Components for Android) + ViewBinding + BlurView 动态毛玻璃
-- **架构组件**：Jetpack Lifecycle, ViewModel, Navigation, WorkManager, App Startup
+- **架构组件**：Jetpack Lifecycle (Runtime), WorkManager, AlarmManager, Material3 BottomSheet
 - **网络通信**：Square OkHttp 4.12, Jsoup 1.17, Google Gson 2.10
 - **安全加固**：AndroidX Security Crypto (Keystore AES-256 SIV/GCM)
 - **视觉识别**：Google ML Kit Barcode Scanning + CameraX (1.3.4)
@@ -208,7 +208,7 @@
   - **一键提取题目**：顶栏右侧新增快捷复制圆形按钮，一键将题目说明拷贝至剪贴板；
   - **界面冗余清理**：移除“更多功能”页无用副标题文本。
 - **🔒 安全复审全面加固**：
-  - 全局强制禁用明文 HTTP (`cleartextTrafficPermitted="false"`)；
+  - 默认全局禁用明文 HTTP (`cleartextTrafficPermitted="false"`)，仅对 `*.usst.edu.cn` 保留兼容内网老旧系统的必要白名单；
   - 畅课凭据升级为硬件级加密存储 (`EncryptedSharedPreferences`)；
   - CAS SSO 认证严格校验官方域名与 HTTPS 前缀；
   - 拦截器与图片加载器限制凭据外泄至非受信域名；

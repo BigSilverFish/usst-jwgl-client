@@ -1815,10 +1815,13 @@ suspend fun fetchSubmissionDetail(
                             prefs.setUserId(uid)
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to auto-resolve user ID via /api/users/me", e)
+                }
             }
 
             if (uid <= 0L) {
+                Log.w(TAG, "fetchCourseStudentRollcalls aborted: user ID is missing")
                 return@withContext Result.failure(Exception("无法获取当前用户信息，请重新登录一网畅学"))
             }
 
@@ -1828,6 +1831,7 @@ suspend fun fetchSubmissionDetail(
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
+                Log.w(TAG, "fetchCourseStudentRollcalls HTTP ${resp.code} for course $courseId: ${body.take(200)}")
                 return@withContext Result.failure(Exception("获取签到历史失败 (${resp.code})"))
             }
 
