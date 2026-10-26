@@ -41,8 +41,8 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var courseName: String? = null
     private var classroom: String? = null
 
-    private var selectedLatitude: Double = 31.29170
-    private var selectedLongitude: Double = 121.55420
+    private var selectedLatitude: Double = 31.29464
+    private var selectedLongitude: Double = 121.55350
     private var selectedAccuracy: Double = 15.0
 
     private var onSignSuccessListener: (() -> Unit)? = null
