@@ -32,6 +32,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -1792,5 +1793,99 @@ suspend fun fetchSubmissionDetail(
      * 获取视频/课件的在线流媒体播放 URL
      */
     fun getVideoStreamUrl(uploadId: Long): String = "$BASE_URL/api/uploads/$uploadId/blob"
+
+    /**
+     * 查询学生在指定课程下的历史签到记录
+     * GET /api/course/{courseId}/student/{studentId}/rollcalls
+     */
+    suspend fun fetchCourseStudentRollcalls(courseId: Long): Result<List<TronClassStudentRollcall>> = withContext(Dispatchers.IO) {
+        try {
+            var uid = prefs.getUserId()
+            if (uid <= 0L) {
+                // 尝试从 /api/users/me 补全用户 ID
+                try {
+                    val meReq = Request.Builder()
+                        .url("$BASE_URL/api/users/me")
+                        .build()
+                    val meResp = okHttpClient.newCall(meReq).execute()
+                    if (meResp.isSuccessful) {
+                        val meJson = JSONObject(meResp.body?.string() ?: "")
+                        uid = meJson.optLong("id", 0L)
+                        if (uid > 0L) {
+                            prefs.setUserId(uid)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if (uid <= 0L) {
+                return@withContext Result.failure(Exception("无法获取当前用户信息，请重新登录一网畅学"))
+            }
+
+            val url = "$BASE_URL/api/course/$courseId/student/$uid/rollcalls"
+            val req = Request.Builder().url(url).build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (!resp.isSuccessful) {
+                return@withContext Result.failure(Exception("获取签到历史失败 (${resp.code})"))
+            }
+
+            val list = mutableListOf<TronClassStudentRollcall>()
+            val trimmed = body.trim()
+            if (trimmed.startsWith("[")) {
+                val arr = JSONArray(trimmed)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(parseStudentRollcallJson(obj))
+                }
+            } else if (trimmed.startsWith("{")) {
+                val json = JSONObject(trimmed)
+                val arr = json.optJSONArray("rollcalls") ?: json.optJSONArray("data")
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(parseStudentRollcallJson(obj))
+                    }
+                }
+            }
+
+            // 按时间从新到旧倒序排序
+            list.sortByDescending { it.rollcallTime ?: it.createdAt ?: "" }
+
+            Result.success(list)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCourseStudentRollcalls failed for course $courseId", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun parseStudentRollcallJson(obj: JSONObject): TronClassStudentRollcall {
+        val rollcallId = obj.optLong("rollcall_id", obj.optLong("rollcallId", obj.optLong("id", 0L)))
+        val id = obj.optLong("id", rollcallId)
+        val title = obj.optString("title").takeIf { it.isNotBlank() }
+        val rollcallTime = obj.optString("rollcall_time", obj.optString("rollcallTime", obj.optString("created_at", ""))).takeIf { it.isNotBlank() }
+        val createdAt = obj.optString("created_at").takeIf { it.isNotBlank() }
+        val type = obj.optString("type").takeIf { it.isNotBlank() }
+        val isRadar = obj.optBoolean("is_radar", false)
+        val isNumber = obj.optBoolean("is_number", false)
+        val studentStatus = obj.optString("student_status", obj.optString("statusType", "")).takeIf { it.isNotBlank() }
+        val status = obj.optString("status").takeIf { it.isNotBlank() }
+        val rollcallStatus = obj.optString("rollcall_status", obj.optString("rollcallStatus", "")).takeIf { it.isNotBlank() }
+
+        return TronClassStudentRollcall(
+            rollcallId = rollcallId,
+            id = id,
+            title = title,
+            rollcallTime = rollcallTime,
+            createdAt = createdAt,
+            type = type,
+            isRadar = isRadar,
+            isNumber = isNumber,
+            studentStatus = studentStatus,
+            status = status,
+            rollcallStatus = rollcallStatus
+        )
+    }
 
 }

@@ -239,6 +239,116 @@ data class RollcallSubmitResult(
     val distance: Double? = null
 ) : Serializable
 
+data class TronClassStudentRollcall(
+    @SerializedName("rollcall_id")
+    val rollcallId: Long = 0L,
+
+    @SerializedName("id")
+    val id: Long = 0L,
+
+    @SerializedName("title")
+    val title: String? = null,
+
+    @SerializedName("rollcall_time")
+    val rollcallTime: String? = null,
+
+    @SerializedName("created_at")
+    val createdAt: String? = null,
+
+    @SerializedName("type")
+    val type: String? = null,
+
+    @SerializedName("is_radar")
+    val isRadar: Boolean = false,
+
+    @SerializedName("is_number")
+    val isNumber: Boolean = false,
+
+    @SerializedName("student_status")
+    val studentStatus: String? = null,
+
+    @SerializedName("status")
+    val status: String? = null,
+
+    @SerializedName("rollcall_status")
+    val rollcallStatus: String? = null
+) : Serializable {
+    fun getEffectiveId(): Long = if (id > 0) id else rollcallId
+
+    fun getEffectiveStatus(): String {
+        return studentStatus ?: status ?: ""
+    }
+
+    fun getStatusDisplayName(): String {
+        return when (getEffectiveStatus().lowercase()) {
+            "on_call_fine" -> "已出勤"
+            "on_call_arrive_late", "late" -> "迟到"
+            "on_call_leave_early", "leave_early" -> "早退"
+            "on_call_arrive_late_leave_early" -> "迟到早退"
+            "absent" -> "缺勤"
+            "on_leave", "leave", "on_personal_leave", "on_sick_leave", "on_public_leave" -> "请假"
+            "in_progress" -> "进行中"
+            else -> if (getEffectiveStatus().isNotBlank()) getEffectiveStatus() else "未知"
+        }
+    }
+
+    fun isAttended(): Boolean {
+        val s = getEffectiveStatus().lowercase()
+        return s == "on_call_fine"
+    }
+
+    fun isLateOrEarly(): Boolean {
+        val s = getEffectiveStatus().lowercase()
+        return s.contains("late") || s.contains("leave_early")
+    }
+
+    fun isAbsent(): Boolean {
+        val s = getEffectiveStatus().lowercase()
+        return s == "absent"
+    }
+
+    fun isLeave(): Boolean {
+        val s = getEffectiveStatus().lowercase()
+        return s.contains("leave") && !s.contains("leave_early")
+    }
+
+    fun getNormalizedType(): String {
+        if (isNumber || type == "number") return "number"
+        if (isRadar || type == "radar" || type == "roomis") return "radar"
+        if (type == "self_registration") return "self_registration"
+        if (type == "qr_code" || type == "qr") return "qr_code"
+        return type ?: "rollcall"
+    }
+
+    fun getTypeDisplayName(): String {
+        return when (getNormalizedType()) {
+            "number" -> "数字口令"
+            "radar" -> "雷达定位"
+            "self_registration" -> "自主签到"
+            "qr_code" -> "二维码"
+            "manual" -> "教师点名"
+            else -> "课堂签到"
+        }
+    }
+
+    fun getDisplayTitle(): String {
+        val t = title?.trim()
+        if (!t.isNullOrBlank()) return t
+        val typeName = getTypeDisplayName()
+        val timeStr = getFormattedTime()
+        return if (timeStr.isNotBlank()) "$typeName ($timeStr)" else typeName
+    }
+
+    fun getFormattedTime(): String {
+        val raw = rollcallTime ?: createdAt ?: return ""
+        return try {
+            raw.replace("T", " ").replace("Z", "").substringBeforeLast(".")
+        } catch (_: Exception) {
+            raw
+        }
+    }
+}
+
 data class TronClassModule(
     @SerializedName("id")
     val id: Long,

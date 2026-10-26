@@ -128,8 +128,8 @@ class TronClassCourseDetailFragment : Fragment() {
         binding.llHeaderBarContainer.post {
             val b = _binding ?: return@post
             val headerHeight = b.llHeaderBarContainer.height
-            val navBottom = mainAct?.getBottomInset() ?: (16 * density).toInt()
-            applyContentPadding(headerHeight, navBottom)
+            val bottomPadding = getCalculatedBottomPadding(mainAct?.getBottomInset() ?: 0)
+            applyContentPadding(headerHeight, bottomPadding)
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
@@ -146,7 +146,8 @@ class TronClassCourseDetailFragment : Fragment() {
             binding.llHeaderBarContainer.post {
                 val b = _binding ?: return@post
                 val headerHeight = b.llHeaderBarContainer.height
-                applyContentPadding(headerHeight, navBars.bottom)
+                val bottomPadding = getCalculatedBottomPadding(navBars.bottom)
+                applyContentPadding(headerHeight, bottomPadding)
             }
             insets
         }
@@ -172,7 +173,20 @@ class TronClassCourseDetailFragment : Fragment() {
         loadCourseData(forceRefresh = false)
     }
 
-    private fun applyContentPadding(headerHeight: Int, navBottom: Int) {
+    private fun getCalculatedBottomPadding(navBarsBottom: Int): Int {
+        val density = resources.displayMetrics.density
+        val bHeight = MainActivity.bottomBarHeightPx
+        val mainAct = activity as? MainActivity
+        return if (mainAct != null && bHeight > 0) {
+            bHeight + (16 * density).toInt()
+        } else if (mainAct != null) {
+            navBarsBottom + (80 * density).toInt()
+        } else {
+            navBarsBottom + (24 * density).toInt()
+        }
+    }
+
+    private fun applyContentPadding(headerHeight: Int, bottomPadding: Int) {
         val b = _binding ?: return
         val context = context ?: return
         val isPad = TabletLayoutHelper.isTabletLandscape(context)
@@ -180,10 +194,11 @@ class TronClassCourseDetailFragment : Fragment() {
         val hPad = if (isPad) (10 * density).toInt() else 0
 
         val wasUnpadded = b.rvActivities.paddingTop <= (8 * density).toInt()
-        b.rvActivities.setPadding(hPad, headerHeight, hPad, navBottom)
-        b.rvExams.setPadding(hPad, headerHeight, hPad, navBottom)
-        b.layoutMembers.setPadding(hPad, headerHeight, hPad, navBottom)
-        b.rvBulletins.setPadding(hPad, headerHeight, hPad, navBottom)
+        b.rvActivities.setPadding(hPad, headerHeight, hPad, bottomPadding)
+        b.rvExams.setPadding(hPad, headerHeight, hPad, bottomPadding)
+        b.layoutMembers.setPadding(hPad, headerHeight, hPad, 0)
+        b.rvMembers.setPadding(0, 0, 0, bottomPadding)
+        b.rvBulletins.setPadding(hPad, headerHeight, hPad, bottomPadding)
 
         if (wasUnpadded) {
             (b.rvActivities.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
@@ -197,6 +212,11 @@ class TronClassCourseDetailFragment : Fragment() {
             requireActivity().onBackPressedDispatcher.onBackPressed()
         }
         binding.tvHeaderPageTitle.text = courseName
+
+        binding.btnRollcallHistory.setOnClickListener {
+            val dialog = TronClassRollcallHistoryBottomSheetDialog.newInstance(courseId, courseName)
+            dialog.show(parentFragmentManager, "rollcall_history_$courseId")
+        }
 
         binding.btnRefresh.setOnClickListener {
             loadCourseData(forceRefresh = true)
