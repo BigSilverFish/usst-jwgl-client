@@ -276,39 +276,41 @@ data class TronClassStudentRollcall(
     fun getEffectiveId(): Long = if (id > 0) id else rollcallId
 
     fun getEffectiveStatus(): String {
-        return studentStatus ?: status ?: ""
+        return (studentStatus ?: status ?: "").lowercase().trim()
     }
 
     fun getStatusDisplayName(): String {
-        return when (getEffectiveStatus().lowercase()) {
-            "on_call_fine" -> "已出勤"
-            "on_call_arrive_late", "late" -> "迟到"
-            "on_call_leave_early", "leave_early" -> "早退"
-            "on_call_arrive_late_leave_early" -> "迟到早退"
-            "absent" -> "缺勤"
-            "on_leave", "leave", "on_personal_leave", "on_sick_leave", "on_public_leave" -> "请假"
-            "in_progress" -> "进行中"
-            else -> if (getEffectiveStatus().isNotBlank()) getEffectiveStatus() else "未知"
+        val s = getEffectiveStatus()
+        return when {
+            s == "on_call" || s == "on_call_fine" || s == "present" || s == "attended" -> "已到"
+            s == "on_call_arrive_late" || s == "late" -> "迟到"
+            s == "on_call_leave_early" || s == "leave_early" -> "早退"
+            s == "on_call_arrive_late_leave_early" -> "迟到早退"
+            s == "absent" -> "缺勤"
+            isLeave() -> "请假"
+            s == "in_progress" -> "进行中"
+            s.isNotBlank() -> s
+            else -> "未知"
         }
     }
 
     fun isAttended(): Boolean {
-        val s = getEffectiveStatus().lowercase()
-        return s == "on_call_fine"
+        val s = getEffectiveStatus()
+        return s == "on_call" || s == "on_call_fine" || s == "present" || s == "attended"
     }
 
     fun isLateOrEarly(): Boolean {
-        val s = getEffectiveStatus().lowercase()
+        val s = getEffectiveStatus()
         return s.contains("late") || s.contains("leave_early")
     }
 
     fun isAbsent(): Boolean {
-        val s = getEffectiveStatus().lowercase()
+        val s = getEffectiveStatus()
         return s == "absent"
     }
 
     fun isLeave(): Boolean {
-        val s = getEffectiveStatus().lowercase()
+        val s = getEffectiveStatus()
         return s.contains("leave") && !s.contains("leave_early")
     }
 
@@ -342,9 +344,22 @@ data class TronClassStudentRollcall(
     fun getFormattedTime(): String {
         val raw = rollcallTime ?: createdAt ?: return ""
         return try {
+            if (raw.contains("T") || raw.endsWith("Z")) {
+                val clean = raw.substringBefore(".")
+                val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault()).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }
+                val date = parser.parse(clean)
+                if (date != null) {
+                    val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).apply {
+                        timeZone = java.util.TimeZone.getDefault()
+                    }
+                    return formatter.format(date)
+                }
+            }
             raw.replace("T", " ").replace("Z", "").substringBeforeLast(".")
         } catch (_: Exception) {
-            raw
+            raw.replace("T", " ").replace("Z", "").substringBeforeLast(".")
         }
     }
 }

@@ -15,14 +15,23 @@ class TronClassRollcallHistoryTest {
         val attended = TronClassStudentRollcall(
             id = 101L,
             title = "第一周上机签到",
-            studentStatus = "on_call_fine",
+            studentStatus = "on_call",
             type = "radar"
         )
         assertTrue(attended.isAttended())
         assertFalse(attended.isAbsent())
         assertFalse(attended.isLateOrEarly())
-        assertEquals("已出勤", attended.getStatusDisplayName())
+        assertEquals("已到", attended.getStatusDisplayName())
         assertEquals("雷达定位", attended.getTypeDisplayName())
+
+        val attendedFine = TronClassStudentRollcall(
+            id = 1011L,
+            title = "正常出勤",
+            studentStatus = "on_call_fine",
+            type = "number"
+        )
+        assertTrue(attendedFine.isAttended())
+        assertEquals("已到", attendedFine.getStatusDisplayName())
 
         val late = TronClassStudentRollcall(
             id = 102L,
@@ -59,11 +68,11 @@ class TronClassRollcallHistoryTest {
             {
                 "rollcall_id": 998877,
                 "title": "移动端综合实验课签到",
-                "rollcall_time": "2026-03-24T10:15:30.000Z",
+                "rollcall_time": "2026-03-24 10:15:30",
                 "type": "radar",
                 "is_radar": true,
-                "status": "on_call_fine",
-                "student_status": "on_call_fine"
+                "status": "on_call",
+                "student_status": "on_call"
             }
         """.trimIndent()
 
@@ -78,10 +87,12 @@ class TronClassRollcallHistoryTest {
     @Test
     fun testAttendanceStatsCalculation() {
         val list = listOf(
-            TronClassStudentRollcall(id = 1L, studentStatus = "on_call_fine"),
-            TronClassStudentRollcall(id = 2L, studentStatus = "on_call_fine"),
-            TronClassStudentRollcall(id = 3L, studentStatus = "on_call_arrive_late"),
-            TronClassStudentRollcall(id = 4L, studentStatus = "absent")
+            TronClassStudentRollcall(id = 1L, studentStatus = "on_call"),
+            TronClassStudentRollcall(id = 2L, studentStatus = "on_call"),
+            TronClassStudentRollcall(id = 3L, studentStatus = "on_call"),
+            TronClassStudentRollcall(id = 4L, studentStatus = "on_call"),
+            TronClassStudentRollcall(id = 5L, studentStatus = "on_call"),
+            TronClassStudentRollcall(id = 6L, studentStatus = "absent")
         )
 
         val total = list.size
@@ -89,9 +100,9 @@ class TronClassRollcallHistoryTest {
         val abnormal = list.count { it.isAbsent() || it.isLateOrEarly() }
         val ratePercent = if (total > 0) ((attended * 100f) / total).toInt() else 100
 
-        assertEquals(4, total)
-        assertEquals(2, attended)
-        assertEquals(2, abnormal)
-        assertEquals(50, ratePercent)
+        assertEquals(6, total)
+        assertEquals(5, attended)
+        assertEquals(1, abnormal)
+        assertEquals(83, ratePercent)
     }
 }
