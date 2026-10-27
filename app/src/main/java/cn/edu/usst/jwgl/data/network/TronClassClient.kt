@@ -116,9 +116,9 @@ class TronClassClient(private val context: Context) {
     /**
      * 1. 使用 OAuth Authorization Code 换取 Access Token 并完成登录
      */
-    suspend fun loginWithAuthCode(authCode: String): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun loginWithAuthCode(authCode: String, studentId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Exchanging auth code for tokens...")
+            Log.d(TAG, "Exchanging auth code for tokens (studentId=$studentId)...")
             val tokenUrl = "$AUTH_SERVER_URL/realms/usst/protocol/openid-connect/token"
             val formBody = FormBody.Builder()
                 .add("grant_type", "authorization_code")
@@ -148,7 +148,7 @@ class TronClassClient(private val context: Context) {
                 return@withContext Result.failure(Exception("认证Token为空"))
             }
 
-            exchangeAccessTokenForSession(accessToken, refreshToken)
+            exchangeAccessTokenForSession(accessToken, refreshToken, studentId)
         } catch (e: Exception) {
             Log.e(TAG, "loginWithAuthCode failed", e)
             Result.failure(e)
@@ -158,10 +158,14 @@ class TronClassClient(private val context: Context) {
     /**
      * 2. 将 Access Token 提交至 TronClass 换取真正的 sessionID
      */
-    suspend fun exchangeAccessTokenForSession(accessToken: String, refreshToken: String? = null): Result<Boolean> =
+    suspend fun exchangeAccessTokenForSession(
+        accessToken: String,
+        refreshToken: String? = null,
+        studentId: String? = null
+    ): Result<Boolean> =
         withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Exchanging access token for TronClass session...")
+                Log.d(TAG, "Exchanging access token for TronClass session (studentId=$studentId)...")
                 val loginUrl = "$BASE_URL/api/login?login=access_token"
                 val payload = JSONObject().apply {
                     put("access_token", accessToken)
@@ -211,7 +215,7 @@ class TronClassClient(private val context: Context) {
                 val userEmail = if (json.has("email")) json.optString("email", "") else (userObj?.optString("email", "") ?: "")
 
                 if (userNo.isBlank()) {
-                    userNo = AuthPreferences(context).getStudentId().trim()
+                    userNo = if (!studentId.isNullOrBlank()) studentId else AuthPreferences(context).getStudentId().trim()
                 }
 
                 // 若基础信息不完整，尝试从 /api/users/me 获取详情补充
@@ -246,7 +250,8 @@ class TronClassClient(private val context: Context) {
                     userId = finalUserId,
                     userName = if (finalUserName.isNotBlank()) finalUserName else null,
                     userNo = if (finalUserNo.isNotBlank()) finalUserNo else null,
-                    userEmail = if (finalUserEmail.isNotBlank()) finalUserEmail else null
+                    userEmail = if (finalUserEmail.isNotBlank()) finalUserEmail else null,
+                    studentId = studentId
                 )
 
                 Log.d(TAG, "TronClass session established successfully! User: $finalUserName ($finalUserNo)")
@@ -260,8 +265,8 @@ class TronClassClient(private val context: Context) {
     /**
      * 3. 使用 RefreshToken 自动刷新 Session
      */
-    suspend fun refreshSession(): Result<Boolean> = withContext(Dispatchers.IO) {
-        val refreshToken = prefs.getRefreshToken()
+    suspend fun refreshSession(studentId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        val refreshToken = prefs.getRefreshToken(studentId)
         if (refreshToken.isNullOrBlank()) {
             return@withContext Result.failure(Exception("无有效刷新凭证，请重新登录"))
         }
@@ -291,7 +296,7 @@ class TronClassClient(private val context: Context) {
             val newAccessToken = tokenJson.optString("access_token")
             val newRefreshToken = tokenJson.optString("refresh_token", refreshToken)
 
-            exchangeAccessTokenForSession(newAccessToken, newRefreshToken)
+            exchangeAccessTokenForSession(newAccessToken, newRefreshToken, studentId)
         } catch (e: Exception) {
             Log.e(TAG, "refreshSession failed", e)
             Result.failure(e)
@@ -493,20 +498,31 @@ class TronClassClient(private val context: Context) {
      * PUT /api/rollcall/{rollcallId}/answer_qr_rollcall
      * Body: { "data": qrTokenData, "deviceId": deviceId }
      */
-    suspend fun answerQRRollcall(rollcallId: Long, qrTokenData: String): Result<RollcallSubmitResult> =
+    suspend fun answerQRRollcall(
+        rollcallId: Long,
+        qrTokenData: String,
+        customSessionId: String? = null,
+        customDeviceId: String? = null
+    ): Result<RollcallSubmitResult> =
         withContext(Dispatchers.IO) {
             try {
                 val url = "$BASE_URL/api/rollcall/$rollcallId/answer_qr_rollcall"
+                val targetDeviceId = customDeviceId ?: prefs.getDeviceId()
                 val payload = JSONObject().apply {
                     put("data", qrTokenData)
-                    put("deviceId", prefs.getDeviceId())
+                    put("deviceId", targetDeviceId)
                 }
 
-                val req = Request.Builder()
+                val reqBuilder = Request.Builder()
                     .url(url)
                     .put(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
 
+                if (!customSessionId.isNullOrBlank()) {
+                    reqBuilder.header("x-session-id", customSessionId)
+                    reqBuilder.header("Cookie", "session_id=$customSessionId")
+                }
+
+                val req = reqBuilder.build()
                 val resp = okHttpClient.newCall(req).execute()
                 val body = resp.body?.string() ?: ""
 
@@ -534,7 +550,12 @@ class TronClassClient(private val context: Context) {
      * PUT /api/rollcall/{rollcallId}/answer_number_rollcall
      * Body: { "numberCode": "1234", "deviceId": deviceId }
      */
-    suspend fun answerNumberRollcall(rollcallId: Long, numberCode: String): Result<RollcallSubmitResult> =
+    suspend fun answerNumberRollcall(
+        rollcallId: Long,
+        numberCode: String,
+        customSessionId: String? = null,
+        customDeviceId: String? = null
+    ): Result<RollcallSubmitResult> =
         withContext(Dispatchers.IO) {
             try {
                 var targetRollcallId = rollcallId
@@ -546,16 +567,22 @@ class TronClassClient(private val context: Context) {
                     return@withContext Result.failure(Exception("暂无正在签到的课程，请确认任课教师已在课堂开启签到"))
                 }
                 val url = "$BASE_URL/api/rollcall/$targetRollcallId/answer_number_rollcall"
+                val targetDeviceId = customDeviceId ?: prefs.getDeviceId()
                 val payload = JSONObject().apply {
                     put("numberCode", numberCode.trim())
-                    put("deviceId", prefs.getDeviceId())
+                    put("deviceId", targetDeviceId)
                 }
 
-                val req = Request.Builder()
+                val reqBuilder = Request.Builder()
                     .url(url)
                     .put(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
 
+                if (!customSessionId.isNullOrBlank()) {
+                    reqBuilder.header("x-session-id", customSessionId)
+                    reqBuilder.header("Cookie", "session_id=$customSessionId")
+                }
+
+                val req = reqBuilder.build()
                 val resp = okHttpClient.newCall(req).execute()
                 val body = resp.body?.string() ?: ""
 
@@ -607,12 +634,15 @@ class TronClassClient(private val context: Context) {
         rollcallId: Long,
         latitude: Double,
         longitude: Double,
-        accuracy: Double = 15.0
+        accuracy: Double = 15.0,
+        customSessionId: String? = null,
+        customDeviceId: String? = null
     ): Result<RollcallSubmitResult> = withContext(Dispatchers.IO) {
         try {
             val url = "$BASE_URL/api/rollcall/$rollcallId/answer?api_version=1.76"
+            val targetDeviceId = customDeviceId ?: prefs.getDeviceId()
             val payload = JSONObject().apply {
-                put("deviceId", prefs.getDeviceId())
+                put("deviceId", targetDeviceId)
                 put("latitude", latitude)
                 put("longitude", longitude)
                 put("accuracy", accuracy)
@@ -620,13 +650,18 @@ class TronClassClient(private val context: Context) {
                 put("radarSignal", JSONObject.NULL)
             }
 
-            Log.i(TAG, "Submitting radar rollcall: rollcallId=$rollcallId, lat=$latitude, lng=$longitude, devId=${prefs.getDeviceId()}")
+            Log.i(TAG, "Submitting radar rollcall: rollcallId=$rollcallId, lat=$latitude, lng=$longitude, devId=$targetDeviceId, hasCustomSession=${!customSessionId.isNullOrBlank()}")
 
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(url)
                 .put(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-                .build()
 
+            if (!customSessionId.isNullOrBlank()) {
+                reqBuilder.header("x-session-id", customSessionId)
+                reqBuilder.header("Cookie", "session_id=$customSessionId")
+            }
+
+            val req = reqBuilder.build()
             val resp = okHttpClient.newCall(req).execute()
             val body = resp.body?.string() ?: ""
             Log.i(TAG, "Radar rollcall response code=${resp.code}, body=$body")
@@ -661,6 +696,304 @@ class TronClassClient(private val context: Context) {
             Log.e(TAG, "answerRadarRollcall error", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * 9.3 纯后台静默完成指定账号的 CAS SSO -> Keycloak OAuth -> TronClass 凭据授权
+     */
+    suspend fun silentLoginTronClass(studentId: String, password: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (studentId.isBlank() || password.isBlank()) {
+            return@withContext Result.failure(Exception("学号或密码为空"))
+        }
+        try {
+            Log.i(TAG, "Starting silent TronClass SSO login for $studentId...")
+            val cookieStore = java.util.concurrent.ConcurrentHashMap<String, String>()
+            val tempClient = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .cookieJar(object : okhttp3.CookieJar {
+                    override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                        for (c in cookies) {
+                            cookieStore["${c.domain}:${c.name}"] = c.value
+                        }
+                    }
+                    override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                        val list = mutableListOf<okhttp3.Cookie>()
+                        for ((k, v) in cookieStore) {
+                            val (domain, name) = k.split(":", limit = 2)
+                            if (url.host.contains(domain) || domain.contains(url.host)) {
+                                list.add(okhttp3.Cookie.Builder().domain(url.host).name(name).value(v).build())
+                            }
+                        }
+                        return list
+                    }
+                })
+                .build()
+
+            // 1. 发起 OAuth 授权请求
+            val authUrl = getOAuthAuthUrl()
+            val initReq = Request.Builder()
+                .url(authUrl)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 16; TronClass/2.16.1)")
+                .get()
+                .build()
+
+            val initResp = tempClient.newCall(initReq).execute()
+            val finalUrl = initResp.request.url.toString()
+            val html = initResp.body?.string() ?: ""
+
+            var authCode = initResp.request.url.queryParameter("code")
+
+            // 2. 如果重定向到了 CAS 统一身份认证登录页，解析隐藏表单并提交账号密码
+            if (authCode.isNullOrBlank() && finalUrl.contains("authserver/login")) {
+                val doc = org.jsoup.Jsoup.parse(html)
+                val lt = doc.select("input[name=lt]").`val`()
+                val execution = doc.select("input[name=execution]").`val`()
+                val eventId = doc.select("input[name=_eventId]").`val`().ifEmpty { "submit" }
+
+                if (lt.isEmpty() || execution.isEmpty()) {
+                    return@withContext Result.failure(Exception("无法解析统一认证 CAS 令牌"))
+                }
+
+                val formBody = FormBody.Builder()
+                    .add("username", studentId.trim())
+                    .add("password", password.trim())
+                    .add("lt", lt)
+                    .add("dllt", "userNamePasswordLogin")
+                    .add("execution", execution)
+                    .add("_eventId", eventId)
+                    .add("rmShown", "1")
+                    .build()
+
+                val loginReq = Request.Builder()
+                    .url(finalUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 16; TronClass/2.16.1)")
+                    .header("Referer", finalUrl)
+                    .post(formBody)
+                    .build()
+
+                val loginResp = tempClient.newCall(loginReq).execute()
+                val afterLoginUrl = loginResp.request.url.toString()
+                val afterHtml = loginResp.body?.string() ?: ""
+
+                authCode = loginResp.request.url.queryParameter("code")
+
+                if (authCode.isNullOrBlank() && afterLoginUrl.contains("authserver/login")) {
+                    val errDoc = org.jsoup.Jsoup.parse(afterHtml)
+                    val errMsg = errDoc.select("#showErrorTip, .auth_error, #msg, .error-message").text().trim()
+                    return@withContext Result.failure(Exception(errMsg.ifBlank { "统一认证账号或密码错误" }))
+                }
+            }
+
+            if (authCode.isNullOrBlank()) {
+                return@withContext Result.failure(Exception("未能截获一网畅学 OAuth 授权码，请确认网络状态"))
+            }
+
+            // 3. 换取 Token 并保存该账号独立的 Session
+            loginWithAuthCode(authCode, studentId = studentId)
+        } catch (e: Exception) {
+            Log.e(TAG, "silentLoginTronClass error for $studentId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 9.4 确保指定账号拥有有效的一网畅学 Session
+     * 策略：本地有效Session探活 -> RefreshToken静默刷新 -> 硬件解密密码全静默SSO登录
+     */
+    suspend fun ensureSessionForAccount(studentId: String): Result<String> = withContext(Dispatchers.IO) {
+        val sid = prefs.getSessionId(studentId)
+        if (!sid.isNullOrBlank()) {
+            try {
+                val testReq = Request.Builder()
+                    .url("$BASE_URL/api/users/me")
+                    .header("Accept", "application/json")
+                    .header("x-session-id", sid)
+                    .header("Cookie", "session_id=$sid")
+                    .get()
+                    .build()
+                val testResp = okHttpClient.newCall(testReq).execute()
+                val isOk = testResp.isSuccessful
+                testResp.body?.close()
+                if (isOk) {
+                    return@withContext Result.success(sid)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 尝试使用 RefreshToken 刷新
+        val rf = prefs.getRefreshToken(studentId)
+        if (!rf.isNullOrBlank()) {
+            val refreshRes = refreshSession(studentId)
+            if (refreshRes.isSuccess) {
+                val refreshedSid = prefs.getSessionId(studentId)
+                if (!refreshedSid.isNullOrBlank()) {
+                    return@withContext Result.success(refreshedSid)
+                }
+            }
+        }
+
+        // 尝试使用保险箱中的密码进行全自动静默登录
+        val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
+        val pwd = vault.getAccountPassword(studentId)
+        if (pwd.isNotBlank()) {
+            val loginRes = silentLoginTronClass(studentId, pwd)
+            if (loginRes.isSuccess) {
+                val newSid = prefs.getSessionId(studentId)
+                if (!newSid.isNullOrBlank()) {
+                    return@withContext Result.success(newSid)
+                }
+            } else {
+                return@withContext Result.failure(loginRes.exceptionOrNull() ?: Exception("静默登录失败"))
+            }
+        }
+
+        Result.failure(Exception("账号未保存有效畅课凭据且未保存密码"))
+    }
+
+    /**
+     * 9.5 一键为所有已保存账号提交【数字口令】签到
+     */
+    suspend fun batchAnswerNumberRollcall(
+        rollcallId: Long,
+        numberCode: String
+    ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
+        val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
+        val accounts = vault.getAccounts()
+        if (accounts.isEmpty()) {
+            val currId = AuthPreferences(context).getStudentId()
+            val single = answerNumberRollcall(rollcallId, numberCode)
+            val sRes = single.getOrNull()
+            return@withContext listOf(
+                MultiAccountRollcallResult(
+                    studentId = currId,
+                    studentName = "当前用户",
+                    success = sRes?.success == true,
+                    message = sRes?.message ?: "未知结果",
+                    statusName = sRes?.statusName ?: ""
+                )
+            )
+        }
+
+        val results = mutableListOf<MultiAccountRollcallResult>()
+        for (acc in accounts) {
+            val nameDisplay = acc.studentName.ifBlank { acc.studentId }
+            val sessionRes = ensureSessionForAccount(acc.studentId)
+            val sid = sessionRes.getOrNull()
+            if (sid.isNullOrBlank()) {
+                val err = sessionRes.exceptionOrNull()?.message ?: "登录失效"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, "畅课授权失败: $err"))
+                continue
+            }
+            val devId = prefs.getDeviceId(acc.studentId)
+            val res = answerNumberRollcall(rollcallId, numberCode, customSessionId = sid, customDeviceId = devId)
+            val s = res.getOrNull()
+            if (s != null) {
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
+            } else {
+                val errMsg = res.exceptionOrNull()?.message ?: "签到请求失败"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, errMsg))
+            }
+        }
+        results
+    }
+
+    /**
+     * 9.6 一键为所有已保存账号提交【二维码扫码】签到
+     */
+    suspend fun batchAnswerQRRollcall(
+        rollcallId: Long,
+        qrTokenData: String
+    ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
+        val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
+        val accounts = vault.getAccounts()
+        if (accounts.isEmpty()) {
+            val currId = AuthPreferences(context).getStudentId()
+            val single = answerQRRollcall(rollcallId, qrTokenData)
+            val sRes = single.getOrNull()
+            return@withContext listOf(
+                MultiAccountRollcallResult(
+                    studentId = currId,
+                    studentName = "当前用户",
+                    success = sRes?.success == true,
+                    message = sRes?.message ?: "未知结果",
+                    statusName = sRes?.statusName ?: ""
+                )
+            )
+        }
+
+        val results = mutableListOf<MultiAccountRollcallResult>()
+        for (acc in accounts) {
+            val nameDisplay = acc.studentName.ifBlank { acc.studentId }
+            val sessionRes = ensureSessionForAccount(acc.studentId)
+            val sid = sessionRes.getOrNull()
+            if (sid.isNullOrBlank()) {
+                val err = sessionRes.exceptionOrNull()?.message ?: "登录失效"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, "畅课授权失败: $err"))
+                continue
+            }
+            val devId = prefs.getDeviceId(acc.studentId)
+            val res = answerQRRollcall(rollcallId, qrTokenData, customSessionId = sid, customDeviceId = devId)
+            val s = res.getOrNull()
+            if (s != null) {
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
+            } else {
+                val errMsg = res.exceptionOrNull()?.message ?: "签到请求失败"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, errMsg))
+            }
+        }
+        results
+    }
+
+    /**
+     * 9.7 一键为所有已保存账号提交【雷达定位】签到
+     */
+    suspend fun batchAnswerRadarRollcall(
+        rollcallId: Long,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Double = 15.0
+    ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
+        val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
+        val accounts = vault.getAccounts()
+        if (accounts.isEmpty()) {
+            val currId = AuthPreferences(context).getStudentId()
+            val single = answerRadarRollcall(rollcallId, latitude, longitude, accuracy)
+            val sRes = single.getOrNull()
+            return@withContext listOf(
+                MultiAccountRollcallResult(
+                    studentId = currId,
+                    studentName = "当前用户",
+                    success = sRes?.success == true,
+                    message = sRes?.message ?: "未知结果",
+                    statusName = sRes?.statusName ?: ""
+                )
+            )
+        }
+
+        val results = mutableListOf<MultiAccountRollcallResult>()
+        for (acc in accounts) {
+            val nameDisplay = acc.studentName.ifBlank { acc.studentId }
+            val sessionRes = ensureSessionForAccount(acc.studentId)
+            val sid = sessionRes.getOrNull()
+            if (sid.isNullOrBlank()) {
+                val err = sessionRes.exceptionOrNull()?.message ?: "登录失效"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, "畅课授权失败: $err"))
+                continue
+            }
+            val devId = prefs.getDeviceId(acc.studentId)
+            val res = answerRadarRollcall(rollcallId, latitude, longitude, accuracy, customSessionId = sid, customDeviceId = devId)
+            val s = res.getOrNull()
+            if (s != null) {
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
+            } else {
+                val errMsg = res.exceptionOrNull()?.message ?: "签到请求失败"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, errMsg))
+            }
+        }
+        results
     }
 
     /**

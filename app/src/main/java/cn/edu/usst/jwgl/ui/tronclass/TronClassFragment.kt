@@ -663,13 +663,31 @@ class TronClassFragment : Fragment() {
         val ctx = context ?: return
         val parsed = tronClassClient.parseRollcallQr(rawContents)
         if (parsed != null) {
+            val accounts = try {
+                cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
+            } catch (_: Exception) {
+                emptyList()
+            }
+
             val progress = ProgressDialog(ctx).apply {
-                setMessage("正在向一网畅学提交扫码签到...")
+                if (accounts.size > 1) {
+                    setMessage("正在为全部已保存账号 (${accounts.size}人) 提交扫码签到...")
+                } else {
+                    setMessage("正在向一网畅学提交扫码签到...")
+                }
                 setCancelable(false)
                 show()
             }
 
             viewLifecycleOwner.lifecycleScope.launch {
+                if (accounts.size > 1) {
+                    val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
+                    progress.dismiss()
+                    showMultiAccountRollcallSummaryDialog(results)
+                    loadTronClassData(forceRefresh = true)
+                    return@launch
+                }
+
                 val res = tronClassClient.answerQRRollcall(parsed.rollcallId, parsed.qrData)
                 progress.dismiss()
 
@@ -833,10 +851,30 @@ class TronClassFragment : Fragment() {
             setPadding(48, 36, 48, 36)
         }
 
+        val accounts = try {
+            cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val container = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 20, 48, 10)
+        }
+        container.addView(input)
+
+        val cbSignAll = if (accounts.size > 1) {
+            com.google.android.material.checkbox.MaterialCheckBox(ctx).apply {
+                text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
+                isChecked = true
+                textSize = 13f
+            }.also { container.addView(it) }
+        } else null
+
         MaterialAlertDialogBuilder(ctx)
             .setTitle(titleText)
             .setMessage(if (targetRollcall != null) "已连接课堂点名，请输入教师发布的数字口令：" else "请输入教师发布的数字签到码：")
-            .setView(input)
+            .setView(container)
             .setPositiveButton("提交签到") { _, _ ->
                 val code = input.text.toString().trim()
                 if (code.isEmpty()) {
@@ -844,8 +882,10 @@ class TronClassFragment : Fragment() {
                     return@setPositiveButton
                 }
 
+                val isBatch = cbSignAll?.isChecked == true
+
                 val progress = ProgressDialog(ctx).apply {
-                    setMessage("正在提交签到口令...")
+                    setMessage(if (isBatch) "正在为全部已保存账号提交口令签到..." else "正在提交签到口令...")
                     setCancelable(false)
                     show()
                 }
@@ -856,6 +896,14 @@ class TronClassFragment : Fragment() {
                         val freshList = tronClassClient.fetchOngoingRollcalls().getOrDefault(emptyList())
                         tronClassActiveRollcalls = freshList
                         rollcallId = freshList.firstOrNull()?.getEffectiveId() ?: 0L
+                    }
+
+                    if (isBatch) {
+                        val results = tronClassClient.batchAnswerNumberRollcall(rollcallId, code)
+                        progress.dismiss()
+                        showMultiAccountRollcallSummaryDialog(results)
+                        loadTronClassData(forceRefresh = true)
+                        return@launch
                     }
 
                     val res = tronClassClient.answerNumberRollcall(rollcallId, code)
@@ -883,6 +931,31 @@ class TronClassFragment : Fragment() {
                 }
             }
             .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showMultiAccountRollcallSummaryDialog(results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>) {
+        val ctx = context ?: return
+        val successCount = results.count { it.success }
+        val totalCount = results.size
+        val title = if (successCount == totalCount) {
+            "🎉 全员签到成功 ($successCount/$totalCount)"
+        } else {
+            "📋 多账号签到结果 ($successCount/$totalCount 成功)"
+        }
+
+        val sb = StringBuilder()
+        for (r in results) {
+            val icon = if (r.success) "🟢" else "🔴"
+            val status = if (r.statusName.isNotBlank()) " [${r.statusName}]" else ""
+            sb.append("$icon ${r.studentName} (${r.studentId})$status\n")
+            sb.append("   ${r.message.trim()}\n\n")
+        }
+
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle(title)
+            .setMessage(sb.toString().trimEnd())
+            .setPositiveButton("完成", null)
             .show()
     }
 

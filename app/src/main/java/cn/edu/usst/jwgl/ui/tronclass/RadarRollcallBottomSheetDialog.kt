@@ -108,6 +108,20 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.spinnerBuildings.setSelection(defaultIndex)
         applyBuildingLocation(buildings[defaultIndex])
 
+        // 3. 多账号签到支持
+        try {
+            val accounts = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(requireContext()).getAccounts()
+            if (accounts.size > 1) {
+                binding.cbRadarSignAll.visibility = View.VISIBLE
+                binding.cbRadarSignAll.isChecked = true
+                binding.cbRadarSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
+            } else {
+                binding.cbRadarSignAll.visibility = View.GONE
+            }
+        } catch (_: Exception) {
+            binding.cbRadarSignAll.visibility = View.GONE
+        }
+
         updateModeVisibility()
     }
 
@@ -285,8 +299,32 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.btnCancelRadar.isEnabled = false
 
         val client = TronClassClient(requireContext().applicationContext)
+        val isBatch = binding.cbRadarSignAll.visibility == View.VISIBLE && binding.cbRadarSignAll.isChecked
 
         lifecycleScope.launch {
+            if (isBatch) {
+                val results = client.batchAnswerRadarRollcall(
+                    rollcallId = rollcallId,
+                    latitude = selectedLatitude,
+                    longitude = selectedLongitude,
+                    accuracy = selectedAccuracy
+                )
+
+                if (!isAdded) return@launch
+                val b = _binding ?: return@launch
+                b.btnSubmitRadar.isEnabled = true
+                b.btnSubmitRadar.text = "立即雷达签到"
+                b.progressRadarSubmitting.visibility = View.GONE
+                b.btnCancelRadar.isEnabled = true
+
+                if (results.any { it.success }) {
+                    onSignSuccessListener?.invoke()
+                }
+                dismiss()
+                showMultiAccountRollcallSummaryDialog(requireActivity(), results)
+                return@launch
+            }
+
             val result = client.answerRadarRollcall(
                 rollcallId = rollcallId,
                 latitude = selectedLatitude,
@@ -321,6 +359,33 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                     .show()
             }
         }
+    }
+
+    private fun showMultiAccountRollcallSummaryDialog(
+        activity: android.app.Activity,
+        results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>
+    ) {
+        val successCount = results.count { it.success }
+        val totalCount = results.size
+        val title = if (successCount == totalCount) {
+            "🎉 雷达全员签到成功 ($successCount/$totalCount)"
+        } else {
+            "📋 雷达签到结果 ($successCount/$totalCount 成功)"
+        }
+
+        val sb = StringBuilder()
+        for (r in results) {
+            val icon = if (r.success) "🟢" else "🔴"
+            val status = if (r.statusName.isNotBlank()) " [${r.statusName}]" else ""
+            sb.append("$icon ${r.studentName} (${r.studentId})$status\n")
+            sb.append("   ${r.message.trim()}\n\n")
+        }
+
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(title)
+            .setMessage(sb.toString().trimEnd())
+            .setPositiveButton("完成", null)
+            .show()
     }
 
     fun setOnSignSuccessListener(listener: () -> Unit) {
