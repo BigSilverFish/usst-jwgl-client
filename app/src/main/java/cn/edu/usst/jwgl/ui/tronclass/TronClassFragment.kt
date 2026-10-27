@@ -837,101 +837,18 @@ class TronClassFragment : Fragment() {
         designatedRollcallId: Long? = null,
         designatedCourseName: String? = null
     ) {
-        val ctx = context ?: return
         val targetRollcall = designatedRollcallId?.let { id -> tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == id } }
             ?: tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "number" }
             ?: tronClassActiveRollcalls.firstOrNull()
 
         val courseName = designatedCourseName ?: targetRollcall?.courseName
-        val titleText = if (!courseName.isNullOrBlank()) "口令签到 · $courseName" else "数字口令签到"
+        val rollcallId = designatedRollcallId ?: targetRollcall?.getEffectiveId() ?: 0L
 
-        val input = EditText(ctx).apply {
-            hint = "请输入4位或6位数字签到码"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setPadding(48, 36, 48, 36)
+        val dialog = NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
+        dialog.setOnSignSuccessListener {
+            loadTronClassData(forceRefresh = true)
         }
-
-        val accounts = try {
-            cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
-        } catch (_: Exception) {
-            emptyList()
-        }
-
-        val container = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(48, 20, 48, 10)
-        }
-        container.addView(input)
-
-        val cbSignAll = if (accounts.size > 1) {
-            com.google.android.material.checkbox.MaterialCheckBox(ctx).apply {
-                text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
-                isChecked = true
-                textSize = 13f
-            }.also { container.addView(it) }
-        } else null
-
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle(titleText)
-            .setMessage(if (targetRollcall != null) "已连接课堂点名，请输入教师发布的数字口令：" else "请输入教师发布的数字签到码：")
-            .setView(container)
-            .setPositiveButton("提交签到") { _, _ ->
-                val code = input.text.toString().trim()
-                if (code.isEmpty()) {
-                    Toast.makeText(ctx, "签到码不能为空", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-
-                val isBatch = cbSignAll?.isChecked == true
-
-                val progress = ProgressDialog(ctx).apply {
-                    setMessage(if (isBatch) "正在为全部已保存账号提交口令签到..." else "正在提交签到口令...")
-                    setCancelable(false)
-                    show()
-                }
-
-                viewLifecycleOwner.lifecycleScope.launch {
-                    var rollcallId = designatedRollcallId ?: targetRollcall?.getEffectiveId() ?: 0L
-                    if (rollcallId <= 0L) {
-                        val freshList = tronClassClient.fetchOngoingRollcalls().getOrDefault(emptyList())
-                        tronClassActiveRollcalls = freshList
-                        rollcallId = freshList.firstOrNull()?.getEffectiveId() ?: 0L
-                    }
-
-                    if (isBatch) {
-                        val results = tronClassClient.batchAnswerNumberRollcall(rollcallId, code)
-                        progress.dismiss()
-                        showMultiAccountRollcallSummaryDialog(results)
-                        loadTronClassData(forceRefresh = true)
-                        return@launch
-                    }
-
-                    val res = tronClassClient.answerNumberRollcall(rollcallId, code)
-                    progress.dismiss()
-
-                    val result = res.getOrNull()
-                    if (result != null && result.success) {
-                        MaterialAlertDialogBuilder(ctx)
-                            .setTitle("🎉 签到成功！")
-                            .setMessage(result.message)
-                            .setPositiveButton("太棒了", null)
-                            .show()
-                        loadTronClassData(forceRefresh = true)
-                    } else {
-                        val msg = result?.message ?: res.exceptionOrNull()?.getFriendlyErrorMessage() ?: "签到失败，请检查口令"
-                        MaterialAlertDialogBuilder(ctx)
-                            .setTitle("签到未通过")
-                            .setMessage(msg)
-                            .setPositiveButton("重试") { _, _ ->
-                                showTronClassNumberRollcallDialog(rollcallId, courseName)
-                            }
-                            .setNegativeButton("取消", null)
-                            .show()
-                    }
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        dialog.show(parentFragmentManager, "NumberRollcallBottomSheet")
     }
 
     private fun showMultiAccountRollcallSummaryDialog(results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>) {
