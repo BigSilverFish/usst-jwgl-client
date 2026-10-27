@@ -27,7 +27,7 @@
             android:layout_width="38dp"
             android:layout_height="38dp"
             android:background="@drawable/bg_badge_rounded"
-            android:backgroundTint="#EFF6FF"
+            android:backgroundTint="@color/surface_variant"
             android:gravity="center"
             android:text="📡"
             android:textSize="20sp" />
@@ -127,7 +127,7 @@
                     <com.google.android.material.card.MaterialCardView
                         android:layout_width="match_parent"
                         android:layout_height="40dp"
-                        app:cardBackgroundColor="#F8FAFC"
+                        app:cardBackgroundColor="@color/surface_variant"
                         app:cardCornerRadius="8dp"
                         app:cardElevation="0dp"
                         app:strokeColor="@color/border"
@@ -193,7 +193,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        app:cardBackgroundColor="#F8FAFC"
+        app:cardBackgroundColor="@color/surface_variant"
         app:cardCornerRadius="12dp"
         app:cardElevation="0dp"
         app:strokeColor="@color/border"
@@ -224,7 +224,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="精度: ±15m"
-                    android:textColor="#2563EB"
+                    android:textColor="@color/grade_blue_text"
                     android:textSize="11sp"
                     android:textStyle="bold" />
 
@@ -297,7 +297,7 @@
                 android:layout_height="match_parent"
                 android:backgroundTint="@color/primary"
                 android:text="立即雷达签到"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/on_primary"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 app:cornerRadius="12dp" />

@@ -92,10 +92,32 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.tvRadarCourseInfo.text = "$cName · 正在雷达点名中"
         binding.tvRadarRollcallIdBadge.text = "ID: $rollcallId"
 
-        // 1. 初始化教学楼下拉框
+        // 1. 初始化教学楼下拉框（适配深色与浅色模式文字与背景）
         val buildings = CoordinateUtils.USST_BUILDINGS
         val buildingNames = buildings.map { "${it.name} (${it.campus})" }
-        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, buildingNames)
+        val adapter = object : ArrayAdapter<String>(requireContext(), android.R.layout.simple_spinner_item, buildingNames) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getView(position, convertView, parent)
+                (v as? android.widget.TextView)?.apply {
+                    setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                    textSize = 13f
+                }
+                return v
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getDropDownView(position, convertView, parent)
+                (v as? android.widget.TextView)?.apply {
+                    setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                    setBackgroundColor(ContextCompat.getColor(context, R.color.surface))
+                    setPadding(36, 28, 36, 28)
+                    textSize = 13f
+                }
+                return v
+            }
+        }.apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
         binding.spinnerBuildings.adapter = adapter
 
         // 2. 智能匹配：根据传入的教室名称或课程匹配最近的教学楼
