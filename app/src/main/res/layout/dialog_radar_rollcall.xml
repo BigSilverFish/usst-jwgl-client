@@ -254,6 +254,17 @@
 
     </com.google.android.material.card.MaterialCardView>
 
+    <!-- 多账号签到选项 -->
+    <com.google.android.material.checkbox.MaterialCheckBox
+        android:id="@+id/cbRadarSignAll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="同时为全部已保存账号签到 (独立设备码)"
+        android:textColor="@color/text_secondary"
+        android:textSize="12.5sp"
+        android:visibility="gone" />
+
     <!-- 底部操作按钮 -->
     <LinearLayout
         android:layout_width="match_parent"
