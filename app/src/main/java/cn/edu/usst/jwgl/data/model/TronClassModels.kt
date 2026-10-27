@@ -519,8 +519,21 @@ data class TronClassBulletin(
     val createdAt: String? = null,
 
     @SerializedName("updated_at")
-    val updatedAt: String? = null
-) : Serializable
+    val updatedAt: String? = null,
+
+    @SerializedName("uploads")
+    val uploads: List<TronClassUpload>? = null,
+
+    @SerializedName("attachments")
+    val attachments: List<TronClassUpload>? = null
+) : Serializable {
+    fun getAllAttachments(): List<TronClassUpload> {
+        val list = mutableListOf<TronClassUpload>()
+        uploads?.let { list.addAll(it) }
+        attachments?.let { list.addAll(it) }
+        return list.distinctBy { it.id }
+    }
+}
 
 data class TronClassSubmission(
     @SerializedName("id")
