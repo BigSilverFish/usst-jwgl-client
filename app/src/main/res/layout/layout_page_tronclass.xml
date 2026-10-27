@@ -32,7 +32,7 @@
                 <View
                     android:id="@+id/viewTronClassHeaderSpacing"
                     android:layout_width="match_parent"
-                    android:layout_height="64dp" />
+                    android:layout_height="96dp" />
 
                 <!-- User Profile & Action Hero Card -->
                 <com.google.android.material.card.MaterialCardView

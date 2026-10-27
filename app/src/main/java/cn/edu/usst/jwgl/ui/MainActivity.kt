@@ -1103,6 +1103,8 @@ class MainActivity : AppCompatActivity() {
                     supportFragmentManager.beginTransaction()
                         .replace(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
                         .commitAllowingStateLoss()
+                } else {
+                    getTronClassFragment()?.checkAndRefreshHeaderSpacing()
                 }
             }
             MainTab.MORE_FEATURES -> {

@@ -127,6 +127,19 @@ class TronClassFragment : Fragment() {
         applyAdaptiveLayout()
     }
 
+    override fun onResume() {
+        super.onResume()
+        checkAndRefreshHeaderSpacing()
+    }
+
+    fun checkAndRefreshHeaderSpacing() {
+        binding.llTronClassHeaderContainer.post {
+            val b = _binding ?: return@post
+            val h = b.llTronClassHeaderContainer.height
+            if (h > 0) updateHeaderSpacing(h)
+        }
+    }
+
     private fun setupWindowInsets() {
         val density = resources.displayMetrics.density
         val mainAct = activity as? MainActivity
@@ -139,9 +152,16 @@ class TronClassFragment : Fragment() {
             binding.llTronClassHeaderContainer.paddingBottom
         )
 
+        // 动态监听 Header 布局尺寸变化，随时同步避让高度
+        binding.llTronClassHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val h = bottom - top
+            if (h > 0) updateHeaderSpacing(h)
+        }
+
         binding.llTronClassHeaderContainer.post {
             val b = _binding ?: return@post
-            updateHeaderSpacing(b.llTronClassHeaderContainer.height)
+            val h = b.llTronClassHeaderContainer.height
+            if (h > 0) updateHeaderSpacing(h)
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
@@ -161,12 +181,20 @@ class TronClassFragment : Fragment() {
     }
 
     private fun updateHeaderSpacing(headerHeight: Int) {
+        if (headerHeight <= 0 || _binding == null) return
         val b = _binding ?: return
         val params = b.viewTronClassHeaderSpacing.layoutParams
         if (params.height != headerHeight) {
             params.height = headerHeight
             b.viewTronClassHeaderSpacing.layoutParams = params
+            b.viewTronClassHeaderSpacing.requestLayout()
         }
+        val density = resources.displayMetrics.density
+        b.swipeRefreshTronClass.setProgressViewOffset(
+            false,
+            headerHeight,
+            headerHeight + (56 * density).toInt()
+        )
     }
 
     private fun setupBlurView() {
