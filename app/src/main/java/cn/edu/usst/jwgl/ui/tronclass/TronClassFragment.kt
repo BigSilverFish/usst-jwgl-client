@@ -35,6 +35,7 @@ import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
 import cn.edu.usst.jwgl.util.AppAuthExpiredException
 import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
+import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import eightbitlab.com.blurview.RenderEffectBlur
@@ -813,10 +814,13 @@ class TronClassFragment : Fragment() {
 
     private fun showManualRollcallGuideDialog(designatedId: Long? = null, courseName: String? = null) {
         val ctx = context ?: return
+        val prefs = TronClassPreferences.getInstance(ctx)
+        val isMonitorEnabled = prefs.isRollcallMonitorEnabled()
         val options = arrayOf(
             "📷 启动扫码签到 (针对教师投影仪二维码)",
             "🔢 输入口令签到 (针对数字签到码)",
             "📡 雷达定位签到 (上理教学楼基准/GPS)",
+            if (isMonitorEnabled) "🛡️ 上课签到后台监听: 已开启 (点击关闭)" else "🛡️ 上课签到后台监听: 已关闭 (点击开启)",
             "🔄 刷新点名状态"
         )
 
@@ -827,7 +831,17 @@ class TronClassFragment : Fragment() {
                     0 -> startTronClassQrScan()
                     1 -> showTronClassNumberRollcallDialog(designatedId, courseName)
                     2 -> showTronClassRadarRollcallDialog(designatedId, courseName)
-                    3 -> loadTronClassData(forceRefresh = true)
+                    3 -> {
+                        val newEnabled = !isMonitorEnabled
+                        prefs.setRollcallMonitorEnabled(newEnabled)
+                        RollcallMonitorScheduler.onPreferenceChanged(ctx)
+                        if (newEnabled) {
+                            Toast.makeText(ctx, "已开启上课签到后台监听：上课时自动检测，雷达点名自动匹配点位签到", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(ctx, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    4 -> loadTronClassData(forceRefresh = true)
                 }
             }
             .setNegativeButton("取消", null)

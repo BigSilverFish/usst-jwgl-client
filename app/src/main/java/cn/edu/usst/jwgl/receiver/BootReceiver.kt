@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.util.CourseReminderManager
+import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,9 @@ class BootReceiver : BroadcastReceiver() {
 
                     // 4. Reschedule TronClass DDL reminders
                     TronClassDdlScheduler.scheduleFromPreferences(context)
+
+                    // 5. Reschedule TronClass classroom rollcall monitoring
+                    RollcallMonitorScheduler.scheduleFromPreferences(context)
                 } catch (_: Exception) {
                 } finally {
                     pendingResult.finish()
