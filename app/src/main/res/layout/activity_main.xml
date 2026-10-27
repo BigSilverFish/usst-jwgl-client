@@ -1570,6 +1570,7 @@
             android:id="@+id/containerGrades"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/background"
             android:visibility="gone" />
 
         <!-- 4. School Course Search Independent Container -->
@@ -1610,6 +1611,7 @@
             android:id="@+id/containerTronclass"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/background"
             android:visibility="gone" />
 
     </FrameLayout>

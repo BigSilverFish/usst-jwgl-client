@@ -473,6 +473,27 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // 空闲时异步预热成绩与一网畅学一级 Fragment（消除点击一级 Tab 时的初始化耗时与黑屏）
+        binding.root.post {
+            warmupCoreFragments()
+        }
+    }
+
+    private fun warmupCoreFragments() {
+        if (isFinishing || isDestroyed) return
+        val fm = supportFragmentManager
+        var transaction: androidx.fragment.app.FragmentTransaction? = null
+
+        if (fm.findFragmentByTag("GradesFragment") == null) {
+            if (transaction == null) transaction = fm.beginTransaction()
+            transaction.add(R.id.containerGrades, GradesFragment.newInstance(), "GradesFragment")
+        }
+        if (fm.findFragmentByTag("TronClassFragment") == null) {
+            if (transaction == null) transaction = fm.beginTransaction()
+            transaction.add(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
+        }
+        transaction?.commitAllowingStateLoss()
     }
 
     private var lastNavBarBottomInsetPx: Int = 0

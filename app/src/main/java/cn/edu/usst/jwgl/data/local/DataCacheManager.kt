@@ -17,8 +17,9 @@ import java.util.Locale
 class DataCacheManager(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-    private val securePrefs: SharedPreferences = createSecurePrefs(context)
+    private val securePrefs: SharedPreferences = getOrCreateSecurePrefs(context)
     private val gson = Gson()
+    private val memGradeReport = java.util.concurrent.ConcurrentHashMap<String, GradeReport>()
 
     companion object {
         private const val TAG = "DataCacheManager"
@@ -36,6 +37,24 @@ class DataCacheManager(private val context: Context) {
 
         private const val KEY_GRADES_JSON = "cache_grades_json"
         private const val KEY_GRADES_TIME = "cache_grades_time"
+
+        @Volatile
+        private var cachedSecurePrefs: SharedPreferences? = null
+
+        @Volatile
+        private var defaultInstance: DataCacheManager? = null
+
+        fun getInstance(context: Context): DataCacheManager {
+            return defaultInstance ?: synchronized(this) {
+                defaultInstance ?: DataCacheManager(context.applicationContext).also { defaultInstance = it }
+            }
+        }
+
+        private fun getOrCreateSecurePrefs(context: Context): SharedPreferences {
+            return cachedSecurePrefs ?: synchronized(this) {
+                cachedSecurePrefs ?: createSecurePrefs(context.applicationContext).also { cachedSecurePrefs = it }
+            }
+        }
 
         private fun createSecurePrefs(context: Context): SharedPreferences {
             return try {
@@ -272,6 +291,7 @@ class DataCacheManager(private val context: Context) {
     // --- Grades Cache (Encrypted) ---
     fun saveGrades(report: GradeReport, studentId: String? = null) {
         val prefix = getAccountPrefix(studentId)
+        memGradeReport[prefix] = report
         val keyJson = prefix + KEY_GRADES_JSON
         val keyTime = prefix + KEY_GRADES_TIME
         val json = gson.toJson(report)
@@ -284,8 +304,14 @@ class DataCacheManager(private val context: Context) {
         }
     }
 
+    suspend fun getGradesAsync(studentId: String? = null): GradeReport? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        getGrades(studentId)
+    }
+
     fun getGrades(studentId: String? = null): GradeReport? {
         val prefix = getAccountPrefix(studentId)
+        memGradeReport[prefix]?.let { return it }
+
         val keyJson = prefix + KEY_GRADES_JSON
         val keyTime = prefix + KEY_GRADES_TIME
 
@@ -314,7 +340,11 @@ class DataCacheManager(private val context: Context) {
 
         if (json.isNullOrEmpty()) return null
         return try {
-            gson.fromJson(json, GradeReport::class.java)
+            val report = gson.fromJson(json, GradeReport::class.java)
+            if (report != null) {
+                memGradeReport[prefix] = report
+            }
+            report
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse cached GradeReport", e)
             null
@@ -433,6 +463,7 @@ class DataCacheManager(private val context: Context) {
     fun clearAccountCache(studentId: String) {
         if (studentId.isBlank()) return
         val prefix = "${studentId}_"
+        memGradeReport.remove(prefix)
         val pEditor = prefs.edit()
         for (k in prefs.all.keys) {
             if (k.startsWith(prefix)) {
@@ -451,6 +482,7 @@ class DataCacheManager(private val context: Context) {
     }
 
     fun clearAll() {
+        memGradeReport.clear()
         prefs.edit().clear().apply()
         if (prefs !== securePrefs) {
             securePrefs.edit().clear().apply()
