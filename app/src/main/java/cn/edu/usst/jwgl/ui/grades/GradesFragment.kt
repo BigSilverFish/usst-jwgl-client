@@ -36,7 +36,9 @@ import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.util.RankingPdfParser
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import eightbitlab.com.blurview.RenderEffectBlur
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -60,7 +62,7 @@ class GradesFragment : Fragment() {
     private var isTabletLandscapeMode: Boolean = false
 
     private val cacheManager by lazy {
-        DataCacheManager(requireContext())
+        DataCacheManager.getInstance(requireContext())
     }
 
     override fun onCreateView(
@@ -177,14 +179,27 @@ class GradesFragment : Fragment() {
      * 加载缓存成绩或发起网络拉取
      */
     fun showOrLoadGrades() {
-        val cached = cacheManager.getGrades()
-        if (cached != null) {
-            gradeReport = cached
-            displayGrades(cached)
+        val inMemory = gradeReport
+        if (inMemory != null) {
+            displayGrades(inMemory)
             val updateTime = cacheManager.getGradesUpdateTime()
             binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
-        } else {
-            loadGrades(isManual = false)
+            return
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val cached = withContext(Dispatchers.IO) {
+                cacheManager.getGrades()
+            }
+            if (_binding == null) return@launch
+            if (cached != null) {
+                gradeReport = cached
+                displayGrades(cached)
+                val updateTime = cacheManager.getGradesUpdateTime()
+                binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
+            } else {
+                loadGrades(isManual = false)
+            }
         }
     }
 

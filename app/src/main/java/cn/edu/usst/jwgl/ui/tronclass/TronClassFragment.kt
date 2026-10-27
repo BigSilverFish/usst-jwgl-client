@@ -38,8 +38,10 @@ import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import eightbitlab.com.blurview.RenderEffectBlur
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 一网畅学 (TronClass) 独立功能主页面 Fragment
@@ -318,12 +320,31 @@ class TronClassFragment : Fragment() {
             allTronClassCourses = cachedCourses
             setupSemesterChips(cachedCourses)
         }
+
+        // 若内存尚未命中，异步在后台协程加载解密，避免卡顿首帧
+        if (cachedTodos.isEmpty() || cachedCourses.isEmpty()) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val (todos, courses) = withContext(Dispatchers.IO) {
+                    Pair(cacheMgr.getCachedTodos(), cacheMgr.getCachedCourses())
+                }
+                if (_binding == null) return@launch
+                if (todos.isNotEmpty()) {
+                    tronClassTodoAdapter.updateData(todos)
+                    binding.tvTronClassTodoBadge.text = "${todos.size} 项待办"
+                    binding.tvTronClassEmptyTodos.visibility = View.GONE
+                }
+                if (courses.isNotEmpty()) {
+                    allTronClassCourses = courses
+                    setupSemesterChips(courses)
+                }
+            }
+        }
     }
 
     private fun checkAndLoadTronClassData() {
         val context = context ?: return
         val currentJwglStudentId = AuthPreferences(context).getStudentId().trim()
-        val tcPrefs = TronClassPreferences(context)
+        val tcPrefs = TronClassPreferences.getInstance(context)
         val tcUserNo = tcPrefs.getUserNo()?.trim()
 
         if (currentJwglStudentId.isNotEmpty() && !tcUserNo.isNullOrEmpty() && !tcUserNo.equals(currentJwglStudentId, ignoreCase = true)) {

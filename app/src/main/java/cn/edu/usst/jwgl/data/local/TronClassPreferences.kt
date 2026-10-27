@@ -14,7 +14,7 @@ import java.util.UUID
 class TronClassPreferences(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-    private val securePrefs: SharedPreferences = createSecurePrefs(context)
+    private val securePrefs: SharedPreferences = getOrCreateSecurePrefs(context)
     private val gson = Gson()
 
     init {
@@ -82,6 +82,24 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
+
+        @Volatile
+        private var cachedSecurePrefs: SharedPreferences? = null
+
+        @Volatile
+        private var defaultInstance: TronClassPreferences? = null
+
+        fun getInstance(context: Context): TronClassPreferences {
+            return defaultInstance ?: synchronized(this) {
+                defaultInstance ?: TronClassPreferences(context.applicationContext).also { defaultInstance = it }
+            }
+        }
+
+        private fun getOrCreateSecurePrefs(context: Context): SharedPreferences {
+            return cachedSecurePrefs ?: synchronized(this) {
+                cachedSecurePrefs ?: createSecurePrefs(context.applicationContext).also { cachedSecurePrefs = it }
+            }
+        }
 
         private fun createSecurePrefs(context: Context): SharedPreferences {
             return try {
