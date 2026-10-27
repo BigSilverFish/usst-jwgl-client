@@ -93,7 +93,6 @@ import cn.edu.usst.jwgl.data.local.CustomCourseManager
 import cn.edu.usst.jwgl.data.model.LappCourseItem
 import cn.edu.usst.jwgl.data.model.MergedSchoolCourse
 import cn.edu.usst.jwgl.data.network.LappClient
-import cn.edu.usst.jwgl.ui.exam.ExamAdapter
 import cn.edu.usst.jwgl.ui.school.SchoolCourseAdapter
 import cn.edu.usst.jwgl.ui.school.CourseSyllabusBottomSheet
 import cn.edu.usst.jwgl.data.network.CourseCatalogService
@@ -143,7 +142,6 @@ class MainActivity : AppCompatActivity() {
     private var scheduleAdapter: SchedulePagerAdapter? = null
     private var currentWeek: Int = 1
     private var isInitialWeekLocated: Boolean = false
-    private var currentExamList: List<ExamItem>? = null
 
     private var pendingCalendarAction: (() -> Unit)? = null
     private val calendarPermissionLauncher = registerForActivityResult(
@@ -396,12 +394,6 @@ class MainActivity : AppCompatActivity() {
                 binding.pageCourseSearch.headerCourseSearch.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageExamQuery.headerExamQuery.setPadding(
-                binding.pageExamQuery.headerExamQuery.paddingLeft,
-                statusTopPad,
-                binding.pageExamQuery.headerExamQuery.paddingRight,
-                (10 * density).toInt()
-            )
             binding.pageGradeReports.headerGradeReports.setPadding(
                 binding.pageGradeReports.headerGradeReports.paddingLeft,
                 statusTopPad,
@@ -465,10 +457,6 @@ class MainActivity : AppCompatActivity() {
                 .setBlurRadius(20f)
 
             binding.pageCourseSearch.blurViewCourseSearch.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
-
-            binding.pageExamQuery.blurViewExamQuery.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
@@ -634,12 +622,6 @@ class MainActivity : AppCompatActivity() {
             binding.pageCourseSearch.rvCourseList.paddingRight,
             bottomBarHeightPx
         )
-        binding.pageExamQuery.rvExamQueryList.setPadding(
-            binding.pageExamQuery.rvExamQueryList.paddingLeft,
-            binding.pageExamQuery.rvExamQueryList.paddingTop,
-            binding.pageExamQuery.rvExamQueryList.paddingRight,
-            bottomBarHeightPx
-        )
         binding.pageGradeReports.scrollGradeReports.setPadding(
             binding.pageGradeReports.scrollGradeReports.paddingLeft,
             binding.pageGradeReports.scrollGradeReports.paddingTop,
@@ -668,8 +650,6 @@ class MainActivity : AppCompatActivity() {
 
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
-            binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
-            binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
             binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
             binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
@@ -711,8 +691,6 @@ class MainActivity : AppCompatActivity() {
             // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
-            binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
-            binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
             binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
             binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
@@ -730,8 +708,6 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenDrawerProfile.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_menu)
-            binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
-            binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_menu)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
             binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_menu)
             binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.VISIBLE
@@ -805,7 +781,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnOpenDrawerGrades.visibility = View.GONE
         binding.btnOpenDrawerProfile.visibility = View.GONE
         binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.GONE
-        binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.GONE
         binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.GONE
         binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
 
@@ -900,9 +875,6 @@ class MainActivity : AppCompatActivity() {
         }
         if (binding.pageCourseSearch.rvCourseList.adapter != null) {
             binding.pageCourseSearch.rvCourseList.layoutManager = GridLayoutManager(this, 2)
-        }
-        if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
-            binding.pageExamQuery.rvExamQueryList.layoutManager = GridLayoutManager(this, 2)
         }
         if (binding.pageTronclass.rvTronClassCourses.adapter != null) {
             binding.pageTronclass.rvTronClassCourses.layoutManager = GridLayoutManager(this, 2)
@@ -1005,9 +977,6 @@ class MainActivity : AppCompatActivity() {
         }
         if (csPage.rvCourseList.adapter != null) {
             csPage.rvCourseList.layoutManager = LinearLayoutManager(this)
-        }
-        if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
-            binding.pageExamQuery.rvExamQueryList.layoutManager = LinearLayoutManager(this)
         }
         if (tcPage.rvTronClassCourses.adapter != null) {
             tcPage.rvTronClassCourses.layoutManager = LinearLayoutManager(this)
@@ -1370,7 +1339,7 @@ class MainActivity : AppCompatActivity() {
         binding.pageMoreFeatures.layoutMoreFeatures.visibility = if (tab == MainTab.MORE_FEATURES) View.VISIBLE else View.GONE
         binding.pageCourseSearch.layoutCourseSearch.visibility = if (tab == MainTab.COURSE_SEARCH) View.VISIBLE else View.GONE
         binding.containerFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
-        binding.pageExamQuery.layoutExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
+        binding.containerExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
         binding.pageGradeReports.layoutGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
         binding.pageTronclass.layoutTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
 
@@ -1411,9 +1380,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.EXAM_QUERY -> {
-                initExamQueryPage()
-                binding.pageExamQuery.llExamQueryHeaderContainer.post {
-                    updateExamQueryHeaderSpacing(binding.pageExamQuery.llExamQueryHeaderContainer.height)
+                if (supportFragmentManager.findFragmentByTag("ExamQueryFragment") == null) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.containerExamQuery, cn.edu.usst.jwgl.ui.exam.ExamQueryFragment.newInstance(), "ExamQueryFragment")
+                        .commitAllowingStateLoss()
                 }
             }
             MainTab.GRADE_REPORTS -> {
@@ -1604,13 +1574,6 @@ class MainActivity : AppCompatActivity() {
             val h = bottom - top
             if (h > 0) {
                 updateCourseSearchHeaderSpacing(h)
-            }
-        }
-
-        binding.pageExamQuery.llExamQueryHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val h = bottom - top
-            if (h > 0) {
-                updateExamQueryHeaderSpacing(h)
             }
         }
 
@@ -2525,30 +2488,6 @@ class MainActivity : AppCompatActivity() {
                 binding.pageCourseSearch.layoutEmptyResults.paddingLeft,
                 headerHeightPx,
                 binding.pageCourseSearch.layoutEmptyResults.paddingRight,
-                bottomBarHeightPx
-            )
-        }
-    }
-
-    private fun updateExamQueryHeaderSpacing(headerHeightPx: Int) {
-        if (headerHeightPx <= 0) return
-        val density = resources.displayMetrics.density
-        val topPad = headerHeightPx + (4 * density).toInt()
-        val currentTop = binding.pageExamQuery.rvExamQueryList.paddingTop
-        if (currentTop != topPad) {
-            binding.pageExamQuery.rvExamQueryList.setPadding(
-                binding.pageExamQuery.rvExamQueryList.paddingLeft,
-                topPad,
-                binding.pageExamQuery.rvExamQueryList.paddingRight,
-                bottomBarHeightPx
-            )
-            if (currentTop == 0) {
-                binding.pageExamQuery.rvExamQueryList.scrollToPosition(0)
-            }
-            binding.pageExamQuery.layoutEmptyExamQuery.setPadding(
-                binding.pageExamQuery.layoutEmptyExamQuery.paddingLeft,
-                headerHeightPx,
-                binding.pageExamQuery.layoutEmptyExamQuery.paddingRight,
                 bottomBarHeightPx
             )
         }
@@ -4092,165 +4031,6 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    // ==========================================
-    // --- 6. Exam Query Full Page ---
-    // ==========================================
-    private var isExamQueryInitialized = false
-    private var examAdapter: ExamAdapter? = null
-    private var examXnm: String = ""
-    private var examXqm: String = ""
-
-    private fun initExamQueryPage() {
-        if (isExamQueryInitialized) return
-        isExamQueryInitialized = true
-
-        val page = binding.pageExamQuery
-        page.btnOpenDrawerExamQuery.setOnClickListener {
-            if (isPhoneBottomBarMode()) {
-                switchTab(MainTab.MORE_FEATURES)
-            } else {
-                openNavDrawer()
-            }
-        }
-
-        examAdapter = ExamAdapter(emptyList())
-        page.rvExamQueryList.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
-        page.rvExamQueryList.adapter = examAdapter
-
-        val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
-        examXnm = curXnm
-        examXqm = curXqm
-
-        fun formatSemesterName(xnm: String, xqm: String): String {
-            val nextY = (xnm.toIntOrNull() ?: 2026) + 1
-            val semName = when (xqm) {
-                "3" -> "第一学期"
-                "12" -> "第二学期"
-                "16" -> "短学期"
-                else -> "第一学期"
-            }
-            return "$xnm-$nextY $semName"
-        }
-
-        page.tvExamSemesterBadge.text = formatSemesterName(examXnm, examXqm)
-
-        if (CourseReminderManager.isExamReminderEnabled(this)) {
-            val adv = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
-            page.tvExamQuerySubtitle.text = "支持期末、期中与缓补考 · 考前 $adv 自动提醒"
-        } else {
-            page.tvExamQuerySubtitle.text = "期末、期中与缓补考日程查询 · 考场与座号"
-        }
-
-        fun updateExamList(exams: List<ExamItem>) {
-            currentExamList = exams
-            if (exams.isEmpty()) {
-                page.rvExamQueryList.visibility = View.GONE
-                page.layoutEmptyExamQuery.visibility = View.VISIBLE
-                page.tvExamUpcomingSummary.text = "该学期暂无排定考试"
-            } else {
-                page.rvExamQueryList.visibility = View.VISIBLE
-                page.layoutEmptyExamQuery.visibility = View.GONE
-
-                val sorted = exams.sortedWith { e1, e2 ->
-                    val t1 = e1.getExamStartTimeMillis() ?: Long.MAX_VALUE
-                    val t2 = e2.getExamStartTimeMillis() ?: Long.MAX_VALUE
-                    t1.compareTo(t2)
-                }
-                examAdapter?.submitList(sorted)
-
-                val upcoming = sorted.firstOrNull { (it.getExamStartTimeMillis() ?: 0L) > System.currentTimeMillis() }
-                if (upcoming != null) {
-                    page.tvExamUpcomingSummary.text = "共 ${sorted.size} 门考试 · 下一场: ${upcoming.courseName} (${upcoming.getCountdownString()})"
-                } else {
-                    page.tvExamUpcomingSummary.text = "共 ${sorted.size} 门考试 · 当前已全部完成"
-                }
-            }
-        }
-
-        fun fetchOnlineExams() {
-            page.progressBarExamQuery.visibility = View.VISIBLE
-            page.btnRefreshExamQuery.isEnabled = false
-            page.btnEmptySyncExamQuery.isEnabled = false
-
-            lifecycleScope.launch {
-                val res = JwglClient.fetchExams(examXnm, examXqm, this@MainActivity)
-                page.progressBarExamQuery.visibility = View.GONE
-                page.btnRefreshExamQuery.isEnabled = true
-                page.btnEmptySyncExamQuery.isEnabled = true
-
-                res.onSuccess { exams ->
-                    cacheManager.saveExams(examXnm, examXqm, exams)
-                    CourseReminderManager.scheduleExamReminders(this@MainActivity, exams)
-                    updateExamList(exams)
-                    val msg = if (exams.isNotEmpty()) "已同步 ${exams.size} 门考试" else "所选学期暂无考试安排"
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-                }.onFailure { error ->
-                    Toast.makeText(this@MainActivity, "同步考试日程失败: ${error.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        val examSemesterOptions = listOf(
-            Triple("2026-2027 第一学期 (当前)", "2026", "3"),
-            Triple("2025-2026 第二学期", "2025", "12"),
-            Triple("2025-2026 第一学期", "2025", "3"),
-            Triple("2024-2025 第二学期", "2024", "12"),
-            Triple("2024-2025 第一学期", "2024", "3"),
-            Triple("2023-2024 第二学期", "2023", "12"),
-            Triple("2023-2024 第一学期", "2023", "3")
-        )
-
-        page.btnSwitchExamSemester.setOnClickListener {
-            val titles = examSemesterOptions.map { it.first }.toTypedArray()
-            val currentIdx = examSemesterOptions.indexOfFirst { it.second == examXnm && it.third == examXqm }.coerceAtLeast(0)
-            MaterialAlertDialogBuilder(this)
-                .setTitle("选择考试查询学期")
-                .setSingleChoiceItems(titles, currentIdx) { dialog, which ->
-                    dialog.dismiss()
-                    val selected = examSemesterOptions[which]
-                    examXnm = selected.second
-                    examXqm = selected.third
-                    page.tvExamSemesterBadge.text = formatSemesterName(examXnm, examXqm)
-
-                    val cachedForSem = cacheManager.getExams(examXnm, examXqm)
-                    if (cachedForSem.isNotEmpty()) {
-                        updateExamList(cachedForSem)
-                    } else {
-                        fetchOnlineExams()
-                    }
-                }
-                .setNegativeButton("取消", null)
-                .show()
-        }
-
-        val cached = cacheManager.getExams(examXnm, examXqm).let {
-            if (it.isEmpty()) cacheManager.getAllCachedExams() else it
-        }
-        if (cached.isNotEmpty()) {
-            CourseReminderManager.scheduleExamReminders(this, cached)
-            updateExamList(cached)
-        } else {
-            fetchOnlineExams()
-        }
-
-        page.btnExportExamCalendar.setOnClickListener {
-            CalendarExportHelper.showExamCalendarDialog(this@MainActivity, currentExamList) {
-                checkAndRequestCalendarPermission {
-                    lifecycleScope.launch {
-                        val result = CalendarExportHelper.importExamsToSystemCalendar(this@MainActivity, currentExamList)
-                        result.onSuccess { count ->
-                            Toast.makeText(this@MainActivity, "成功将 $count 门考试导入系统日历 (含30分钟考前提醒)", Toast.LENGTH_LONG).show()
-                        }.onFailure { err ->
-                            Toast.makeText(this@MainActivity, "导入系统日历失败: ${err.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-        }
-        page.btnRefreshExamQuery.setOnClickListener { fetchOnlineExams() }
-        page.btnEmptySyncExamQuery.setOnClickListener { fetchOnlineExams() }
     }
 
     // ==========================================

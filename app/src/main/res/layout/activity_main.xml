@@ -1972,10 +1972,12 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
-        <!-- 6. Exam Query Independent Page -->
-        <include
-            android:id="@+id/pageExamQuery"
-            layout="@layout/layout_page_exam_query" />
+        <!-- 6. Exam Query Independent Container -->
+        <FrameLayout
+            android:id="@+id/containerExamQuery"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
 
         <!-- 7. Grade Reports & Proofs Independent Page -->
         <include
