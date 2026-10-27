@@ -1960,10 +1960,12 @@
 
         </FrameLayout>
 
-        <!-- 4. School Course Search Independent Page -->
-        <include
-            android:id="@+id/pageCourseSearch"
-            layout="@layout/layout_page_course_search" />
+        <!-- 4. School Course Search Independent Container -->
+        <FrameLayout
+            android:id="@+id/containerCourseSearch"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
 
         <!-- 5. Free Classroom Independent Container -->
         <FrameLayout
