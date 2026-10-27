@@ -1965,10 +1965,12 @@
             android:id="@+id/pageCourseSearch"
             layout="@layout/layout_page_course_search" />
 
-        <!-- 5. Free Classroom Independent Page -->
-        <include
-            android:id="@+id/pageFreeClassroom"
-            layout="@layout/layout_page_free_classroom" />
+        <!-- 5. Free Classroom Independent Container -->
+        <FrameLayout
+            android:id="@+id/containerFreeClassroom"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
 
         <!-- 6. Exam Query Independent Page -->
         <include

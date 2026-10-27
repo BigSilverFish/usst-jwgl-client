@@ -92,10 +92,8 @@ import android.widget.Spinner
 import cn.edu.usst.jwgl.data.local.CustomCourseManager
 import cn.edu.usst.jwgl.data.model.LappCourseItem
 import cn.edu.usst.jwgl.data.model.MergedSchoolCourse
-import cn.edu.usst.jwgl.data.network.FreeClassroomInfo
 import cn.edu.usst.jwgl.data.network.LappClient
 import cn.edu.usst.jwgl.ui.exam.ExamAdapter
-import cn.edu.usst.jwgl.ui.school.FreeClassroomAdapter
 import cn.edu.usst.jwgl.ui.school.SchoolCourseAdapter
 import cn.edu.usst.jwgl.ui.school.CourseSyllabusBottomSheet
 import cn.edu.usst.jwgl.data.network.CourseCatalogService
@@ -398,12 +396,6 @@ class MainActivity : AppCompatActivity() {
                 binding.pageCourseSearch.headerCourseSearch.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageFreeClassroom.headerFreeClassroom.setPadding(
-                binding.pageFreeClassroom.headerFreeClassroom.paddingLeft,
-                statusTopPad,
-                binding.pageFreeClassroom.headerFreeClassroom.paddingRight,
-                (10 * density).toInt()
-            )
             binding.pageExamQuery.headerExamQuery.setPadding(
                 binding.pageExamQuery.headerExamQuery.paddingLeft,
                 statusTopPad,
@@ -473,10 +465,6 @@ class MainActivity : AppCompatActivity() {
                 .setBlurRadius(20f)
 
             binding.pageCourseSearch.blurViewCourseSearch.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
-
-            binding.pageFreeClassroom.blurViewFreeClassroom.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
@@ -606,6 +594,9 @@ class MainActivity : AppCompatActivity() {
     fun getStatusTopPad(): Int = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * resources.displayMetrics.density).toInt()
     fun getStatusBarTop(): Int = lastStatusBarTopPx.takeIf { it > 0 } ?: (24 * resources.displayMetrics.density).toInt()
     fun getBottomInset(): Int = lastNavBarBottomInsetPx
+    fun isBottomBarModeActive(): Boolean = isPhoneBottomBarMode()
+    fun isGuestModeActive(): Boolean = isGuestMode
+    fun getEffectiveCurrentWeekNumber(): Int = getEffectiveCurrentWeek()
 
     private fun isPhoneBottomBarMode(): Boolean {
         return !isTabletLandscapeMode && !isGuestMode &&
@@ -643,12 +634,6 @@ class MainActivity : AppCompatActivity() {
             binding.pageCourseSearch.rvCourseList.paddingRight,
             bottomBarHeightPx
         )
-        binding.pageFreeClassroom.rvFreeClassroomList.setPadding(
-            binding.pageFreeClassroom.rvFreeClassroomList.paddingLeft,
-            binding.pageFreeClassroom.rvFreeClassroomList.paddingTop,
-            binding.pageFreeClassroom.rvFreeClassroomList.paddingRight,
-            bottomBarHeightPx
-        )
         binding.pageExamQuery.rvExamQueryList.setPadding(
             binding.pageExamQuery.rvExamQueryList.paddingLeft,
             binding.pageExamQuery.rvExamQueryList.paddingTop,
@@ -683,8 +668,6 @@ class MainActivity : AppCompatActivity() {
 
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
-            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.VISIBLE
-            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.setImageResource(R.drawable.ic_arrow_back)
             binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
             binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
@@ -728,8 +711,6 @@ class MainActivity : AppCompatActivity() {
             // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
-            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.VISIBLE
-            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.setImageResource(R.drawable.ic_arrow_back)
             binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
             binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_arrow_back)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
@@ -749,8 +730,6 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenDrawerProfile.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_menu)
-            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.VISIBLE
-            binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.setImageResource(R.drawable.ic_menu)
             binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.VISIBLE
             binding.pageExamQuery.btnOpenDrawerExamQuery.setImageResource(R.drawable.ic_menu)
             binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
@@ -778,7 +757,7 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
-    private fun openNavDrawer() {
+    fun openNavDrawer() {
         if (!isTabletLandscapeMode &&
             !isPhoneBottomBarMode() &&
             binding.layoutDrawer.root.parent == binding.drawerLayout
@@ -826,7 +805,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnOpenDrawerGrades.visibility = View.GONE
         binding.btnOpenDrawerProfile.visibility = View.GONE
         binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.GONE
-        binding.pageFreeClassroom.btnOpenDrawerFreeClassroom.visibility = View.GONE
         binding.pageExamQuery.btnOpenDrawerExamQuery.visibility = View.GONE
         binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.GONE
         binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
@@ -848,24 +826,6 @@ class MainActivity : AppCompatActivity() {
         ).apply {
             topMargin = 0
             marginStart = dp(10f)
-        }
-
-        // 2b. 空教室查询检索栏单行化
-        val fcPage = binding.pageFreeClassroom
-        fcPage.cardFreeClassroomFilter.orientation = LinearLayout.HORIZONTAL
-        fcPage.cardFreeClassroomFilter.gravity = android.view.Gravity.CENTER_VERTICAL
-        fcPage.rowFreeClassroom1.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            3f
-        )
-        fcPage.rowFreeClassroom2.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            2f
-        ).apply {
-            topMargin = 0
-            marginStart = dp(6f)
         }
 
         // 3. 双栏主从视图 (Two-Pane Master-Detail Layouts)
@@ -941,9 +901,6 @@ class MainActivity : AppCompatActivity() {
         if (binding.pageCourseSearch.rvCourseList.adapter != null) {
             binding.pageCourseSearch.rvCourseList.layoutManager = GridLayoutManager(this, 2)
         }
-        if (binding.pageFreeClassroom.rvFreeClassroomList.adapter != null) {
-            binding.pageFreeClassroom.rvFreeClassroomList.layoutManager = GridLayoutManager(this, 3)
-        }
         if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
             binding.pageExamQuery.rvExamQueryList.layoutManager = GridLayoutManager(this, 2)
         }
@@ -985,20 +942,6 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
             topMargin = dp(8f)
-            marginStart = 0
-        }
-
-        val fcPage = binding.pageFreeClassroom
-        fcPage.cardFreeClassroomFilter.orientation = LinearLayout.VERTICAL
-        fcPage.rowFreeClassroom1.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-        fcPage.rowFreeClassroom2.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            topMargin = dp(6f)
             marginStart = 0
         }
 
@@ -1062,9 +1005,6 @@ class MainActivity : AppCompatActivity() {
         }
         if (csPage.rvCourseList.adapter != null) {
             csPage.rvCourseList.layoutManager = LinearLayoutManager(this)
-        }
-        if (fcPage.rvFreeClassroomList.adapter != null) {
-            fcPage.rvFreeClassroomList.layoutManager = LinearLayoutManager(this)
         }
         if (binding.pageExamQuery.rvExamQueryList.adapter != null) {
             binding.pageExamQuery.rvExamQueryList.layoutManager = LinearLayoutManager(this)
@@ -1419,7 +1359,7 @@ class MainActivity : AppCompatActivity() {
     }
     private var currentTab: MainTab = MainTab.TIMETABLE
 
-    private fun switchTab(tab: MainTab) {
+    fun switchTab(tab: MainTab) {
         currentTab = tab
         updateDrawerActiveTab(tab)
         updateBottomNavActiveTab(tab)
@@ -1429,7 +1369,7 @@ class MainActivity : AppCompatActivity() {
         binding.layoutProfile.visibility = if (tab == MainTab.PROFILE) View.VISIBLE else View.GONE
         binding.pageMoreFeatures.layoutMoreFeatures.visibility = if (tab == MainTab.MORE_FEATURES) View.VISIBLE else View.GONE
         binding.pageCourseSearch.layoutCourseSearch.visibility = if (tab == MainTab.COURSE_SEARCH) View.VISIBLE else View.GONE
-        binding.pageFreeClassroom.layoutFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
+        binding.containerFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
         binding.pageExamQuery.layoutExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
         binding.pageGradeReports.layoutGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
         binding.pageTronclass.layoutTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
@@ -1464,9 +1404,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.FREE_CLASSROOM -> {
-                initFreeClassroomPage()
-                binding.pageFreeClassroom.llFreeClassroomHeaderContainer.post {
-                    updateFreeClassroomHeaderSpacing(binding.pageFreeClassroom.llFreeClassroomHeaderContainer.height)
+                if (supportFragmentManager.findFragmentByTag("FreeClassroomFragment") == null) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.containerFreeClassroom, cn.edu.usst.jwgl.ui.school.FreeClassroomFragment.newInstance(), "FreeClassroomFragment")
+                        .commitAllowingStateLoss()
                 }
             }
             MainTab.EXAM_QUERY -> {
@@ -1663,13 +1604,6 @@ class MainActivity : AppCompatActivity() {
             val h = bottom - top
             if (h > 0) {
                 updateCourseSearchHeaderSpacing(h)
-            }
-        }
-
-        binding.pageFreeClassroom.llFreeClassroomHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val h = bottom - top
-            if (h > 0) {
-                updateFreeClassroomHeaderSpacing(h)
             }
         }
 
@@ -2591,30 +2525,6 @@ class MainActivity : AppCompatActivity() {
                 binding.pageCourseSearch.layoutEmptyResults.paddingLeft,
                 headerHeightPx,
                 binding.pageCourseSearch.layoutEmptyResults.paddingRight,
-                bottomBarHeightPx
-            )
-        }
-    }
-
-    private fun updateFreeClassroomHeaderSpacing(headerHeightPx: Int) {
-        if (headerHeightPx <= 0) return
-        val density = resources.displayMetrics.density
-        val topPad = headerHeightPx + (4 * density).toInt()
-        val currentTop = binding.pageFreeClassroom.rvFreeClassroomList.paddingTop
-        if (currentTop != topPad) {
-            binding.pageFreeClassroom.rvFreeClassroomList.setPadding(
-                binding.pageFreeClassroom.rvFreeClassroomList.paddingLeft,
-                topPad,
-                binding.pageFreeClassroom.rvFreeClassroomList.paddingRight,
-                bottomBarHeightPx
-            )
-            if (currentTop == 0) {
-                binding.pageFreeClassroom.rvFreeClassroomList.scrollToPosition(0)
-            }
-            binding.pageFreeClassroom.layoutEmptyFreeClassroom.setPadding(
-                binding.pageFreeClassroom.layoutEmptyFreeClassroom.paddingLeft,
-                headerHeightPx,
-                binding.pageFreeClassroom.layoutEmptyFreeClassroom.paddingRight,
                 bottomBarHeightPx
             )
         }
@@ -4182,213 +4092,6 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    // ==========================================
-    // --- 5. Free Classroom Full Page ---
-    // ==========================================
-    private var isFreeClassroomInitialized = false
-    private var freeClassroomAdapter: FreeClassroomAdapter? = null
-    private val allFreeRooms = mutableListOf<FreeClassroomInfo>()
-    private val displayFreeRooms = mutableListOf<FreeClassroomInfo>()
-    private var selectedFreeBuilding = "全部教学楼"
-    private var selectedFreeDay = 1
-    private var selectedFreeSection = "1-2"
-
-    private fun initFreeClassroomPage() {
-        if (isFreeClassroomInitialized) return
-        isFreeClassroomInitialized = true
-
-        val page = binding.pageFreeClassroom
-        page.btnOpenDrawerFreeClassroom.setOnClickListener {
-            if (isGuestMode) {
-                finish()
-            } else if (isPhoneBottomBarMode()) {
-                switchTab(MainTab.MORE_FEATURES)
-            } else {
-                openNavDrawer()
-            }
-        }
-
-        freeClassroomAdapter = FreeClassroomAdapter(displayFreeRooms)
-        page.rvFreeClassroomList.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 3) else LinearLayoutManager(this)
-        page.rvFreeClassroomList.adapter = freeClassroomAdapter
-
-        val buildingOptions = LappClient.ALL_KNOWN_BUILDINGS
-        val bAdapter = ArrayAdapter(this, R.layout.item_spinner_free_classroom, buildingOptions)
-        bAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown_free_classroom)
-        page.spinnerFreeBuilding.adapter = bAdapter
-
-        val cal = Calendar.getInstance()
-        val rawDay = cal.get(Calendar.DAY_OF_WEEK)
-        val todayZj = if (rawDay == Calendar.SUNDAY) 7 else rawDay - 1
-        selectedFreeDay = todayZj
-
-        val baseDays = listOf(
-            Pair("周一", 1),
-            Pair("周二", 2),
-            Pair("周三", 3),
-            Pair("周四", 4),
-            Pair("周五", 5),
-            Pair("周六", 6),
-            Pair("周日", 7)
-        )
-        val dayOptions = baseDays.map { (name, zj) ->
-            if (zj == todayZj) Pair("$name（今日）", zj) else Pair(name, zj)
-        }
-        val dAdapter = ArrayAdapter(this, R.layout.item_spinner_free_classroom, dayOptions.map { it.first })
-        dAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown_free_classroom)
-        page.spinnerFreeDay.adapter = dAdapter
-        val todayIdx = dayOptions.indexOfFirst { it.second == todayZj }.coerceAtLeast(0)
-        page.spinnerFreeDay.setSelection(todayIdx)
-
-        val sectionOptions = listOf(
-            Pair("1-2节 (08:00-09:25)", "1-2"),
-            Pair("3-5节 (09:45-11:55)", "3-5"),
-            Pair("6-7节 (13:00-14:25)", "6-7"),
-            Pair("8-10节 (14:45-16:55)", "8-9"),
-            Pair("11-13节(18:00-20:15)", "10-12")
-        )
-        val sAdapter = ArrayAdapter(this, R.layout.item_spinner_free_classroom, sectionOptions.map { it.first })
-        sAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown_free_classroom)
-        page.spinnerFreeSection.adapter = sAdapter
-
-        val hour = cal.get(Calendar.HOUR_OF_DAY)
-        val defaultSecIdx = when {
-            hour < 10 -> 0
-            hour < 12 -> 1
-            hour < 15 -> 2
-            hour < 17 -> 3
-            else -> 4
-        }
-        page.spinnerFreeSection.setSelection(defaultSecIdx)
-        selectedFreeSection = sectionOptions[defaultSecIdx].second
-
-        var isOnlyFreeRooms = true
-
-        fun updateOnlyFreeBtnStyle() {
-            if (isOnlyFreeRooms) {
-                page.btnOnlyFreeRooms.setBackgroundColor(ContextCompat.getColor(this, R.color.primary))
-                page.btnOnlyFreeRooms.setTextColor(ContextCompat.getColor(this, android.R.color.white))
-                page.btnOnlyFreeRooms.text = "仅空闲"
-            } else {
-                page.btnOnlyFreeRooms.setBackgroundColor(ContextCompat.getColor(this, R.color.surface_variant))
-                page.btnOnlyFreeRooms.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-                page.btnOnlyFreeRooms.text = "全部教室"
-            }
-        }
-        updateOnlyFreeBtnStyle()
-
-        fun filterAndDisplay(showToast: Boolean = false, isManualRefresh: Boolean = false) {
-            val filtered = if (isOnlyFreeRooms) {
-                allFreeRooms.filter { it.isFree }
-            } else {
-                // 关闭仅空闲时，按已知教室编号从小到大依次展示所有教室
-                allFreeRooms.sortedBy { LappClient.ALL_KNOWN_CLASSROOMS_ORDER[it.name] ?: 9999 }
-            }
-            displayFreeRooms.clear()
-            displayFreeRooms.addAll(filtered)
-            freeClassroomAdapter?.notifyDataSetChanged()
-
-            val freeCount = allFreeRooms.count { it.isFree }
-            val totalCount = allFreeRooms.size
-            val cacheTag = LappClient.formatCacheTag()
-            val cacheSuffix = if (cacheTag.isNotEmpty()) " ($cacheTag)" else ""
-            val curWeek = getEffectiveCurrentWeek()
-            val targetWeek = if (curWeek in 1..25) curWeek else 1
-            if (totalCount > 0) {
-                page.tvFreeClassroomSubtitle.text = "第 $targetWeek 周 · 空闲 $freeCount / 共 $totalCount 间$cacheSuffix"
-            }
-
-            if (showToast && totalCount > 0) {
-                val toastMsg = if (isManualRefresh) {
-                    "已手动刷新 · 空闲 $freeCount / 共 $totalCount 间"
-                } else {
-                    "空闲 $freeCount / 共 $totalCount 间"
-                }
-                Toast.makeText(this@MainActivity, toastMsg, Toast.LENGTH_SHORT).show()
-            }
-
-            if (displayFreeRooms.isEmpty()) {
-                page.rvFreeClassroomList.visibility = View.GONE
-                page.layoutEmptyFreeClassroom.visibility = View.VISIBLE
-            } else {
-                page.rvFreeClassroomList.visibility = View.VISIBLE
-                page.layoutEmptyFreeClassroom.visibility = View.GONE
-            }
-        }
-
-        fun fetchFreeClassrooms(isUserQueryClick: Boolean = false, forceRefresh: Boolean = false) {
-            page.progressBarFreeClassroom.visibility = View.VISIBLE
-            page.btnQueryFreeClassroom.isEnabled = false
-            page.btnRefreshFreeClassroom.isEnabled = false
-
-            val actualDay = if (selectedFreeDay == 0) todayZj else selectedFreeDay
-            val curWeek = getEffectiveCurrentWeek()
-            val targetWeek = if (curWeek in 1..25) curWeek else 1
-
-            lifecycleScope.launch {
-                val result = LappClient.queryFreeClassrooms(
-                    context = this@MainActivity,
-                    xn = "2026-2027",
-                    xq = "1",
-                    week = targetWeek,
-                    zj = actualDay,
-                    jc = selectedFreeSection,
-                    building = selectedFreeBuilding,
-                    forceRefresh = forceRefresh
-                )
-                page.progressBarFreeClassroom.visibility = View.GONE
-                page.btnQueryFreeClassroom.isEnabled = true
-                page.btnRefreshFreeClassroom.isEnabled = true
-
-                if (result.isSuccess) {
-                    val list = result.getOrNull() ?: emptyList()
-                    allFreeRooms.clear()
-                    allFreeRooms.addAll(list)
-                    filterAndDisplay(showToast = isUserQueryClick, isManualRefresh = forceRefresh)
-                } else if (forceRefresh) {
-                    Toast.makeText(this@MainActivity, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        page.spinnerFreeBuilding.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
-                selectedFreeBuilding = buildingOptions[position]
-            }
-            override fun onNothingSelected(p0: AdapterView<*>?) {}
-        }
-
-        page.spinnerFreeDay.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
-                selectedFreeDay = dayOptions[position].second
-            }
-            override fun onNothingSelected(p0: AdapterView<*>?) {}
-        }
-
-        page.spinnerFreeSection.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p0: AdapterView<*>?, p1: View?, position: Int, id: Long) {
-                selectedFreeSection = sectionOptions[position].second
-            }
-            override fun onNothingSelected(p0: AdapterView<*>?) {}
-        }
-
-        page.btnOnlyFreeRooms.setOnClickListener {
-            isOnlyFreeRooms = !isOnlyFreeRooms
-            updateOnlyFreeBtnStyle()
-            filterAndDisplay(showToast = false)
-        }
-
-        page.btnQueryFreeClassroom.setOnClickListener {
-            fetchFreeClassrooms(isUserQueryClick = true, forceRefresh = false)
-        }
-
-        page.btnRefreshFreeClassroom.setOnClickListener {
-            fetchFreeClassrooms(isUserQueryClick = true, forceRefresh = true)
-        }
-
-        fetchFreeClassrooms(isUserQueryClick = false, forceRefresh = false)
     }
 
     // ==========================================
