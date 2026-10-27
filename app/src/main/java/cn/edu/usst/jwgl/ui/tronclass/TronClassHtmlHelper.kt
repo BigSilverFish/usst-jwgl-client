@@ -244,4 +244,40 @@ object TronClassHtmlHelper {
             }
         }
     }
+
+    /**
+     * 从富文本 HTML 中解析可能以超链接形式内嵌的附件文件
+     * 例如 <a href="/api/uploads/12345/blob">预习报告格式.docx</a>
+     */
+    fun extractEmbeddedUploads(html: String?): List<cn.edu.usst.jwgl.data.model.TronClassUpload> {
+        if (html.isNullOrBlank()) return emptyList()
+        val list = mutableListOf<cn.edu.usst.jwgl.data.model.TronClassUpload>()
+        try {
+            val doc = Jsoup.parse(html)
+            val links = doc.select("a[href]")
+            val uploadRegex = Regex("""/(?:api/)?(?:uploads|attachments)/(\d+)(?:/blob)?""")
+            for (a in links) {
+                val href = a.attr("href").trim()
+                val match = uploadRegex.find(href)
+                if (match != null) {
+                    val id = match.groupValues[1].toLongOrNull() ?: continue
+                    val text = a.text().trim()
+                    val name = if (text.isNotBlank() && text.contains(".")) {
+                        text
+                    } else {
+                        href.substringAfterLast("/").takeIf { it.contains(".") } ?: "附件_$id"
+                    }
+                    list.add(
+                        cn.edu.usst.jwgl.data.model.TronClassUpload(
+                            id = id,
+                            name = name,
+                            size = 0L,
+                            type = "document"
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+        return list.distinctBy { it.id }
+    }
 }

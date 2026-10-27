@@ -1197,6 +1197,36 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
+     * 13.1 获取公告详情 (包含可能未在列表返回的附件 uploads)
+     * GET /api/bulletins/{bulletinId} 或 GET /api/courses/{courseId}/bulletins/{bulletinId}
+     */
+    suspend fun fetchBulletinDetail(bulletinId: Long, courseId: Long = 0L): Result<TronClassBulletin> = withContext(Dispatchers.IO) {
+        try {
+            val url = if (courseId > 0) {
+                "$BASE_URL/api/courses/$courseId/bulletins/$bulletinId"
+            } else {
+                "$BASE_URL/api/bulletins/$bulletinId"
+            }
+            val req = Request.Builder().url(url).build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (!resp.isSuccessful) {
+                if (resp.code == 404 && courseId > 0) {
+                    return@withContext fetchBulletinDetail(bulletinId, 0L)
+                }
+                return@withContext Result.failure(Exception("获取公告详情失败: HTTP ${resp.code}"))
+            }
+
+            val item: TronClassBulletin = gson.fromJson(body, TronClassBulletin::class.java)
+            Result.success(item)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchBulletinDetail error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 14. è·åæ´»å¨è¯¦æ (åå«ä½ä¸è¯´æå¯ææ¬åè¯åè§å)
      * GET /api/activities/{activityId}
      */

@@ -1,6 +1,8 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.ProgressDialog
+import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -8,6 +10,9 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -30,6 +35,7 @@ import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassCourseDetailBinding
 import cn.edu.usst.jwgl.databinding.DialogTronclassBulletinDetailBinding
+import cn.edu.usst.jwgl.databinding.ItemTronclassAttachmentBinding
 import cn.edu.usst.jwgl.ui.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -725,14 +731,14 @@ class TronClassCourseDetailFragment : Fragment() {
         }
     }
 
-    private fun startDownload(upload: TronClassUpload, activityId: Long? = null) {
+    private fun startDownload(upload: TronClassUpload, activityId: Long? = null, onCompleted: (() -> Unit)? = null) {
         val context = context ?: return
         val destFile = cacheManager.getFile(upload.id, upload.name)
 
         @Suppress("DEPRECATION")
         val progressDialog = ProgressDialog(context).apply {
             setTitle("正在下载课件")
-            setMessage(upload.name + "\n准备开始...")
+            setMessage((upload.name ?: "文件") + "\n准备开始...")
             setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
             max = 100
             setCancelable(false)
@@ -743,7 +749,7 @@ class TronClassCourseDetailFragment : Fragment() {
             val result = client.downloadAttachment(upload.id, destFile) { progressPercent ->
                 activity?.runOnUiThread {
                     progressDialog.progress = progressPercent
-                    progressDialog.setMessage(upload.name + "\n已下载: $progressPercent%")
+                    progressDialog.setMessage((upload.name ?: "文件") + "\n已下载: $progressPercent%")
                 }
             }
 
@@ -769,9 +775,10 @@ class TronClassCourseDetailFragment : Fragment() {
                     }
 
                     Toast.makeText(context, "下载成功！已保存至离线课件", Toast.LENGTH_SHORT).show()
+                    onCompleted?.invoke()
 
                     MaterialAlertDialogBuilder(context)
-                        .setTitle("课件下载完毕")
+                        .setTitle("文件下载完毕")
                         .setMessage("文件保存在：\n" + destFile.absolutePath + "\n\n是否立即用系统应用打开？")
                         .setPositiveButton("立即打开") { _, _ ->
                             cacheManager.openFile(destFile)
@@ -799,33 +806,132 @@ class TronClassCourseDetailFragment : Fragment() {
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
 
         dialogBinding.tvDetailTitle.text = bulletin.title ?: "课程公告"
-        dialogBinding.tvDetailMeta.text = bulletin.createdAt ?: ""
 
-        val rawContent = bulletin.content ?: "暂无公告内容"
-        val htmlData = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-                <style>
-                    body { font-family: -apple-system, sans-serif; font-size: 14.5px; line-height: 1.6; color: #333333; margin: 16px; padding: 0; }
-                    img { max-width: 100% !important; height: auto !important; border-radius: 6px; margin: 8px 0; }
-                    p { margin: 8px 0; }
-                    a { color: #1E88E5; text-decoration: underline; }
-                </style>
-            </head>
-            <body>
-                $rawContent
-            </body>
-            </html>
-        """.trimIndent()
+        // 1. 格式化发布时间（避免显示原始 ISO 格式）
+        val formattedDate = TronClassHtmlHelper.formatIsoDate(bulletin.createdAt)
+        dialogBinding.tvDetailMeta.text = if (formattedDate.isNotBlank()) formattedDate else (bulletin.createdAt ?: "")
+
+        // 2. 适配深浅色模式，WebView 设置透明底色，加载主题适配的 HTML
+        dialogBinding.webViewContent.setBackgroundColor(Color.TRANSPARENT)
+        val isDarkMode = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val rawContent = bulletin.content ?: "<p>暂无公告内容</p>"
+        val htmlData = TronClassHtmlHelper.buildThemedHtmlDocument(bulletin.title ?: "课程公告", rawContent, isDarkMode)
 
         dialogBinding.webViewContent.settings.javaScriptEnabled = false
         dialogBinding.webViewContent.loadDataWithBaseURL("https://1906.usst.edu.cn", htmlData, "text/html", "utf-8", null)
 
+        // 3. 收集并展示附件
+        val allUploads = mutableListOf<TronClassUpload>()
+        allUploads.addAll(bulletin.getAllAttachments())
+        val embedded = TronClassHtmlHelper.extractEmbeddedUploads(bulletin.content)
+        for (emb in embedded) {
+            if (allUploads.none { it.id == emb.id }) {
+                allUploads.add(emb)
+            }
+        }
+
+        renderBulletinAttachments(dialogBinding, allUploads)
+
+        // 若当前列表返回的模型中附件为空，异步调用详情接口获取可能存在的 uploads / attachments
+        if (bulletin.id > 0) {
+            viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                val detailRes = client.fetchBulletinDetail(bulletin.id, courseId)
+                if (detailRes.isSuccess) {
+                    val detail = detailRes.getOrNull()
+                    val detailUploads = detail?.getAllAttachments() ?: emptyList()
+                    if (detailUploads.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            var added = false
+                            for (up in detailUploads) {
+                                if (allUploads.none { it.id == up.id }) {
+                                    allUploads.add(up)
+                                    added = true
+                                }
+                            }
+                            if (added) {
+                                renderBulletinAttachments(dialogBinding, allUploads)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. 支持在 WebView 中点击超链接形式的附件进行直接下载
+        dialogBinding.webViewContent.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val url = request.url?.toString() ?: return false
+                val uploadId = Regex("""/(?:uploads|attachments)/(\d+)""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
+                if (uploadId != null) {
+                    val upload = allUploads.find { it.id == uploadId }
+                        ?: TronClassUpload(id = uploadId, name = url.substringAfterLast("/").substringBefore("?").ifBlank { "附件_$uploadId" })
+                    startDownload(upload)
+                    return true
+                }
+                return false
+            }
+        }
+
         dialogBinding.btnDetailClose.setOnClickListener { dialog.dismiss() }
         dialogBinding.btnConfirm.setOnClickListener { dialog.dismiss() }
         dialog.show()
+    }
+
+    private fun renderBulletinAttachments(
+        dialogBinding: DialogTronclassBulletinDetailBinding,
+        uploads: List<TronClassUpload>
+    ) {
+        if (uploads.isEmpty()) {
+            dialogBinding.layoutAttachmentsSection.visibility = View.GONE
+            return
+        }
+
+        dialogBinding.layoutAttachmentsSection.visibility = View.VISIBLE
+        dialogBinding.tvAttachmentsHeader.text = "📎 附件下载 (${uploads.size})"
+        dialogBinding.llAttachmentsContainer.removeAllViews()
+
+        for (upload in uploads) {
+            val itemBinding = ItemTronclassAttachmentBinding.inflate(layoutInflater, dialogBinding.llAttachmentsContainer, false)
+
+            val safeName = upload.name ?: "附件_${upload.id}"
+            itemBinding.tvFileName.text = safeName
+
+            // 区分文件图标
+            val ext = upload.getExtension()
+            if (ext == "pdf") {
+                itemBinding.ivFileIcon.setImageResource(R.drawable.ic_file_pdf)
+            } else {
+                itemBinding.ivFileIcon.setImageResource(R.drawable.ic_file_doc)
+            }
+
+            val sizeStr = upload.getFormattedSize()
+            val isCached = cacheManager.isCached(upload.id, upload.name)
+
+            if (isCached) {
+                itemBinding.tvFileSize.text = if (upload.size > 0) "$sizeStr · 已缓存到本地" else "已缓存到本地"
+                itemBinding.btnFileAction.text = "打开"
+            } else {
+                itemBinding.tvFileSize.text = if (upload.size > 0) "$sizeStr · 点击下载" else "点击下载"
+                itemBinding.btnFileAction.text = "下载"
+            }
+
+            fun doAction() {
+                val existing = cacheManager.getExistingFile(upload.id, upload.name)
+                if (existing != null) {
+                    cacheManager.openFile(existing)
+                } else {
+                    startDownload(upload) {
+                        itemBinding.tvFileSize.text = if (upload.size > 0) "$sizeStr · 已缓存到本地" else "已缓存到本地"
+                        itemBinding.btnFileAction.text = "打开"
+                    }
+                }
+            }
+
+            itemBinding.btnFileAction.setOnClickListener { doAction() }
+            itemBinding.root.setOnClickListener { doAction() }
+
+            dialogBinding.llAttachmentsContainer.addView(itemBinding.root)
+        }
     }
 
     private fun showCacheManagementDialog() {

@@ -79,7 +79,7 @@
             android:id="@+id/webViewContent"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/surface" />
+            android:background="@android:color/transparent" />
 
         <ProgressBar
             android:id="@+id/progressLoading"
@@ -89,6 +89,41 @@
             android:visibility="gone" />
 
     </FrameLayout>
+
+    <!-- Attachments Section -->
+    <LinearLayout
+        android:id="@+id/layoutAttachmentsSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvAttachmentsHeader"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:text="📎 附件文件 (0)"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <androidx.core.widget.NestedScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxHeight="220dp">
+
+            <LinearLayout
+                android:id="@+id/llAttachmentsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </androidx.core.widget.NestedScrollView>
+
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
