@@ -73,6 +73,17 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="12.5sp" />
             </LinearLayout>
+
+            <ImageView
+                android:id="@+id/btnDrawerSwitchAccount"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/badge_bg"
+                android:backgroundTint="#128C1D27"
+                android:contentDescription="切换账号"
+                android:padding="9dp"
+                android:src="@drawable/ic_switch_account"
+                app:tint="@color/primary" />
         </LinearLayout>
 
         <TextView

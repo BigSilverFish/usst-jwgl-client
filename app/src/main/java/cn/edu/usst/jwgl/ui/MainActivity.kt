@@ -2234,6 +2234,21 @@ class MainActivity : AppCompatActivity() {
             binding.btnLogout.performClick()
         }
 
+        // Side Navigation Drawer: Switch Account
+        binding.layoutDrawer.btnDrawerSwitchAccount.setOnClickListener {
+            closeNavDrawer()
+            showAccountSwitchBottomSheet()
+        }
+        binding.layoutDrawer.cardDrawerProfileHeader.setOnClickListener {
+            closeNavDrawer()
+            showAccountSwitchBottomSheet()
+        }
+
+        // Profile Tab: Switch Account Button
+        binding.btnSwitchAccount.setOnClickListener {
+            showAccountSwitchBottomSheet()
+        }
+
         // Profile Tab: System & Updates card
         binding.btnLogout.setOnClickListener {
             JwglClient.clearSession()
@@ -2533,6 +2548,62 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         } catch (e: Exception) {
             Toast.makeText(this, "请前往手机“设置 - 应用设置”开启桌面权限", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showAccountSwitchBottomSheet() {
+        val sheet = cn.edu.usst.jwgl.ui.account.AccountSwitchBottomSheet()
+        sheet.setOnAccountSwitchListener(object : cn.edu.usst.jwgl.ui.account.AccountSwitchBottomSheet.OnAccountSwitchListener {
+            override fun onAccountSwitched(studentId: String) {
+                handleAccountSwitched(studentId)
+            }
+
+            override fun onAllAccountsRemoved() {
+                binding.btnLogout.performClick()
+            }
+        })
+        sheet.show(supportFragmentManager, "AccountSwitchBottomSheet")
+    }
+
+    private fun handleAccountSwitched(newStudentId: String) {
+        lifecycleScope.launch {
+            // 1. 刷新个人档案缓存及 UI 展示
+            val profile = cacheManager.getProfile(newStudentId)
+            currentProfile = profile
+            displayProfile(profile)
+
+            // 2. 如果缺少姓名等核心信息，后台静默拉取补全
+            if (profile == null || (profile.name.isBlank() && profile.college.isBlank())) {
+                val auth = AuthPreferences(this@MainActivity)
+                val pwd = auth.getPassword()
+                if (pwd.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            if (JwglClient.ensureSession(this@MainActivity)) {
+                                val healed = JwglClient.fetchStudentProfile(newStudentId)
+                                if (healed.name.isNotBlank() || healed.college.isNotBlank()) {
+                                    cacheManager.saveProfile(healed, newStudentId)
+                                    withContext(Dispatchers.Main) {
+                                        currentProfile = healed
+                                        displayProfile(healed)
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Account switched: failed to auto heal profile", e)
+                        }
+                    }
+                }
+            }
+
+            // 3. 重新加载课表
+            initWakeupSchedule()
+
+            // 4. 刷新成绩 Fragment
+            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.loadGrades(isManual = false)
+
+            // 5. 刷新 TronClass
+            getTronClassFragment()?.loadTronClassData(forceRefresh = true, silent = true)
         }
     }
 }

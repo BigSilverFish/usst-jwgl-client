@@ -1171,6 +1171,19 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- Manage Multiple Accounts Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSwitchAccount"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:layout_marginTop="20dp"
+                    android:text="多账号管理与切换"
+                    app:icon="@drawable/ic_switch_account"
+                    app:iconGravity="textStart"
+                    app:iconPadding="10dp"
+                    app:cornerRadius="12dp" />
+
                 <!-- Logout Button -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLogout"
