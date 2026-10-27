@@ -1993,10 +1993,12 @@
             android:id="@+id/pageMoreFeatures"
             layout="@layout/layout_page_more_features" />
 
-        <!-- 9. TronClass Native Embedded Page -->
-        <include
-            android:id="@+id/pageTronclass"
-            layout="@layout/layout_page_tronclass" />
+        <!-- 9. TronClass Native Embedded Fragment Container -->
+        <FrameLayout
+            android:id="@+id/containerTronclass"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
 
     </FrameLayout>
     </LinearLayout>

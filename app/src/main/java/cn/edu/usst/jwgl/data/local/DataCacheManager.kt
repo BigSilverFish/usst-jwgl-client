@@ -97,6 +97,7 @@ class DataCacheManager(context: Context) {
         return try {
             gson.fromJson(json, StudentProfile::class.java)
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached StudentProfile", e)
             null
         }
     }
@@ -123,6 +124,7 @@ class DataCacheManager(context: Context) {
         return try {
             gson.fromJson(json, TimetableData::class.java)
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached TimetableData for key $key", e)
             null
         }
     }
@@ -140,7 +142,7 @@ class DataCacheManager(context: Context) {
                     val data = gson.fromJson(v, TimetableData::class.java)
                     if (data != null) list.add(data)
                 } catch (e: Exception) {
-                    // ignore
+                    Log.w(TAG, "Failed to parse cached TimetableData for key $k", e)
                 }
             }
         }
@@ -175,6 +177,7 @@ class DataCacheManager(context: Context) {
         return try {
             gson.fromJson(json, GradeReport::class.java)
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached GradeReport", e)
             null
         }
     }
@@ -202,6 +205,7 @@ class DataCacheManager(context: Context) {
             val type = object : com.google.gson.reflect.TypeToken<List<ExamItem>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached ExamItems for key $key", e)
             emptyList()
         }
     }
@@ -226,7 +230,7 @@ class DataCacheManager(context: Context) {
                     val items = gson.fromJson<List<ExamItem>>(v, type)
                     if (items != null) list.addAll(items)
                 } catch (e: Exception) {
-                    // ignore
+                    Log.w(TAG, "Failed to parse cached exam item for key $k", e)
                 }
             }
         }

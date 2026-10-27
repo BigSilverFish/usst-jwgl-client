@@ -95,6 +95,7 @@ class TronClassDataCacheManager(private val context: Context) {
                 val dir = File(context.getExternalFilesDir(null) ?: context.filesDir, "tronclass_downloads")
                 calculateFolderSize(dir)
             } catch (e: Exception) {
+                Log.w(TAG, "Failed to calculate download files size", e)
                 0L
             }
         }
@@ -194,6 +195,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached courses from prefs", e)
             emptyList()
         }
     }
@@ -226,6 +228,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached todos from prefs", e)
             emptyList()
         }
     }
@@ -253,6 +256,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached modules for course $courseId", e)
             emptyList()
         }
     }
@@ -278,6 +282,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached reads for course $courseId", e)
             emptyMap()
         }
     }
@@ -303,6 +308,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached syllabus for course $courseId", e)
             emptyList()
         }
     }
@@ -346,6 +352,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached exams for course $courseId", e)
             emptyList()
         }
     }
@@ -371,6 +378,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached members for course $courseId", e)
             emptyList()
         }
     }
@@ -396,6 +404,7 @@ class TronClassDataCacheManager(private val context: Context) {
             }
             res
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached bulletins for course $courseId", e)
             emptyList()
         }
     }
@@ -413,6 +422,7 @@ class TronClassDataCacheManager(private val context: Context) {
         return try {
             gson.fromJson(json, TronClassExamDetail::class.java)
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached exam detail for exam $examId", e)
             null
         }
     }

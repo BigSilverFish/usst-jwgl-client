@@ -18,6 +18,8 @@ import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.*
 import cn.edu.usst.jwgl.data.model.TronClassUpload
 import cn.edu.usst.jwgl.data.model.TronClassSubmission
+import cn.edu.usst.jwgl.util.AppAuthExpiredException
+import cn.edu.usst.jwgl.util.AppNetworkException
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okio.BufferedSink
@@ -312,11 +314,11 @@ class TronClassClient(private val context: Context) {
                 if (refreshed) {
                     return@withContext fetchTodos()
                 }
-                return@withContext Result.failure(Exception("登录已失效，请重新登录"))
+                return@withContext Result.failure(AppAuthExpiredException("一网畅学登录已失效，请重新授权登录"))
             }
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("获取待办列表失败 (${resp.code})"))
+                return@withContext Result.failure(AppNetworkException(resp.code, "获取待办列表失败 (${resp.code})", url = url))
             }
 
             val json = JSONObject(body)
@@ -350,12 +352,7 @@ class TronClassClient(private val context: Context) {
             Result.success(list)
         } catch (e: Exception) {
             Log.e(TAG, "fetchTodos error", e)
-            val cached = prefs.getCachedTodos()
-            if (cached.isNotEmpty()) {
-                Result.success(cached)
-            } else {
-                Result.failure(e)
-            }
+            Result.failure(e)
         }
     }
 
@@ -369,8 +366,17 @@ class TronClassClient(private val context: Context) {
             val resp = okHttpClient.newCall(req).execute()
             val body = resp.body?.string() ?: ""
 
+            if (resp.code == 401 || resp.code == 403) {
+                // 尝试刷新 Token
+                val refreshed = refreshSession().getOrDefault(false)
+                if (refreshed) {
+                    return@withContext fetchMyCourses()
+                }
+                return@withContext Result.failure(AppAuthExpiredException("一网畅学登录已失效，请重新授权登录"))
+            }
+
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("获取课程列表失败 (${resp.code})"))
+                return@withContext Result.failure(AppNetworkException(resp.code, "获取课程列表失败 (${resp.code})", url = url))
             }
 
             val json = JSONObject(body)
@@ -414,12 +420,7 @@ class TronClassClient(private val context: Context) {
             Result.success(list)
         } catch (e: Exception) {
             Log.e(TAG, "fetchMyCourses error", e)
-            val cached = prefs.getCachedCourses()
-            if (cached.isNotEmpty()) {
-                Result.success(cached)
-            } else {
-                Result.failure(e)
-            }
+            Result.failure(e)
         }
     }
 
@@ -433,8 +434,16 @@ class TronClassClient(private val context: Context) {
             val resp = okHttpClient.newCall(req).execute()
             val body = resp.body?.string() ?: ""
 
+            if (resp.code == 401 || resp.code == 403) {
+                val refreshed = refreshSession().getOrDefault(false)
+                if (refreshed) {
+                    return@withContext fetchOngoingRollcalls()
+                }
+                return@withContext Result.failure(AppAuthExpiredException("一网畅学登录已失效，请重新授权登录"))
+            }
+
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("查询签到状态失败 (${resp.code})"))
+                return@withContext Result.failure(AppNetworkException(resp.code, "查询签到状态失败 (${resp.code})", url = url))
             }
 
             val json = JSONObject(body)

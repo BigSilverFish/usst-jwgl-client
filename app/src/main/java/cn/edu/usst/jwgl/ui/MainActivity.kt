@@ -57,25 +57,10 @@ import cn.edu.usst.jwgl.ui.adapter.CourseGradeAdapter
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
-import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
-import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity
-import cn.edu.usst.jwgl.data.local.TronClassCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.TronClassCourse
-import cn.edu.usst.jwgl.data.model.TronClassRollcall
-import cn.edu.usst.jwgl.data.model.TronClassTodo
-import cn.edu.usst.jwgl.data.network.TronClassClient
-import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseAdapter
-import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseDetailActivity
-import cn.edu.usst.jwgl.ui.tronclass.TronClassDownloadActivity
-import cn.edu.usst.jwgl.ui.tronclass.TronClassCourseDetailFragment
-import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkFragment
-import cn.edu.usst.jwgl.ui.tronclass.TronClassExamFragment
-import cn.edu.usst.jwgl.ui.tronclass.TronClassDownloadFragment
+import cn.edu.usst.jwgl.ui.tronclass.TronClassFragment
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
-import cn.edu.usst.jwgl.ui.tronclass.TronClassLoginActivity
-import cn.edu.usst.jwgl.ui.tronclass.TronClassTodoAdapter
-import cn.edu.usst.jwgl.ui.tronclass.RadarRollcallBottomSheetDialog
 import android.app.ProgressDialog
 import android.widget.EditText
 import kotlinx.coroutines.async
@@ -154,25 +139,7 @@ class MainActivity : AppCompatActivity() {
 
 
 
-    private val tronClassLoginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        isAutoAuthenticatingTronClass = false
-        if (res.resultCode == RESULT_OK) {
-            updateTronClassUserHeader()
-            loadTronClassData(forceRefresh = true)
-        } else {
-            updateTronClassUserHeader()
-        }
-    }
 
-    private val tronClassClient by lazy { TronClassClient(this) }
-    private lateinit var tronClassTodoAdapter: TronClassTodoAdapter
-    private lateinit var tronClassCourseAdapter: TronClassCourseAdapter
-    private var allTronClassCourses: List<TronClassCourse> = emptyList()
-    private var currentSelectedSemester: String? = null
-    private var tronClassCourseSearchQuery: String = ""
-    private var tronClassActiveRollcalls: List<TronClassRollcall> = emptyList()
-    private var isTronClassInitialized = false
-    private var isAutoAuthenticatingTronClass = false
 
     fun checkAndRequestCalendarPermission(action: () -> Unit) {
         if (ContextCompat.checkSelfPermission(
@@ -383,17 +350,6 @@ class MainActivity : AppCompatActivity() {
 
             applyContentBottomPadding()
 
-            // Independent feature pages status bar top padding
-            binding.pageTronclass.llTronClassHeaderContainer.setPadding(
-                binding.pageTronclass.llTronClassHeaderContainer.paddingLeft,
-                statusTopPad,
-                binding.pageTronclass.llTronClassHeaderContainer.paddingRight,
-                0
-            )
-            binding.pageTronclass.llTronClassHeaderContainer.post {
-                updateTronClassHeaderSpacing(binding.pageTronclass.llTronClassHeaderContainer.height)
-            }
-
             binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.setPadding(
                 binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.paddingLeft,
                 statusTopPad,
@@ -440,9 +396,6 @@ class MainActivity : AppCompatActivity() {
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
-            binding.pageTronclass.blurViewTronClass.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
 
             binding.pageMoreFeatures.blurViewMoreFeatures.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
@@ -560,6 +513,7 @@ class MainActivity : AppCompatActivity() {
     fun getBottomInset(): Int = lastNavBarBottomInsetPx
     fun isBottomBarModeActive(): Boolean = isPhoneBottomBarMode()
     fun isGuestModeActive(): Boolean = isGuestMode
+    fun isTabletLandscapeModeActive(): Boolean = isTabletLandscapeMode
     fun getEffectiveCurrentWeekNumber(): Int = getEffectiveCurrentWeek()
 
     private fun isPhoneBottomBarMode(): Boolean {
@@ -592,12 +546,6 @@ class MainActivity : AppCompatActivity() {
             binding.scrollGrades.paddingRight,
             bottomBarHeightPx
         )
-        binding.pageTronclass.llTronClassContent.setPadding(
-            binding.pageTronclass.llTronClassContent.paddingLeft,
-            binding.pageTronclass.llTronClassContent.paddingTop,
-            binding.pageTronclass.llTronClassContent.paddingRight,
-            bottomBarHeightPx
-        )
 
         supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
             .forEach { it.applyContentPadding() }
@@ -612,7 +560,6 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenDrawerGrades.visibility = View.GONE
             binding.btnOpenDrawerProfile.visibility = View.GONE
 
-            binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
 
             binding.rowDoubleTapDrawer.visibility = View.GONE
@@ -649,7 +596,6 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenDrawerProfile.visibility = View.GONE
 
             // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
-            binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
 
             // Double-tap drawer option is only applicable in Sidebar mode
@@ -662,9 +608,7 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
             binding.btnOpenDrawerGrades.visibility = View.VISIBLE
             binding.btnOpenDrawerProfile.visibility = View.VISIBLE
-            binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.VISIBLE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.VISIBLE
-            binding.pageTronclass.btnOpenDrawerTronClass.setImageResource(R.drawable.ic_menu)
 
             binding.rowDoubleTapDrawer.visibility = View.VISIBLE
             binding.dividerDoubleTapDrawer.visibility = View.VISIBLE
@@ -732,7 +676,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnOpenDrawerTimetable.visibility = View.GONE
         binding.btnOpenDrawerGrades.visibility = View.GONE
         binding.btnOpenDrawerProfile.visibility = View.GONE
-        binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
 
         // 3. 双栏主从视图 (Two-Pane Master-Detail Layouts)
         // 3a. 学业情况查询 (左：学分绩点总览 + 历年学期切换卡片；右：双列课程成绩网格)
@@ -768,28 +711,9 @@ class MainActivity : AppCompatActivity() {
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
 
-        // 3d. 一网畅学 (Pad横屏双栏自适应：左侧待办与签到，右侧在读课程网格)
-        val tcPage = binding.pageTronclass
-        tcPage.llTronClassBody.orientation = LinearLayout.HORIZONTAL
-        tcPage.llTronClassLeftPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.42f
-        ).apply {
-            marginEnd = dp(16f)
-        }
-        tcPage.llTronClassRightPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.58f
-        )
-
-        // 4. 缃戞牸甯冨眬涓庡垪琛ㄩ€傞厤
+        // 4. 网格布局与列表适配
         if (binding.rvGrades.adapter != null) {
             binding.rvGrades.layoutManager = GridLayoutManager(this, 2)
-        }
-        if (binding.pageTronclass.rvTronClassCourses.adapter != null) {
-            binding.pageTronclass.rvTronClassCourses.layoutManager = GridLayoutManager(this, 2)
         }
         gradeReport?.let { populateGradesSemesterMasterList(it) }
     }
@@ -842,25 +766,9 @@ class MainActivity : AppCompatActivity() {
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
 
-        val tcPage = binding.pageTronclass
-        tcPage.llTronClassBody.orientation = LinearLayout.VERTICAL
-        tcPage.llTronClassLeftPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            marginEnd = 0
-        }
-        tcPage.llTronClassRightPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-
         /* 4. Restore list manager */
         if (binding.rvGrades.adapter != null) {
             binding.rvGrades.layoutManager = LinearLayoutManager(this)
-        }
-        if (tcPage.rvTronClassCourses.adapter != null) {
-            tcPage.rvTronClassCourses.layoutManager = LinearLayoutManager(this)
         }
     }
 
@@ -1227,7 +1135,7 @@ class MainActivity : AppCompatActivity() {
         binding.containerFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
         binding.containerExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
         binding.containerGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
-        binding.pageTronclass.layoutTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
+        binding.containerTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
 
         when (tab) {
             MainTab.TIMETABLE -> reloadTimetableFromDb()
@@ -1240,11 +1148,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.TRONCLASS -> {
-                initTronClassPage()
-                binding.pageTronclass.llTronClassHeaderContainer.post {
-                    updateTronClassHeaderSpacing(binding.pageTronclass.llTronClassHeaderContainer.height)
+                if (supportFragmentManager.findFragmentByTag("TronClassFragment") == null) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
+                        .commitAllowingStateLoss()
                 }
-                checkAndLoadTronClassData()
             }
             MainTab.MORE_FEATURES -> {
                 binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
@@ -2724,11 +2632,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        supportFragmentManager.addOnBackStackChangedListener {
-            val count = supportFragmentManager.backStackEntryCount
-            binding.pageTronclass.flTronClassSecondaryContainer.visibility = if (count > 0) View.VISIBLE else View.GONE
-        }
-
         // Back press handling: close drawer first if opened
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -2736,8 +2639,8 @@ class MainActivity : AppCompatActivity() {
                     finish()
                 } else if (isNavDrawerOpen()) {
                     closeNavDrawer()
-                } else if (currentTab == MainTab.TRONCLASS && supportFragmentManager.backStackEntryCount > 0) {
-                    supportFragmentManager.popBackStack()
+                } else if (currentTab == MainTab.TRONCLASS && getTronClassFragment()?.handleBackPressed() == true) {
+                    // Handled by TronClassFragment child fragment manager
                 } else if (isPhoneBottomBarMode() && (
                         currentTab == MainTab.COURSE_SEARCH ||
                         currentTab == MainTab.FREE_CLASSROOM ||
@@ -2763,7 +2666,7 @@ class MainActivity : AppCompatActivity() {
             switchTab(MainTab.GRADES)
         }
         binding.tabBottomTronClass.setOnClickListener {
-            if (currentTab == MainTab.TRONCLASS && supportFragmentManager.backStackEntryCount > 0) {
+            if (currentTab == MainTab.TRONCLASS && getTronClassFragment()?.hasBackStack() == true) {
                 clearTronClassBackStack()
             } else {
                 switchTab(MainTab.TRONCLASS)
@@ -2900,7 +2803,7 @@ class MainActivity : AppCompatActivity() {
         
         binding.layoutDrawer.drawerNavTronClass.setOnClickListener {
             closeNavDrawer()
-            if (currentTab == MainTab.TRONCLASS && supportFragmentManager.backStackEntryCount > 0) {
+            if (currentTab == MainTab.TRONCLASS && getTronClassFragment()?.hasBackStack() == true) {
                 clearTronClassBackStack()
             } else {
                 switchTab(MainTab.TRONCLASS)
@@ -3072,716 +2975,63 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateTronClassHeaderSpacing(headerHeight: Int) {
-        val params = binding.pageTronclass.viewTronClassHeaderSpacing.layoutParams
-        if (params.height != headerHeight) {
-            params.height = headerHeight
-            binding.pageTronclass.viewTronClassHeaderSpacing.layoutParams = params
-        }
-    }
-
-    private fun initTronClassPage() {
-        if (isTronClassInitialized) return
-        isTronClassInitialized = true
-
-        binding.pageTronclass.btnOpenDrawerTronClass.setOnClickListener {
-            openNavDrawer()
-        }
-
-        binding.pageTronclass.btnRefreshTronClass.setOnClickListener {
-            loadTronClassData(forceRefresh = true)
-        }
-
-        binding.pageTronclass.btnTronClassDownloads.setOnClickListener {
-            openTronClassDownloads()
-        }
-
-        binding.pageTronclass.btnTronClassCacheManager.setOnClickListener {
-            val sheet = cn.edu.usst.jwgl.ui.tronclass.TronClassCacheBottomSheet.newInstance()
-            sheet.setOnCacheClearedListener {
-                loadTronClassData(forceRefresh = true)
-            }
-            sheet.show(supportFragmentManager, cn.edu.usst.jwgl.ui.tronclass.TronClassCacheBottomSheet.TAG)
-        }
-
-        binding.pageTronclass.etTronClassCourseSearch.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                tronClassCourseSearchQuery = s?.toString()?.trim() ?: ""
-                binding.pageTronclass.btnTronClassCourseSearchClear.visibility =
-                    if (tronClassCourseSearchQuery.isNotEmpty()) View.VISIBLE else View.GONE
-                val latestSemester = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.distinct().sortedDescending().firstOrNull() ?: ""
-                renderFilteredCourses(latestSemester)
-            }
-            override fun afterTextChanged(s: android.text.Editable?) {}
-        })
-
-        binding.pageTronclass.btnTronClassCourseSearchClear.setOnClickListener {
-            binding.pageTronclass.etTronClassCourseSearch.setText("")
-        }
-
-        tronClassTodoAdapter = TronClassTodoAdapter { todo ->
-            openTronClassHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
-        }
-        binding.pageTronclass.rvTronClassTodos.layoutManager = LinearLayoutManager(this)
-        binding.pageTronclass.rvTronClassTodos.adapter = tronClassTodoAdapter
-
-        tronClassCourseAdapter = TronClassCourseAdapter { course ->
-            openTronClassCourseDetail(course)
-        }
-        binding.pageTronclass.rvTronClassCourses.layoutManager = if (isTabletLandscapeMode) GridLayoutManager(this, 2) else LinearLayoutManager(this)
-        binding.pageTronclass.rvTronClassCourses.adapter = tronClassCourseAdapter
-
-        // 🚀 0ms 瞬间秒开：先从本地持久化缓存立即铺满待办与课程列表，拒绝白屏与等待
-        val cacheMgr = TronClassDataCacheManager.getInstance(this)
-        val cachedTodos = cacheMgr.getCachedTodos()
-        if (cachedTodos.isNotEmpty()) {
-            tronClassTodoAdapter.updateData(cachedTodos)
-            binding.pageTronclass.tvTronClassTodoBadge.text = "${cachedTodos.size} 项待办"
-            binding.pageTronclass.tvTronClassEmptyTodos.visibility = View.GONE
-        }
-        val cachedCourses = cacheMgr.getCachedCourses()
-        if (cachedCourses.isNotEmpty()) {
-            allTronClassCourses = cachedCourses
-            setupTronClassSemesterChips(cachedCourses)
-        }
-
-        binding.pageTronclass.swipeRefreshTronClass.isEnabled = false
-
-
-
-        binding.pageTronclass.btnTronClassSmartSign.setOnClickListener {
-            triggerSmartRollcall()
-        }
-
-        binding.pageTronclass.btnTronClassLoginPrompt.setOnClickListener {
-            promptTronClassLogin()
-        }
-
-        binding.pageTronclass.btnTronClassQuickSign.setOnClickListener {
-            triggerSmartRollcall()
-        }
-
-        updateTronClassUserHeader()
-    }
+    fun getTronClassFragment(): TronClassFragment? =
+        supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment
 
     fun openTronClassCourseDetail(course: TronClassCourse) {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)
         }
-        val fragment = TronClassCourseDetailFragment.newInstance(course)
-        pushTronClassSecondaryFragment(fragment, "course_detail_${course.id}")
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openCourseDetail(course)
     }
 
     fun openTronClassCourseDetail(courseId: Long, courseName: String) {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)
         }
-        val fragment = TronClassCourseDetailFragment.newInstance(courseId, courseName)
-        pushTronClassSecondaryFragment(fragment, "course_detail_$courseId")
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openCourseDetail(courseId, courseName)
     }
 
     fun openTronClassHomework(activityId: Long, courseId: Long, title: String, courseName: String) {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)
         }
-        val fragment = TronClassHomeworkFragment.newInstance(activityId, courseId, title, courseName)
-        pushTronClassSecondaryFragment(fragment, "homework_$activityId")
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openHomework(activityId, courseId, title, courseName)
     }
 
     fun openTronClassExam(examId: Long, courseId: Long, title: String, courseName: String) {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)
         }
-        val fragment = TronClassExamFragment.newInstance(examId, courseId, title, courseName)
-        pushTronClassSecondaryFragment(fragment, "exam_$examId")
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openExam(examId, courseId, title, courseName)
     }
 
     fun openTronClassDownloads() {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)
         }
-        val fragment = TronClassDownloadFragment.newInstance()
-        pushTronClassSecondaryFragment(fragment, "downloads")
-    }
-
-    private fun pushTronClassSecondaryFragment(fragment: androidx.fragment.app.Fragment, tag: String) {
-        binding.pageTronclass.flTronClassSecondaryContainer.visibility = View.VISIBLE
-        supportFragmentManager.beginTransaction()
-            .setCustomAnimations(
-                android.R.anim.fade_in,
-                android.R.anim.fade_out,
-                android.R.anim.fade_in,
-                android.R.anim.fade_out
-            )
-            .replace(R.id.flTronClassSecondaryContainer, fragment, tag)
-            .addToBackStack(tag)
-            .commit()
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openDownloads()
     }
 
     fun clearTronClassBackStack() {
-        while (supportFragmentManager.backStackEntryCount > 0) {
-            supportFragmentManager.popBackStackImmediate()
-        }
-        binding.pageTronclass.flTronClassSecondaryContainer.visibility = View.GONE
-    }
-
-    private fun checkAndLoadTronClassData() {
-        val currentJwglStudentId = AuthPreferences(this).getStudentId().trim()
-        val tcPrefs = TronClassPreferences(this)
-        val tcUserNo = tcPrefs.getUserNo()?.trim()
-
-        if (currentJwglStudentId.isNotEmpty() && !tcUserNo.isNullOrEmpty() && !tcUserNo.equals(currentJwglStudentId, ignoreCase = true)) {
-            Log.w(TAG, "TronClass account ($tcUserNo) does not match current JWGL student ($currentJwglStudentId). Forcing session reset.")
-            tcPrefs.clearSession()
-            TronClassDataCacheManager.clearDataCache(this)
-            tronClassCourseAdapter.updateData(emptyList())
-            tronClassTodoAdapter.updateData(emptyList())
-            allTronClassCourses = emptyList()
-        }
-
-        if (!tronClassClient.isLoggedIn()) {
-            updateTronClassUserHeader()
-            // 首次点进一网畅学，若尚未完成畅课认证，自动静默触发 SSO 认证直登
-            autoPerformTronClassSsoLogin()
-            return
-        }
-        val cacheMgr = TronClassDataCacheManager.getInstance(this)
-        if (tronClassCourseAdapter.itemCount == 0) {
-            val cachedCourses = cacheMgr.getCachedCourses()
-            if (cachedCourses.isNotEmpty()) {
-                allTronClassCourses = cachedCourses
-                setupTronClassSemesterChips(cachedCourses)
-            }
-            val cachedTodos = cacheMgr.getCachedTodos()
-            if (cachedTodos.isNotEmpty()) {
-                tronClassTodoAdapter.updateData(cachedTodos)
-                binding.pageTronclass.tvTronClassTodoBadge.text = "${cachedTodos.size} 项待办"
-                binding.pageTronclass.tvTronClassEmptyTodos.visibility = View.GONE
-            }
-        }
-        val hasCache = tronClassCourseAdapter.itemCount > 0
-        loadTronClassData(forceRefresh = false, silent = hasCache)
-    }
-
-    private fun autoPerformTronClassSsoLogin() {
-        if (isAutoAuthenticatingTronClass) return
-        isAutoAuthenticatingTronClass = true
-        binding.pageTronclass.tvTronClassUserName.text = "正在同步认证..."
-        binding.pageTronclass.tvTronClassUserNo.text = "正在通过学校统一身份认证 (SSO) 直连一网畅学..."
-        binding.pageTronclass.btnTronClassLoginPrompt.visibility = View.GONE
-        promptTronClassLogin()
-    }
-
-    private fun updateTronClassUserHeader() {
-        if (tronClassClient.isLoggedIn()) {
-            val name = tronClassClient.getUserName()
-            val no = tronClassClient.getUserNo()
-            val displayName = if (name.endsWith("同学")) name else "${name}同学"
-            binding.pageTronclass.tvTronClassUserName.text = displayName
-            binding.pageTronclass.tvTronClassUserNo.text = if (no.isNotBlank()) "学号: $no" else "已登录"
-            binding.pageTronclass.btnTronClassSmartSign.visibility = View.VISIBLE
-            binding.pageTronclass.btnTronClassLoginPrompt.visibility = View.GONE
-        } else {
-            binding.pageTronclass.tvTronClassUserName.text = "同学，你好！"
-            binding.pageTronclass.tvTronClassUserNo.text = "点击下方按钮授权登录"
-            binding.pageTronclass.btnTronClassSmartSign.visibility = View.GONE
-            binding.pageTronclass.btnTronClassLoginPrompt.visibility = View.VISIBLE
-        }
-    }
-
-    private fun promptTronClassLogin() {
-        val intent = Intent(this, TronClassLoginActivity::class.java)
-        tronClassLoginLauncher.launch(intent)
-    }
-
-    private fun loadTronClassData(forceRefresh: Boolean, silent: Boolean = false) {
-        if (!tronClassClient.isLoggedIn()) {
-            binding.pageTronclass.swipeRefreshTronClass.isRefreshing = false
-            return
-        }
-
-        if (!silent) {
-            binding.pageTronclass.swipeRefreshTronClass.isRefreshing = true
-        }
-
-        lifecycleScope.launch {
-            val cacheMgr = TronClassDataCacheManager.getInstance(this@MainActivity)
-            val todosDeferred = async { tronClassClient.fetchTodos() }
-            val coursesDeferred = async { tronClassClient.fetchMyCourses() }
-            val rollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
-
-            val todosRes = todosDeferred.await()
-            val coursesRes = coursesDeferred.await()
-            val rollcallsRes = rollcallsDeferred.await()
-
-            binding.pageTronclass.swipeRefreshTronClass.isRefreshing = false
-
-            // 1. 处理待办作业并写回缓存
-            if (todosRes.isSuccess) {
-                val todos = todosRes.getOrDefault(emptyList())
-                cacheMgr.saveTodos(todos)
-                tronClassTodoAdapter.updateData(todos)
-                TronClassDdlScheduler.scheduleFromPreferences(this@MainActivity)
-                binding.pageTronclass.tvTronClassTodoBadge.text = "${todos.size} 项待办"
-                binding.pageTronclass.tvTronClassEmptyTodos.visibility = if (todos.isEmpty()) View.VISIBLE else View.GONE
-            }
-
-            // 2. 处理在读课程并写回缓存
-            if (coursesRes.isSuccess) {
-                val courses = coursesRes.getOrDefault(emptyList())
-                if (courses.isNotEmpty()) {
-                    cacheMgr.saveCourses(courses)
-                }
-                allTronClassCourses = courses
-                setupTronClassSemesterChips(allTronClassCourses)
-            }
-
-            // 3. 处理正在进行的课堂签到
-            if (rollcallsRes.isSuccess) {
-                tronClassActiveRollcalls = rollcallsRes.getOrDefault(emptyList())
-                if (tronClassActiveRollcalls.isNotEmpty()) {
-                    val r = tronClassActiveRollcalls.first()
-                    binding.pageTronclass.cardTronClassActiveRollcall.visibility = View.VISIBLE
-                    val typeDesc = r.getTypeDisplayName()
-                    val btnText = when (r.getNormalizedType()) {
-                        "number" -> "口令签到"
-                        "radar" -> "雷达签到"
-                        "self_registration" -> "自主签到"
-                        else -> "扫码签到"
-                    }
-                    binding.pageTronclass.tvTronClassActiveRollcallInfo.text = "课程: ${r.courseName ?: "课堂教学"} · $typeDesc"
-                    binding.pageTronclass.btnTronClassQuickSign.text = btnText
-                    updateSmartSignButtonState()
-                } else {
-                    binding.pageTronclass.cardTronClassActiveRollcall.visibility = View.GONE
-                    updateSmartSignButtonState()
-                }
-            }
-        }
-    }
-
-    // Google ML Kit 高灵敏扫码器 Launcher
-    private val tronClassMlKitScannerLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val rawContents = result.data?.getStringExtra(MlKitScannerActivity.EXTRA_SCAN_RESULT) ?: ""
-            if (rawContents.isNotBlank()) {
-                handleTronClassScannedQrResult(rawContents)
-            }
-        }
-    }
-
-    private fun startTronClassQrScan() {
-        val intent = Intent(this, MlKitScannerActivity::class.java)
-        tronClassMlKitScannerLauncher.launch(intent)
-    }
-
-    private fun handleTronClassScannedQrResult(rawContents: String) {
-        val parsed = tronClassClient.parseRollcallQr(rawContents)
-        if (parsed != null) {
-            val progress = ProgressDialog(this).apply {
-                setMessage("正在向一网畅学提交扫码签到...")
-                setCancelable(false)
-                show()
-            }
-
-            lifecycleScope.launch {
-                val res = tronClassClient.answerQRRollcall(parsed.rollcallId, parsed.qrData)
-                progress.dismiss()
-
-                val result = res.getOrNull()
-                if (result != null && result.success) {
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("🎉 签到成功！")
-                        .setMessage(result.message)
-                        .setPositiveButton("太棒了", null)
-                        .show()
-                    loadTronClassData(forceRefresh = true)
-                } else {
-                    val msg = result?.message ?: res.exceptionOrNull()?.message ?: "未知签到错误"
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("签到结果反馈")
-                        .setMessage(msg)
-                        .setPositiveButton("确定", null)
-                        .show()
-                }
-            }
-        } else {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("二维码提示")
-                .setMessage("未能识别为有效的课堂签到二维码：\n$rawContents\n\n请确认教师屏幕上的签到二维码是否已刷新。")
-                .setPositiveButton("确定", null)
-                .show()
-        }
-    }
-
-    /**
-     * 单一合并签到核心入口：根据当前点名类型全自动分流
-     */
-    private fun triggerSmartRollcall() {
-        if (!tronClassClient.isLoggedIn()) {
-            promptTronClassLogin()
-            return
-        }
-
-        // 1. 若当前内存中已有拉取到的点名记录，直接按类型分流
-        val active = tronClassActiveRollcalls.firstOrNull()
-        if (active != null) {
-            dispatchRollcallByType(active)
-            return
-        }
-
-        // 2. 若暂无缓存，实时探测一次进行中的课堂点名
-        val progress = ProgressDialog(this).apply {
-            setMessage("正在探测是否有进行中的课堂签到...")
-            setCancelable(false)
-            show()
-        }
-
-        lifecycleScope.launch {
-            val res = tronClassClient.fetchOngoingRollcalls()
-            progress.dismiss()
-
-            val list = res.getOrDefault(emptyList())
-            tronClassActiveRollcalls = list
-            updateSmartSignButtonState()
-
-            val found = list.firstOrNull()
-            if (found != null) {
-                dispatchRollcallByType(found)
-            } else {
-                // 3. 确实暂无进行中点名，弹出便捷自选向导（绝无死循环！）
-                showManualRollcallGuideDialog()
-            }
-        }
-    }
-
-    /**
-     * 依据点名类型精准分流，杜绝混淆
-     */
-    private fun dispatchRollcallByType(rollcall: TronClassRollcall) {
-        when (rollcall.getNormalizedType()) {
-            "radar" -> {
-                showTronClassRadarRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            }
-            "number" -> {
-                showTronClassNumberRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            }
-            "qr_code" -> {
-                startTronClassQrScan()
-            }
-            else -> {
-                showManualRollcallGuideDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            }
-        }
-    }
-
-    /**
-     * 手动选择签到向导面板（彻底消除死循环）
-     */
-    private fun showManualRollcallGuideDialog(designatedId: Long? = null, courseName: String? = null) {
-        val options = arrayOf(
-            "📷 启动扫码签到 (针对教师投影仪二维码)",
-            "🔢 输入口令签到 (针对数字签到码)",
-            "📡 雷达定位签到 (上理教学楼基准/GPS)",
-            "🔄 刷新点名状态"
-        )
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(if (courseName != null) "课程签到 · $courseName" else "课堂签到向导")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> startTronClassQrScan()
-                    1 -> showTronClassNumberRollcallDialog(designatedId, courseName)
-                    2 -> showTronClassRadarRollcallDialog(designatedId, courseName)
-                    3 -> loadTronClassData(forceRefresh = true)
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun showTronClassRadarRollcallDialog(
-        designatedRollcallId: Long? = null,
-        courseName: String? = null,
-        classroom: String? = null
-    ) {
-        val rollcallId = designatedRollcallId ?: tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "radar" }?.getEffectiveId() ?: tronClassActiveRollcalls.firstOrNull()?.getEffectiveId()
-
-        if (rollcallId == null || rollcallId <= 0L) {
-            // 没有明确的雷达点名 ID，提供手动输入或选择教学楼
-            val input = EditText(this@MainActivity).apply {
-                hint = "请输入雷达点名 ID（选填）"
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER
-                setPadding(48, 36, 48, 36)
-            }
-            MaterialAlertDialogBuilder(this@MainActivity)
-                .setTitle("雷达定位签到")
-                .setMessage("当前无进行中的雷达点名。若教师已发起，可输入点名 ID 或直接进入定位面板：")
-                .setView(input)
-                .setPositiveButton("进入定位") { _, _ ->
-                    val id = input.text.toString().trim().toLongOrNull() ?: 0L
-                    val dialog = RadarRollcallBottomSheetDialog.newInstance(
-                        rollcallId = id,
-                        courseName = courseName ?: "课堂雷达签到",
-                        classroom = classroom
-                    )
-                    dialog.setOnSignSuccessListener {
-                        loadTronClassData(forceRefresh = true)
-                    }
-                    dialog.show(supportFragmentManager, "RadarRollcallBottomSheet")
-                }
-                .setNegativeButton("取消", null)
-                .show()
-            return
-        }
-
-        val dialog = RadarRollcallBottomSheetDialog.newInstance(
-            rollcallId = rollcallId,
-            courseName = courseName ?: tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == rollcallId }?.courseName,
-            classroom = classroom
-        )
-        dialog.setOnSignSuccessListener {
-            loadTronClassData(forceRefresh = true)
-        }
-        dialog.show(supportFragmentManager, "RadarRollcallBottomSheet")
-    }
-
-    private fun showTronClassNumberRollcallDialog(
-        designatedRollcallId: Long? = null,
-        designatedCourseName: String? = null
-    ) {
-        val targetRollcall = designatedRollcallId?.let { id -> tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == id } }
-            ?: tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "number" }
-            ?: tronClassActiveRollcalls.firstOrNull()
-
-        val courseName = designatedCourseName ?: targetRollcall?.courseName
-        val titleText = if (!courseName.isNullOrBlank()) "口令签到 · $courseName" else "数字口令签到"
-
-        val input = EditText(this).apply {
-            hint = "请输入4位或6位数字签到码"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setPadding(48, 36, 48, 36)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(titleText)
-            .setMessage(if (targetRollcall != null) "已连接课堂点名，请输入教师发布的数字口令：" else "请输入教师发布的数字签到码：")
-            .setView(input)
-            .setPositiveButton("提交签到") { _, _ ->
-                val code = input.text.toString().trim()
-                if (code.isEmpty()) {
-                    Toast.makeText(this, "签到码不能为空", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-
-                val progress = ProgressDialog(this).apply {
-                    setMessage("正在提交签到口令...")
-                    setCancelable(false)
-                    show()
-                }
-
-                lifecycleScope.launch {
-                    var rollcallId = designatedRollcallId ?: targetRollcall?.getEffectiveId() ?: 0L
-                    if (rollcallId <= 0L) {
-                        val freshList = tronClassClient.fetchOngoingRollcalls().getOrDefault(emptyList())
-                        tronClassActiveRollcalls = freshList
-                        rollcallId = freshList.firstOrNull()?.getEffectiveId() ?: 0L
-                    }
-
-                    val res = tronClassClient.answerNumberRollcall(rollcallId, code)
-                    progress.dismiss()
-
-                    val result = res.getOrNull()
-                    if (result != null && result.success) {
-                        MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle("🎉 签到成功！")
-                            .setMessage(result.message)
-                            .setPositiveButton("太棒了", null)
-                            .show()
-                        loadTronClassData(forceRefresh = true)
-                    } else {
-                        val msg = result?.message ?: res.exceptionOrNull()?.message ?: "签到失败，请检查口令"
-                        MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle("签到未通过")
-                            .setMessage(msg)
-                            .setPositiveButton("重试") { _, _ ->
-                                showTronClassNumberRollcallDialog(rollcallId, courseName)
-                            }
-                            .setNegativeButton("取消", null)
-                            .show()
-                    }
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun updateSmartSignButtonState() {
-        val active = tronClassActiveRollcalls.firstOrNull()
-        if (active != null) {
-            when (active.getNormalizedType()) {
-                "radar" -> {
-                    binding.pageTronclass.btnTronClassSmartSign.text = "📡 雷达签到"
-                }
-                "number" -> {
-                    binding.pageTronclass.btnTronClassSmartSign.text = "🔢 口令签到"
-                }
-                "self_registration" -> {
-                    binding.pageTronclass.btnTronClassSmartSign.text = "✍️ 自主签到"
-                }
-                else -> {
-                    binding.pageTronclass.btnTronClassSmartSign.text = "📷 扫码签到"
-                }
-            }
-        } else {
-            binding.pageTronclass.btnTronClassSmartSign.text = "⚡ 课堂签到"
-        }
-    }
-
-    private fun setupTronClassSemesterChips(courses: List<TronClassCourse>) {
-        if (courses.isEmpty()) {
-            binding.pageTronclass.hsvTronClassSemesters.visibility = View.GONE
-            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "本学期在读课程"
-            binding.pageTronclass.tvTronClassCourseBadge.text = "0 门"
-            binding.pageTronclass.tvTronClassEmptyCourses.visibility = View.VISIBLE
-            tronClassCourseAdapter.updateData(emptyList())
-            return
-        }
-
-        binding.pageTronclass.hsvTronClassSemesters.visibility = View.VISIBLE
-        binding.pageTronclass.tvTronClassEmptyCourses.visibility = View.GONE
-
-        // 提取所有不重复的学期代号并倒序排列 (如 "2026-2027-1", "2025-2026-2", ...)
-        val semesterCodes = courses.mapNotNull { it.extractSemesterCode() }
-            .distinct()
-            .sortedDescending()
-
-        val latestSemester = semesterCodes.firstOrNull() ?: ""
-        if (currentSelectedSemester == null || (!semesterCodes.contains(currentSelectedSemester) && currentSelectedSemester != "OTHER")) {
-            currentSelectedSemester = latestSemester
-        }
-
-        val chipGroup = binding.pageTronclass.chipGroupTronClassSemesters
-        chipGroup.removeAllViews()
-
-        for (code in semesterCodes) {
-            val chip = com.google.android.material.chip.Chip(this).apply {
-                isCheckable = true
-                val label = if (code == latestSemester) "$code (本学期)" else code
-                text = label
-                textSize = 12f
-                isChecked = (code == currentSelectedSemester)
-                chipCornerRadius = 24f
-                setChipBackgroundColorResource(if (isChecked) R.color.primary else R.color.surface)
-                setTextColor(ContextCompat.getColor(this@MainActivity, if (isChecked) R.color.on_primary else R.color.text_primary))
-                setOnClickListener {
-                    currentSelectedSemester = code
-                    renderFilteredCourses(latestSemester)
-                    for (i in 0 until chipGroup.childCount) {
-                        val c = chipGroup.getChildAt(i) as? com.google.android.material.chip.Chip ?: continue
-                        val active = (c == this)
-                        c.isChecked = active
-                        c.setChipBackgroundColorResource(if (active) R.color.primary else R.color.surface)
-                        c.setTextColor(ContextCompat.getColor(this@MainActivity, if (active) R.color.on_primary else R.color.text_primary))
-                    }
-                }
-            }
-            chipGroup.addView(chip)
-        }
-
-        val otherCount = courses.count { it.extractSemesterCode() == null }
-        if (otherCount > 0) {
-            val otherChip = com.google.android.material.chip.Chip(this).apply {
-                isCheckable = true
-                text = "其他课程"
-                textSize = 12f
-                isChecked = (currentSelectedSemester == "OTHER")
-                chipCornerRadius = 24f
-                setChipBackgroundColorResource(if (isChecked) R.color.primary else R.color.surface)
-                setTextColor(ContextCompat.getColor(this@MainActivity, if (isChecked) R.color.on_primary else R.color.text_primary))
-                setOnClickListener {
-                    currentSelectedSemester = "OTHER"
-                    renderFilteredCourses(latestSemester)
-                    for (i in 0 until chipGroup.childCount) {
-                        val c = chipGroup.getChildAt(i) as? com.google.android.material.chip.Chip ?: continue
-                        val active = (c == this)
-                        c.isChecked = active
-                        c.setChipBackgroundColorResource(if (active) R.color.primary else R.color.surface)
-                        c.setTextColor(ContextCompat.getColor(this@MainActivity, if (active) R.color.on_primary else R.color.text_primary))
-                    }
-                }
-            }
-            chipGroup.addView(otherChip)
-        }
-
-        renderFilteredCourses(latestSemester)
-    }
-
-    private fun renderFilteredCourses(latestSemester: String) {
-        val selected = currentSelectedSemester
-        var filtered = when (selected) {
-            "OTHER" -> allTronClassCourses.filter { it.extractSemesterCode() == null }
-            null, "" -> allTronClassCourses
-            else -> allTronClassCourses.filter { it.extractSemesterCode() == selected }
-        }
-
-        if (tronClassCourseSearchQuery.isNotBlank()) {
-            val q = tronClassCourseSearchQuery.lowercase()
-            filtered = allTronClassCourses.filter { course ->
-                val nameMatch = course.name.lowercase().contains(q) || course.getCleanName().lowercase().contains(q)
-                val codeMatch = course.courseCode?.lowercase()?.contains(q) == true
-                val teacherMatch = (course.teacher?.lowercase()?.contains(q) == true) ||
-                        course.instructors.any { it.lowercase().contains(q) }
-                nameMatch || codeMatch || teacherMatch
-            }
-        }
-
-        tronClassCourseAdapter.updateData(filtered)
-        binding.pageTronclass.tvTronClassCourseBadge.text = "${filtered.size} 门"
-
-        if (tronClassCourseSearchQuery.isNotBlank()) {
-            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "搜索结果 (\"$tronClassCourseSearchQuery\")"
-        } else if (selected == latestSemester) {
-            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "本学期在读课程"
-        } else if (selected == "OTHER") {
-            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "其他/拓展课程"
-        } else {
-            binding.pageTronclass.tvTronClassCourseSectionTitle.text = "${selected} 学期课程"
-        }
-
-        binding.pageTronclass.tvTronClassEmptyCourses.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
-        binding.pageTronclass.tvTronClassEmptyCourses.text = if (tronClassCourseSearchQuery.isNotBlank()) {
-            "未找到匹配的课程，请尝试更换关键词"
-        } else {
-            "暂无课程数据，点击右上角刷新获取"
-        }
+        getTronClassFragment()?.clearBackStack()
     }
 
 
-    private fun showTronClassTodoDetailDialog(todo: TronClassTodo) {
-        val msg = StringBuilder()
-            .append("课程：${todo.getCleanCourseName()}\n")
-            .append("作业：${todo.getCleanTitle()}\n")
-            .append("截止时间：${todo.getFormattedDeadline()}\n")
-            .append("当前状态：${todo.getRemainingTimeText()}\n\n")
-            .append("提示：点击“进入作业答题”可直接在客户端内提交作业与附件。")
-            .toString()
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("作业详情")
-            .setMessage(msg)
-            .setPositiveButton("进入作业答题") { _, _ ->
-                openTronClassHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
-            }
-            .setNeutralButton("课程章节与课件") { _, _ ->
-                openTronClassCourseDetail(todo.courseId, todo.getCleanCourseName())
-            }
-            .setNegativeButton("关闭", null)
-            .show()
-    }
+
+
+
+
+
+
+
+
 
     private fun handleWidgetPinRequest() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
