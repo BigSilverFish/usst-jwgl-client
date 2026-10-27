@@ -394,12 +394,6 @@ class MainActivity : AppCompatActivity() {
                 binding.pageCourseSearch.headerCourseSearch.paddingRight,
                 (10 * density).toInt()
             )
-            binding.pageGradeReports.headerGradeReports.setPadding(
-                binding.pageGradeReports.headerGradeReports.paddingLeft,
-                statusTopPad,
-                binding.pageGradeReports.headerGradeReports.paddingRight,
-                (10 * density).toInt()
-            )
             binding.pageTronclass.llTronClassHeaderContainer.setPadding(
                 binding.pageTronclass.llTronClassHeaderContainer.paddingLeft,
                 statusTopPad,
@@ -457,10 +451,6 @@ class MainActivity : AppCompatActivity() {
                 .setBlurRadius(20f)
 
             binding.pageCourseSearch.blurViewCourseSearch.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
-
-            binding.pageGradeReports.blurViewGradeReports.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
@@ -622,12 +612,6 @@ class MainActivity : AppCompatActivity() {
             binding.pageCourseSearch.rvCourseList.paddingRight,
             bottomBarHeightPx
         )
-        binding.pageGradeReports.scrollGradeReports.setPadding(
-            binding.pageGradeReports.scrollGradeReports.paddingLeft,
-            binding.pageGradeReports.scrollGradeReports.paddingTop,
-            binding.pageGradeReports.scrollGradeReports.paddingRight,
-            bottomBarHeightPx
-        )
         binding.pageTronclass.llTronClassContent.setPadding(
             binding.pageTronclass.llTronClassContent.paddingLeft,
             binding.pageTronclass.llTronClassContent.paddingTop,
@@ -650,8 +634,6 @@ class MainActivity : AppCompatActivity() {
 
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
-            binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
-            binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
             binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
 
@@ -691,8 +673,6 @@ class MainActivity : AppCompatActivity() {
             // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_arrow_back)
-            binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
-            binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_arrow_back)
             binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
 
@@ -708,8 +688,6 @@ class MainActivity : AppCompatActivity() {
             binding.btnOpenDrawerProfile.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.VISIBLE
             binding.pageCourseSearch.btnOpenDrawerCourseSearch.setImageResource(R.drawable.ic_menu)
-            binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.VISIBLE
-            binding.pageGradeReports.btnOpenDrawerGradeReports.setImageResource(R.drawable.ic_menu)
             binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.VISIBLE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.VISIBLE
             binding.pageTronclass.btnOpenDrawerTronClass.setImageResource(R.drawable.ic_menu)
@@ -781,7 +759,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnOpenDrawerGrades.visibility = View.GONE
         binding.btnOpenDrawerProfile.visibility = View.GONE
         binding.pageCourseSearch.btnOpenDrawerCourseSearch.visibility = View.GONE
-        binding.pageGradeReports.btnOpenDrawerGradeReports.visibility = View.GONE
         binding.pageTronclass.btnOpenDrawerTronClass.visibility = View.GONE
 
         // 2. 顶部检索栏单行化 (Compact Single-Row Filter Bars in Landscape)
@@ -836,22 +813,6 @@ class MainActivity : AppCompatActivity() {
             0.58f
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
-
-        // 3c. 学业证明与成绩单 (左：官方可下载证明；右：本地已下载文件管理)
-        val grPage = binding.pageGradeReports
-        grPage.llReportsBody.orientation = LinearLayout.HORIZONTAL
-        grPage.llReportsLeftPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.54f
-        ).apply {
-            marginEnd = dp(16f)
-        }
-        grPage.llReportsRightPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.46f
-        )
 
         // 3d. 一网畅学 (Pad横屏双栏自适应：左侧待办与签到，右侧在读课程网格)
         val tcPage = binding.pageTronclass
@@ -944,19 +905,6 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
-
-        val grPage = binding.pageGradeReports
-        grPage.llReportsBody.orientation = LinearLayout.VERTICAL
-        grPage.llReportsLeftPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            marginEnd = 0
-        }
-        grPage.llReportsRightPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
 
         val tcPage = binding.pageTronclass
         tcPage.llTronClassBody.orientation = LinearLayout.VERTICAL
@@ -1340,7 +1288,7 @@ class MainActivity : AppCompatActivity() {
         binding.pageCourseSearch.layoutCourseSearch.visibility = if (tab == MainTab.COURSE_SEARCH) View.VISIBLE else View.GONE
         binding.containerFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
         binding.containerExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
-        binding.pageGradeReports.layoutGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
+        binding.containerGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
         binding.pageTronclass.layoutTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
 
         when (tab) {
@@ -1387,9 +1335,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.GRADE_REPORTS -> {
-                initGradeReportsPage()
-                binding.pageGradeReports.llGradeReportsHeaderContainer.post {
-                    updateGradeReportsHeaderSpacing(binding.pageGradeReports.llGradeReportsHeaderContainer.height)
+                if (supportFragmentManager.findFragmentByTag("GradeReportsFragment") == null) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.containerGradeReports, cn.edu.usst.jwgl.ui.school.GradeReportsFragment.newInstance(), "GradeReportsFragment")
+                        .commitAllowingStateLoss()
                 }
             }
             MainTab.PROFILE -> {
@@ -1574,13 +1523,6 @@ class MainActivity : AppCompatActivity() {
             val h = bottom - top
             if (h > 0) {
                 updateCourseSearchHeaderSpacing(h)
-            }
-        }
-
-        binding.pageGradeReports.llGradeReportsHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val h = bottom - top
-            if (h > 0) {
-                updateGradeReportsHeaderSpacing(h)
             }
         }
 
@@ -2493,21 +2435,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateGradeReportsHeaderSpacing(headerHeightPx: Int) {
-        if (headerHeightPx <= 0) return
-        val density = resources.displayMetrics.density
-        val topPad = headerHeightPx + (6 * density).toInt()
-        val currentTop = binding.pageGradeReports.scrollGradeReports.paddingTop
-        if (currentTop != topPad) {
-            binding.pageGradeReports.scrollGradeReports.setPadding(
-                binding.pageGradeReports.scrollGradeReports.paddingLeft,
-                topPad,
-                binding.pageGradeReports.scrollGradeReports.paddingRight,
-                bottomBarHeightPx
-            )
-        }
-    }
-
     private fun displayGrades(report: GradeReport) {
         updateGradesUI(report)
     }
@@ -2839,7 +2766,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDownloadSuccessDialog(docType: GradeDocumentType, file: java.io.File) {
-        if (isGradeReportsInitialized) refreshDownloadedFilesList()
+        (supportFragmentManager.findFragmentByTag("GradeReportsFragment") as? cn.edu.usst.jwgl.ui.school.GradeReportsFragment)?.refreshDownloadedFilesList()
         MaterialAlertDialogBuilder(this)
             .setTitle("下载完成")
             .setMessage("${docType.displayName} 已生成并成功保存！\n\n文件路径: ${file.name}\n大小: ${file.length() / 1024} KB")
@@ -4031,165 +3958,6 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    // ==========================================
-    // --- 7. Grade Reports Full Page ---
-    // ==========================================
-    private var isGradeReportsInitialized = false
-
-    private fun initGradeReportsPage() {
-        if (isGradeReportsInitialized) {
-            refreshDownloadedFilesList()
-            return
-        }
-        isGradeReportsInitialized = true
-
-        val page = binding.pageGradeReports
-        page.btnOpenDrawerGradeReports.setOnClickListener {
-            if (isPhoneBottomBarMode()) {
-                switchTab(MainTab.MORE_FEATURES)
-            } else {
-                openNavDrawer()
-            }
-        }
-
-        val auth = AuthPreferences(this)
-        val sId = auth.getStudentId()
-        val profile = currentProfile
-        val sName = profile?.name?.ifEmpty { "同学" } ?: "同学"
-        val sCollege = profile?.college ?: "上海理工大学"
-        val sMajor = profile?.major ?: ""
-        page.tvReportsStudentName.text = "$sName · $sId"
-        page.tvReportsStudentAvatar.text = if (sName.isNotEmpty()) sName.take(1) else "理"
-        page.tvReportsStudentInfo.text = if (sMajor.isNotEmpty()) "$sCollege · $sMajor" else sCollege
-
-        // Connect download buttons for the 5 document types
-        page.btnDownloadChineseWeighted.setOnClickListener {
-            downloadAndOpenDocument(GradeDocumentType.CHINESE_WEIGHTED_SCORE)
-        }
-        page.btnDownloadEnglishWeighted.setOnClickListener {
-            downloadAndOpenDocument(GradeDocumentType.ENGLISH_WEIGHTED_SCORE)
-        }
-        page.btnDownloadRanking.setOnClickListener {
-            downloadAndOpenDocument(GradeDocumentType.RANKING_CERTIFICATE)
-        }
-        page.btnDownloadChineseTranscript.setOnClickListener {
-            downloadAndOpenDocument(GradeDocumentType.CHINESE_TRANSCRIPT)
-        }
-        page.btnDownloadEnglishTranscript.setOnClickListener {
-            downloadAndOpenDocument(GradeDocumentType.ENGLISH_TRANSCRIPT)
-        }
-
-        page.tvRefreshDownloadedFiles.setOnClickListener {
-            refreshDownloadedFilesList()
-        }
-
-        refreshDownloadedFilesList()
-    }
-
-    private fun refreshDownloadedFilesList() {
-        val page = binding.pageGradeReports
-        val targetDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-            ?: java.io.File(filesDir, "downloads")
-        val files = targetDir.listFiles { file -> file.isFile && file.name.endsWith(".pdf", ignoreCase = true) }
-            ?.sortedByDescending { it.lastModified() } ?: emptyList()
-
-        val container = page.llDownloadedFilesContainer
-        container.removeAllViews()
-
-        if (files.isEmpty()) {
-            page.tvNoDownloadedFiles.visibility = View.VISIBLE
-        } else {
-            page.tvNoDownloadedFiles.visibility = View.GONE
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-
-            for (file in files) {
-                val card = com.google.android.material.card.MaterialCardView(this).apply {
-                    radius = 12 * resources.displayMetrics.density
-                    strokeColor = ContextCompat.getColor(this@MainActivity, R.color.border)
-                    strokeWidth = (0.8 * resources.displayMetrics.density).toInt()
-                    setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.surface))
-                    val lp = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        bottomMargin = (8 * resources.displayMetrics.density).toInt()
-                    }
-                    layoutParams = lp
-                }
-
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    val pad = (12 * resources.displayMetrics.density).toInt()
-                    setPadding(pad, pad, pad, pad)
-                }
-
-                val tvIcon = TextView(this).apply {
-                    text = "📕"
-                    textSize = 20f
-                }
-                row.addView(tvIcon)
-
-                val textContainer = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        marginStart = (10 * resources.displayMetrics.density).toInt()
-                    }
-                    layoutParams = lp
-                }
-
-                val tvName = TextView(this).apply {
-                    text = file.name
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
-                    textSize = 13.5f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                }
-                val tvDetails = TextView(this).apply {
-                    text = "${String.format("%.1f", file.length() / 1024f)} KB · ${sdf.format(java.util.Date(file.lastModified()))}"
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-                    textSize = 11.5f
-                }
-                textContainer.addView(tvName)
-                textContainer.addView(tvDetails)
-                row.addView(textContainer)
-
-                val btnOpen = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                    text = "打开"
-                    textSize = 12f
-                    setPadding(0, 0, 0, 0)
-                    insetTop = 0
-                    insetBottom = 0
-                    minWidth = 0
-                    minHeight = 0
-                    val lp = LinearLayout.LayoutParams((58 * resources.displayMetrics.density).toInt(), (32 * resources.displayMetrics.density).toInt())
-                    layoutParams = lp
-                    setOnClickListener { openPdfFile(file) }
-                }
-                val btnShare = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                    text = "分享"
-                    textSize = 12f
-                    setPadding(0, 0, 0, 0)
-                    insetTop = 0
-                    insetBottom = 0
-                    minWidth = 0
-                    minHeight = 0
-                    val lp = LinearLayout.LayoutParams((58 * resources.displayMetrics.density).toInt(), (32 * resources.displayMetrics.density).toInt()).apply {
-                        marginStart = (6 * resources.displayMetrics.density).toInt()
-                    }
-                    layoutParams = lp
-                    setOnClickListener { sharePdfFile(file) }
-                }
-                row.addView(btnOpen)
-                row.addView(btnShare)
-
-                card.addView(row)
-                container.addView(card)
-            }
-        }
     }
 
     // ==========================================

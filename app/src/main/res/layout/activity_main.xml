@@ -1979,10 +1979,12 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
-        <!-- 7. Grade Reports & Proofs Independent Page -->
-        <include
-            android:id="@+id/pageGradeReports"
-            layout="@layout/layout_page_grade_reports" />
+        <!-- 7. Grade Reports & Proofs Independent Container -->
+        <FrameLayout
+            android:id="@+id/containerGradeReports"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
 
         <!-- 8. More Features Hub Page (For Phone Bottom Bar Mode) -->
         <include
