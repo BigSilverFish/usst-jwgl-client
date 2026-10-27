@@ -52,6 +52,7 @@ import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.ui.tronclass.TronClassFragment
+import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import android.app.ProgressDialog
 import android.widget.EditText
@@ -174,7 +175,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private enum class ReminderType { COURSE, EXAM, TRONCLASS_24H, TRONCLASS_URGENT }
+    private enum class ReminderType { COURSE, EXAM, TRONCLASS_24H, TRONCLASS_URGENT, ROLLCALL_MONITOR }
     private var pendingReminderType: ReminderType? = null
 
     private var activeDisclaimerDialog: androidx.appcompat.app.AlertDialog? = null
@@ -214,6 +215,14 @@ class MainActivity : AppCompatActivity() {
                     val text = "${prefs.getDdlReminderUrgentHours()} 小时"
                     Toast.makeText(this, "已开启作业临期提前 $text 提醒", Toast.LENGTH_SHORT).show()
                 }
+                ReminderType.ROLLCALL_MONITOR -> {
+                    binding.switchRollcallMonitor.isChecked = true
+                    val prefs = TronClassPreferences.getInstance(this)
+                    prefs.setRollcallMonitorEnabled(true)
+                    updateReminderSubtitles()
+                    RollcallMonitorScheduler.onPreferenceChanged(this)
+                    Toast.makeText(this, "已开启上课签到后台监听：上课时自动检测，雷达点名自动匹配点位签到", Toast.LENGTH_SHORT).show()
+                }
                 null -> {}
             }
         } else {
@@ -236,6 +245,11 @@ class MainActivity : AppCompatActivity() {
                 ReminderType.TRONCLASS_URGENT -> {
                     binding.switchTronClassDdlUrgent.isChecked = false
                     TronClassPreferences(this).setDdlReminderUrgentEnabled(false)
+                    updateReminderSubtitles()
+                }
+                ReminderType.ROLLCALL_MONITOR -> {
+                    binding.switchRollcallMonitor.isChecked = false
+                    TronClassPreferences(this).setRollcallMonitorEnabled(false)
                     updateReminderSubtitles()
                 }
                 null -> {}
@@ -760,6 +774,9 @@ class MainActivity : AppCompatActivity() {
         if (RemoteConfigManager.shouldPerformDailySync(this)) {
             syncRemoteConfig(isManual = false)
         }
+        if (TronClassPreferences.getInstance(this).isRollcallMonitorEnabled()) {
+            RollcallMonitorScheduler.checkAndSchedule(this)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -772,7 +789,7 @@ class MainActivity : AppCompatActivity() {
         if (intent == null) return
 
         val tab = intent.getIntExtra("extra_tab", -1)
-        if (tab in 0..7) {
+        if (tab in 0..8) {
             closeNavDrawer()
             when (tab) {
                 0 -> switchTab(MainTab.PROFILE)
@@ -783,7 +800,34 @@ class MainActivity : AppCompatActivity() {
                 5 -> switchTab(MainTab.EXAM_QUERY)
                 6 -> switchTab(MainTab.GRADE_REPORTS)
                 7 -> switchTab(MainTab.MORE_FEATURES)
+                8 -> switchTab(MainTab.TRONCLASS)
             }
+        }
+
+        if (intent.getBooleanExtra("extra_open_radar_rollcall", false)) {
+            val rId = intent.getLongExtra("extra_rollcall_id", 0L)
+            val cName = intent.getStringExtra("extra_course_name")
+            val room = intent.getStringExtra("extra_classroom")
+            switchTab(MainTab.TRONCLASS)
+            binding.root.postDelayed({
+                cn.edu.usst.jwgl.ui.tronclass.RadarRollcallBottomSheetDialog.newInstance(rId, cName, room)
+                    .show(supportFragmentManager, "RadarRollcallBottomSheet")
+            }, 250)
+        }
+
+        if (intent.getBooleanExtra("extra_open_number_rollcall", false)) {
+            val rId = intent.getLongExtra("extra_rollcall_id", 0L)
+            val cName = intent.getStringExtra("extra_course_name")
+            switchTab(MainTab.TRONCLASS)
+            binding.root.postDelayed({
+                cn.edu.usst.jwgl.ui.tronclass.NumberRollcallBottomSheetDialog.newInstance(rId, cName)
+                    .show(supportFragmentManager, "NumberRollcallBottomSheet")
+            }, 250)
+        }
+
+        if (intent.getBooleanExtra("extra_open_qr_scan", false)) {
+            switchTab(MainTab.TRONCLASS)
+            startActivity(Intent(this, cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity::class.java))
         }
 
         val week = intent.getIntExtra("extra_week", -1)
@@ -1479,6 +1523,36 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // TronClass Rollcall Background Monitor Row & Switch
+        binding.rowRollcallMonitor.setOnClickListener {
+            binding.switchRollcallMonitor.toggle()
+        }
+        binding.switchRollcallMonitor.isChecked = tcPrefs.isRollcallMonitorEnabled()
+        binding.switchRollcallMonitor.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        pendingReminderType = ReminderType.ROLLCALL_MONITOR
+                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        return@setOnCheckedChangeListener
+                    }
+                }
+                tcPrefs.setRollcallMonitorEnabled(true)
+                updateReminderSubtitles()
+                RollcallMonitorScheduler.onPreferenceChanged(this)
+                if (!tcPrefs.isLoggedIn()) {
+                    Toast.makeText(this, "已开启上课签到监听（提示：请先登录一网畅学）", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "已开启上课签到后台监听：上课时自动检测，雷达点名自动匹配点位签到", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                tcPrefs.setRollcallMonitorEnabled(false)
+                updateReminderSubtitles()
+                RollcallMonitorScheduler.onPreferenceChanged(this)
+                Toast.makeText(this, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         // Powerful AlarmClock Reminder Row & Switch
         binding.rowPowerfulReminder.setOnClickListener {
             binding.switchPowerfulReminder.toggle()
@@ -1800,6 +1874,7 @@ class MainActivity : AppCompatActivity() {
         val tcPrefs = TronClassPreferences(this)
         binding.switchTronClassDdl24h.isChecked = tcPrefs.isDdlReminder24hEnabled()
         binding.switchTronClassDdlUrgent.isChecked = tcPrefs.isDdlReminderUrgentEnabled()
+        binding.switchRollcallMonitor.isChecked = tcPrefs.isRollcallMonitorEnabled()
         binding.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
@@ -1888,6 +1963,12 @@ class MainActivity : AppCompatActivity() {
             "提前 $urgentHours 小时 · 点击设置"
         } else {
             "已关闭 · 点击可设置提前时长"
+        }
+
+        binding.tvRollcallMonitorSubtitle.text = if (tcPrefs.isRollcallMonitorEnabled()) {
+            "已开启 · 上课时驻留后台自动检测与雷达签到"
+        } else {
+            "已关闭 · 上课时驻留后台检测签到 · 雷达自动签到"
         }
 
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)

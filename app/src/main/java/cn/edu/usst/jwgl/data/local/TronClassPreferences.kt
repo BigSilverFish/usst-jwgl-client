@@ -80,6 +80,8 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_DDL_24H_ENABLED = "tc_ddl_24h_enabled"
         private const val KEY_DDL_URGENT_ENABLED = "tc_ddl_urgent_enabled"
         private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
+        private const val KEY_ROLLCALL_MONITOR_ENABLED = "tc_rollcall_monitor_enabled"
+        private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
 
@@ -427,4 +429,50 @@ class TronClassPreferences(private val context: Context) {
     }
 
     fun isAnyDdlReminderEnabled(): Boolean = isDdlReminder24hEnabled() || isDdlReminderUrgentEnabled()
+
+    /**
+     * 上课时后台签到监听总开关
+     */
+    fun isRollcallMonitorEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_MONITOR_ENABLED, false)
+
+    fun setRollcallMonitorEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ROLLCALL_MONITOR_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 判断指定签到事件是否已处理过（24小时内有效，避免重复弹窗与重复提交）
+     */
+    fun isRollcallHandled(rollcallId: Long): Boolean {
+        if (rollcallId <= 0L) return false
+        val now = System.currentTimeMillis()
+        val set = prefs.getStringSet(KEY_ROLLCALL_HANDLED_IDS, emptySet()) ?: emptySet()
+        for (item in set) {
+            val parts = item.split(":")
+            val id = parts.getOrNull(0)?.toLongOrNull() ?: continue
+            val time = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            if (id == rollcallId && (now - time) < 24 * 3600 * 1000L) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 记录已处理过的签到事件
+     */
+    fun markRollcallHandled(rollcallId: Long) {
+        if (rollcallId <= 0L) return
+        val now = System.currentTimeMillis()
+        val oldSet = prefs.getStringSet(KEY_ROLLCALL_HANDLED_IDS, emptySet()) ?: emptySet()
+        val newSet = mutableSetOf<String>()
+        for (item in oldSet) {
+            val parts = item.split(":")
+            val time = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            if ((now - time) < 24 * 3600 * 1000L) {
+                newSet.add(item)
+            }
+        }
+        newSet.add("$rollcallId:$now")
+        prefs.edit().putStringSet(KEY_ROLLCALL_HANDLED_IDS, newSet).apply()
+    }
 }
