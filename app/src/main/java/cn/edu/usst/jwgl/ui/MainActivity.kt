@@ -37,15 +37,7 @@ import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeDocumentType
-import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
-import cn.edu.usst.jwgl.data.model.StudentRankingInfo
-import cn.edu.usst.jwgl.util.RankingPdfParser
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.StyleSpan
-import android.text.style.RelativeSizeSpan
-import android.graphics.Typeface
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -53,7 +45,7 @@ import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
 import cn.edu.usst.jwgl.databinding.ActivityMainBinding
-import cn.edu.usst.jwgl.ui.adapter.CourseGradeAdapter
+import cn.edu.usst.jwgl.ui.grades.GradesFragment
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
@@ -109,13 +101,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityMainBinding
-    private var isTabletLandscapeMode: Boolean = false
+    internal var isTabletLandscapeMode: Boolean = false
     private var isGuestMode: Boolean = false
     private lateinit var cacheManager: DataCacheManager
     private lateinit var db: AppDatabase
-    private val gradeAdapter = CourseGradeAdapter()
-    private var gradeReport: GradeReport? = null
-    private var selectedGradeSemesterTitle: String = ""
     private var currentProfile: StudentProfile? = null
 
     internal var currentTable: TableBean? = null
@@ -315,12 +304,6 @@ class MainActivity : AppCompatActivity() {
             binding.headerTimetableContainer.post {
                 topBarHeightPx = binding.headerTimetableContainer.height
             }
-            binding.headerGrades.setPadding(
-                binding.headerGrades.paddingLeft,
-                statusBarInsets.top + (8 * density).toInt(),
-                binding.headerGrades.paddingRight,
-                (6 * density).toInt()
-            )
 
             // Dynamic bottom safe spacer for full screen gesture bar / 3-button navigation
             val navBarBottom = maxOf(
@@ -334,14 +317,6 @@ class MainActivity : AppCompatActivity() {
             if (binding.viewNavBarSpacer.layoutParams.height != navBarBottom) {
                 binding.viewNavBarSpacer.layoutParams.height = navBarBottom
                 binding.viewNavBarSpacer.requestLayout()
-            }
-
-            // Adjust grades spacing view to match floating header height
-            binding.llGradesHeaderContainer.post {
-                val gradesHeaderH = binding.llGradesHeaderContainer.height
-                if (gradesHeaderH > 0) {
-                    updateGradesHeaderSpacing(gradesHeaderH)
-                }
             }
 
             val statusTopPad = statusBarInsets.top + (8 * density).toInt()
@@ -385,10 +360,6 @@ class MainActivity : AppCompatActivity() {
             val windowBackground = decorView.background
 
             binding.blurViewTopBar.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
-
-            binding.blurViewGradesHeader.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
 
@@ -540,12 +511,8 @@ class MainActivity : AppCompatActivity() {
             binding.pageMoreFeatures.scrollMoreFeatures.paddingRight,
             bottomBarHeightPx
         )
-        binding.scrollGrades.setPadding(
-            binding.scrollGrades.paddingLeft,
-            binding.scrollGrades.paddingTop,
-            binding.scrollGrades.paddingRight,
-            bottomBarHeightPx
-        )
+        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
+            ?.applyBottomPadding(bottomBarHeightPx)
 
         supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
             .forEach { it.applyContentPadding() }
@@ -557,7 +524,7 @@ class MainActivity : AppCompatActivity() {
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
             binding.blurViewBottomNav.visibility = View.GONE
             binding.btnOpenDrawerTimetable.visibility = View.GONE
-            binding.btnOpenDrawerGrades.visibility = View.GONE
+            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
             binding.btnOpenDrawerProfile.visibility = View.GONE
 
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
@@ -592,7 +559,7 @@ class MainActivity : AppCompatActivity() {
 
             // Hide top-left drawer hamburger icons on the main bottom-bar pages
             binding.btnOpenDrawerTimetable.visibility = View.GONE
-            binding.btnOpenDrawerGrades.visibility = View.GONE
+            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
             binding.btnOpenDrawerProfile.visibility = View.GONE
 
             // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
@@ -606,7 +573,7 @@ class MainActivity : AppCompatActivity() {
             binding.blurViewBottomNav.visibility = View.GONE
 
             binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
-            binding.btnOpenDrawerGrades.visibility = View.VISIBLE
+            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(true)
             binding.btnOpenDrawerProfile.visibility = View.VISIBLE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.VISIBLE
 
@@ -674,26 +641,13 @@ class MainActivity : AppCompatActivity() {
 
         // 隐藏各页面顶栏左上角汉堡包菜单图标
         binding.btnOpenDrawerTimetable.visibility = View.GONE
-        binding.btnOpenDrawerGrades.visibility = View.GONE
+        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
         binding.btnOpenDrawerProfile.visibility = View.GONE
 
         // 3. 双栏主从视图 (Two-Pane Master-Detail Layouts)
-        // 3a. 学业情况查询 (左：学分绩点总览 + 历年学期切换卡片；右：双列课程成绩网格)
-        binding.llGradesBody.orientation = LinearLayout.HORIZONTAL
-        binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.36f
-        ).apply {
-            marginEnd = dp(14f)
-        }
-        binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.64f
-        )
-        (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
-        binding.cardGradesSemesterMaster.visibility = View.VISIBLE
+        // 3a. 学业情况查询 (委托给 GradesFragment)
+        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
+            ?.updateTabletLandscapeMode(true)
 
         // 3b. 个人与设置 (左：学生名片 + 学籍档案；右：外观提醒设置 + 系统更新 + 退出登录)
         binding.llProfileBody.orientation = LinearLayout.HORIZONTAL
@@ -710,19 +664,13 @@ class MainActivity : AppCompatActivity() {
             0.58f
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
-
-        // 4. 网格布局与列表适配
-        if (binding.rvGrades.adapter != null) {
-            binding.rvGrades.layoutManager = GridLayoutManager(this, 2)
-        }
-        gradeReport?.let { populateGradesSemesterMasterList(it) }
     }
 
     private fun restorePortraitLayout() {
         isTabletLandscapeMode = false
         val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
 
-        // 1. 鎭㈠渚ц竟鏍忚嚦鎶藉眽
+        // 1. 恢复侧边栏至抽屉
         val drawerView = binding.layoutDrawer.root
         (drawerView.parent as? ViewGroup)?.removeView(drawerView)
         if (drawerView.parent == null) {
@@ -739,19 +687,8 @@ class MainActivity : AppCompatActivity() {
         binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
 
         /* 3. Restore two-pane to vertical */
-        binding.llGradesBody.orientation = LinearLayout.VERTICAL
-        binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            marginEnd = 0
-        }
-        binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-        (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8f)
-        binding.cardGradesSemesterMaster.visibility = View.GONE
+        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
+            ?.updateTabletLandscapeMode(false)
 
         binding.llProfileBody.orientation = LinearLayout.VERTICAL
         binding.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
@@ -765,11 +702,6 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
-
-        /* 4. Restore list manager */
-        if (binding.rvGrades.adapter != null) {
-            binding.rvGrades.layoutManager = LinearLayoutManager(this)
-        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -943,12 +875,9 @@ class MainActivity : AppCompatActivity() {
 
         val gradeSem = intent.getStringExtra("extra_grade_semester")
         if (gradeSem != null) {
-            selectedGradeSemesterTitle = when (gradeSem) {
-                "ALL" -> ""
-                "FIRST" -> gradeReport?.semesters?.firstOrNull()?.semesterTitle ?: ""
-                else -> gradeReport?.semesters?.find { it.semesterTitle.contains(gradeSem) }?.semesterTitle ?: gradeSem
-            }
-            gradeReport?.let { updateGradesUI(it) }
+            switchTab(MainTab.GRADES)
+            supportFragmentManager.executePendingTransactions()
+            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.filterSemester(gradeSem)
         }
 
         if (intent.getBooleanExtra("extra_open_exam", false)) {
@@ -956,11 +885,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (intent.getBooleanExtra("extra_show_grade_picker", false)) {
-            showGradeSemesterPicker()
+            switchTab(MainTab.GRADES)
+            supportFragmentManager.executePendingTransactions()
+            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.showGradeSemesterPicker()
         }
 
         if (intent.getBooleanExtra("extra_show_download_dialog", false)) {
-            showDownloadGradeReportsDialog()
+            switchTab(MainTab.GRADE_REPORTS)
         }
 
         if (intent.getBooleanExtra("extra_show_week_picker", false)) {
@@ -1128,7 +1059,7 @@ class MainActivity : AppCompatActivity() {
         updateBottomNavActiveTab(tab)
 
         binding.layoutTimetable.visibility = if (tab == MainTab.TIMETABLE) View.VISIBLE else View.GONE
-        binding.layoutGrades.visibility = if (tab == MainTab.GRADES) View.VISIBLE else View.GONE
+        binding.containerGrades.visibility = if (tab == MainTab.GRADES) View.VISIBLE else View.GONE
         binding.layoutProfile.visibility = if (tab == MainTab.PROFILE) View.VISIBLE else View.GONE
         binding.pageMoreFeatures.layoutMoreFeatures.visibility = if (tab == MainTab.MORE_FEATURES) View.VISIBLE else View.GONE
         binding.containerCourseSearch.visibility = if (tab == MainTab.COURSE_SEARCH) View.VISIBLE else View.GONE
@@ -1140,11 +1071,10 @@ class MainActivity : AppCompatActivity() {
         when (tab) {
             MainTab.TIMETABLE -> reloadTimetableFromDb()
             MainTab.GRADES -> {
-                binding.llGradesHeaderContainer.post {
-                    updateGradesHeaderSpacing(binding.llGradesHeaderContainer.height)
-                }
-                if (gradeReport == null) {
-                    showOrLoadGrades()
+                if (supportFragmentManager.findFragmentByTag("GradesFragment") == null) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.containerGrades, GradesFragment.newInstance(), "GradesFragment")
+                        .commitAllowingStateLoss()
                 }
             }
             MainTab.TRONCLASS -> {
@@ -1327,41 +1257,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupViews() {
         updateDrawerProfileHeaderVisibility()
-        if (isTabletLandscapeMode) {
-            binding.rvGrades.layoutManager = GridLayoutManager(this, 2)
-            val gapPx = (5 * resources.displayMetrics.density).toInt()
-            binding.rvGrades.addItemDecoration(object : RecyclerView.ItemDecoration() {
-                override fun getItemOffsets(
-                    outRect: android.graphics.Rect,
-                    view: View,
-                    parent: RecyclerView,
-                    state: RecyclerView.State
-                ) {
-                    val pos = parent.getChildAdapterPosition(view)
-                    if (pos == RecyclerView.NO_POSITION) return
-                    if (pos % 2 == 0) {
-                        outRect.right = gapPx
-                    } else {
-                        outRect.left = gapPx
-                    }
-                }
-            })
-        } else {
-            binding.rvGrades.layoutManager = LinearLayoutManager(this)
-        }
-        binding.rvGrades.adapter = gradeAdapter
 
         binding.headerTimetableContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
             val h = bottom - top
             if (h > 0) {
                 topBarHeightPx = h
-            }
-        }
-
-        binding.llGradesHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val h = bottom - top
-            if (h > 0) {
-                updateGradesHeaderSpacing(h)
             }
         }
 
@@ -1437,14 +1337,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnRefreshTimetable.setOnClickListener {
             loadTimetableFromNetwork()
         }
-
-        // Grades Actions
-        binding.swipeRefreshGrades.setColorSchemeResources(R.color.primary)
-        binding.swipeRefreshGrades.setOnRefreshListener { loadGrades(isManual = true) }
-        binding.btnRefreshGrades.setOnClickListener { loadGrades(isManual = true) }
-        binding.btnSelectGradeSemester.setOnClickListener { showGradeSemesterPicker() }
-        binding.btnQueryRanking.setOnClickListener { queryAndShowRanking() }
-        binding.btnDownloadGradeReports.setOnClickListener { switchTab(MainTab.GRADE_REPORTS) }
 
         // Profile Refresh
         binding.swipeRefreshProfile.isEnabled = false
@@ -2108,46 +2000,6 @@ class MainActivity : AppCompatActivity() {
             .safeShow()
     }
 
-    private fun showOrLoadGrades() {
-        val cached = cacheManager.getGrades()
-        if (cached != null) {
-            gradeReport = cached
-            displayGrades(cached)
-            val updateTime = cacheManager.getGradesUpdateTime()
-            binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
-        } else {
-            loadGrades(isManual = false)
-        }
-    }
-
-    private fun loadGrades(isManual: Boolean = false) {
-        if (isManual) {
-            binding.swipeRefreshGrades.isRefreshing = true
-        } else if (gradeReport == null) {
-            binding.gradesProgressBar.visibility = View.VISIBLE
-        }
-
-        lifecycleScope.launch {
-            val result = JwglClient.fetchGrades(context = this@MainActivity)
-            binding.gradesProgressBar.visibility = View.GONE
-            binding.swipeRefreshGrades.isRefreshing = false
-
-            result.onSuccess { report ->
-                gradeReport = report
-                cacheManager.saveGrades(report)
-                displayGrades(report)
-                val updateTime = System.currentTimeMillis()
-                binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
-                if (isManual) {
-                    Toast.makeText(this@MainActivity, "成绩单已联网刷新", Toast.LENGTH_SHORT).show()
-                }
-            }.onFailure { error ->
-                val reason = error.message ?: "未知网络异常"
-                Toast.makeText(this@MainActivity, "成绩联网刷新失败: $reason", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
     private fun refreshProfile() {
         binding.swipeRefreshProfile.isRefreshing = true
         lifecycleScope.launch {
@@ -2198,437 +2050,6 @@ class MainActivity : AppCompatActivity() {
             setSemester(targetXnm, targetXqm, targetTitle)
         }
         sheet.show(supportFragmentManager, "ExamQueryBottomSheet")
-    }
-
-    private fun showGradeSemesterPicker() {
-        val report = gradeReport ?: return
-        val semesters = report.semesters
-        if (semesters.isEmpty()) {
-            Toast.makeText(this, "暂无学期成绩数据", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val options = mutableListOf<String>()
-        options.add("全部学期 (汇总)")
-        for (sem in semesters) {
-            options.add(sem.semesterTitle)
-        }
-
-        val checkedIndex = if (selectedGradeSemesterTitle.isEmpty()) {
-            0
-        } else {
-            val idx = semesters.indexOfFirst { it.semesterTitle == selectedGradeSemesterTitle }
-            if (idx >= 0) idx + 1 else 0
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("选择成绩学期")
-            .setSingleChoiceItems(options.toTypedArray(), checkedIndex) { dialog, which ->
-                if (which == 0) {
-                    selectedGradeSemesterTitle = ""
-                } else {
-                    selectedGradeSemesterTitle = semesters[which - 1].semesterTitle
-                }
-                updateGradesUI(report)
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun updateGradesHeaderSpacing(headerHeightPx: Int) {
-        if (headerHeightPx <= 0) return
-        if (binding.viewGradesHeaderSpacing.layoutParams.height != headerHeightPx) {
-            binding.viewGradesHeaderSpacing.layoutParams.height = headerHeightPx
-            binding.viewGradesHeaderSpacing.requestLayout()
-        }
-        val density = resources.displayMetrics.density
-        binding.swipeRefreshGrades.setProgressViewOffset(
-            false,
-            headerHeightPx,
-            headerHeightPx + (56 * density).toInt()
-        )
-    }
-
-    private fun displayGrades(report: GradeReport) {
-        updateGradesUI(report)
-    }
-
-    private fun updateGradesUI(report: GradeReport) {
-        if (selectedGradeSemesterTitle.isEmpty()) {
-            binding.tvGradeSemester.text = "全部学期"
-            binding.tvCreditsTitle.text = "累计修读学分"
-            binding.tvAvgScoreTitle.text = "加权平均分"
-            binding.tvGpaTitle.text = "平均学分绩点"
-            binding.tvCumulativeCredits.text = String.format("%.1f", report.totalCredits)
-            binding.tvCumulativeAvgScore.text = String.format("%.2f", report.cumulativeWeightedScore)
-            binding.tvCumulativeGpa.text = String.format("%.2f", report.cumulativeGpa)
-
-            val allCourses = report.semesters.flatMap { it.courses }
-            gradeAdapter.submitList(allCourses)
-            binding.tvGradesCountSummary.text = "共 ${allCourses.size} 门课程"
-        } else {
-            val sem = report.semesters.find { it.semesterTitle == selectedGradeSemesterTitle }
-            if (sem != null) {
-                binding.tvGradeSemester.text = formatSemesterTitle(sem.semesterTitle)
-                binding.tvCreditsTitle.text = "学期修读学分"
-                binding.tvAvgScoreTitle.text = "学期加权均分"
-                binding.tvGpaTitle.text = "学期学分绩点"
-                binding.tvCumulativeCredits.text = String.format("%.1f", sem.totalCredits)
-                binding.tvCumulativeAvgScore.text = String.format("%.2f", sem.weightedAverageScore)
-                binding.tvCumulativeGpa.text = String.format("%.2f", sem.weightedGpa)
-
-                gradeAdapter.submitList(sem.courses)
-                binding.tvGradesCountSummary.text = "本学期 ${sem.courses.size} 门课程"
-            } else {
-                selectedGradeSemesterTitle = ""
-                updateGradesUI(report)
-                return
-            }
-        }
-
-        if (isTabletLandscapeMode) {
-            populateGradesSemesterMasterList(report)
-        }
-    }
-
-    private fun populateGradesSemesterMasterList(report: GradeReport) {
-        val container = binding.llGradesSemesterMasterList
-        container.removeAllViews()
-        val density = resources.displayMetrics.density
-
-        fun addMasterRow(
-            title: String,
-            subtitle: String,
-            gpaBadge: String,
-            isSelected: Boolean,
-            onClick: () -> Unit
-        ) {
-            val rowCard = com.google.android.material.card.MaterialCardView(this).apply {
-                radius = 12 * density
-                cardElevation = 0f
-                strokeWidth = ((if (isSelected) 1.5f else 0.8f) * density).toInt()
-                strokeColor = ContextCompat.getColor(
-                    this@MainActivity,
-                    if (isSelected) R.color.primary else R.color.border
-                )
-                setCardBackgroundColor(
-                    ContextCompat.getColor(
-                        this@MainActivity,
-                        if (isSelected) R.color.primary_container else R.color.surface_variant
-                    )
-                )
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = (8 * density).toInt()
-                }
-                layoutParams = lp
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { onClick() }
-            }
-
-            val rowInner = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                val hPad = (12 * density).toInt()
-                val vPad = (10 * density).toInt()
-                setPadding(hPad, vPad, hPad, vPad)
-            }
-
-            val textCol = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-
-            val tvTitle = TextView(this).apply {
-                text = title
-                textSize = 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(
-                    ContextCompat.getColor(
-                        this@MainActivity,
-                        if (isSelected) R.color.primary else R.color.text_primary
-                    )
-                )
-            }
-
-            val tvSub = TextView(this).apply {
-                text = subtitle
-                textSize = 11f
-                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-                setPadding(0, (2 * density).toInt(), 0, 0)
-            }
-
-            textCol.addView(tvTitle)
-            textCol.addView(tvSub)
-            rowInner.addView(textCol)
-
-            val tvGpa = TextView(this).apply {
-                text = gpaBadge
-                textSize = 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(
-                    ContextCompat.getColor(
-                        this@MainActivity,
-                        if (isSelected) R.color.primary else R.color.text_primary
-                    )
-                )
-            }
-            rowInner.addView(tvGpa)
-            rowCard.addView(rowInner)
-            container.addView(rowCard)
-        }
-
-        val allCount = report.semesters.sumOf { it.courses.size }
-        addMasterRow(
-            title = "全部学期 (汇总)",
-            subtitle = "$allCount 门 · ${String.format("%.1f", report.totalCredits)} 学分 · 均分 ${String.format("%.2f", report.cumulativeWeightedScore)}",
-            gpaBadge = "GPA ${String.format("%.2f", report.cumulativeGpa)}",
-            isSelected = selectedGradeSemesterTitle.isEmpty()
-        ) {
-            selectedGradeSemesterTitle = ""
-            updateGradesUI(report)
-        }
-
-        for (sem in report.semesters) {
-            val formatted = formatSemesterTitle(sem.semesterTitle)
-            addMasterRow(
-                title = formatted,
-                subtitle = "${sem.courses.size} 门 · ${String.format("%.1f", sem.totalCredits)} 学分 · 均分 ${String.format("%.2f", sem.weightedAverageScore)}",
-                gpaBadge = "GPA ${String.format("%.2f", sem.weightedGpa)}",
-                isSelected = selectedGradeSemesterTitle == sem.semesterTitle
-            ) {
-                selectedGradeSemesterTitle = sem.semesterTitle
-                updateGradesUI(report)
-            }
-        }
-    }
-
-    private fun showDownloadGradeReportsDialog() {
-        val docTypes = GradeDocumentType.values()
-        val items = docTypes.map { "${it.displayName}\n${it.description}" }.toTypedArray()
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("学业证明与成绩单下载")
-            .setItems(items) { _, which ->
-                val chosenType = docTypes[which]
-                downloadAndOpenDocument(chosenType)
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    /**
-     * 成绩查询页面右上角：学业排名查询
-     * 原理：下载排名证明 PDF -> 解析内容 -> 删除临时 PDF -> 呈现草稿样式对话框
-     */
-    private fun queryAndShowRanking() {
-        val auth = AuthPreferences(this)
-        val studentId = auth.getStudentId()
-
-        val progressDialog = MaterialAlertDialogBuilder(this)
-            .setTitle("正在查询排名")
-            .setMessage("正在向教务系统请求排名证明并解析，请稍候...")
-            .setCancelable(false)
-            .create()
-        progressDialog.show()
-
-        lifecycleScope.launch {
-            // 原理：下载排名证明pdf -> 解析内容 -> 删除pdf
-            val targetDir = cacheDir
-            val tempFile = java.io.File(targetDir, "temp_ranking_${System.currentTimeMillis()}.pdf")
-
-            try {
-                // 1. 下载排名证明 PDF
-                val result = JwglClient.downloadGradeDocument(
-                    context = this@MainActivity,
-                    docType = GradeDocumentType.RANKING_CERTIFICATE,
-                    destinationFile = tempFile,
-                    studentId = studentId
-                )
-
-                if (result.isFailure) {
-                    progressDialog.dismiss()
-                    val errorMsg = result.exceptionOrNull()?.message ?: "网络连接异常"
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("查询失败")
-                        .setMessage("未能成功获取排名证明：$errorMsg")
-                        .setPositiveButton("确定", null)
-                        .safeShow()
-                    return@launch
-                }
-
-                val downloadedFile = result.getOrNull() ?: tempFile
-
-                // 2. 解析 PDF 内容 (解压 CMap 还原字符流并提取排名)
-                val parseResult = RankingPdfParser.parse(downloadedFile, currentProfile)
-
-                progressDialog.dismiss()
-
-                parseResult.onSuccess { rankingInfo ->
-                    showRankingResultDialog(rankingInfo)
-                }.onFailure { error ->
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("解析失败")
-                        .setMessage("排名证明获取成功，但未能解析出排位信息：${error.message ?: "未匹配到排名数据"}")
-                        .setPositiveButton("确定", null)
-                        .safeShow()
-                }
-            } catch (e: Exception) {
-                progressDialog.dismiss()
-                Toast.makeText(this@MainActivity, "排名查询异常: ${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                // 3. 严格遵循原理：解析完毕后立即删除临时 PDF 文件
-                try {
-                    if (tempFile.exists()) {
-                        tempFile.delete()
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    /**
-     * 展示排名查询结果对话框 (严格与设计草稿样式一致)
-     */
-    private fun showRankingResultDialog(rankingInfo: StudentRankingInfo) {
-        if (isFinishing || isDestroyed) return
-        val dialogView = layoutInflater.inflate(R.layout.dialog_ranking_result, null)
-        val tvMajorGrade = dialogView.findViewById<TextView>(R.id.tvRankingMajorGrade)
-        val tvRankingNum = dialogView.findViewById<TextView>(R.id.tvRankingNum)
-        val tvRankingTotal = dialogView.findViewById<TextView>(R.id.tvRankingTotal)
-        val tvRankingPercentile = dialogView.findViewById<TextView>(R.id.tvRankingPercentile)
-        val btnConfirm = dialogView.findViewById<TextView>(R.id.btnRankingConfirm)
-
-        tvMajorGrade.text = rankingInfo.majorAndGrade
-        tvRankingNum.text = rankingInfo.rank.toString()
-        tvRankingTotal.text = "/${rankingInfo.total}"
-
-        // "百分比排位为 85 %" (其中 85 加粗展示)
-        val percentileStr = rankingInfo.percentile.toString()
-        val fullPercentileText = "百分比排位为 $percentileStr %"
-        val spannable = SpannableString(fullPercentileText)
-        val startIdx = fullPercentileText.indexOf(percentileStr)
-        if (startIdx >= 0) {
-            val endIdx = startIdx + percentileStr.length
-            spannable.setSpan(
-                StyleSpan(Typeface.BOLD),
-                startIdx,
-                endIdx,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            spannable.setSpan(
-                RelativeSizeSpan(1.15f),
-                startIdx,
-                endIdx,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        tvRankingPercentile.text = spannable
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setView(dialogView)
-            .create()
-
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-
-        btnConfirm.setOnClickListener {
-            dialog.dismiss()
-        }
-
-        try {
-            dialog.show()
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to show ranking dialog", e)
-        }
-    }
-
-    private fun downloadAndOpenDocument(docType: GradeDocumentType) {
-        val progressDialog = MaterialAlertDialogBuilder(this)
-            .setTitle("正在下载 ${docType.displayName}")
-            .setMessage("正在向教务系统请求并生成 PDF 文件，请稍候...")
-            .setCancelable(false)
-            .create()
-        progressDialog.show()
-
-        lifecycleScope.launch {
-            try {
-                val targetDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-                    ?: java.io.File(filesDir, "downloads").apply { mkdirs() }
-                val targetFile = java.io.File(targetDir, docType.defaultFileName)
-                val auth = cn.edu.usst.jwgl.data.local.AuthPreferences(this@MainActivity)
-                val studentId = auth.getStudentId()
-                val result = JwglClient.downloadGradeDocument(this@MainActivity, docType, targetFile, studentId)
-                progressDialog.dismiss()
-
-                result.onSuccess { downloadedFile ->
-                    showDownloadSuccessDialog(docType, downloadedFile)
-                }.onFailure { error ->
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("下载失败")
-                        .setMessage("未能成功下载 ${docType.displayName}：${error.message ?: "网络异常"}")
-                        .setPositiveButton("确定", null)
-                        .safeShow()
-                }
-            } catch (e: Exception) {
-                progressDialog.dismiss()
-                Toast.makeText(this@MainActivity, "下载异常: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun showDownloadSuccessDialog(docType: GradeDocumentType, file: java.io.File) {
-        (supportFragmentManager.findFragmentByTag("GradeReportsFragment") as? cn.edu.usst.jwgl.ui.school.GradeReportsFragment)?.refreshDownloadedFilesList()
-        MaterialAlertDialogBuilder(this)
-            .setTitle("下载完成")
-            .setMessage("${docType.displayName} 已生成并成功保存！\n\n文件路径: ${file.name}\n大小: ${file.length() / 1024} KB")
-            .setPositiveButton("立即打开") { _, _ ->
-                openPdfFile(file)
-            }
-            .setNeutralButton("分享文件") { _, _ ->
-                sharePdfFile(file)
-            }
-            .setNegativeButton("关闭", null)
-            .safeShow()
-    }
-
-    private fun openPdfFile(file: java.io.File) {
-        try {
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                this,
-                "${applicationContext.packageName}.fileprovider",
-                file
-            )
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/pdf")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(Intent.createChooser(intent, "打开 PDF 文件"))
-        } catch (e: Exception) {
-            Toast.makeText(this, "打开 PDF 失败: ${e.message}，请安装支持 PDF 的阅读器应用", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun sharePdfFile(file: java.io.File) {
-        try {
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                this,
-                "${applicationContext.packageName}.fileprovider",
-                file
-            )
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, "分享文件"))
-        } catch (e: Exception) {
-            Toast.makeText(this, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun setupListeners() {
@@ -2734,9 +2155,6 @@ class MainActivity : AppCompatActivity() {
                                 
         // Hamburger Menu Buttons to Open Drawer
         binding.btnOpenDrawerTimetable.setOnClickListener {
-            openNavDrawer()
-        }
-        binding.btnOpenDrawerGrades.setOnClickListener {
             openNavDrawer()
         }
         binding.btnOpenDrawerProfile.setOnClickListener {
