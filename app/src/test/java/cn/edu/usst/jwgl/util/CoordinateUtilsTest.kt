@@ -7,8 +7,8 @@ class CoordinateUtilsTest {
 
     @Test
     fun testBuildingCount() {
-        // 19 from 516 campus + 8 from 1100 campus = 27
-        assertEquals(27, CoordinateUtils.USST_BUILDINGS.size)
+        // 15 本部北校区 + 4 本部南校区 + 8 军工路1100号校区 + 2 外校区 = 29
+        assertEquals(29, CoordinateUtils.USST_BUILDINGS.size)
     }
 
     @Test
@@ -119,7 +119,18 @@ class CoordinateUtilsTest {
 
     @Test
     fun testFindMatchingBuilding_OtherPoints() {
-        assertEquals("卓越楼", CoordinateUtils.findMatchingBuilding("卓越楼101")?.name)
+        val zy = CoordinateUtils.findMatchingBuilding("卓越楼101")
+        assertEquals("卓越楼", zy?.name)
+        assertEquals("本部南校区", zy?.campus)
+
+        val yj = CoordinateUtils.findMatchingBuilding("一教中201")
+        assertEquals("一教中", yj?.name)
+        assertEquals("本部北校区", yj?.campus)
+
+        val sj = CoordinateUtils.findMatchingBuilding("四教西101")
+        assertEquals("四教西", sj?.name)
+        assertEquals("本部南校区", sj?.campus)
+
         assertEquals("公共实验楼", CoordinateUtils.findMatchingBuilding("公共实验楼302")?.name)
         assertEquals("计算中心", CoordinateUtils.findMatchingBuilding("计算中心机房")?.name)
         assertEquals("光仪所", CoordinateUtils.findMatchingBuilding("光仪所201")?.name)
@@ -128,5 +139,22 @@ class CoordinateUtilsTest {
         assertEquals("580体育活动中心", CoordinateUtils.findMatchingBuilding("体育活动中心")?.name)
         assertEquals("新体育健身中心", CoordinateUtils.findMatchingBuilding("新体育健身中心")?.name)
         assertEquals("北校田径场", CoordinateUtils.findMatchingBuilding("北校田径场")?.name)
+    }
+
+    @Test
+    fun testFindMatchingBuilding_NewCampuses() {
+        val fx = CoordinateUtils.findMatchingBuilding("复兴路教学楼301")
+        assertNotNull(fx)
+        assertEquals("复兴路教学楼", fx?.name)
+        assertEquals("复兴路校区", fx?.campus)
+        assertEquals(31.211925, fx?.latitude ?: 0.0, 0.000001)
+        assertEquals(121.460448, fx?.longitude ?: 0.0, 0.000001)
+
+        val yk = CoordinateUtils.findMatchingBuilding("营口路教学楼102")
+        assertNotNull(yk)
+        assertEquals("营口路教学楼", yk?.name)
+        assertEquals("营口路校区", yk?.campus)
+        assertEquals(31.289567, yk?.latitude ?: 0.0, 0.000001)
+        assertEquals(121.534146, yk?.longitude ?: 0.0, 0.000001)
     }
 }
