@@ -778,8 +778,8 @@ val ALL_KNOWN_BUILDINGS = listOf(
     ): Result<Pair<Int, List<LappCourseItem>>> = withContext(Dispatchers.IO) {
         // 1. 优先检查是否存在全校课表全量缓存，若存在直接在内存中秒级检索
         val cachedFullPair = getFullSchoolScheduleCached(context, xn, xq)
-        if (!forceRefresh && cachedFullPair != null && cachedFullPair.second.isNotEmpty()) {
-            val (ts, allList) = cachedFullPair
+        val filterFromFullCache = { pair: Pair<Long, List<LappCourseItem>> ->
+            val (ts, allList) = pair
             var filtered = allList.asSequence()
             if (week > 0) {
                 filtered = filtered.filter { isCourseActiveInWeek(it, week) }
@@ -798,16 +798,29 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 filtered = filtered.filter { normalizeKeyword(it.kcmc).contains(normKcmc) }
             }
             if (kcdm.isNotEmpty()) {
-                filtered = filtered.filter { it.kcdm.contains(kcdm, ignoreCase = true) || it.bjmc.contains(kcdm, ignoreCase = true) }
+                val normKcdm = normalizeKeyword(kcdm)
+                filtered = filtered.filter { it.kcdm.contains(normKcdm, ignoreCase = true) || it.bjmc.contains(normKcdm, ignoreCase = true) }
             }
             if (lsmc.isNotEmpty()) {
-                filtered = filtered.filter { it.lsmc.contains(lsmc, ignoreCase = true) }
+                val normLsmc = normalizeKeyword(lsmc)
+                filtered = filtered.filter { it.lsmc.contains(normLsmc, ignoreCase = true) }
             }
             val list = filtered.toList()
             lastQueryFromCache = true
             lastQueryCacheTime = ts
             Log.i(TAG, "queryClassSchedule HIT full schedule in-memory filter: ${list.size} results")
-            return@withContext Result.success(Pair(list.size, list))
+            Pair(list.size, list)
+        }
+
+        val hasFullCache = cachedFullPair != null && cachedFullPair.second.isNotEmpty()
+
+        // 如果是多节次区间（如 "6-7"、"1-2" 等），服务端接口无法处理复合字符串，只能由本地全量缓存精确区间过滤
+        val isCompositeSection = jc != "-1" && jc.contains("-")
+        if (hasFullCache && (isCompositeSection || !forceRefresh)) {
+            val result = filterFromFullCache(cachedFullPair!!)
+            if (result.second.isNotEmpty() || !forceRefresh) {
+                return@withContext Result.success(result)
+            }
         }
 
         val cacheKey = buildScheduleCacheKey(xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page, rows)
@@ -835,15 +848,33 @@ val ALL_KNOWN_BUILDINGS = listOf(
         try {
             val pageResult = fetchSchedulePage(context, xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page = page * rows, rows = rows)
             if (pageResult.isFailure) {
+                // 网络失败，若本地有全量缓存，自动 Fallback 保证界面不为空
+                if (hasFullCache) {
+                    val fallback = filterFromFullCache(cachedFullPair!!)
+                    Log.w(TAG, "fetchSchedulePage failed on forceRefresh, safely fallback to local cache: ${fallback.second.size} items")
+                    return@withContext Result.success(fallback)
+                }
                 return@withContext Result.failure(pageResult.exceptionOrNull() ?: Exception("查询失败"))
             }
             val (total, list) = pageResult.getOrThrow()
+            if (list.isEmpty() && hasFullCache) {
+                // 服务端单时段接口未查到或参数不兼容，但本地全量数据有匹配结果，安全 Fallback
+                val fallback = filterFromFullCache(cachedFullPair!!)
+                if (fallback.second.isNotEmpty()) {
+                    Log.i(TAG, "fetchSchedulePage returned 0 items, safely fallback to full schedule cache: ${fallback.second.size} items")
+                    return@withContext Result.success(fallback)
+                }
+            }
             val savedTime = writeScheduleCache(context, cacheKey, total, list)
             lastQueryFromCache = false
             lastQueryCacheTime = savedTime
             Result.success(Pair(total, list))
         } catch (e: Exception) {
             Log.e(TAG, "queryClassSchedule error", e)
+            if (hasFullCache) {
+                val fallback = filterFromFullCache(cachedFullPair!!)
+                return@withContext Result.success(fallback)
+            }
             Result.failure(e)
         }
     }

@@ -752,15 +752,19 @@ class SchoolCourseSearchFragment : Fragment() {
                             }
                         }
                     } else {
-                        schoolCourseList.clear()
-                        schoolCourseAdapter?.notifyDataSetChanged()
-                        curPage.rvCourseList.visibility = View.GONE
-                        curPage.layoutEmptyResults.visibility = View.VISIBLE
-                        curPage.tvEmptyTitle.text = "本周当前时段暂无排课"
-                        curPage.tvEmptyDesc.text = "${weekPrefix}$dayName ${slot.slotName} 暂未检索到开课教学班，您可主动检索其他时段或周次"
-                        curPage.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 暂无开课$cacheSuffix"
-                        if (forceRefresh) {
-                            Toast.makeText(context, "已手动刷新，当前时段暂无排课", Toast.LENGTH_SHORT).show()
+                        if (forceRefresh && schoolCourseList.isNotEmpty()) {
+                            Toast.makeText(context, "已联网同步，未检测到该时段新排课，保留当前内容", Toast.LENGTH_SHORT).show()
+                        } else {
+                            schoolCourseList.clear()
+                            schoolCourseAdapter?.notifyDataSetChanged()
+                            curPage.rvCourseList.visibility = View.GONE
+                            curPage.layoutEmptyResults.visibility = View.VISIBLE
+                            curPage.tvEmptyTitle.text = "本周当前时段暂无排课"
+                            curPage.tvEmptyDesc.text = "${weekPrefix}$dayName ${slot.slotName} 暂未检索到开课教学班，您可主动检索其他时段或周次"
+                            curPage.tvCourseSearchSubtitle.text = "$weekPrefix$dayName ${slot.slotName} · 暂无开课$cacheSuffix"
+                            if (forceRefresh) {
+                                Toast.makeText(context, "已手动刷新，当前时段暂无排课", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 } else {
@@ -772,7 +776,7 @@ class SchoolCourseSearchFragment : Fragment() {
                         curPage.tvCourseSearchSubtitle.text = "支持教师/课程名/代码/学期同查"
                     }
                     if (forceRefresh) {
-                        Toast.makeText(context, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (schoolCourseList.isNotEmpty()) "网络连接不可用，已保留本地排课数据" else "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
@@ -964,12 +968,18 @@ class SchoolCourseSearchFragment : Fragment() {
                     }
 
                     if (levelFiltered.isEmpty()) {
-                        curPage.rvCourseList.visibility = View.GONE
-                        curPage.layoutEmptyResults.visibility = View.VISIBLE
-                        curPage.tvEmptyTitle.text = "未找到匹配开课班级"
-                        curPage.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
-                        curPage.tvCourseSearchSubtitle.text = "未找到匹配开课班级$cacheSuffix"
-                        Toast.makeText(context, "未检索到匹配的开课班级", Toast.LENGTH_SHORT).show()
+                        if (forceRefresh && schoolCourseList.isNotEmpty()) {
+                            Toast.makeText(context, "联网刷新未检索到新变更，已保留当前查询结果", Toast.LENGTH_SHORT).show()
+                        } else {
+                            schoolCourseList.clear()
+                            schoolCourseAdapter?.notifyDataSetChanged()
+                            curPage.rvCourseList.visibility = View.GONE
+                            curPage.layoutEmptyResults.visibility = View.VISIBLE
+                            curPage.tvEmptyTitle.text = "未找到匹配开课班级"
+                            curPage.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
+                            curPage.tvCourseSearchSubtitle.text = "未找到匹配开课班级$cacheSuffix"
+                            Toast.makeText(context, "未检索到匹配的开课班级", Toast.LENGTH_SHORT).show()
+                        }
                     } else {
                         curPage.rvCourseList.visibility = View.VISIBLE
                         curPage.layoutEmptyResults.visibility = View.GONE
@@ -996,7 +1006,7 @@ class SchoolCourseSearchFragment : Fragment() {
                         curPage.tvCourseSearchSubtitle.text = "支持教师/课程名/代码/学期同查"
                     }
                     if (forceRefresh) {
-                        Toast.makeText(context, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (schoolCourseList.isNotEmpty()) "网络连接不可用，已保留本地排课数据" else "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
@@ -1004,7 +1014,7 @@ class SchoolCourseSearchFragment : Fragment() {
                 curPage.progressBarSearch.visibility = View.GONE
                 curPage.btnDoSearch.isEnabled = true
                 if (forceRefresh) {
-                    Toast.makeText(context, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (schoolCourseList.isNotEmpty()) "网络连接不可用，已保留本地排课数据" else "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
                 }
             }
         }
