@@ -49,9 +49,9 @@ class JwglWebActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "JwglWebActivity"
         const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
-        const val SSO_ENTRY_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
         const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx"
-        const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
+        const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-mobile-resourcemanage-ui%2F%23%2FliveList%3Ftype%3Dcas"
+        const val LIVE_DESKTOP_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
         const val EXTRA_URL = "extra_target_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
@@ -250,6 +250,11 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     private fun setupToolbar(targetUrl: String) {
+        val textPrimaryColor = ContextCompat.getColor(this, R.color.text_primary)
+        binding.toolbar.setTitleTextColor(textPrimaryColor)
+        binding.toolbar.setNavigationIconTint(textPrimaryColor)
+        binding.toolbar.overflowIcon?.setTint(textPrimaryColor)
+
         binding.toolbar.setNavigationOnClickListener {
             if (customVideoView != null) {
                 binding.webView.webChromeClient?.onHideCustomView()
@@ -259,6 +264,9 @@ class JwglWebActivity : AppCompatActivity() {
         }
 
         binding.toolbar.inflateMenu(R.menu.menu_web_activity)
+        binding.toolbar.menu.findItem(R.id.action_refresh)?.icon?.let {
+            it.setTint(textPrimaryColor)
+        }
         updateDesktopMenuItemTitle()
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
@@ -453,6 +461,8 @@ class JwglWebActivity : AppCompatActivity() {
                 super.onReceivedTitle(view, title)
                 if (!title.isNullOrBlank() && !title.startsWith("http") && !title.contains("统一身份认证") && !title.contains("登录")) {
                     binding.toolbar.title = title
+                    val textPrimaryColor = ContextCompat.getColor(this@JwglWebActivity, R.color.text_primary)
+                    binding.toolbar.setTitleTextColor(textPrimaryColor)
                 }
             }
 
@@ -510,12 +520,7 @@ class JwglWebActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageStarted: host=$host, url=$url")
-                if (url != null && url.contains("login_slogin.html")) {
-                    Log.d(TAG, "onPageStarted detected login_slogin.html, redirecting to SSO entry: $SSO_ENTRY_URL")
-                    view?.loadUrl(SSO_ENTRY_URL)
-                    return
-                }
-                if (!isTrustedCasLoginUrl(url)) {
+                if (!isTrustedCasLoginUrl(url) && (url == null || !url.contains("login_slogin.html"))) {
                     casAttemptCount = 0
                 }
             }
@@ -526,15 +531,48 @@ class JwglWebActivity : AppCompatActivity() {
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageFinished: host=$host, url=$url")
 
-                if (url != null && url.contains("login_slogin.html")) {
-                    Log.d(TAG, "onPageFinished detected login_slogin.html, redirecting to SSO entry: $SSO_ENTRY_URL")
-                    view?.loadUrl(SSO_ENTRY_URL)
-                    return
-                }
-
                 // If on a successful destination page, sync fresh cookies back to JwglClient
                 if (url != null && (url.contains("jwglxt") || url.contains("index_initMenu") || url.contains("live.usst.edu.cn"))) {
                     CookieSyncHelper.syncWebViewCookiesToJwgl()
+                }
+
+                // 1. 正方教务系统登录页 (login_slogin.html) 自动填充与登录
+                if (url != null && url.contains("login_slogin.html")) {
+                    if (casAttemptCount < 3) {
+                        val auth = AuthPreferences(this@JwglWebActivity)
+                        val studentId = auth.getStudentId()
+                        val password = auth.getPassword()
+                        if (studentId.isNotEmpty() && password.isNotEmpty()) {
+                            casAttemptCount++
+                            Log.d(TAG, "Auto-filling ZFSOFT login form in WebView (attempt $casAttemptCount)...")
+                            val quotedStudentId = JSONObject.quote(studentId)
+                            val quotedPassword = JSONObject.quote(password)
+                            val jsJwgl = """
+                                (function() {
+                                    if (window._usstJwglAutoLoginRunning) return;
+                                    window._usstJwglAutoLoginRunning = true;
+                                    var u = document.querySelector("#yhm");
+                                    var p = document.querySelector("#mm");
+                                    var btn = document.querySelector("#dl");
+                                    if (u && p && btn) {
+                                        u.value = $quotedStudentId;
+                                        p.value = $quotedPassword;
+                                        u.dispatchEvent(new Event('input', { bubbles: true }));
+                                        u.dispatchEvent(new Event('change', { bubbles: true }));
+                                        p.dispatchEvent(new Event('input', { bubbles: true }));
+                                        p.dispatchEvent(new Event('change', { bubbles: true }));
+                                        setTimeout(function() {
+                                            console.log("Triggering ZFSOFT form submit...");
+                                            btn.click();
+                                        }, 250);
+                                    } else {
+                                        window._usstJwglAutoLoginRunning = false;
+                                    }
+                                })();
+                            """.trimIndent()
+                            view?.evaluateJavascript(jsJwgl, null)
+                        }
+                    }
                 }
 
                 // Auto-fill and submit unified auth (CAS) if landing on the login page (strictly validated)
@@ -795,13 +833,6 @@ class JwglWebActivity : AppCompatActivity() {
                     return true
                 }
 
-                val urlStr = uri.toString()
-                if (urlStr.contains("login_slogin.html")) {
-                    Log.d(TAG, "Intercepted login_slogin.html navigation, redirecting to SSO entry: $SSO_ENTRY_URL")
-                    view?.loadUrl(SSO_ENTRY_URL)
-                    return true
-                }
-
                 if (!isAllowedUsstHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
                     Toast.makeText(this@JwglWebActivity, "已拦截非校园网域名访问: ${host ?: ""}", Toast.LENGTH_SHORT).show()
@@ -824,11 +855,6 @@ class JwglWebActivity : AppCompatActivity() {
                 val scheme = uri.scheme?.lowercase() ?: return true
                 val host = uri.host
                 if (scheme != "http" && scheme != "https") return true
-                if (url.contains("login_slogin.html")) {
-                    Log.d(TAG, "Intercepted login_slogin.html navigation (legacy), redirecting to SSO entry: $SSO_ENTRY_URL")
-                    view?.loadUrl(SSO_ENTRY_URL)
-                    return true
-                }
                 if (!isAllowedUsstHost(host)) {
                     return true
                 }
@@ -847,21 +873,26 @@ class JwglWebActivity : AppCompatActivity() {
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
 
-        // 1. 同步 JwglClient (OkHttp) 已有的 CAS SSO 与教务 Cookie (尤其是 CASTGC) 至 WebView
+        // 1. 同步 JwglClient (OkHttp) 已有的认证 Cookie (JSESSIONID, CASTGC) 至 WebView
         CookieSyncHelper.syncJwglCookiesToWebView()
 
         val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
         val isWebVpnXg = targetUrl.contains("new2017.webvpn.usst.edu.cn")
-        val isJwgl = targetUrl == DEFAULT_TARGET_URL || targetUrl.contains("jwgl.usst.edu.cn")
 
         val effectiveTargetUrl = when {
-            isLiveUrl -> LIVE_TARGET_URL
+            isLiveUrl -> if (isDesktopMode) LIVE_DESKTOP_TARGET_URL else LIVE_TARGET_URL
             isWebVpnXg -> "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
-            isJwgl && targetUrl == DEFAULT_TARGET_URL -> SSO_ENTRY_URL
             else -> targetUrl
         }
 
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
+            if (isLiveUrl) {
+                // 直录播平台自身接入统一身份认证 (ids6)，直接载入由 WebView 自动填入并提交 CAS 统一凭据
+                binding.layoutLoading.visibility = View.GONE
+                binding.webView.loadUrl(effectiveTargetUrl)
+                return
+            }
+
             // 如果已有有效会话，直接载入目标 URL（凭证已通过 CookieSyncHelper 注入）
             if (JwglClient.hasValidSession() && !isWebVpnXg) {
                 binding.layoutLoading.visibility = View.GONE
@@ -869,13 +900,9 @@ class JwglWebActivity : AppCompatActivity() {
                 return
             }
 
-            // 若尚未建立有效会话，后台发起 SSO 会话建立与凭据同步
+            // 若尚未建立有效会话，后台发起静默登录与凭据同步
             binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMessage.text = when {
-                isWebVpnXg -> "正在为学工一体化认证统一登录会话..."
-                isLiveUrl -> "正在为课程直录播平台认证统一登录会话..."
-                else -> "正在为教务系统认证统一登录会话..."
-            }
+            binding.tvLoadingMessage.text = if (isWebVpnXg) "正在为学工一体化认证统一登录会话..." else "正在为教务系统认证登录会话..."
 
             lifecycleScope.launch {
                 val loginResult = withContext(Dispatchers.IO) {
@@ -886,16 +913,18 @@ class JwglWebActivity : AppCompatActivity() {
                     }
                 }
 
+                binding.layoutLoading.visibility = View.GONE
                 loginResult.onSuccess {
                     CookieSyncHelper.syncJwglCookiesToWebView()
                     binding.webView.loadUrl(effectiveTargetUrl)
                 }.onFailure { e ->
-                    Log.w(TAG, "SSO login refresh failed, fallback to direct load with JS autofill", e)
+                    Log.w(TAG, "Login pre-auth failed, fallback to direct load with in-page auto-fill", e)
                     CookieSyncHelper.syncJwglCookiesToWebView()
                     binding.webView.loadUrl(effectiveTargetUrl)
                 }
             }
         } else {
+            binding.layoutLoading.visibility = View.GONE
             binding.webView.loadUrl(effectiveTargetUrl)
         }
     }

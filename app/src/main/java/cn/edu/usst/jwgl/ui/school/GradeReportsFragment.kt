@@ -361,6 +361,7 @@ class GradeReportsFragment : Fragment() {
                 val targetFile = File(targetDir, docType.defaultFileName)
                 val auth = AuthPreferences(context)
                 val studentId = auth.getStudentId()
+                cn.edu.usst.jwgl.util.CookieSyncHelper.syncWebViewCookiesToJwgl()
                 val result = JwglClient.downloadGradeDocument(context, docType, targetFile, studentId)
                 progressDialog.dismiss()
 
