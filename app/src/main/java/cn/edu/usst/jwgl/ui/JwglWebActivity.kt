@@ -536,42 +536,144 @@ class JwglWebActivity : AppCompatActivity() {
                     CookieSyncHelper.syncWebViewCookiesToJwgl()
                 }
 
-                // 1. 正方教务系统登录页 (login_slogin.html) 自动填充与登录
-                if (url != null && url.contains("login_slogin.html")) {
-                    if (casAttemptCount < 3) {
-                        val auth = AuthPreferences(this@JwglWebActivity)
-                        val studentId = auth.getStudentId()
-                        val password = auth.getPassword()
-                        if (studentId.isNotEmpty() && password.isNotEmpty()) {
-                            casAttemptCount++
-                            Log.d(TAG, "Auto-filling ZFSOFT login form in WebView (attempt $casAttemptCount)...")
-                            val quotedStudentId = JSONObject.quote(studentId)
-                            val quotedPassword = JSONObject.quote(password)
-                            val jsJwgl = """
-                                (function() {
-                                    if (window._usstJwglAutoLoginRunning) return;
-                                    window._usstJwglAutoLoginRunning = true;
+                // 1. 正方教务系统登录页智能自动填充与登录
+                val isZfsoftLoginPage = url != null && (
+                    url.contains("login_slogin.html") ||
+                    url.contains("login_sso.html") ||
+                    url.contains("login_dlglxt.html")
+                )
+                if (isZfsoftLoginPage) {
+                    val auth = AuthPreferences(this@JwglWebActivity)
+                    val studentId = auth.getStudentId()
+                    val password = auth.getPassword()
+                    if (studentId.isNotEmpty() && password.isNotEmpty()) {
+                        val quotedStudentId = JSONObject.quote(studentId)
+                        val quotedPassword = JSONObject.quote(password)
+                        val jsJwgl = """
+                            (function() {
+                                if (window._usstJwglAutoLoginRunning) return;
+
+                                var attempts = 0;
+                                var timer = setInterval(function() {
+                                    attempts++;
+                                    if (attempts > 30) {
+                                        clearInterval(timer);
+                                        return;
+                                    }
+
                                     var u = document.querySelector("#yhm");
                                     var p = document.querySelector("#mm");
+                                    var hidP = document.querySelector("#hidMm");
                                     var btn = document.querySelector("#dl");
+                                    var yzmDiv = document.querySelector("#yzmDiv");
+                                    var yzmInput = document.querySelector("#yzm");
+
                                     if (u && p && btn) {
+                                        clearInterval(timer);
+                                        window._usstJwglAutoLoginRunning = true;
+
+                                        // 填入学号
+                                        u.focus();
                                         u.value = $quotedStudentId;
-                                        p.value = $quotedPassword;
                                         u.dispatchEvent(new Event('input', { bubbles: true }));
                                         u.dispatchEvent(new Event('change', { bubbles: true }));
+
+                                        // 填入密码
+                                        p.focus();
+                                        p.value = $quotedPassword;
+                                        if (hidP) hidP.value = $quotedPassword;
                                         p.dispatchEvent(new Event('input', { bubbles: true }));
                                         p.dispatchEvent(new Event('change', { bubbles: true }));
-                                        setTimeout(function() {
-                                            console.log("Triggering ZFSOFT form submit...");
-                                            btn.click();
-                                        }, 250);
-                                    } else {
-                                        window._usstJwglAutoLoginRunning = false;
+
+                                        // 检查是否显示了图形验证码（因多次失败被风控）
+                                        var isYzmRequired = false;
+                                        if (yzmDiv && window.getComputedStyle(yzmDiv).display !== 'none' && yzmDiv.offsetHeight > 0) {
+                                            isYzmRequired = true;
+                                        }
+                                        if (yzmInput && window.getComputedStyle(yzmInput).display !== 'none' && yzmInput.offsetHeight > 0) {
+                                            isYzmRequired = true;
+                                        }
+
+                                        if (isYzmRequired) {
+                                            console.log("ZFSOFT requires captcha, focusing captcha input without auto-clicking submit...");
+                                            if (yzmInput) {
+                                                yzmInput.focus();
+                                            }
+                                            window._usstJwglAutoLoginRunning = false;
+                                        } else {
+                                            // 无需验证码，自动触发登录提交
+                                            console.log("No captcha required, auto-submitting ZFSOFT login form...");
+                                            setTimeout(function() {
+                                                btn.click();
+                                            }, 300);
+                                        }
                                     }
-                                })();
-                            """.trimIndent()
-                            view?.evaluateJavascript(jsJwgl, null)
-                        }
+                                }, 200);
+                            })();
+                        """.trimIndent()
+                        view?.evaluateJavascript(jsJwgl, null)
+                    }
+                }
+
+                // 2. 直录播平台本地登录页 (live.usst.edu.cn UI) 自动填充与登录
+                if (url != null && url.contains("live.usst.edu.cn") && !isTrustedCasLoginUrl(url)) {
+                    val auth = AuthPreferences(this@JwglWebActivity)
+                    val studentId = auth.getStudentId()
+                    val password = auth.getPassword()
+                    if (studentId.isNotEmpty() && password.isNotEmpty()) {
+                        val quotedStudentId = JSONObject.quote(studentId)
+                        val quotedPassword = JSONObject.quote(password)
+                        val jsLive = """
+                            (function() {
+                                if (window._usstLiveAutoLoginRunning) return;
+                                
+                                var attempts = 0;
+                                var timer = setInterval(function() {
+                                    attempts++;
+                                    if (attempts > 30) {
+                                        clearInterval(timer);
+                                        return;
+                                    }
+                                    
+                                    var u = document.querySelector("input[placeholder*='用户名']") || 
+                                            document.querySelector("input[placeholder*='账号']") ||
+                                            document.querySelector("input[name='username']") ||
+                                            document.querySelector(".login-form input[type='text']") ||
+                                            document.querySelector("input[type='text']");
+                                    var p = document.querySelector("input[placeholder*='密码']") ||
+                                            document.querySelector("input[name='password']") ||
+                                            document.querySelector(".login-form input[type='password']") ||
+                                            document.querySelector("input[type='password']");
+                                    var btn = Array.from(document.querySelectorAll("button, .el-button, .van-button, div[role='button']")).find(function(b) {
+                                        var t = b.innerText ? b.innerText.trim() : "";
+                                        return t === "登录" || t === "登 录";
+                                    });
+
+                                    // 仅当明确出现用户名与密码框时执行自动填充，避免误触非登录页面输入框
+                                    if (u && p && btn && !u.disabled && !p.disabled) {
+                                        clearInterval(timer);
+                                        window._usstLiveAutoLoginRunning = true;
+                                        console.log("Found Live login form, auto-filling credentials...");
+                                        
+                                        u.focus();
+                                        u.value = $quotedStudentId;
+                                        u.dispatchEvent(new Event('input', { bubbles: true }));
+                                        u.dispatchEvent(new Event('change', { bubbles: true }));
+
+                                        p.focus();
+                                        p.value = $quotedPassword;
+                                        p.dispatchEvent(new Event('input', { bubbles: true }));
+                                        p.dispatchEvent(new Event('change', { bubbles: true }));
+
+                                        setTimeout(function() {
+                                            console.log("Submitting Live login form...");
+                                            btn.click();
+                                        }, 300);
+                                    }
+                                }, 300);
+                            })();
+                        """.trimIndent()
+                        view?.evaluateJavascript(jsLive, null)
                     }
                 }
 
