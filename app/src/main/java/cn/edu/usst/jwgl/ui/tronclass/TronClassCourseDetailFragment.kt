@@ -344,7 +344,10 @@ class TronClassCourseDetailFragment : Fragment() {
         val initialDiscussions = cacheMgr.getCachedCourseDiscussions(courseId)
         if (initialDiscussions.isNotEmpty()) {
             cachedDiscussions = initialDiscussions
-            discussionAdapter.updateData(initialDiscussions)
+        }
+        val initialCombinedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+        if (initialCombinedDiscussions.isNotEmpty()) {
+            discussionAdapter.updateData(initialCombinedDiscussions)
         }
 
         val initialMembers = cacheMgr.getCachedCourseMembers(courseId)
@@ -432,6 +435,25 @@ class TronClassCourseDetailFragment : Fragment() {
         return list
     }
 
+    private fun buildDiscussionsList(
+        activities: List<TronClassActivityItem>,
+        apiDiscussions: List<TronClassDiscussion>
+    ): List<TronClassDiscussion> {
+        val list = mutableListOf<TronClassDiscussion>()
+        // 1. 核心：提取活动列表中所有 type == "forum" 的活动作为课堂讨论
+        val forumActivities = activities.filter { it.type == "forum" }
+        for (act in forumActivities) {
+            list.add(TronClassDiscussion.fromActivity(act))
+        }
+        // 2. 补充：加入 API 返回的其它讨论帖子（去重）
+        for (disc in apiDiscussions) {
+            if (list.none { it.id == disc.id || it.getCleanTitle() == disc.getCleanTitle() }) {
+                list.add(disc)
+            }
+        }
+        return list
+    }
+
     private fun loadCourseData(forceRefresh: Boolean) {
         if (courseId <= 0) {
             Toast.makeText(context, "无效的课程ID", Toast.LENGTH_SHORT).show()
@@ -503,6 +525,13 @@ class TronClassCourseDetailFragment : Fragment() {
                 if (b1.tabLayout.selectedTabPosition == 2) {
                     checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
                 }
+
+                // 同步刷新课堂讨论中来自活动的 forum 讨论项
+                val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+                discussionAdapter.updateData(updatedDiscussions)
+                if (b1.tabLayout.selectedTabPosition == 3) {
+                    checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+                }
             }
 
             // 次要信息随后就绪，增量写回缓存与 Adapter
@@ -540,9 +569,10 @@ class TronClassCourseDetailFragment : Fragment() {
                 if (cachedDiscussions.isNotEmpty()) {
                     cacheMgr.saveCourseDiscussions(courseId, cachedDiscussions)
                 }
-                discussionAdapter.updateData(cachedDiscussions)
+                val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+                discussionAdapter.updateData(updatedDiscussions)
                 if (b4.tabLayout.selectedTabPosition == 3) {
-                    checkEmptyState(cachedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+                    checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
                 }
             }
 
@@ -648,26 +678,51 @@ class TronClassCourseDetailFragment : Fragment() {
      */
     private fun showDiscussionDetailDialog(discussion: TronClassDiscussion) {
         val ctx = context ?: return
+        val act = discussion.activityItem
         val author = discussion.getAuthorName()
         val timeStr = discussion.getFormattedTime()
         val title = discussion.getCleanTitle()
-        val rawContent = discussion.content
+        val rawContent = discussion.content ?: act?.data?.description
         val contentText = if (!rawContent.isNullOrBlank()) {
             TronClassHtmlHelper.htmlToPlainText(rawContent).trim()
         } else {
-            "（发起人未附带详细说明文字）"
+            "（发起方未附带详细说明文字）"
         }
 
-        val msg = "发起人: $author\n" +
-                "发布时间: ${if (timeStr.isNotBlank()) timeStr else "近期"}\n" +
-                "互动数据: ${discussion.repliesCount} 条回复 · ${discussion.viewsCount} 次浏览\n\n" +
-                "【讨论正文】\n$contentText"
+        val isCompleted = act?.completeness == "full" || act?.completeness == "complete"
+        val statusLine = if (act != null) {
+            if (isCompleted) "【学习状态】已学完（进度已达成）\n" else "【学习状态】开放讨论中\n"
+        } else ""
 
-        MaterialAlertDialogBuilder(ctx)
+        val statsLine = if (act != null) {
+            "类型: 课堂专题讨论活动\n"
+        } else {
+            "互动数据: ${discussion.repliesCount} 条回复 · ${discussion.viewsCount} 次浏览\n"
+        }
+
+        val msg = "${statusLine}发起方: $author\n" +
+                "时间: ${if (timeStr.isNotBlank()) timeStr else "近期"}\n" +
+                statsLine + "\n" +
+                "【讨论要求与正文】\n$contentText"
+
+        val builder = MaterialAlertDialogBuilder(ctx)
             .setTitle(title)
             .setMessage(msg)
             .setPositiveButton("我知道了", null)
-            .show()
+
+        if (act != null && !isCompleted) {
+            builder.setNeutralButton("⚡ 标记已读并完成") { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                    client.logActivityRead(act.id)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "已同步完成该课堂讨论进度！", Toast.LENGTH_SHORT).show()
+                        loadCourseData(forceRefresh = true)
+                    }
+                }
+            }
+        }
+
+        builder.show()
     }
 
     private fun startAutoBrushProgress() {
@@ -831,6 +886,9 @@ class TronClassCourseDetailFragment : Fragment() {
                 } else {
                     TronClassExamActivity.start(context, act.id, courseId, act.getCleanTitle(), courseName)
                 }
+            }
+            "forum" -> {
+                showDiscussionDetailDialog(TronClassDiscussion.fromActivity(act))
             }
             "material" -> handleDownloadClick(act)
             else -> handleDownloadClick(act)

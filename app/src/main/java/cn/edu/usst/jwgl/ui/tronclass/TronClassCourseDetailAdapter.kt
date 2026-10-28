@@ -190,6 +190,19 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
+                "forum" -> {
+                    binding.tvTypeBadge.text = "讨论"
+                    binding.tvActivityMeta.text = "课堂专题讨论"
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_forum)
+                    binding.ivActivityIcon.setColorFilter(Color.parseColor("#7B1FA2"))
+
+                    binding.btnAction.visibility = View.VISIBLE
+                    binding.btnAction.text = "查看"
+                    binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
                 else -> {
                     binding.tvTypeBadge.text = act.type
                     binding.tvActivityMeta.text = upload?.getFormattedSize() ?: ""

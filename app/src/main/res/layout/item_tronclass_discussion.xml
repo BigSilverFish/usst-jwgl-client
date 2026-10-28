@@ -19,7 +19,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Author & Time Row -->
+        <!-- Author & Time & Status Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -32,7 +32,7 @@
                 android:layout_height="32dp"
                 android:background="@drawable/bg_badge_rounded"
                 android:gravity="center"
-                android:text="同"
+                android:text="讨"
                 android:textColor="@color/primary"
                 android:textSize="13sp"
                 android:textStyle="bold" />
@@ -45,15 +45,30 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:text="讨论发起人"
+                android:text="课堂讨论"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/tvDiscussionStatusBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_badge_rounded"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="3dp"
+                android:text="已学完"
+                android:textColor="@color/primary"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/tvPostTime"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
                 android:text="10-24 16:00"
                 android:textColor="@color/text_tertiary"
                 android:textSize="11.5sp" />
@@ -86,7 +101,7 @@
             android:textSize="13sp"
             android:visibility="gone" />
 
-        <!-- Stats Row -->
+        <!-- Stats / Meta Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -105,11 +120,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:text="0 条回复"
+                android:text="课堂专题讨论交流"
                 android:textColor="@color/text_secondary"
                 android:textSize="11.5sp" />
 
             <TextView
+                android:id="@+id/tvStatsDot"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="6dp"
@@ -121,7 +137,7 @@
                 android:id="@+id/tvViewsCount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="0 次浏览"
+                android:text="点击查看与参与"
                 android:textColor="@color/text_tertiary"
                 android:textSize="11.5sp" />
 
