@@ -48,7 +48,7 @@ class JwglWebActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "JwglWebActivity"
-        const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html"
+        const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
         const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-mobile-resourcemanage-ui%2F%23%2FliveList%3Ftype%3Dcas"
         const val LIVE_DESKTOP_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
@@ -222,7 +222,7 @@ class JwglWebActivity : AppCompatActivity() {
             val scheme = uri.scheme?.lowercase()
             val host = uri.host?.lowercase()
             val path = uri.path?.lowercase() ?: ""
-            scheme == "https" &&
+            (scheme == "https" || scheme == "http") &&
                 (host == "ids6.usst.edu.cn" || host == "ids6-443.webvpn.usst.edu.cn" || host == "cas.usst.edu.cn" || host == "ids.usst.edu.cn") &&
                 (path.startsWith("/authserver/login") || path.startsWith("/cas/login"))
         } catch (_: Exception) {
@@ -536,86 +536,20 @@ class JwglWebActivity : AppCompatActivity() {
                     CookieSyncHelper.syncWebViewCookiesToJwgl()
                 }
 
-                // 1. 正方教务系统登录页智能自动填充与登录
+                // 1. 正方教务原生登录拦截保护：一旦落入正方原生登录页，立即强制重定向至 SSO 入口
+                // （学生的账号密码为 CAS 统一认证密码，绝不能在正方原生页面登录，否则会报密码错误并触发验证码风控）
                 val isZfsoftLoginPage = url != null && (
                     url.contains("login_slogin.html") ||
                     url.contains("login_sso.html") ||
                     url.contains("login_dlglxt.html")
                 )
                 if (isZfsoftLoginPage) {
-                    val auth = AuthPreferences(this@JwglWebActivity)
-                    val studentId = auth.getStudentId()
-                    val password = auth.getPassword()
-                    if (studentId.isNotEmpty() && password.isNotEmpty()) {
-                        val quotedStudentId = JSONObject.quote(studentId)
-                        val quotedPassword = JSONObject.quote(password)
-                        val jsJwgl = """
-                            (function() {
-                                if (window._usstJwglAutoLoginRunning) return;
-
-                                var attempts = 0;
-                                var timer = setInterval(function() {
-                                    attempts++;
-                                    if (attempts > 30) {
-                                        clearInterval(timer);
-                                        return;
-                                    }
-
-                                    var u = document.querySelector("#yhm");
-                                    var p = document.querySelector("#mm");
-                                    var hidP = document.querySelector("#hidMm");
-                                    var btn = document.querySelector("#dl");
-                                    var yzmDiv = document.querySelector("#yzmDiv");
-                                    var yzmInput = document.querySelector("#yzm");
-
-                                    if (u && p && btn) {
-                                        clearInterval(timer);
-                                        window._usstJwglAutoLoginRunning = true;
-
-                                        // 填入学号
-                                        u.focus();
-                                        u.value = $quotedStudentId;
-                                        u.dispatchEvent(new Event('input', { bubbles: true }));
-                                        u.dispatchEvent(new Event('change', { bubbles: true }));
-
-                                        // 填入密码
-                                        p.focus();
-                                        p.value = $quotedPassword;
-                                        if (hidP) hidP.value = $quotedPassword;
-                                        p.dispatchEvent(new Event('input', { bubbles: true }));
-                                        p.dispatchEvent(new Event('change', { bubbles: true }));
-
-                                        // 检查是否显示了图形验证码（因多次失败被风控）
-                                        var isYzmRequired = false;
-                                        if (yzmDiv && window.getComputedStyle(yzmDiv).display !== 'none' && yzmDiv.offsetHeight > 0) {
-                                            isYzmRequired = true;
-                                        }
-                                        if (yzmInput && window.getComputedStyle(yzmInput).display !== 'none' && yzmInput.offsetHeight > 0) {
-                                            isYzmRequired = true;
-                                        }
-
-                                        if (isYzmRequired) {
-                                            console.log("ZFSOFT requires captcha, focusing captcha input without auto-clicking submit...");
-                                            if (yzmInput) {
-                                                yzmInput.focus();
-                                            }
-                                            window._usstJwglAutoLoginRunning = false;
-                                        } else {
-                                            // 无需验证码，自动触发登录提交
-                                            console.log("No captcha required, auto-submitting ZFSOFT login form...");
-                                            setTimeout(function() {
-                                                btn.click();
-                                            }, 300);
-                                        }
-                                    }
-                                }, 200);
-                            })();
-                        """.trimIndent()
-                        view?.evaluateJavascript(jsJwgl, null)
-                    }
+                    Log.w(TAG, "Landed on ZFSOFT native login page. Redirecting to SSO entry...")
+                    view?.loadUrl("https://jwgl.usst.edu.cn/sso/jziotlogin")
+                    return
                 }
 
-                // 2. 直录播平台本地登录页 (live.usst.edu.cn UI) 自动填充与登录
+                // 2. 直录播平台本地登录页 (live.usst.edu.cn UI) 自动填充与登录兼容
                 if (url != null && url.contains("live.usst.edu.cn") && !isTrustedCasLoginUrl(url)) {
                     val auth = AuthPreferences(this@JwglWebActivity)
                     val studentId = auth.getStudentId()
@@ -649,7 +583,6 @@ class JwglWebActivity : AppCompatActivity() {
                                         return t === "登录" || t === "登 录";
                                     });
 
-                                    // 仅当明确出现用户名与密码框时执行自动填充，避免误触非登录页面输入框
                                     if (u && p && btn && !u.disabled && !p.disabled) {
                                         clearInterval(timer);
                                         window._usstLiveAutoLoginRunning = true;
@@ -677,9 +610,9 @@ class JwglWebActivity : AppCompatActivity() {
                     }
                 }
 
-                // Auto-fill and submit unified auth (CAS) if landing on the login page (strictly validated)
+                // 3. 统一身份认证 (CAS) 智能自动填充与提交 (同时兼容移动端与桌面端 CAS 布局)
                 if (isTrustedCasLoginUrl(url) || isTrustedCasLoginUrl(view?.url)) {
-                    if (casAttemptCount < 5) {
+                    if (casAttemptCount < 3) {
                         val auth = AuthPreferences(this@JwglWebActivity)
                         val studentId = auth.getStudentId()
                         val password = auth.getPassword()
@@ -688,12 +621,11 @@ class JwglWebActivity : AppCompatActivity() {
                             Log.d(TAG, "Auto-filling CAS login form in WebView (attempt $casAttemptCount)...")
                             val quotedStudentId = JSONObject.quote(studentId)
                             val quotedPassword = JSONObject.quote(password)
-                            val js = """
+                            val jsCas = """
                                 (function() {
-                                    if (window._usstCasAutoLoginRunning) return;
-                                    window._usstCasAutoLoginRunning = true;
+                                    if (window._usstCasSubmitting) return;
 
-                                    var errEl = document.querySelector("#msg, .auth_error, #showErrorTip, .error-message");
+                                    var errEl = document.querySelector("#msg, .auth_error, #showErrorTip, .error-message, #errorMsg");
                                     if (errEl && errEl.innerText && errEl.innerText.trim().length > 0 && window.getComputedStyle(errEl).display !== 'none') {
                                         console.log("CAS error message visible, skipping auto-login:", errEl.innerText);
                                         return;
@@ -702,35 +634,46 @@ class JwglWebActivity : AppCompatActivity() {
                                     var attempts = 0;
                                     var timer = setInterval(function() {
                                         attempts++;
-                                        var u = document.querySelector("#username") || document.querySelector("input[name='username']");
-                                        var p = document.querySelector("#password") || document.querySelector("input[name='password']");
-                                        var btn = document.querySelector("button.auth_login_btn") || 
-                                                  document.querySelector(".auth_login_btn") || 
-                                                  document.querySelector("button[type='submit']") || 
-                                                  document.querySelector("input[type='submit']") || 
-                                                  document.getElementById("login_submit");
-                                        if (u && p && btn) {
+                                        if (attempts > 35) {
                                             clearInterval(timer);
+                                            window._usstCasSubmitting = false;
+                                            return;
+                                        }
+
+                                        // 同时兼容移动端 (#mobileUsername, #mobilePassword) 与桌面端 (#username, #password)
+                                        var u = document.querySelector("#mobileUsername, #username, input[name='username']");
+                                        var p = document.querySelector("#mobilePassword, #password, input[name='password']");
+                                        var btn = document.querySelector("button#load, .login-button, button.auth_login_btn, .auth_login_btn, button[type='submit'], input[type='submit']");
+                                        var form = document.querySelector("#casLoginForm, form");
+
+                                        if (u && p) {
+                                            clearInterval(timer);
+                                            window._usstCasSubmitting = true;
+
+                                            u.focus();
                                             u.value = $quotedStudentId;
+                                            u.dispatchEvent(new Event('input', { bubbles: true }));
+                                            u.dispatchEvent(new Event('change', { bubbles: true }));
+
+                                            p.focus();
                                             p.value = $quotedPassword;
-                                            var evInput = new Event('input', { bubbles: true });
-                                            var evChange = new Event('change', { bubbles: true });
-                                            u.dispatchEvent(evInput);
-                                            u.dispatchEvent(evChange);
-                                            p.dispatchEvent(evInput);
-                                            p.dispatchEvent(evChange);
+                                            p.dispatchEvent(new Event('input', { bubbles: true }));
+                                            p.dispatchEvent(new Event('change', { bubbles: true }));
+
                                             setTimeout(function() {
                                                 console.log("Triggering CAS form submit...");
-                                                btn.click();
-                                            }, 200);
-                                        } else if (attempts > 30) {
-                                            clearInterval(timer);
-                                            window._usstCasAutoLoginRunning = false;
+                                                if (btn) {
+                                                    btn.disabled = false;
+                                                    btn.click();
+                                                } else if (form) {
+                                                    form.submit();
+                                                }
+                                            }, 250);
                                         }
-                                    }, 200);
+                                    }, 150);
                                 })();
                             """.trimIndent()
-                            view?.evaluateJavascript(js, null)
+                            view?.evaluateJavascript(jsCas, null)
                         }
                     }
                 }
@@ -980,10 +923,12 @@ class JwglWebActivity : AppCompatActivity() {
 
         val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
         val isWebVpnXg = targetUrl.contains("new2017.webvpn.usst.edu.cn")
+        val isJwgl = targetUrl.contains("jwgl.usst.edu.cn")
 
         val effectiveTargetUrl = when {
             isLiveUrl -> if (isDesktopMode) LIVE_DESKTOP_TARGET_URL else LIVE_TARGET_URL
             isWebVpnXg -> "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
+            isJwgl -> "https://jwgl.usst.edu.cn/sso/jziotlogin"
             else -> targetUrl
         }
 

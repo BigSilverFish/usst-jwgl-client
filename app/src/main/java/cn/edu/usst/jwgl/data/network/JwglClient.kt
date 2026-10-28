@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 object JwglClient {
     private const val TAG = "JwglClient"
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    private const val ENTRY_URL = "https://ids6.usst.edu.cn/authserver/login?service=https%3A%2F%2Fjwgl.usst.edu.cn%2Fsso%2Fjziotlogin"
+    private const val ENTRY_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
     private const val PROFILE_URL = "https://jwgl.usst.edu.cn/jwglxt/xsxxxggl/xsgrxxwh_cxXsgrxx.html?gnmkdm=N100801"
     private const val QUICK_INFO_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_cxYhxxIndex.html?xt=jw&localeKey=zh_CN&gnmkdm=index"
     private const val GRADE_URL = "https://jwgl.usst.edu.cn/jwglxt/cjcx/cjcx_cxXsfxcjIndex.html?doType=query"
@@ -118,17 +118,9 @@ object JwglClient {
     suspend fun login(studentId: String, password: String): Result<StudentProfile> = withContext(Dispatchers.IO) {
         try {
             clearSession()
-            Log.d(TAG, "--- Starting login flow for $studentId ---")
+            Log.d(TAG, "--- Starting USST CAS SSO login flow for $studentId ---")
 
-            // 1. 优先尝试正方教务系统官方原生 RSA 表单登录 (USST 当前教务主登录方式)
-            val zfRes = loginZfsoft(studentId, password)
-            if (zfRes.isSuccess) {
-                Log.d(TAG, "--- ZFSOFT native login succeeded for $studentId ---")
-                return@withContext zfRes
-            }
-            Log.w(TAG, "ZFSOFT native login failed (${zfRes.exceptionOrNull()?.message}), trying CAS SSO fallback...")
-
-            // 2. 备用尝试 CAS SSO 统一身份认证
+            // 1. 发起 SSO 入口请求，自动跟踪重定向至学校统一身份认证 (ids6 CAS) 页面
             val entryReq = Request.Builder()
                 .url(ENTRY_URL)
                 .header("User-Agent", USER_AGENT)
@@ -138,23 +130,33 @@ object JwglClient {
             val entryResp = client.newCall(entryReq).execute()
             val casUrl = entryResp.request.url.toString()
             val casHtml = entryResp.body?.string() ?: ""
-            Log.d(TAG, "Entry reached CAS page (HTML len: ${casHtml.length})")
+            Log.d(TAG, "Entry reached page: $casUrl (HTML len: ${casHtml.length})")
 
-            // 3. Parse CAS hidden fields
+            // 2. 解析 CAS 登录表单与令牌 (lt, execution, action)
             val doc = Jsoup.parse(casHtml)
+            val form = doc.select("form").first()
+            val formAction = form?.attr("action") ?: ""
             val lt = doc.select("input[name=lt]").`val`()
             val execution = doc.select("input[name=execution]").`val`()
             val eventId = doc.select("input[name=_eventId]").`val`().ifEmpty { "submit" }
 
-            Log.d(TAG, "Parsed CAS tokens: ltPresent=${lt.isNotEmpty()}, executionPresent=${execution.isNotEmpty()}, _eventId=$eventId")
+            val casPostUrl = if (formAction.isNotEmpty()) {
+                entryResp.request.url.resolve(formAction)?.toString() ?: casUrl
+            } else {
+                casUrl
+            }
+
+            Log.d(TAG, "Parsed CAS tokens: ltPresent=${lt.isNotEmpty()}, executionPresent=${execution.isNotEmpty()}, _eventId=$eventId, postUrl=$casPostUrl")
 
             if (lt.isEmpty() || execution.isEmpty()) {
-                val zfError = zfRes.exceptionOrNull()
-                if (zfError != null) return@withContext Result.failure(zfError)
+                if (casUrl.contains("jwglxt") || casUrl.contains("index_initMenu")) {
+                    val profile = fetchStudentProfile(studentId)
+                    return@withContext Result.success(profile)
+                }
                 return@withContext Result.failure(IOException("无法解析 CAS 认证令牌"))
             }
 
-            // 4. Post credentials to CAS SSO
+            // 3. 提交学号与学校统一身份认证密码
             val formBody = FormBody.Builder()
                 .add("username", studentId.trim())
                 .add("password", password.trim())
@@ -166,7 +168,7 @@ object JwglClient {
                 .build()
 
             val loginReq = Request.Builder()
-                .url(casUrl)
+                .url(casPostUrl)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", casUrl)
                 .post(formBody)
@@ -176,16 +178,16 @@ object JwglClient {
             val finalUrl = loginResp.request.url.toString()
             val respCode = loginResp.code
             val respBody = loginResp.body?.string() ?: ""
-            Log.d(TAG, "Login finished. Status: $respCode, Host: ${loginResp.request.url.host}")
+            Log.d(TAG, "SSO login completed. Status: $respCode, Final URL: $finalUrl")
 
-            // Check if we arrived in jwglxt
-            if (!finalUrl.contains("jwglxt") && !finalUrl.contains("index_initMenu")) {
+            // 4. 验证是否成功到达教务系统
+            if (!finalUrl.contains("jwglxt") && !finalUrl.contains("index_initMenu") && !finalUrl.contains("jwgl.usst.edu.cn")) {
                 val errDoc = Jsoup.parse(respBody)
-                val errMsg = errDoc.select("#showErrorTip, .auth_error, #msg, .error-message").text().trim()
+                val errMsg = errDoc.select("#showErrorTip, .auth_error, #msg, .error-message, #errorMsg").text().trim()
                 val failReason = if (errMsg.isNotEmpty()) {
                     errMsg
                 } else if (finalUrl.contains("authserver/login")) {
-                    "账号或密码错误，请核对后重试"
+                    "统一身份认证账号或密码错误，请核对后重试"
                 } else {
                     "登录失败，停留在未知地址: ${loginResp.request.url.host}"
                 }
@@ -193,10 +195,10 @@ object JwglClient {
                 return@withContext Result.failure(IOException(failReason))
             }
 
-            // 5. Fetch full student profile
+            // 5. 校验获取学生档案
             Log.d(TAG, "Fetching student profile...")
             val profile = fetchStudentProfile(studentId)
-            Log.d(TAG, "Fetched student profile successfully")
+            Log.d(TAG, "Fetched student profile successfully for ${profile.name}")
             Result.success(profile)
         } catch (e: Exception) {
             Log.e(TAG, "Login exception", e)
