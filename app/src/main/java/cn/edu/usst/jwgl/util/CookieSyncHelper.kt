@@ -36,17 +36,22 @@ object CookieSyncHelper {
                 val rootCookieStr = "${cookie.name}=${cookie.value}; Path=/$secureAttr$httpOnlyAttr"
                 cookieManager.setCookie("https://$cleanDomain/", rootCookieStr)
 
-                // 3. 针对 USST 核心认证相关各子域广播关键凭证（特别是 CASTGC 和 JSESSIONID）
-                if (cleanDomain.endsWith("usst.edu.cn")) {
+                // 3. 只有全局 SSO 凭证（如 CASTGC）或原域本就是根域通配的 Cookie 才允许跨子域广播
+                // 严禁将 ids6/jwgl/live 专用的 JSESSIONID 等局部 Session 覆盖到其他子域，否则会破坏各子系统的登录态
+                val isSsoGlobalCookie = cookie.name.equals("CASTGC", ignoreCase = true) ||
+                                       cookie.domain.startsWith(".") ||
+                                       cookie.name.contains("SSO", ignoreCase = true)
+
+                if (isSsoGlobalCookie && cleanDomain.endsWith("usst.edu.cn")) {
                     val domainCookieStr = "${cookie.name}=${cookie.value}; Domain=.usst.edu.cn; Path=/$secureAttr$httpOnlyAttr"
                     cookieManager.setCookie("https://usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://ids6.usst.edu.cn/", rootCookieStr)
-                    cookieManager.setCookie("https://cas.usst.edu.cn/", rootCookieStr)
-                    cookieManager.setCookie("https://jwgl.usst.edu.cn/", rootCookieStr)
-                    cookieManager.setCookie("https://live.usst.edu.cn/", rootCookieStr)
-                    cookieManager.setCookie("https://ehall.usst.edu.cn/", rootCookieStr)
-                    cookieManager.setCookie("https://1906.usst.edu.cn/", rootCookieStr)
-                    cookieManager.setCookie("https://1906.usst.edu.cn:8600/", rootCookieStr)
+                    cookieManager.setCookie("https://ids6.usst.edu.cn/", domainCookieStr)
+                    cookieManager.setCookie("https://ids.usst.edu.cn/", domainCookieStr)
+                    cookieManager.setCookie("https://cas.usst.edu.cn/", domainCookieStr)
+                    cookieManager.setCookie("https://jwgl.usst.edu.cn/", domainCookieStr)
+                    cookieManager.setCookie("https://live.usst.edu.cn/", domainCookieStr)
+                    cookieManager.setCookie("https://ehall.usst.edu.cn/", domainCookieStr)
+                    cookieManager.setCookie("https://1906.usst.edu.cn/", domainCookieStr)
                 }
             }
 

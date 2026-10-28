@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 object JwglClient {
     private const val TAG = "JwglClient"
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    private const val ENTRY_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
+    private const val ENTRY_URL = "https://ids6.usst.edu.cn/authserver/login?service=https%3A%2F%2Fjwgl.usst.edu.cn%2Fsso%2Fjziotlogin"
     private const val PROFILE_URL = "https://jwgl.usst.edu.cn/jwglxt/xsxxxggl/xsgrxxwh_cxXsgrxx.html?gnmkdm=N100801"
     private const val QUICK_INFO_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_cxYhxxIndex.html?xt=jw&localeKey=zh_CN&gnmkdm=index"
     private const val GRADE_URL = "https://jwgl.usst.edu.cn/jwglxt/cjcx/cjcx_cxXsfxcjIndex.html?doType=query"
