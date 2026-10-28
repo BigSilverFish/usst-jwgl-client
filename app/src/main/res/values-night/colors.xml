@@ -34,6 +34,7 @@
     <color name="text_tertiary">#64748B</color>
 
     <color name="border">#2E333D</color>
+    <color name="divider">#2E333D</color>
     <color name="card_stroke">#2E333D</color>
     <color name="badge_bg">#4A1B20</color>
     <color name="badge_text">#FFB4AB</color>

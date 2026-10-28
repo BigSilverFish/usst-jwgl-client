@@ -1,15 +1,21 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.ProgressDialog
+import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -28,9 +34,13 @@ import cn.edu.usst.jwgl.data.local.TronClassCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
+import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassCourseDetailBinding
 import cn.edu.usst.jwgl.databinding.DialogTronclassClassMembersBinding
+import cn.edu.usst.jwgl.databinding.DialogTronclassCreateTopicBinding
+import cn.edu.usst.jwgl.databinding.DialogTronclassTopicDetailBinding
+import cn.edu.usst.jwgl.databinding.ItemTronclassDiscussionReplyBinding
 import cn.edu.usst.jwgl.ui.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -205,6 +215,12 @@ class TronClassCourseDetailFragment : Fragment() {
         b.rvAssessments.setPadding(hPad, headerHeight, hPad, bottomPadding)
         b.rvDiscussions.setPadding(hPad, headerHeight, hPad, bottomPadding)
 
+        val fabLp = b.fabNewTopic.layoutParams as? FrameLayout.LayoutParams
+        if (fabLp != null) {
+            fabLp.bottomMargin = bottomPadding + (16 * density).toInt()
+            b.fabNewTopic.layoutParams = fabLp
+        }
+
         if (wasUnpadded) {
             (b.rvActivities.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
         }
@@ -298,10 +314,19 @@ class TronClassCourseDetailFragment : Fragment() {
 
         // 4. Tab 3: 课堂讨论 Adapter
         discussionAdapter = TronClassDiscussionAdapter { discussion ->
-            openDiscussionDetail(discussion)
+            if (discussion.topicDetail != null) {
+                showTopicDetailBottomSheet(discussion)
+            } else {
+                showDiscussionDetailDialog(discussion)
+            }
         }
         binding.rvDiscussions.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
         binding.rvDiscussions.adapter = discussionAdapter
+
+        // 发起/参与课堂讨论悬浮按钮
+        binding.fabNewTopic.setOnClickListener {
+            showCreateTopicDialog()
+        }
 
         // 0. 本地缓存秒级直出 (离线优先，0ms 瞬间显示，拒绝白屏)
         val cacheMgr = TronClassDataCacheManager.getInstance(context)
@@ -365,6 +390,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         binding.rvBulletins.visibility = View.GONE
                         binding.rvAssessments.visibility = View.GONE
                         binding.rvDiscussions.visibility = View.GONE
+                        binding.fabNewTopic.visibility = View.GONE
                         checkEmptyState(activityAdapter.itemCount == 0, "暂无章节课件或活动")
                     }
                     1 -> {
@@ -373,6 +399,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         binding.rvBulletins.visibility = View.VISIBLE
                         binding.rvAssessments.visibility = View.GONE
                         binding.rvDiscussions.visibility = View.GONE
+                        binding.fabNewTopic.visibility = View.GONE
                         checkEmptyState(bulletinAdapter.itemCount == 0, "暂无课程公告")
                     }
                     2 -> {
@@ -381,6 +408,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         binding.rvBulletins.visibility = View.GONE
                         binding.rvAssessments.visibility = View.VISIBLE
                         binding.rvDiscussions.visibility = View.GONE
+                        binding.fabNewTopic.visibility = View.GONE
                         checkEmptyState(assessmentAdapter.itemCount == 0, "本课程暂无作业与测验")
                     }
                     3 -> {
@@ -389,6 +417,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         binding.rvBulletins.visibility = View.GONE
                         binding.rvAssessments.visibility = View.GONE
                         binding.rvDiscussions.visibility = View.VISIBLE
+                        binding.fabNewTopic.visibility = View.VISIBLE
                         checkEmptyState(discussionAdapter.itemCount == 0, "本课程暂无课堂讨论")
                     }
                 }
@@ -440,17 +469,33 @@ class TronClassCourseDetailFragment : Fragment() {
         apiDiscussions: List<TronClassDiscussion>
     ): List<TronClassDiscussion> {
         val list = mutableListOf<TronClassDiscussion>()
-        // 1. 核心：提取活动列表中所有 type == "forum" 的活动作为课堂讨论
-        val forumActivities = activities.filter { it.type == "forum" }
-        for (act in forumActivities) {
-            list.add(TronClassDiscussion.fromActivity(act))
-        }
-        // 2. 补充：加入 API 返回的其它讨论帖子（去重）
-        for (disc in apiDiscussions) {
-            if (list.none { it.id == disc.id || it.getCleanTitle() == disc.getCleanTitle() }) {
-                list.add(disc)
+
+        if (apiDiscussions.isNotEmpty()) {
+            list.addAll(apiDiscussions)
+            val forumActivities = activities.filter { it.type == "forum" }
+            for (act in forumActivities) {
+                if (list.none { it.activityItem?.id == act.id || it.id == act.id }) {
+                    list.add(0, TronClassDiscussion.fromActivity(act))
+                }
+            }
+        } else {
+            val forumActivities = activities.filter { it.type == "forum" }
+            for (act in forumActivities) {
+                list.add(TronClassDiscussion.fromActivity(act))
             }
         }
+
+        // 统一关联 completeness 学习完成状态
+        for (item in list) {
+            val act = item.activityItem
+            if (act != null) {
+                val matchingAct = activities.find { it.id == act.id }
+                if (matchingAct != null && !matchingAct.completeness.isNullOrBlank()) {
+                    act.completeness = matchingAct.completeness
+                }
+            }
+        }
+
         return list
     }
 
@@ -466,6 +511,7 @@ class TronClassCourseDetailFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            Log.e("TC_SESSION", "COURSE_ID: $courseId, SESSION_ID: ${client.getSessionId()}")
             val ctx = context ?: return@launch
             val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
 
@@ -674,23 +720,7 @@ class TronClassCourseDetailFragment : Fragment() {
     }
 
     /**
-     * 打开完整课堂讨论交互页面 (查看要求、发送讨论、看别人讨论)
-     */
-    private fun openDiscussionDetail(discussion: TronClassDiscussion) {
-        val ctx = context ?: return
-        val mainAct = activity as? MainActivity
-        val actId = discussion.activityItem?.id ?: discussion.id
-        val topicId = discussion.id
-        val title = discussion.getCleanTitle()
-        if (mainAct != null) {
-            mainAct.openTronClassDiscussion(actId, courseId, title, courseName, topicId, discussion)
-        } else {
-            TronClassDiscussionActivity.start(ctx, actId, courseId, title, courseName, topicId, discussion)
-        }
-    }
-
-    /**
-     * 查看课堂讨论详情弹窗
+     * 查看课堂讨论议题导读说明弹窗 (针对教师发布的 forum 活动说明卡片)
      */
     private fun showDiscussionDetailDialog(discussion: TronClassDiscussion) {
         val ctx = context ?: return
@@ -725,6 +755,9 @@ class TronClassCourseDetailFragment : Fragment() {
             .setTitle(title)
             .setMessage(msg)
             .setPositiveButton("我知道了", null)
+            .setNegativeButton("参与发帖") { _, _ ->
+                showCreateTopicDialog(discussion.categoryId, act?.id)
+            }
 
         if (act != null && !isCompleted) {
             builder.setNeutralButton("⚡ 标记已读并完成") { _, _ ->
@@ -739,6 +772,237 @@ class TronClassCourseDetailFragment : Fragment() {
         }
 
         builder.show()
+    }
+
+    /**
+     * 查看同学发言与回帖详情 BottomSheet
+     */
+    private fun showTopicDetailBottomSheet(discussion: TronClassDiscussion) {
+        val ctx = context ?: return
+        val topic = discussion.topicDetail ?: return
+
+        val dialog = BottomSheetDialog(ctx)
+        val dialogBinding = DialogTronclassTopicDetailBinding.inflate(layoutInflater)
+        dialog.setContentView(dialogBinding.root)
+
+        val authorName = discussion.getAuthorName()
+        dialogBinding.tvDetailAuthorAvatar.text = authorName.firstOrNull()?.toString() ?: "同"
+        dialogBinding.tvDetailAuthorName.text = if (discussion.isSelf) "$authorName (我)" else authorName
+        dialogBinding.tvDetailAuthorBadge.visibility = if (discussion.isSelf) View.VISIBLE else View.GONE
+        dialogBinding.tvDetailPostTime.text = discussion.getFormattedTime().ifBlank { "近期" }
+
+        dialogBinding.btnDetailClose.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialogBinding.tvDetailTopicTitle.text = discussion.getCleanTitle()
+        val plainContent = topic.getCleanContent()
+        dialogBinding.tvDetailTopicContent.text = plainContent.ifBlank { "（无正文描述）" }
+
+        fun updateLikeButtonUi() {
+            if (topic.currentUserLiked) {
+                dialogBinding.btnDetailLike.text = "❤️ ${topic.likeCount} 已赞"
+                dialogBinding.btnDetailLike.strokeColor = ColorStateList.valueOf(Color.parseColor("#E91E63"))
+                dialogBinding.btnDetailLike.setTextColor(Color.parseColor("#E91E63"))
+            } else {
+                dialogBinding.btnDetailLike.text = "🤍 ${topic.likeCount} 点赞"
+                dialogBinding.btnDetailLike.strokeColor = ColorStateList.valueOf(ContextCompat.getColor(ctx, R.color.primary))
+                dialogBinding.btnDetailLike.setTextColor(ContextCompat.getColor(ctx, R.color.primary))
+            }
+        }
+        updateLikeButtonUi()
+
+        dialogBinding.btnDetailLike.setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val willLike = !topic.currentUserLiked
+                val res = client.likeTopic(topic.id, willLike)
+                if (res.isSuccess) {
+                    topic.currentUserLiked = willLike
+                    if (willLike) {
+                        topic.likeCount++
+                    } else {
+                        topic.likeCount = (topic.likeCount - 1).coerceAtLeast(0)
+                    }
+                    discussion.viewsCount = topic.likeCount
+                    updateLikeButtonUi()
+                    discussionAdapter.notifyDataSetChanged()
+                } else {
+                    val msg = res.exceptionOrNull()?.message ?: "操作失败"
+                    Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        fun renderReplies() {
+            val replies = topic.replies ?: emptyList()
+            dialogBinding.tvDetailReplyCount.text = "💬 ${replies.size} 条回复"
+            dialogBinding.llRepliesContainer.removeAllViews()
+
+            if (replies.isEmpty()) {
+                dialogBinding.tvEmptyReplies.visibility = View.VISIBLE
+            } else {
+                dialogBinding.tvEmptyReplies.visibility = View.GONE
+                val currentUserId = TronClassPreferences.getInstance(ctx).getUserId()
+                val currentUserName = TronClassPreferences.getInstance(ctx).getUserName()
+
+                for (reply in replies) {
+                    val replyBinding = ItemTronclassDiscussionReplyBinding.inflate(
+                        layoutInflater, dialogBinding.llRepliesContainer, false
+                    )
+
+                    val replyAuthor = reply.getAuthorName()
+                    replyBinding.tvReplyAuthor.text = replyAuthor
+                    replyBinding.tvReplyAvatar.text = replyAuthor.firstOrNull()?.toString() ?: "同"
+                    replyBinding.tvReplyTime.text = reply.getFormattedTime().ifBlank { "近期" }
+                    replyBinding.tvReplyContent.text = reply.getCleanContent()
+
+                    val isSelfReply = (currentUserId > 0L && reply.createdBy?.id == currentUserId) ||
+                                     (!currentUserName.isNullOrBlank() && replyAuthor.contains(currentUserName))
+                    replyBinding.tvReplyRoleBadge.visibility = if (isSelfReply) View.VISIBLE else View.GONE
+                    replyBinding.tvLikesCount.text = "${reply.likeCount}"
+
+                    dialogBinding.llRepliesContainer.addView(replyBinding.root)
+                }
+            }
+        }
+        renderReplies()
+
+        // 提交回复
+        dialogBinding.btnSubmitReply.setOnClickListener {
+            val replyText = dialogBinding.etReplyInput.text?.toString()?.trim() ?: ""
+            if (replyText.isBlank()) {
+                Toast.makeText(ctx, "请输入回复内容", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            dialogBinding.btnSubmitReply.isEnabled = false
+            dialogBinding.btnSubmitReply.text = "发送中..."
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                val res = client.postTopicReply(topic.id, replyText)
+                if (res.isSuccess) {
+                    val newReply = res.getOrNull()
+                    Toast.makeText(ctx, "回复成功！", Toast.LENGTH_SHORT).show()
+                    dialogBinding.etReplyInput.setText("")
+
+                    val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                    imm?.hideSoftInputFromWindow(dialogBinding.etReplyInput.windowToken, 0)
+
+                    if (newReply != null) {
+                        val currentList = topic.replies?.toMutableList() ?: mutableListOf()
+                        currentList.add(newReply)
+                        topic.replies = currentList
+                        topic.replyCount = currentList.size
+                        discussion.repliesCount = currentList.size
+                    } else {
+                        topic.replyCount++
+                        discussion.repliesCount = topic.replyCount
+                    }
+
+                    renderReplies()
+                    discussionAdapter.notifyDataSetChanged()
+
+                    dialogBinding.scrollViewTopicDetail.post {
+                        dialogBinding.scrollViewTopicDetail.fullScroll(View.FOCUS_DOWN)
+                    }
+                } else {
+                    val errMsg = res.exceptionOrNull()?.message ?: "回复失败"
+                    Toast.makeText(ctx, errMsg, Toast.LENGTH_LONG).show()
+                }
+                dialogBinding.btnSubmitReply.isEnabled = true
+                dialogBinding.btnSubmitReply.text = "回复"
+            }
+        }
+
+        TabletLayoutHelper.setupBottomSheetForLargeScreen(dialog, ctx)
+
+        dialog.setOnShowListener {
+            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            if (bottomSheet != null) {
+                val behavior = BottomSheetBehavior.from(bottomSheet)
+                behavior.skipCollapsed = true
+                val displayMetrics = resources.displayMetrics
+                val targetHeight = (displayMetrics.heightPixels * 0.85).toInt()
+                bottomSheet.layoutParams.height = targetHeight
+                behavior.state = BottomSheetBehavior.STATE_EXPANDED
+            }
+        }
+
+        dialog.show()
+    }
+
+    /**
+     * 发表新讨论主题弹窗
+     */
+    private fun showCreateTopicDialog(defaultCategoryId: Long? = null, defaultActivityId: Long? = null) {
+        val ctx = context ?: return
+        val dialog = BottomSheetDialog(ctx)
+        val dialogBinding = DialogTronclassCreateTopicBinding.inflate(layoutInflater)
+        dialog.setContentView(dialogBinding.root)
+
+        var catId = defaultCategoryId ?: cachedDiscussions.firstOrNull { it.categoryId != null }?.categoryId
+        var actId = defaultActivityId ?: cachedActivities.firstOrNull { it.type == "forum" }?.id
+
+        val catName = cachedDiscussions.firstOrNull { it.isCategoryHeader }?.getCleanTitle()
+            ?: cachedActivities.firstOrNull { it.type == "forum" }?.getCleanTitle()
+            ?: courseName
+
+        dialogBinding.tvTargetCategoryName.text = "议题板块：$catName"
+
+        dialogBinding.btnCreateTopicClose.setOnClickListener { dialog.dismiss() }
+        dialogBinding.btnCancelCreateTopic.setOnClickListener { dialog.dismiss() }
+
+        dialogBinding.btnSubmitNewTopic.setOnClickListener {
+            val title = dialogBinding.etNewTopicTitle.text?.toString()?.trim() ?: ""
+            val content = dialogBinding.etNewTopicContent.text?.toString()?.trim() ?: ""
+
+            if (title.isBlank()) {
+                Toast.makeText(ctx, "请输入讨论发言主题", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (content.isBlank()) {
+                Toast.makeText(ctx, "请输入发言正文内容", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            dialogBinding.btnSubmitNewTopic.isEnabled = false
+            dialogBinding.btnSubmitNewTopic.text = "正在发布..."
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                var targetCatId = catId
+                var targetActId = actId
+                if (targetCatId == null || targetCatId <= 0) {
+                    val catsRes = client.fetchCourseTopicCategories(courseId)
+                    val firstCat = catsRes.getOrNull()?.firstOrNull()
+                    if (firstCat != null) {
+                        targetCatId = firstCat.id
+                        if (targetActId == null) targetActId = firstCat.activityId
+                    }
+                }
+
+                if (targetCatId == null || targetCatId <= 0) {
+                    dialogBinding.btnSubmitNewTopic.isEnabled = true
+                    dialogBinding.btnSubmitNewTopic.text = "发布讨论"
+                    Toast.makeText(ctx, "未能获取当前课程讨论分类，请稍后重试", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val result = client.postNewTopic(targetCatId, title, content, targetActId)
+                if (result.isSuccess) {
+                    Toast.makeText(ctx, "讨论发表成功！", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                    loadCourseData(forceRefresh = true)
+                } else {
+                    dialogBinding.btnSubmitNewTopic.isEnabled = true
+                    dialogBinding.btnSubmitNewTopic.text = "发布讨论"
+                    val errMsg = result.exceptionOrNull()?.message ?: "发布失败"
+                    Toast.makeText(ctx, errMsg, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        TabletLayoutHelper.setupBottomSheetForLargeScreen(dialog, ctx)
+        dialog.show()
     }
 
     private fun startAutoBrushProgress() {
@@ -904,7 +1168,7 @@ class TronClassCourseDetailFragment : Fragment() {
                 }
             }
             "forum" -> {
-                openDiscussionDetail(TronClassDiscussion.fromActivity(act))
+                showDiscussionDetailDialog(TronClassDiscussion.fromActivity(act))
             }
             "material" -> handleDownloadClick(act)
             else -> handleDownloadClick(act)

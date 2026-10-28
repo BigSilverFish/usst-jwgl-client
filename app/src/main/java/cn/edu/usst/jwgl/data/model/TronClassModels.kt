@@ -1,6 +1,7 @@
 package cn.edu.usst.jwgl.data.model
 
 import com.google.gson.annotations.SerializedName
+import cn.edu.usst.jwgl.ui.tronclass.TronClassHtmlHelper
 import java.io.Serializable
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -836,10 +837,10 @@ data class TronClassDiscussion(
     val updatedAt: String? = null,
 
     @SerializedName("replies_count")
-    val repliesCount: Int = 0,
+    var repliesCount: Int = 0,
 
     @SerializedName("views_count")
-    val viewsCount: Int = 0,
+    var viewsCount: Int = 0,
 
     @SerializedName("user")
     val user: TronClassDiscussionUser? = null,
@@ -848,7 +849,19 @@ data class TronClassDiscussion(
     val creator: TronClassDiscussionUser? = null,
 
     // 关联的课程活动对象（当讨论对应 forum 类型的活动时）
-    val activityItem: TronClassActivityItem? = null
+    val activityItem: TronClassActivityItem? = null,
+
+    // 关联的帖子详情对象（当讨论对应论坛具体讨论帖子时）
+    var topicDetail: TronClassTopicDetail? = null,
+
+    // 是否为当前登录用户的帖子
+    var isSelf: Boolean = false,
+
+    // 是否为议题说明卡片
+    var isCategoryHeader: Boolean = false,
+
+    // 讨论分类 ID
+    var categoryId: Long? = null
 ) : Serializable {
     data class TronClassDiscussionUser(
         @SerializedName("id")
@@ -862,15 +875,18 @@ data class TronClassDiscussion(
     ) : Serializable
 
     fun getAuthorName(): String {
+        if (topicDetail != null) {
+            return topicDetail?.createdBy?.getDisplayName() ?: "同学"
+        }
         return (user?.name ?: creator?.name ?: "").trim().ifBlank {
             if (activityItem != null) "课程教师" else "匿名同学"
         }
     }
 
-    fun getCleanTitle(): String = (title ?: activityItem?.getCleanTitle() ?: "").trim().ifBlank { "课堂讨论主题" }
+    fun getCleanTitle(): String = (title ?: topicDetail?.getCleanTitle() ?: activityItem?.getCleanTitle() ?: "").trim().ifBlank { "课堂讨论主题" }
 
     fun getFormattedTime(): String {
-        val iso = createdAt ?: activityItem?.startTime ?: activityItem?.endTime ?: return ""
+        val iso = createdAt ?: topicDetail?.createdAt ?: activityItem?.startTime ?: activityItem?.endTime ?: return ""
         return try {
             val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
@@ -897,24 +913,75 @@ data class TronClassDiscussion(
                 repliesCount = 0,
                 viewsCount = 0,
                 creator = TronClassDiscussionUser(name = "课程教师"),
-                activityItem = act
+                activityItem = act,
+                isCategoryHeader = true
+            )
+        }
+
+        fun fromTopic(topic: TronClassTopicDetail, isSelf: Boolean = false): TronClassDiscussion {
+            return TronClassDiscussion(
+                id = topic.id,
+                title = topic.getCleanTitle(),
+                content = topic.content,
+                createdAt = topic.createdAt,
+                repliesCount = topic.replyCount,
+                viewsCount = topic.likeCount,
+                creator = TronClassDiscussionUser(
+                    id = topic.createdBy?.id ?: 0L,
+                    name = topic.createdBy?.getDisplayName() ?: "同学",
+                    avatarUrl = topic.createdBy?.avatarBigUrl
+                ),
+                topicDetail = topic,
+                isSelf = isSelf,
+                isCategoryHeader = false,
+                categoryId = topic.categoryId
             )
         }
     }
 }
 
 /**
- * 课堂讨论回复/发言实体类
+ * 畅学讨论区分类模型
+ * 对应 GET /api/courses/{courseId}/topic-categories
  */
-data class TronClassDiscussionPost(
+data class TronClassTopicCategory(
     @SerializedName("id")
-    val id: Long = 0L,
+    val id: Long,
 
-    @SerializedName("topic_id")
-    val topicId: Long? = null,
+    @SerializedName("title")
+    val title: String? = null,
 
     @SerializedName("activity_id")
     val activityId: Long? = null,
+
+    @SerializedName("created_at")
+    val createdAt: String? = null,
+
+    @SerializedName("activity")
+    val activity: TronClassActivityItem? = null,
+
+    @SerializedName("topics")
+    val topics: List<TronClassTopicSummary>? = null
+) : Serializable
+
+data class TronClassTopicSummary(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("reply_count")
+    val replyCount: Int = 0
+) : Serializable
+
+/**
+ * 畅学讨论帖子完整详情
+ * 对应 GET /api/topics/{topicId}
+ */
+data class TronClassTopicDetail(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("title")
+    val title: String? = null,
 
     @SerializedName("content")
     val content: String? = null,
@@ -922,43 +989,67 @@ data class TronClassDiscussionPost(
     @SerializedName("created_at")
     val createdAt: String? = null,
 
-    @SerializedName("updated_at")
-    val updatedAt: String? = null,
+    @SerializedName("created_by")
+    val createdBy: TronClassTopicUser? = null,
 
-    @SerializedName("user")
-    val user: TronClassDiscussion.TronClassDiscussionUser? = null,
+    @SerializedName("activity_id")
+    val activityId: Long? = null,
 
-    @SerializedName("creator")
-    val creator: TronClassDiscussion.TronClassDiscussionUser? = null,
+    @SerializedName("category_id")
+    val categoryId: Long? = null,
 
-    @SerializedName("likes_count")
-    var likesCount: Int = 0,
+    @SerializedName("like_count")
+    var likeCount: Int = 0,
 
-    @SerializedName("is_liked")
-    var isLiked: Boolean = false,
+    @SerializedName("reply_count")
+    var replyCount: Int = 0,
 
-    // 是否为本设备当前用户本人发送的回复
-    var isSelf: Boolean = false
+    @SerializedName("current_user_liked")
+    var currentUserLiked: Boolean = false,
+
+    @SerializedName("is_closed")
+    val isClosed: Boolean = false,
+
+    @SerializedName("replies")
+    var replies: List<TronClassTopicReply>? = null,
+
+    @SerializedName("uploads")
+    val uploads: List<TronClassUpload>? = null
 ) : Serializable {
+    data class TronClassTopicUser(
+        @SerializedName("id")
+        val id: Long = 0,
 
-    fun getAuthorName(): String {
-        val name = (user?.name ?: creator?.name ?: "").trim()
-        return if (name.isNotBlank()) {
-            if (isSelf && !name.contains("我")) "$name (我)" else name
-        } else {
-            if (isSelf) "我" else "同学"
-        }
+        @SerializedName("name")
+        val name: String? = null,
+
+        @SerializedName("nickname")
+        val nickname: String? = null,
+
+        @SerializedName("avatar_big_url")
+        val avatarBigUrl: String? = null
+    ) : Serializable {
+        fun getDisplayName(): String = (name ?: nickname ?: "").trim().ifBlank { "同学" }
     }
 
+    fun getCleanTitle(): String = (title ?: "").trim().ifBlank { "课堂讨论发言" }
+
+    fun getCleanContent(): String {
+        val raw = content ?: return ""
+        return TronClassHtmlHelper.htmlToPlainText(raw).trim()
+    }
+
+    fun getAuthorName(): String = createdBy?.getDisplayName() ?: "同学"
+
     fun getFormattedTime(): String {
-        val iso = createdAt ?: return "刚刚"
+        val iso = createdAt ?: return ""
         return try {
             val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
             val date = inFormat.parse(iso)
             if (date != null) {
-                val outFormat = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
+                val outFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
                 outFormat.format(date)
             } else {
                 iso.substringBefore("T")
@@ -969,3 +1060,77 @@ data class TronClassDiscussionPost(
     }
 }
 
+/**
+ * 讨论回帖模型
+ */
+data class TronClassTopicReply(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("content")
+    val content: String? = null,
+
+    @SerializedName("created_at")
+    val createdAt: String? = null,
+
+    @SerializedName("created_by")
+    val createdBy: TronClassTopicDetail.TronClassTopicUser? = null,
+
+    @SerializedName("like_count")
+    var likeCount: Int = 0,
+
+    @SerializedName("current_user_liked")
+    var currentUserLiked: Boolean = false,
+
+    @SerializedName("comments")
+    var comments: List<TronClassTopicComment>? = null
+) : Serializable {
+    fun getCleanContent(): String {
+        val raw = content ?: return ""
+        return TronClassHtmlHelper.htmlToPlainText(raw).trim()
+    }
+
+    fun getAuthorName(): String = createdBy?.getDisplayName() ?: "同学"
+
+    fun getFormattedTime(): String {
+        val iso = createdAt ?: return ""
+        return try {
+            val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val date = inFormat.parse(iso)
+            if (date != null) {
+                val outFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
+                outFormat.format(date)
+            } else {
+                iso.substringBefore("T")
+            }
+        } catch (_: Exception) {
+            iso.take(16).replace("T", " ")
+        }
+    }
+}
+
+/**
+ * 回帖下的嵌套评论模型
+ */
+data class TronClassTopicComment(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("content")
+    val content: String? = null,
+
+    @SerializedName("created_at")
+    val createdAt: String? = null,
+
+    @SerializedName("created_by")
+    val createdBy: TronClassTopicDetail.TronClassTopicUser? = null
+) : Serializable {
+    fun getAuthorName(): String = createdBy?.getDisplayName() ?: "同学"
+
+    fun getCleanContent(): String {
+        val raw = content ?: return ""
+        return TronClassHtmlHelper.htmlToPlainText(raw).trim()
+    }
+}

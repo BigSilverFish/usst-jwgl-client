@@ -2556,21 +2556,6 @@ class MainActivity : AppCompatActivity() {
         getTronClassFragment()?.openExam(examId, courseId, title, courseName)
     }
 
-    fun openTronClassDiscussion(
-        activityId: Long,
-        courseId: Long,
-        title: String,
-        courseName: String,
-        topicId: Long = 0L,
-        discussion: cn.edu.usst.jwgl.data.model.TronClassDiscussion? = null
-    ) {
-        if (currentTab != MainTab.TRONCLASS) {
-            switchTab(MainTab.TRONCLASS)
-        }
-        supportFragmentManager.executePendingTransactions()
-        getTronClassFragment()?.openDiscussion(activityId, courseId, title, courseName, topicId, discussion)
-    }
-
     fun openTronClassDownloads() {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)

@@ -1230,11 +1230,56 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
-     * 13.2 获取课程讨论列表
-     * GET /api/courses/{courseId}/forum/topics 或 GET /api/courses/{courseId}/discussions
+     * 13.2 获取课程讨论板块与帖子列表 (全面支持 /api/courses/{courseId}/topic-categories 与 /api/topics/{id})
      */
     suspend fun fetchCourseDiscussions(courseId: Long): Result<List<TronClassDiscussion>> = withContext(Dispatchers.IO) {
         try {
+            val categoriesRes = fetchCourseTopicCategories(courseId)
+            val categories = categoriesRes.getOrNull() ?: emptyList()
+
+            if (categories.isNotEmpty()) {
+                val discussions = mutableListOf<TronClassDiscussion>()
+                val currentUserId = prefs.getUserId()
+                val currentUserName = prefs.getUserName()
+
+                for (cat in categories) {
+                    // 1. 如果该分类绑定了活动，添加议题要求导读卡片
+                    val act = cat.activity
+                    if (act != null) {
+                        val headerDisc = TronClassDiscussion.fromActivity(act).apply {
+                            categoryId = cat.id
+                        }
+                        discussions.add(headerDisc)
+                    }
+
+                    // 2. 并发拉取分类下的所有讨论帖子 (最多前 50 条)
+                    val topicRefs = cat.topics ?: emptyList()
+                    if (topicRefs.isNotEmpty()) {
+                        val topicDetails = coroutineScope {
+                            topicRefs.take(50).map { ref ->
+                                async {
+                                    fetchTopicDetail(ref.id).getOrNull()
+                                }
+                            }.awaitAll().filterNotNull()
+                        }
+
+                        // 将用户自己的帖子排在前面，其余按时间倒序排列
+                        val mapped = topicDetails.map { t ->
+                            val isSelf = (currentUserId > 0L && t.createdBy?.id == currentUserId) ||
+                                         (!currentUserName.isNullOrBlank() && t.createdBy?.name?.contains(currentUserName) == true)
+                            TronClassDiscussion.fromTopic(t, isSelf = isSelf)
+                        }.sortedWith(compareByDescending<TronClassDiscussion> { it.isSelf }.thenByDescending { it.createdAt ?: "" })
+
+                        discussions.addAll(mapped)
+                    }
+                }
+
+                if (discussions.isNotEmpty()) {
+                    return@withContext Result.success(discussions)
+                }
+            }
+
+            // 回退到老端点备用获取
             val url1 = "$BASE_URL/api/courses/$courseId/forum/topics"
             var req = Request.Builder().url(url1).build()
             var resp = okHttpClient.newCall(req).execute()
@@ -1244,7 +1289,6 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                 if (resp.code == 401 && refreshSession().isSuccess) {
                     return@withContext fetchCourseDiscussions(courseId)
                 }
-                // 回退到备用端点 /discussions
                 val url2 = "$BASE_URL/api/courses/$courseId/discussions"
                 req = Request.Builder().url(url2).build()
                 resp = okHttpClient.newCall(req).execute()
@@ -1278,6 +1322,219 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
+     * 13.3 获取课程讨论区分类
+     * GET /api/courses/{courseId}/topic-categories
+     */
+    suspend fun fetchCourseTopicCategories(courseId: Long): Result<List<TronClassTopicCategory>> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_URL/api/courses/$courseId/topic-categories"
+            val req = Request.Builder().url(url).build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (!resp.isSuccessful) {
+                if (resp.code == 401 && refreshSession().isSuccess) {
+                    return@withContext fetchCourseTopicCategories(courseId)
+                }
+                return@withContext Result.failure(Exception("获取讨论分类失败: HTTP ${resp.code}"))
+            }
+
+            val json = JSONObject(body)
+            val arr = json.optJSONArray("topic_categories") ?: JSONArray()
+            val type = object : TypeToken<List<TronClassTopicCategory>>() {}.type
+            val list: List<TronClassTopicCategory> = gson.fromJson(arr.toString(), type) ?: emptyList()
+            Result.success(list)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCourseTopicCategories error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 13.4 获取单篇帖子/讨论详情 (含正文与回帖列表)
+     * GET /api/topics/{topicId}
+     */
+    suspend fun fetchTopicDetail(topicId: Long): Result<TronClassTopicDetail> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_URL/api/topics/$topicId"
+            val req = Request.Builder().url(url).build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (!resp.isSuccessful) {
+                return@withContext Result.failure(Exception("获取讨论详情失败: HTTP ${resp.code}"))
+            }
+
+            val detail: TronClassTopicDetail = gson.fromJson(body, TronClassTopicDetail::class.java)
+            Result.success(detail)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchTopicDetail error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 13.5 点赞或取消点赞帖子
+     * POST /api/topics/{topicId}/likes 或 DELETE /api/topics/{topicId}/likes
+     */
+    suspend fun likeTopic(topicId: Long, like: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_URL/api/topics/$topicId/likes"
+            val reqBuilder = Request.Builder().url(url)
+            if (like) {
+                reqBuilder.post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+            } else {
+                reqBuilder.delete()
+            }
+            val resp = okHttpClient.newCall(reqBuilder.build()).execute()
+            val body = resp.body?.string() ?: ""
+            if (resp.isSuccessful) {
+                Result.success(true)
+            } else {
+                val errMsg = try {
+                    JSONObject(body).optString("message", "操作失败 (${resp.code})")
+                } catch (_: Exception) {
+                    "操作失败 (${resp.code})"
+                }
+                Result.failure(Exception(errMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "likeTopic error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 13.6 发表回帖参与讨论
+     * POST /api/topics/{topicId}/replies
+     * Body: { "content": "<p>...</p>", "uploads": [] }
+     */
+    suspend fun postTopicReply(topicId: Long, content: String): Result<TronClassTopicReply> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_URL/api/topics/$topicId/replies"
+            val htmlContent = if (content.trim().startsWith("<p>")) content.trim() else "<p>${content.trim()}</p>"
+            val payload = JSONObject().apply {
+                put("content", htmlContent)
+                put("uploads", JSONArray())
+            }
+            val req = Request.Builder()
+                .url(url)
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (resp.isSuccessful) {
+                val createdReply = try {
+                    gson.fromJson(body, TronClassTopicReply::class.java)
+                } catch (_: Exception) { null } ?: TronClassTopicReply(
+                    id = System.currentTimeMillis(),
+                    content = htmlContent,
+                    createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                        timeZone = TimeZone.getTimeZone("UTC")
+                    }.format(Date()),
+                    createdBy = TronClassTopicDetail.TronClassTopicUser(
+                        id = prefs.getUserId(),
+                        name = prefs.getUserName() ?: "我"
+                    )
+                )
+                Result.success(createdReply)
+            } else {
+                val errMsg = try {
+                    JSONObject(body).optString("message", "发表回帖失败 (${resp.code})")
+                } catch (_: Exception) {
+                    "发表回帖失败 (${resp.code})"
+                }
+                Result.failure(Exception(errMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "postTopicReply error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 13.7 在回帖下追加评论
+     * POST /api/replies/{replyId}/comments
+     * Body: { "content": "..." }
+     */
+    suspend fun postReplyComment(replyId: Long, content: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_URL/api/replies/$replyId/comments"
+            val payload = JSONObject().apply {
+                put("content", content.trim())
+            }
+            val req = Request.Builder()
+                .url(url)
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (resp.isSuccessful) {
+                Result.success(true)
+            } else {
+                val errMsg = try {
+                    JSONObject(body).optString("message", "发表评论失败 (${resp.code})")
+                } catch (_: Exception) {
+                    "发表评论失败 (${resp.code})"
+                }
+                Result.failure(Exception(errMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "postReplyComment error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 13.8 发布新的讨论主题 (发帖参与讨论)
+     * POST /api/topics
+     * Body: { "title": "...", "content": "<p>...</p>", "category_id": categoryId, "activity_id": activityId, "uploads": [] }
+     */
+    suspend fun postNewTopic(
+        categoryId: Long,
+        title: String,
+        content: String,
+        activityId: Long? = null
+    ): Result<TronClassTopicDetail> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_URL/api/topics"
+            val htmlContent = if (content.trim().startsWith("<p>")) content.trim() else "<p>${content.trim()}</p>"
+            val payload = JSONObject().apply {
+                put("title", title.trim())
+                put("content", htmlContent)
+                put("category_id", categoryId)
+                if (activityId != null && activityId > 0) {
+                    put("activity_id", activityId)
+                }
+                put("uploads", JSONArray())
+            }
+            val req = Request.Builder()
+                .url(url)
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (resp.isSuccessful) {
+                val item: TronClassTopicDetail = gson.fromJson(body, TronClassTopicDetail::class.java)
+                Result.success(item)
+            } else {
+                val errMsg = try {
+                    JSONObject(body).optString("message", "发布讨论失败 (${resp.code})")
+                } catch (_: Exception) {
+                    "发布讨论失败 (${resp.code})"
+                }
+                Result.failure(Exception(errMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "postNewTopic error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 14. è·åæ´»å¨è¯¦æ (åå«ä½ä¸è¯´æå¯ææ¬åè¯åè§å)
      * GET /api/activities/{activityId}
      */
@@ -1298,196 +1555,6 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             Log.e(TAG, "fetchActivityDetail error", e)
             Result.failure(e)
         }
-    }
-
-    /**
-     * 14.1 获取课堂讨论发言/回复列表
-     * 支持自适应多级候选路由探测 (activities/{id}/posts, topics/{id}/posts 等)
-     * 并与本地已保存的本设备发言自动合并去重
-     */
-    suspend fun fetchDiscussionPosts(
-        activityId: Long,
-        courseId: Long,
-        topicId: Long = 0L
-    ): Result<List<TronClassDiscussionPost>> = withContext(Dispatchers.IO) {
-        val cacheMgr = TronClassDataCacheManager.getInstance(context)
-        val myName = getUserName().trim()
-        val myNo = getUserNo().trim()
-
-        val candidateUrls = mutableListOf<String>()
-        val effectiveTopicId = if (topicId > 0) topicId else activityId
-        if (effectiveTopicId > 0) {
-            candidateUrls.add("$BASE_URL/api/topics/$effectiveTopicId/posts")
-            candidateUrls.add("$BASE_URL/api/courses/$courseId/topics/$effectiveTopicId/posts")
-            candidateUrls.add("$BASE_URL/api/forum/topics/$effectiveTopicId/posts")
-        }
-        if (activityId > 0) {
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/posts")
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/replies")
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/comments")
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/forum/posts")
-        }
-
-        var remotePosts: List<TronClassDiscussionPost> = emptyList()
-        val type = object : TypeToken<List<TronClassDiscussionPost>>() {}.type
-
-        for (url in candidateUrls) {
-            try {
-                val req = Request.Builder().url(url).build()
-                val resp = okHttpClient.newCall(req).execute()
-                val body = resp.body?.string() ?: ""
-                if (resp.isSuccessful && body.isNotBlank()) {
-                    val parsed: List<TronClassDiscussionPost> = if (body.trim().startsWith("[")) {
-                        gson.fromJson(body, type) ?: emptyList()
-                    } else {
-                        val json = JSONObject(body)
-                        val arr = json.optJSONArray("posts")
-                            ?: json.optJSONArray("replies")
-                            ?: json.optJSONArray("comments")
-                            ?: json.optJSONArray("items")
-                        if (arr != null) {
-                            gson.fromJson(arr.toString(), type) ?: emptyList()
-                        } else emptyList()
-                    }
-                    if (parsed.isNotEmpty()) {
-                        remotePosts = parsed
-                        break
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Probe discussion posts endpoint failed: $url, err: ${e.message}")
-            }
-        }
-
-        // 标记是否属于本人发言
-        remotePosts.forEach { post ->
-            val author = post.getAuthorName()
-            if ((author.isNotBlank() && author == myName) || (myNo.isNotBlank() && author.contains(myNo))) {
-                post.isSelf = true
-            }
-        }
-
-        val targetId = if (activityId > 0) activityId else topicId
-        // 读取本设备保存的发言与缓存
-        val localPosts = cacheMgr.getLocalDiscussionPosts(targetId)
-        val cachedPosts = cacheMgr.getCachedDiscussionPosts(targetId)
-
-        // 合并去重（优先本地新发送的数据，按时间倒序或原顺序排列）
-        val combined = mutableListOf<TronClassDiscussionPost>()
-        combined.addAll(localPosts)
-        val existingIds = combined.map { it.id }.toMutableSet()
-        val existingContents = combined.mapNotNull { it.content?.trim() }.toMutableSet()
-
-        val sourceList = if (remotePosts.isNotEmpty()) remotePosts else cachedPosts
-        for (p in sourceList) {
-            val content = p.content?.trim()
-            if (p.id !in existingIds && (content == null || content !in existingContents)) {
-                combined.add(p)
-                if (p.id > 0) existingIds.add(p.id)
-                if (content != null) existingContents.add(content)
-            }
-        }
-
-        if (remotePosts.isNotEmpty()) {
-            cacheMgr.saveDiscussionPosts(targetId, remotePosts)
-        }
-
-        Result.success(combined)
-    }
-
-    /**
-     * 14.2 发送课堂讨论回复/发言
-     * 自动向平台提交，并同时写入本地持久化缓存以保证即时呈现与离线可用，
-     * 并自动触发活动打卡同步 (logActivityRead)
-     */
-    suspend fun postDiscussionReply(
-        activityId: Long,
-        courseId: Long,
-        content: String,
-        topicId: Long = 0L
-    ): Result<TronClassDiscussionPost> = withContext(Dispatchers.IO) {
-        val trimmed = content.trim()
-        if (trimmed.isBlank()) {
-            return@withContext Result.failure(Exception("讨论内容不能为空"))
-        }
-
-        val cacheMgr = TronClassDataCacheManager.getInstance(context)
-        val myName = getUserName().trim().ifBlank { "我" }
-        val targetId = if (activityId > 0) activityId else topicId
-        val effectiveTopicId = if (topicId > 0) topicId else activityId
-
-        val candidateUrls = mutableListOf<String>()
-        if (effectiveTopicId > 0) {
-            candidateUrls.add("$BASE_URL/api/topics/$effectiveTopicId/posts")
-            candidateUrls.add("$BASE_URL/api/courses/$courseId/topics/$effectiveTopicId/posts")
-            candidateUrls.add("$BASE_URL/api/forum/topics/$effectiveTopicId/posts")
-        }
-        if (activityId > 0) {
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/posts")
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/replies")
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/comments")
-            candidateUrls.add("$BASE_URL/api/activities/$activityId/forum/posts")
-        }
-
-        val jsonPayload = JSONObject().apply {
-            put("content", trimmed)
-            put("title", "")
-        }
-        val mediaType = "application/json; charset=utf-8".toMediaType()
-        val reqBody = jsonPayload.toString().toRequestBody(mediaType)
-
-        var createdPost: TronClassDiscussionPost? = null
-
-        for (url in candidateUrls) {
-            try {
-                val req = Request.Builder()
-                    .url(url)
-                    .post(reqBody)
-                    .build()
-                val resp = okHttpClient.newCall(req).execute()
-                val body = resp.body?.string() ?: ""
-                if (resp.isSuccessful && body.isNotBlank()) {
-                    try {
-                        val parsed = gson.fromJson(body, TronClassDiscussionPost::class.java)
-                        if (parsed != null && (parsed.id > 0 || !parsed.content.isNullOrBlank())) {
-                            createdPost = parsed
-                            break
-                        }
-                    } catch (_: Exception) {}
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Post reply to $url failed: ${e.message}")
-            }
-        }
-
-        // 如果服务器端未返回解析对象，生成本地发言对象
-        val finalPost = createdPost?.copy(isSelf = true) ?: TronClassDiscussionPost(
-            id = System.currentTimeMillis(),
-            topicId = if (topicId > 0) topicId else null,
-            activityId = if (activityId > 0) activityId else null,
-            content = trimmed,
-            createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }.format(Date()),
-            user = TronClassDiscussion.TronClassDiscussionUser(name = myName),
-            likesCount = 0,
-            isLiked = false,
-            isSelf = true
-        )
-
-        // 存入本地发言记录
-        cacheMgr.addLocalDiscussionPost(targetId, finalPost)
-
-        // 自动完成该活动打卡同步
-        if (activityId > 0) {
-            try {
-                logActivityRead(activityId)
-            } catch (e: Exception) {
-                Log.w(TAG, "Auto logActivityRead on post reply failed: ${e.message}")
-            }
-        }
-
-        Result.success(finalPost)
     }
 
     /**
