@@ -236,4 +236,20 @@
         </LinearLayout>
     </eightbitlab.com.blurview.BlurView>
 
+    <!-- Floating Action Button for Posting New Topic in Discussion Tab -->
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabNewTopic"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="32dp"
+        android:text="参与发帖"
+        android:textColor="@color/on_primary"
+        app:icon="@drawable/ic_edit"
+        app:iconTint="@color/on_primary"
+        app:backgroundTint="@color/primary"
+        app:elevation="6dp"
+        android:visibility="gone" />
+
 </FrameLayout>
