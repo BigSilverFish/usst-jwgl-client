@@ -525,7 +525,10 @@ data class TronClassBulletin(
     val uploads: List<TronClassUpload>? = null,
 
     @SerializedName("attachments")
-    val attachments: List<TronClassUpload>? = null
+    val attachments: List<TronClassUpload>? = null,
+
+    var courseId: Long = 0L,
+    var courseName: String? = null
 ) : Serializable {
     fun getAllAttachments(): List<TronClassUpload> {
         val list = mutableListOf<TronClassUpload>()

@@ -194,207 +194,292 @@
 
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Two-Pane Container: Pad landscape sets orientation to HORIZONTAL -->
+                <!-- 三列 Tab 导航栏：作业、公告、课程 -->
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tabLayoutTronClass"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="@android:color/transparent"
+                    app:tabGravity="fill"
+                    app:tabIndicatorColor="@color/primary"
+                    app:tabIndicatorHeight="3dp"
+                    app:tabMode="fixed"
+                    app:tabSelectedTextColor="@color/primary"
+                    app:tabTextAppearance="@style/TextAppearance.Material3.LabelLarge"
+                    app:tabTextColor="@color/text_secondary">
+
+                    <com.google.android.material.tabs.TabItem
+                                                android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="作业" />
+
+                    <com.google.android.material.tabs.TabItem
+                                                android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="公告" />
+
+                    <com.google.android.material.tabs.TabItem
+                                                android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="课程" />
+
+                </com.google.android.material.tabs.TabLayout>
+
+                <!-- Tab 1 容器: 待办作业与测验 -->
                 <LinearLayout
-                    android:id="@+id/llTronClassBody"
+                    android:id="@+id/layoutTabTodos"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:orientation="vertical"
+                    android:visibility="visible">
 
-                    <!-- Left Pane: 待办作业与测验 -->
                     <LinearLayout
-                        android:id="@+id/llTronClassLeftPane"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
-                        <!-- Section 1 Header: 待办作业与测验 -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginHorizontal="16dp"
-                            android:layout_marginTop="6dp"
-                            android:layout_marginBottom="6dp"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="待办作业与测验"
-                                android:textColor="@color/text_primary"
-                                android:textSize="17sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvTronClassTodoBadge"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:background="@drawable/bg_badge_rounded"
-                                android:paddingHorizontal="8dp"
-                                android:paddingVertical="3dp"
-                                android:text="0 项待办"
-                                android:textColor="@color/primary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-
-                        </LinearLayout>
-
-                        <!-- Todos RecyclerView -->
-                        <androidx.recyclerview.widget.RecyclerView
-                            android:id="@+id/rvTronClassTodos"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:nestedScrollingEnabled="false"
-                            tools:listitem="@layout/item_tronclass_todo" />
-
-                        <!-- Empty Todos View -->
                         <TextView
-                            android:id="@+id/tvTronClassEmptyTodos"
-                            android:layout_width="match_parent"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginHorizontal="16dp"
-                            android:layout_marginVertical="16dp"
-                            android:gravity="center"
-                            android:padding="20dp"
-                            android:text="🎉 太棒了，当前暂无任何待交作业！"
-                            android:textColor="@color/text_tertiary"
-                            android:textSize="14sp"
-                            android:visibility="gone" />
+                            android:layout_weight="1"
+                            android:text="待办作业与测验"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
 
-                    </LinearLayout>
-
-                    <!-- Right Pane: 我的在读课程 -->
-                    <LinearLayout
-                        android:id="@+id/llTronClassRightPane"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical">
-
-                        <!-- Section 2 Header: 我的在读课程 -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
+                        <TextView
+                            android:id="@+id/tvTronClassTodoBadge"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginHorizontal="16dp"
-                            android:layout_marginTop="18dp"
-                            android:layout_marginBottom="6dp"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:id="@+id/tvTronClassCourseSectionTitle"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="本学期在读课程"
-                                android:textColor="@color/text_primary"
-                                android:textSize="17sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvTronClassCourseBadge"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:background="@drawable/bg_badge_rounded"
-                                android:paddingHorizontal="8dp"
-                                android:paddingVertical="3dp"
-                                android:text="0 门"
-                                android:textColor="@color/primary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-
-                        </LinearLayout>
-
-                        <!-- Course Search Box (Course Name, Course Code, Teacher) -->
-                        <LinearLayout
-                            android:id="@+id/llTronClassCourseSearch"
-                            android:layout_width="match_parent"
-                            android:layout_height="38dp"
-                            android:layout_marginHorizontal="16dp"
-                            android:layout_marginTop="4dp"
-                            android:layout_marginBottom="8dp"
                             android:background="@drawable/bg_badge_rounded"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal"
-                            android:paddingHorizontal="10dp">
-
-                            <ImageView
-                                android:layout_width="16dp"
-                                android:layout_height="16dp"
-                                android:src="@drawable/ic_search"
-                                app:tint="@color/text_secondary" />
-
-                            <EditText
-                                android:id="@+id/etTronClassCourseSearch"
-                                android:layout_width="0dp"
-                                android:layout_height="match_parent"
-                                android:layout_marginStart="8dp"
-                                android:layout_weight="1"
-                                android:background="@null"
-                                android:hint="搜索课程名、课程代码、教师姓名..."
-                                android:imeOptions="actionSearch"
-                                android:inputType="text"
-                                android:singleLine="true"
-                                android:textColor="@color/text_primary"
-                                android:textColorHint="@color/text_tertiary"
-                                android:textSize="12.5sp" />
-
-                            <ImageView
-                                android:id="@+id/btnTronClassCourseSearchClear"
-                                android:layout_width="22dp"
-                                android:layout_height="22dp"
-                                android:background="?attr/selectableItemBackgroundBorderless"
-                                android:clickable="true"
-                                android:focusable="true"
-                                android:padding="3dp"
-                                android:src="@drawable/ic_close"
-                                android:visibility="gone"
-                                app:tint="@color/text_tertiary" />
-
-                        </LinearLayout>
-
-                        <!-- 学期分类过滤 Chip 栏 (根据班级号中 (xxxx-xxxx-x) 动态提取) -->
-                        <HorizontalScrollView
-                            android:id="@+id/hsvTronClassSemesters"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginHorizontal="16dp"
-                            android:layout_marginBottom="8dp"
-                            android:scrollbars="none">
-
-                            <com.google.android.material.chip.ChipGroup
-                                android:id="@+id/chipGroupTronClassSemesters"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                app:singleSelection="true"
-                                app:selectionRequired="true" />
-
-                        </HorizontalScrollView>
-
-                        <!-- Courses RecyclerView -->
-                        <androidx.recyclerview.widget.RecyclerView
-                            android:id="@+id/rvTronClassCourses"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:nestedScrollingEnabled="false"
-                            tools:listitem="@layout/item_tronclass_course" />
-
-                        <!-- Empty Courses View -->
-                        <TextView
-                            android:id="@+id/tvTronClassEmptyCourses"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginHorizontal="16dp"
-                            android:layout_marginVertical="16dp"
-                            android:gravity="center"
-                            android:padding="20dp"
-                            android:text="暂无课程数据，点击右上角刷新获取"
-                            android:textColor="@color/text_tertiary"
-                            android:textSize="14sp"
-                            android:visibility="gone" />
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="0 项待办"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
 
                     </LinearLayout>
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvTronClassTodos"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false"
+                        tools:listitem="@layout/item_tronclass_todo" />
+
+                    <TextView
+                        android:id="@+id/tvTronClassEmptyTodos"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginVertical="16dp"
+                        android:gravity="center"
+                        android:padding="20dp"
+                        android:text="🎉 太棒了，当前暂无任何待交作业！"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <!-- Tab 2 容器: 课程最新公告 -->
+                <LinearLayout
+                    android:id="@+id/layoutTabBulletins"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="各门课程最新通知"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvTronClassBulletinBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_badge_rounded"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="0 条公告"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                    </LinearLayout>
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvTronClassBulletins"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false"
+                        tools:listitem="@layout/item_tronclass_bulletin" />
+
+                    <TextView
+                        android:id="@+id/tvTronClassEmptyBulletins"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginVertical="16dp"
+                        android:gravity="center"
+                        android:padding="20dp"
+                        android:text="当前各门课程暂无最新公告"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <!-- Tab 3 容器: 我的在读课程 -->
+                <LinearLayout
+                    android:id="@+id/layoutTabCourses"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/tvTronClassCourseSectionTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="本学期在读课程"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvTronClassCourseBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_badge_rounded"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="0 门"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                    </LinearLayout>
+
+                    <!-- Course Search Box (Course Name, Course Code, Teacher) -->
+                    <LinearLayout
+                        android:id="@+id/llTronClassCourseSearch"
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="8dp"
+                        android:background="@drawable/bg_badge_rounded"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="10dp">
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:src="@drawable/ic_search"
+                            app:tint="@color/text_secondary" />
+
+                        <EditText
+                            android:id="@+id/etTronClassCourseSearch"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:hint="搜索课程名、课程代码、教师姓名..."
+                            android:imeOptions="actionSearch"
+                            android:inputType="text"
+                            android:singleLine="true"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_tertiary"
+                            android:textSize="12.5sp" />
+
+                        <ImageView
+                            android:id="@+id/btnTronClassCourseSearchClear"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:padding="3dp"
+                            android:src="@drawable/ic_close"
+                            android:visibility="gone"
+                            app:tint="@color/text_tertiary" />
+
+                    </LinearLayout>
+
+                    <!-- 学期分类过滤 Chip 栏 (根据班级号中 (xxxx-xxxx-x) 动态提取) -->
+                    <HorizontalScrollView
+                        android:id="@+id/hsvTronClassSemesters"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginBottom="8dp"
+                        android:scrollbars="none">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/chipGroupTronClassSemesters"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:singleSelection="true"
+                            app:selectionRequired="true" />
+
+                    </HorizontalScrollView>
+
+                    <!-- Courses RecyclerView -->
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvTronClassCourses"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false"
+                        tools:listitem="@layout/item_tronclass_course" />
+
+                    <!-- Empty Courses View -->
+                    <TextView
+                        android:id="@+id/tvTronClassEmptyCourses"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginVertical="16dp"
+                        android:gravity="center"
+                        android:padding="20dp"
+                        android:text="暂无课程数据，点击右上角刷新获取"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
 
                 </LinearLayout>
 

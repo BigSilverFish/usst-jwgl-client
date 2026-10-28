@@ -26,6 +26,7 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.model.TronClassBulletin
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.TronClassTodo
@@ -38,9 +39,11 @@ import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.tabs.TabLayout
 import eightbitlab.com.blurview.RenderEffectBlur
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -55,9 +58,11 @@ class TronClassFragment : Fragment() {
 
     private val tronClassClient by lazy { TronClassClient(requireContext()) }
     private lateinit var tronClassTodoAdapter: TronClassTodoAdapter
+    private lateinit var tronClassBulletinAdapter: TronClassBulletinAdapter
     private lateinit var tronClassCourseAdapter: TronClassCourseAdapter
 
     private var allTronClassCourses: List<TronClassCourse> = emptyList()
+    private var allTronClassBulletins: List<TronClassBulletin> = emptyList()
     private var currentSelectedSemester: String? = null
     private var tronClassCourseSearchQuery: String = ""
     private var tronClassActiveRollcalls: List<TronClassRollcall> = emptyList()
@@ -232,7 +237,6 @@ class TronClassFragment : Fragment() {
 
     private fun applyAdaptiveLayout() {
         val b = _binding ?: return
-        val density = resources.displayMetrics.density
         val mainAct = activity as? MainActivity
         val isBottomBar = mainAct?.isBottomBarModeActive() ?: false
         val isGuest = mainAct?.isGuestModeActive() ?: false
@@ -244,32 +248,12 @@ class TronClassFragment : Fragment() {
         b.btnOpenDrawerTronClass.visibility = if (isBottomBar || isGuest || isTabletLandscape) View.GONE else View.VISIBLE
 
         if (isTabletLandscape) {
-            b.llTronClassBody.orientation = LinearLayout.HORIZONTAL
-            b.llTronClassLeftPane.layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                0.42f
-            ).apply {
-                marginEnd = (16 * density).toInt()
-            }
-            b.llTronClassRightPane.layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                0.58f
-            )
+            b.rvTronClassTodos.layoutManager = GridLayoutManager(requireContext(), 2)
+            b.rvTronClassBulletins.layoutManager = GridLayoutManager(requireContext(), 2)
             b.rvTronClassCourses.layoutManager = GridLayoutManager(requireContext(), 2)
         } else {
-            b.llTronClassBody.orientation = LinearLayout.VERTICAL
-            b.llTronClassLeftPane.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                marginEnd = 0
-            }
-            b.llTronClassRightPane.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            b.rvTronClassTodos.layoutManager = LinearLayoutManager(requireContext())
+            b.rvTronClassBulletins.layoutManager = LinearLayoutManager(requireContext())
             b.rvTronClassCourses.layoutManager = LinearLayoutManager(requireContext())
         }
     }
@@ -278,13 +262,52 @@ class TronClassFragment : Fragment() {
         tronClassTodoAdapter = TronClassTodoAdapter { todo ->
             openHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
         }
-        binding.rvTronClassTodos.layoutManager = LinearLayoutManager(requireContext())
         binding.rvTronClassTodos.adapter = tronClassTodoAdapter
+
+        tronClassBulletinAdapter = TronClassBulletinAdapter { bulletin ->
+            TronClassBulletinDialogHelper.showBulletinDetailDialog(
+                context = requireContext(),
+                lifecycleOwner = viewLifecycleOwner,
+                client = tronClassClient,
+                bulletin = bulletin,
+                courseId = bulletin.courseId,
+                courseName = bulletin.courseName ?: ""
+            )
+        }
+        binding.rvTronClassBulletins.adapter = tronClassBulletinAdapter
 
         tronClassCourseAdapter = TronClassCourseAdapter { course ->
             openCourseDetail(course)
         }
         binding.rvTronClassCourses.adapter = tronClassCourseAdapter
+
+        setupTabLayout()
+    }
+
+    private fun setupTabLayout() {
+        binding.tabLayoutTronClass.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                when (tab?.position) {
+                    0 -> {
+                        binding.layoutTabTodos.visibility = View.VISIBLE
+                        binding.layoutTabBulletins.visibility = View.GONE
+                        binding.layoutTabCourses.visibility = View.GONE
+                    }
+                    1 -> {
+                        binding.layoutTabTodos.visibility = View.GONE
+                        binding.layoutTabBulletins.visibility = View.VISIBLE
+                        binding.layoutTabCourses.visibility = View.GONE
+                    }
+                    2 -> {
+                        binding.layoutTabTodos.visibility = View.GONE
+                        binding.layoutTabBulletins.visibility = View.GONE
+                        binding.layoutTabCourses.visibility = View.VISIBLE
+                    }
+                }
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabReselected(tab: TabLayout.Tab?) {}
+        })
     }
 
     private fun setupCourseSearch() {
@@ -356,30 +379,41 @@ class TronClassFragment : Fragment() {
         val cachedTodos = cacheMgr.getCachedTodos()
         if (cachedTodos.isNotEmpty()) {
             tronClassTodoAdapter.updateData(cachedTodos)
-            binding.tvTronClassTodoBadge.text = "${cachedTodos.size} 项待办"
-            binding.tvTronClassEmptyTodos.visibility = View.GONE
+            updateTodoTabBadge(cachedTodos.size)
+        }
+        val cachedBulletins = cacheMgr.getCachedHomeBulletins()
+        if (cachedBulletins.isNotEmpty()) {
+            allTronClassBulletins = cachedBulletins
+            tronClassBulletinAdapter.updateData(cachedBulletins)
+            updateBulletinTabBadge(cachedBulletins.size)
         }
         val cachedCourses = cacheMgr.getCachedCourses()
         if (cachedCourses.isNotEmpty()) {
             allTronClassCourses = cachedCourses
             setupSemesterChips(cachedCourses)
+            updateCourseTabBadge(cachedCourses.size)
         }
 
         // 若内存尚未命中，异步在后台协程加载解密，避免卡顿首帧
-        if (cachedTodos.isEmpty() || cachedCourses.isEmpty()) {
+        if (cachedTodos.isEmpty() || cachedCourses.isEmpty() || cachedBulletins.isEmpty()) {
             viewLifecycleOwner.lifecycleScope.launch {
-                val (todos, courses) = withContext(Dispatchers.IO) {
-                    Pair(cacheMgr.getCachedTodos(), cacheMgr.getCachedCourses())
+                val (todos, courses, bulletins) = withContext(Dispatchers.IO) {
+                    Triple(cacheMgr.getCachedTodos(), cacheMgr.getCachedCourses(), cacheMgr.getCachedHomeBulletins())
                 }
                 if (_binding == null) return@launch
                 if (todos.isNotEmpty()) {
                     tronClassTodoAdapter.updateData(todos)
-                    binding.tvTronClassTodoBadge.text = "${todos.size} 项待办"
-                    binding.tvTronClassEmptyTodos.visibility = View.GONE
+                    updateTodoTabBadge(todos.size)
+                }
+                if (bulletins.isNotEmpty()) {
+                    allTronClassBulletins = bulletins
+                    tronClassBulletinAdapter.updateData(bulletins)
+                    updateBulletinTabBadge(bulletins.size)
                 }
                 if (courses.isNotEmpty()) {
                     allTronClassCourses = courses
                     setupSemesterChips(courses)
+                    updateCourseTabBadge(courses.size)
                 }
             }
         }
@@ -397,7 +431,12 @@ class TronClassFragment : Fragment() {
             TronClassDataCacheManager.clearDataCache(context)
             tronClassCourseAdapter.updateData(emptyList())
             tronClassTodoAdapter.updateData(emptyList())
+            tronClassBulletinAdapter.updateData(emptyList())
             allTronClassCourses = emptyList()
+            allTronClassBulletins = emptyList()
+            updateTodoTabBadge(0)
+            updateBulletinTabBadge(0)
+            updateCourseTabBadge(0)
         }
 
         if (!tronClassClient.isLoggedIn()) {
@@ -472,16 +511,14 @@ class TronClassFragment : Fragment() {
                 cacheMgr.saveTodos(todos)
                 tronClassTodoAdapter.updateData(todos)
                 TronClassDdlScheduler.scheduleFromPreferences(ctx)
-                b.tvTronClassTodoBadge.text = "${todos.size} 项待办"
-                b.tvTronClassEmptyTodos.visibility = if (todos.isEmpty()) View.VISIBLE else View.GONE
+                updateTodoTabBadge(todos.size)
             } else {
                 val err = todosRes.exceptionOrNull()
                 Log.w(TAG, "Failed to refresh todos: ${err?.message}", err)
                 val cached = cacheMgr.getCachedTodos()
                 if (cached.isNotEmpty()) {
                     tronClassTodoAdapter.updateData(cached)
-                    b.tvTronClassTodoBadge.text = "${cached.size} 项待办 (离线)"
-                    b.tvTronClassEmptyTodos.visibility = View.GONE
+                    updateTodoTabBadge(cached.size)
                 }
             }
 
@@ -542,7 +579,91 @@ class TronClassFragment : Fragment() {
                 val err = rollcallsRes.exceptionOrNull()
                 Log.w(TAG, "Failed to fetch rollcalls: ${err?.message}", err)
             }
+
+            // 4. 并发拉取各在读课程公告
+            val targetCourses = if (allTronClassCourses.isNotEmpty()) {
+                val latestSemester = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.distinct().sortedDescending().firstOrNull()
+                if (latestSemester != null) {
+                    allTronClassCourses.filter { it.extractSemesterCode() == latestSemester }
+                } else {
+                    allTronClassCourses.take(12)
+                }
+            } else emptyList()
+
+            if (targetCourses.isNotEmpty()) {
+                try {
+                    val bulletinLists = targetCourses.map { c ->
+                        async {
+                            val res = tronClassClient.fetchCourseBulletins(c.id)
+                            val list = res.getOrDefault(emptyList())
+                            list.forEach { item ->
+                                item.courseId = c.id
+                                item.courseName = c.getCleanName()
+                            }
+                            list
+                        }
+                    }.awaitAll()
+
+                    val aggregated = bulletinLists.flatten()
+                        .distinctBy { it.id }
+                        .sortedByDescending { it.createdAt ?: "" }
+
+                    allTronClassBulletins = aggregated
+                    if (aggregated.isNotEmpty()) {
+                        cacheMgr.saveHomeBulletins(aggregated)
+                        tronClassBulletinAdapter.updateData(aggregated)
+                        updateBulletinTabBadge(aggregated.size)
+                    } else {
+                        val cached = cacheMgr.getCachedHomeBulletins()
+                        if (cached.isNotEmpty()) {
+                            allTronClassBulletins = cached
+                            tronClassBulletinAdapter.updateData(cached)
+                            updateBulletinTabBadge(cached.size)
+                        } else {
+                            tronClassBulletinAdapter.updateData(emptyList())
+                            updateBulletinTabBadge(0)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to refresh home bulletins: ${e.message}", e)
+                    val cached = cacheMgr.getCachedHomeBulletins()
+                    if (cached.isNotEmpty()) {
+                        allTronClassBulletins = cached
+                        tronClassBulletinAdapter.updateData(cached)
+                        updateBulletinTabBadge(cached.size)
+                    }
+                }
+            } else {
+                val cached = cacheMgr.getCachedHomeBulletins()
+                if (cached.isNotEmpty()) {
+                    allTronClassBulletins = cached
+                    tronClassBulletinAdapter.updateData(cached)
+                    updateBulletinTabBadge(cached.size)
+                } else {
+                    updateBulletinTabBadge(0)
+                }
+            }
         }
+    }
+
+    private fun updateTodoTabBadge(count: Int) {
+        val b = _binding ?: return
+        b.tvTronClassTodoBadge.text = "$count 项待办"
+        b.tvTronClassEmptyTodos.visibility = if (count == 0) View.VISIBLE else View.GONE
+        b.tabLayoutTronClass.getTabAt(0)?.text = if (count > 0) "作业 ($count)" else "作业"
+    }
+
+    private fun updateBulletinTabBadge(count: Int) {
+        val b = _binding ?: return
+        b.tvTronClassBulletinBadge.text = "$count 条公告"
+        b.tvTronClassEmptyBulletins.visibility = if (count == 0) View.VISIBLE else View.GONE
+        b.tabLayoutTronClass.getTabAt(1)?.text = if (count > 0) "公告 ($count)" else "公告"
+    }
+
+    private fun updateCourseTabBadge(count: Int) {
+        val b = _binding ?: return
+        b.tvTronClassCourseBadge.text = "$count 门"
+        b.tabLayoutTronClass.getTabAt(2)?.text = if (count > 0) "课程 ($count)" else "课程"
     }
 
     private fun setupSemesterChips(courses: List<TronClassCourse>) {
@@ -551,6 +672,7 @@ class TronClassFragment : Fragment() {
             b.hsvTronClassSemesters.visibility = View.GONE
             b.tvTronClassCourseSectionTitle.text = "本学期在读课程"
             b.tvTronClassCourseBadge.text = "0 门"
+            updateCourseTabBadge(0)
             b.tvTronClassEmptyCourses.visibility = View.VISIBLE
             tronClassCourseAdapter.updateData(emptyList())
             return
@@ -644,6 +766,7 @@ class TronClassFragment : Fragment() {
 
         tronClassCourseAdapter.updateData(filtered)
         b.tvTronClassCourseBadge.text = "${filtered.size} 门"
+        updateCourseTabBadge(filtered.size)
 
         if (tronClassCourseSearchQuery.isNotBlank()) {
             b.tvTronClassCourseSectionTitle.text = "搜索结果 (\"$tronClassCourseSearchQuery\")"
