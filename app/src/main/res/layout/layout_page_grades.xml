@@ -285,6 +285,7 @@
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:clickable="true"
                             android:focusable="true"
+                            android:visibility="gone"
                             app:tint="@color/text_primary"
                             android:contentDescription="打开侧栏" />
 
@@ -405,3 +406,4 @@
     </LinearLayout>
 
 </FrameLayout>
+

@@ -560,6 +560,7 @@ class MainActivity : AppCompatActivity() {
             binding.blurViewBottomNav.visibility = View.GONE
             binding.btnOpenDrawerTimetable.visibility = View.GONE
             (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
+            (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
             binding.btnOpenDrawerProfile.visibility = View.GONE
 
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
@@ -595,6 +596,7 @@ class MainActivity : AppCompatActivity() {
             // Hide top-left drawer hamburger icons on the main bottom-bar pages
             binding.btnOpenDrawerTimetable.visibility = View.GONE
             (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
+            (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
             binding.btnOpenDrawerProfile.visibility = View.GONE
 
             // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
@@ -609,6 +611,7 @@ class MainActivity : AppCompatActivity() {
 
             binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
             (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(true)
+            (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(true)
             binding.btnOpenDrawerProfile.visibility = View.VISIBLE
             binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.VISIBLE
 
@@ -677,6 +680,7 @@ class MainActivity : AppCompatActivity() {
         // 隐藏各页面顶栏左上角汉堡包菜单图标
         binding.btnOpenDrawerTimetable.visibility = View.GONE
         (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
+        (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
         binding.btnOpenDrawerProfile.visibility = View.GONE
 
         // 3. 双栏主从视图 (Two-Pane Master-Detail Layouts)
@@ -1136,19 +1140,24 @@ class MainActivity : AppCompatActivity() {
         when (tab) {
             MainTab.TIMETABLE -> reloadTimetableFromDb()
             MainTab.GRADES -> {
-                if (supportFragmentManager.findFragmentByTag("GradesFragment") == null) {
+                val gf = supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment
+                if (gf == null) {
                     supportFragmentManager.beginTransaction()
                         .replace(R.id.containerGrades, GradesFragment.newInstance(), "GradesFragment")
                         .commitAllowingStateLoss()
+                } else {
+                    gf.syncDrawerButtonVisibility()
                 }
             }
             MainTab.TRONCLASS -> {
-                if (supportFragmentManager.findFragmentByTag("TronClassFragment") == null) {
+                val tf = supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment
+                if (tf == null) {
                     supportFragmentManager.beginTransaction()
                         .replace(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
                         .commitAllowingStateLoss()
                 } else {
-                    getTronClassFragment()?.checkAndRefreshHeaderSpacing()
+                    tf.syncDrawerButtonVisibility()
+                    tf.checkAndRefreshHeaderSpacing()
                 }
             }
             MainTab.MORE_FEATURES -> {

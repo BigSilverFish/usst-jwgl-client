@@ -130,6 +130,7 @@ class TronClassFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        applyAdaptiveLayout()
         checkAndRefreshHeaderSpacing()
     }
 
@@ -213,6 +214,20 @@ class TronClassFragment : Fragment() {
                 } catch (_: Exception) {}
             }
         }
+    }
+
+    /**
+     * 更新汉堡包侧边栏按钮可见性
+     */
+    fun updateDrawerButtonVisibility(visible: Boolean) {
+        _binding?.btnOpenDrawerTronClass?.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 根据当前导航模式与布局同步侧栏按钮显示状态
+     */
+    fun syncDrawerButtonVisibility() {
+        applyAdaptiveLayout()
     }
 
     private fun applyAdaptiveLayout() {

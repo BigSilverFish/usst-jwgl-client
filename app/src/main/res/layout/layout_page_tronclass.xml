@@ -423,26 +423,28 @@
             android:layout_height="48dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingHorizontal="12dp">
+            android:paddingHorizontal="14dp">
 
             <!-- Open Drawer Button (Sidebar Mode) -->
             <ImageView
                 android:id="@+id/btnOpenDrawerTronClass"
                 android:layout_width="38dp"
                 android:layout_height="38dp"
+                android:layout_marginEnd="6dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:clickable="true"
                 android:contentDescription="打开侧栏"
                 android:focusable="true"
                 android:padding="7dp"
                 android:src="@drawable/ic_menu"
+                android:visibility="gone"
                 app:tint="@color/text_primary" />
 
             <TextView
                 android:id="@+id/tvTronClassPageTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="0dp"
                 android:layout_weight="1"
                 android:text="一网畅学 · 移动教学"
                 android:textColor="@color/text_primary"
@@ -512,3 +514,4 @@
         android:visibility="gone" />
 
 </FrameLayout>
+

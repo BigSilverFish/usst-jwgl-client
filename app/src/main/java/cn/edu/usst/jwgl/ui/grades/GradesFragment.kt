@@ -132,10 +132,16 @@ class GradesFragment : Fragment() {
             }
         }
 
-        // 同步当前的平板/方向布局
+        // 同步当前的平板/方向布局与导航侧栏按键状态
         (activity as? MainActivity)?.let { act ->
             updateTabletLandscapeMode(act.isTabletLandscapeMode)
         }
+        syncDrawerButtonVisibility()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        syncDrawerButtonVisibility()
     }
 
     private fun initBlurHeader() {
@@ -388,6 +394,19 @@ class GradesFragment : Fragment() {
             binding.scrollGrades.paddingRight,
             bottomPaddingPx
         )
+    }
+
+    /**
+     * 根据当前导航模式与布局同步侧栏按钮显示状态
+     */
+    fun syncDrawerButtonVisibility() {
+        val act = activity as? MainActivity
+        val showDrawerBtn = if (act != null) {
+            !act.isBottomBarModeActive() && !act.isGuestModeActive() && !act.isTabletLandscapeModeActive()
+        } else {
+            false
+        }
+        updateDrawerButtonVisibility(showDrawerBtn)
     }
 
     /**
