@@ -36,34 +36,49 @@ object CookieSyncHelper {
                 val rootCookieStr = "${cookie.name}=${cookie.value}; Path=/$secureAttr$httpOnlyAttr"
                 cookieManager.setCookie("https://$cleanDomain/", rootCookieStr)
 
-                // 3. 只有全局 SSO 凭证（如 CASTGC）或原域本就是根域通配的 Cookie 才允许跨子域广播
+                // 3. 只有全局 SSO 凭证（如 CASTGC、iPlanetDirectoryPro）或原域本就是根域通配的 Cookie 才允许跨子域广播
                 // 严禁将 ids6/jwgl/live 专用的 JSESSIONID 等局部 Session 覆盖到其他子域，否则会破坏各子系统的登录态
                 val isSsoGlobalCookie = cookie.name.equals("CASTGC", ignoreCase = true) ||
+                                       cookie.name.equals("iPlanetDirectoryPro", ignoreCase = true) ||
                                        cookie.domain.startsWith(".") ||
                                        cookie.name.contains("SSO", ignoreCase = true)
 
-                if (isSsoGlobalCookie && cleanDomain.endsWith("usst.edu.cn")) {
-                    val domainCookieStr = "${cookie.name}=${cookie.value}; Domain=.usst.edu.cn; Path=/$secureAttr$httpOnlyAttr"
-                    cookieManager.setCookie("https://usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://ids6.usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://ids.usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://cas.usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://jwgl.usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://live.usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://ehall.usst.edu.cn/", domainCookieStr)
-                    cookieManager.setCookie("https://1906.usst.edu.cn/", domainCookieStr)
+                if (isSsoGlobalCookie) {
+                    if (cleanDomain.endsWith("webvpn.usst.edu.cn")) {
+                        val webvpnCookieStr = "${cookie.name}=${cookie.value}; Domain=.webvpn.usst.edu.cn; Path=/$secureAttr$httpOnlyAttr"
+                        cookieManager.setCookie("https://webvpn.usst.edu.cn/", webvpnCookieStr)
+                        cookieManager.setCookie("https://new2017.webvpn.usst.edu.cn/", webvpnCookieStr)
+                        cookieManager.setCookie("https://ids6-443.webvpn.usst.edu.cn/", webvpnCookieStr)
+                    }
+                    if (cleanDomain.endsWith("usst.edu.cn")) {
+                        val domainCookieStr = "${cookie.name}=${cookie.value}; Domain=.usst.edu.cn; Path=/$secureAttr$httpOnlyAttr"
+                        cookieManager.setCookie("https://usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://ids6.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://ids.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://cas.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://jwgl.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://live.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://ehall.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://new2017.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://new2017.webvpn.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://ids6-443.webvpn.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://webvpn.usst.edu.cn/", domainCookieStr)
+                        cookieManager.setCookie("https://1906.usst.edu.cn/", domainCookieStr)
+                    }
+                }
+
+                if (cookie.name.equals("ASP.NET_SessionId", ignoreCase = true)) {
+                    cookieManager.setCookie("https://new2017.webvpn.usst.edu.cn/", exactCookieStr)
+                    cookieManager.setCookie("https://new2017.usst.edu.cn/", exactCookieStr)
                 }
             }
 
             // 预配置 LOCALE，避免 CAS 语言重载循环
-            cookieManager.setCookie(
-                "https://ids6.usst.edu.cn/",
-                "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure"
-            )
-            cookieManager.setCookie(
-                "https://cas.usst.edu.cn/",
-                "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure"
-            )
+            val localeCookie = "org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE=zh_CN; Path=/; Secure"
+            cookieManager.setCookie("https://ids6.usst.edu.cn/", localeCookie)
+            cookieManager.setCookie("https://ids6-443.webvpn.usst.edu.cn/", localeCookie)
+            cookieManager.setCookie("https://webvpn.usst.edu.cn/", localeCookie)
+            cookieManager.setCookie("https://cas.usst.edu.cn/", localeCookie)
             cookieManager.flush()
             Log.d(TAG, "Successfully synced ${cookies.size} cookies to Android WebView CookieManager")
         } catch (e: Exception) {
@@ -87,6 +102,10 @@ object CookieSyncHelper {
                 "https://cas.usst.edu.cn/authserver/" to "cas.usst.edu.cn",
                 "https://cas.usst.edu.cn/" to "cas.usst.edu.cn",
                 "https://live.usst.edu.cn/" to "live.usst.edu.cn",
+                "https://new2017.usst.edu.cn/" to "new2017.usst.edu.cn",
+                "https://new2017.webvpn.usst.edu.cn/" to "new2017.webvpn.usst.edu.cn",
+                "https://ids6-443.webvpn.usst.edu.cn/" to "ids6-443.webvpn.usst.edu.cn",
+                "https://webvpn.usst.edu.cn/" to "webvpn.usst.edu.cn",
                 "https://ehall.usst.edu.cn/" to "ehall.usst.edu.cn",
                 "https://usst.edu.cn/" to "usst.edu.cn"
             )

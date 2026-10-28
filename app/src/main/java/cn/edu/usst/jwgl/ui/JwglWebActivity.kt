@@ -49,7 +49,7 @@ class JwglWebActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "JwglWebActivity"
         const val DEFAULT_TARGET_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
-        const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/StuDefault.aspx"
+        const val XG_TARGET_URL = "https://new2017.webvpn.usst.edu.cn/default.aspx"
         const val LIVE_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-mobile-resourcemanage-ui%2F%23%2FliveList%3Ftype%3Dcas"
         const val LIVE_DESKTOP_TARGET_URL = "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-application-resourcemanage-ui%2F%3Ftype%3Dcas"
         const val EXTRA_URL = "extra_target_url"
@@ -218,13 +218,9 @@ class JwglWebActivity : AppCompatActivity() {
     private fun isTrustedCasLoginUrl(rawUrl: String?): Boolean {
         if (rawUrl.isNullOrBlank()) return false
         return try {
-            val uri = Uri.parse(rawUrl)
-            val scheme = uri.scheme?.lowercase()
-            val host = uri.host?.lowercase()
-            val path = uri.path?.lowercase() ?: ""
-            (scheme == "https" || scheme == "http") &&
-                (host == "ids6.usst.edu.cn" || host == "ids6-443.webvpn.usst.edu.cn" || host == "cas.usst.edu.cn" || host == "ids.usst.edu.cn") &&
-                (path.startsWith("/authserver/login") || path.startsWith("/cas/login"))
+            val lower = rawUrl.lowercase()
+            (lower.contains("ids6.usst.edu.cn") || lower.contains("ids6-443.webvpn.usst.edu.cn") || lower.contains("webvpn.usst.edu.cn") || lower.contains("cas.usst.edu.cn") || lower.contains("ids.usst.edu.cn")) &&
+                (lower.contains("/authserver/login") || lower.contains("/cas/login"))
         } catch (_: Exception) {
             false
         }
@@ -342,14 +338,8 @@ class JwglWebActivity : AppCompatActivity() {
     private fun applyUserAgent(url: String) {
         val mobileChromeUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         val desktopChromeUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        val weChatMobileUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.40.2420"
 
-        binding.webView.settings.userAgentString = when {
-            url.contains("new2017.webvpn.usst.edu.cn") -> mobileChromeUa
-            url.contains("new2017") -> weChatMobileUa
-            isDesktopMode -> desktopChromeUa
-            else -> mobileChromeUa
-        }
+        binding.webView.settings.userAgentString = if (isDesktopMode) desktopChromeUa else mobileChromeUa
         Log.d(TAG, "Selected UA (desktopMode=$isDesktopMode) for $url: ${binding.webView.settings.userAgentString}")
     }
 
@@ -467,7 +457,7 @@ class JwglWebActivity : AppCompatActivity() {
             }
 
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                Log.d("WebViewConsole", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
+                Log.w("WebViewConsole", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
                 return super.onConsoleMessage(consoleMessage)
             }
 
@@ -519,7 +509,7 @@ class JwglWebActivity : AppCompatActivity() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
-                Log.d(TAG, "onPageStarted: host=$host, url=$url")
+                Log.w(TAG, "onPageStarted: host=$host, url=$url")
                 if (!isTrustedCasLoginUrl(url)) {
                     casAttemptCount = 0
                 }
@@ -529,10 +519,10 @@ class JwglWebActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 binding.layoutLoading.visibility = View.GONE
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
-                Log.d(TAG, "onPageFinished: host=$host, url=$url")
+                Log.w(TAG, "onPageFinished: host=$host, url=$url")
 
                 // If on a successful destination page, sync fresh cookies back to JwglClient
-                if (url != null && (url.contains("jwglxt") || url.contains("index_initMenu") || url.contains("live.usst.edu.cn"))) {
+                if (url != null && (url.contains("jwglxt") || url.contains("index_initMenu") || url.contains("live.usst.edu.cn") || url.contains("new2017.usst.edu.cn") || url.contains("new2017.webvpn.usst.edu.cn"))) {
                     CookieSyncHelper.syncWebViewCookiesToJwgl()
                 }
 
@@ -549,70 +539,78 @@ class JwglWebActivity : AppCompatActivity() {
                     return
                 }
 
-                // 2. 统一身份认证 (CAS SSO) 智能自动填充与提交 (同时兼容移动端与桌面端 CAS 布局)
-                if (isTrustedCasLoginUrl(url) || isTrustedCasLoginUrl(view?.url)) {
-                    if (casAttemptCount < 3) {
-                        val auth = AuthPreferences(this@JwglWebActivity)
-                        val studentId = auth.getStudentId()
-                        val password = auth.getPassword()
-                        if (studentId.isNotEmpty() && password.isNotEmpty()) {
-                            casAttemptCount++
-                            Log.d(TAG, "Auto-filling CAS login form in WebView (attempt $casAttemptCount)...")
-                            val quotedStudentId = JSONObject.quote(studentId)
-                            val quotedPassword = JSONObject.quote(password)
-                            val jsCas = """
-                                (function() {
-                                    if (window._usstCasSubmitting) return;
+                // 2. 学工一体化 WeLink 免密登录拦截保护：若被服务端错误踢到 WeLink 移动端鉴权页，立即重定向回 XG 默认入口
+                if (url != null && url.contains("WeLinkLogOn.aspx", ignoreCase = true)) {
+                    Log.w(TAG, "Landed on WeLinkLogOn page. Redirecting to XG default entry...")
+                    view?.loadUrl(XG_TARGET_URL)
+                    return
+                }
 
-                                    var errEl = document.querySelector("#msg, .auth_error, #showErrorTip, .error-message, #errorMsg");
-                                    if (errEl && errEl.innerText && errEl.innerText.trim().length > 0 && window.getComputedStyle(errEl).display !== 'none') {
-                                        console.log("CAS error message visible, skipping auto-login:", errEl.innerText);
+                // 3. 统一身份认证 (CAS SSO) 智能自动填充与提交 (同时兼容移动端与桌面端 CAS 布局)
+                val isCas = isTrustedCasLoginUrl(url) || isTrustedCasLoginUrl(view?.url)
+                if (isCas) {
+                    val auth = AuthPreferences(this@JwglWebActivity)
+                    val studentId = auth.getStudentId()
+                    val password = auth.getPassword()
+                    Log.w(TAG, "CAS login page detected: attempt=$casAttemptCount, studentId='$studentId', pwd='$password'")
+                    if (casAttemptCount < 3 && studentId.isNotEmpty() && password.isNotEmpty()) {
+                        casAttemptCount++
+                        Log.w(TAG, "Auto-filling CAS login form in WebView (attempt $casAttemptCount)...")
+                        val quotedStudentId = JSONObject.quote(studentId)
+                        val quotedPassword = JSONObject.quote(password)
+                        val jsCas = """
+                            (function() {
+                                var errEl = document.querySelector("#msg, .auth_error, #showErrorTip, .error-message, #errorMsg");
+                                if (errEl && errEl.innerText && errEl.innerText.trim().length > 0 && window.getComputedStyle(errEl).display !== 'none') {
+                                    console.warn("CAS error message visible, skipping auto-login:", errEl.innerText);
+                                    return;
+                                }
+
+                                var attempts = 0;
+                                var timer = setInterval(function() {
+                                    attempts++;
+                                    if (attempts > 40) {
+                                        clearInterval(timer);
                                         return;
                                     }
 
-                                    var attempts = 0;
-                                    var timer = setInterval(function() {
-                                        attempts++;
-                                        if (attempts > 35) {
-                                            clearInterval(timer);
-                                            window._usstCasSubmitting = false;
-                                            return;
-                                        }
+                                    // 同时兼容移动端 (#mobileUsername, #mobilePassword) 与桌面端 (#username, #password)
+                                    var u = document.querySelector("#mobileUsername, #username, input[name='username']");
+                                    var p = document.querySelector("#mobilePassword, #password, input[name='password']");
+                                    var btn = document.querySelector("button#load, .login-button, button.auth_login_btn, .auth_login_btn, button[type='submit'], input[type='submit']");
+                                    var form = document.querySelector("#casLoginForm, form");
 
-                                        // 同时兼容移动端 (#mobileUsername, #mobilePassword) 与桌面端 (#username, #password)
-                                        var u = document.querySelector("#mobileUsername, #username, input[name='username']");
-                                        var p = document.querySelector("#mobilePassword, #password, input[name='password']");
-                                        var btn = document.querySelector("button#load, .login-button, button.auth_login_btn, .auth_login_btn, button[type='submit'], input[type='submit']");
-                                        var form = document.querySelector("#casLoginForm, form");
+                                    if (u && p) {
+                                        clearInterval(timer);
 
-                                        if (u && p) {
-                                            clearInterval(timer);
-                                            window._usstCasSubmitting = true;
+                                        u.focus();
+                                        u.value = $quotedStudentId;
+                                        u.dispatchEvent(new Event('input', { bubbles: true }));
+                                        u.dispatchEvent(new Event('change', { bubbles: true }));
 
-                                            u.focus();
-                                            u.value = $quotedStudentId;
-                                            u.dispatchEvent(new Event('input', { bubbles: true }));
-                                            u.dispatchEvent(new Event('change', { bubbles: true }));
+                                        p.focus();
+                                        p.value = $quotedPassword;
+                                        p.dispatchEvent(new Event('input', { bubbles: true }));
+                                        p.dispatchEvent(new Event('change', { bubbles: true }));
 
-                                            p.focus();
-                                            p.value = $quotedPassword;
-                                            p.dispatchEvent(new Event('input', { bubbles: true }));
-                                            p.dispatchEvent(new Event('change', { bubbles: true }));
-
-                                            setTimeout(function() {
-                                                console.log("Triggering CAS form submit...");
-                                                if (btn) {
-                                                    btn.disabled = false;
-                                                    btn.click();
-                                                } else if (form) {
-                                                    form.submit();
+                                        setTimeout(function() {
+                                            console.warn("Triggering CAS form submit...");
+                                            if (btn) {
+                                                btn.disabled = false;
+                                                btn.click();
+                                            } else if (form) {
+                                                if (typeof form.onsubmit === 'function') {
+                                                    try { form.onsubmit(); } catch(e) {}
                                                 }
-                                            }, 250);
-                                        }
-                                    }, 150);
-                                })();
-                            """.trimIndent()
-                            view?.evaluateJavascript(jsCas, null)
+                                                form.submit();
+                                            }
+                                        }, 250);
+                                    }
+                                }, 100);
+                            })();
+                        """.trimIndent()
+                        view?.evaluateJavascript(jsCas) { result ->
+                            Log.w(TAG, "jsCas eval result: $result")
                         }
                     }
                 }
@@ -817,6 +815,12 @@ class JwglWebActivity : AppCompatActivity() {
                     return true
                 }
 
+                if (uri.path?.contains("WeLinkLogOn.aspx", ignoreCase = true) == true) {
+                    Log.w(TAG, "Intercepted WeLinkLogOn navigation. Redirecting to XG default entry...")
+                    view?.loadUrl(XG_TARGET_URL)
+                    return true
+                }
+
                 if (!isAllowedUsstHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
                     Toast.makeText(this@JwglWebActivity, "已拦截非校园网域名访问: ${host ?: ""}", Toast.LENGTH_SHORT).show()
@@ -839,6 +843,11 @@ class JwglWebActivity : AppCompatActivity() {
                 val scheme = uri.scheme?.lowercase() ?: return true
                 val host = uri.host
                 if (scheme != "http" && scheme != "https") return true
+                if (uri.path?.contains("WeLinkLogOn.aspx", ignoreCase = true) == true) {
+                    Log.w(TAG, "Intercepted WeLinkLogOn navigation. Redirecting to XG default entry...")
+                    view?.loadUrl(XG_TARGET_URL)
+                    return true
+                }
                 if (!isAllowedUsstHost(host)) {
                     return true
                 }
@@ -861,26 +870,67 @@ class JwglWebActivity : AppCompatActivity() {
         CookieSyncHelper.syncJwglCookiesToWebView()
 
         val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
-        val isWebVpnXg = targetUrl.contains("new2017.webvpn.usst.edu.cn")
         val isJwgl = targetUrl.contains("jwgl.usst.edu.cn")
+        val isXg = targetUrl.contains("new2017.usst.edu.cn") || targetUrl.contains("new2017.webvpn.usst.edu.cn")
 
         val effectiveTargetUrl = when {
             isLiveUrl -> if (isDesktopMode) LIVE_DESKTOP_TARGET_URL else LIVE_TARGET_URL
-            isWebVpnXg -> "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=" + java.net.URLEncoder.encode(targetUrl, "UTF-8")
             isJwgl -> "https://jwgl.usst.edu.cn/sso/jziotlogin"
+            isXg -> XG_TARGET_URL
             else -> targetUrl
         }
 
         if (studentId.isNotEmpty() && password.isNotEmpty()) {
-            if (isLiveUrl) {
-                // 直录播平台自身接入统一身份认证 (ids6)，直接载入由 WebView 自动填入并提交 CAS 统一凭据
-                binding.layoutLoading.visibility = View.GONE
-                binding.webView.loadUrl(effectiveTargetUrl)
+            if (isXg) {
+                // 学工一体化系统：后台通过 CAS SSO 静默换取 WebVPN 与 ASP.NET 会话，注入 Cookie 后直接进入学生主页
+                binding.layoutLoading.visibility = View.VISIBLE
+                binding.tvLoadingMessage.text = "正在为学工一体化认证统一登录会话..."
+
+                lifecycleScope.launch {
+                    val preAuthResult = withContext(Dispatchers.IO) {
+                        JwglClient.preAuthCasService(XG_TARGET_URL, studentId, password)
+                    }
+
+                    binding.layoutLoading.visibility = View.GONE
+                    CookieSyncHelper.syncJwglCookiesToWebView()
+
+                    preAuthResult.onSuccess { finalUrl ->
+                        Log.d(TAG, "XG pre-auth succeeded, loading $finalUrl")
+                        binding.webView.loadUrl(finalUrl)
+                    }.onFailure { e ->
+                        Log.w(TAG, "XG pre-auth failed, fallback to direct load", e)
+                        binding.webView.loadUrl(XG_TARGET_URL)
+                    }
+                }
                 return
             }
 
-            // 如果已有有效会话，直接载入目标 URL（凭证已通过 CookieSyncHelper 注入）
-            if (JwglClient.hasValidSession() && !isWebVpnXg) {
+            if (isLiveUrl) {
+                // 直录播平台：后台通过 CAS SSO 静默换取 live 会话 Cookie，注入后直达课程列表
+                binding.layoutLoading.visibility = View.VISIBLE
+                binding.tvLoadingMessage.text = "正在为课程直录播平台认证登录会话..."
+
+                lifecycleScope.launch {
+                    val preAuthResult = withContext(Dispatchers.IO) {
+                        JwglClient.preAuthCasService(effectiveTargetUrl, studentId, password)
+                    }
+
+                    binding.layoutLoading.visibility = View.GONE
+                    CookieSyncHelper.syncJwglCookiesToWebView()
+
+                    preAuthResult.onSuccess { finalUrl ->
+                        Log.d(TAG, "Live pre-auth succeeded, loading $finalUrl")
+                        binding.webView.loadUrl(finalUrl)
+                    }.onFailure { e ->
+                        Log.w(TAG, "Live pre-auth failed, fallback to direct load", e)
+                        binding.webView.loadUrl(effectiveTargetUrl)
+                    }
+                }
+                return
+            }
+
+            // 教务系统：如果已有有效会话，直接载入目标 URL（凭证已通过 CookieSyncHelper 注入）
+            if (JwglClient.hasValidSession()) {
                 binding.layoutLoading.visibility = View.GONE
                 binding.webView.loadUrl(effectiveTargetUrl)
                 return
@@ -888,15 +938,11 @@ class JwglWebActivity : AppCompatActivity() {
 
             // 若尚未建立有效会话，后台发起静默登录与凭据同步
             binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMessage.text = if (isWebVpnXg) "正在为学工一体化认证统一登录会话..." else "正在为教务系统认证登录会话..."
+            binding.tvLoadingMessage.text = "正在为教务系统认证登录会话..."
 
             lifecycleScope.launch {
                 val loginResult = withContext(Dispatchers.IO) {
-                    if (isWebVpnXg) {
-                        JwglClient.loginWebVpn(studentId, password)
-                    } else {
-                        JwglClient.login(studentId, password).map { Unit }
-                    }
+                    JwglClient.login(studentId, password).map { Unit }
                 }
 
                 binding.layoutLoading.visibility = View.GONE
