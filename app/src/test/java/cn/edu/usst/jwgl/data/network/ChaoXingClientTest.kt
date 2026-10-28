@@ -102,4 +102,123 @@ class ChaoXingClientTest {
         assertEquals("大学物理A", courseData?.name)
         assertEquals("张教授", courseData?.teacherfactor)
     }
+
+    @Test
+    fun testParseDdlMillis() {
+        val fullTime = "2026-11-05 23:59:00"
+        val millis = ChaoXingClient.parseDdlMillis("截止时间：$fullTime")
+        assertNotNull(millis)
+        assertTrue(millis!! > 0)
+
+        val prefixTime = "截止:2026-12-31 18:00"
+        val m2 = ChaoXingClient.parseDdlMillis(prefixTime)
+        assertNotNull(m2)
+        assertTrue(m2!! > 0)
+    }
+
+    @Test
+    fun testNoticeResponseParsing() {
+        val noticeJson = """
+            {
+                "result": 1,
+                "msg": "success",
+                "notices": {
+                    "lastGetId": "999888",
+                    "list": [
+                        {
+                            "id": 1001,
+                            "title": "关于期末大作业的补充通知",
+                            "content": "<p>请各位同学于下周日前提交</p>",
+                            "createrName": "李老师",
+                            "completeTime": 1730000000000,
+                            "sourceName": "高等数学"
+                        }
+                    ]
+                }
+            }
+        """.trimIndent()
+
+        val parsed = gson.fromJson(noticeJson, cn.edu.usst.jwgl.data.model.ChaoXingNoticeResponse::class.java)
+        assertEquals(1, parsed.result)
+        assertEquals(1, parsed.notices?.list?.size)
+        val item = parsed.notices?.list?.first()
+        assertEquals("关于期末大作业的补充通知", item?.title)
+        assertEquals("高等数学", item?.sourceName)
+        assertEquals(1730000000000L, item?.completeTime)
+    }
+
+    @Test
+    fun testActiveSignParsing() {
+        val signJson = """
+            {
+                "result": 1,
+                "msg": "成功",
+                "data": {
+                    "activeList": [
+                        {
+                            "id": 88001122,
+                            "activeType": 2,
+                            "status": 1,
+                            "nameOne": "签到",
+                            "nameTwo": "[普通签到]",
+                            "nameFour": "进行中",
+                            "createtime": 1730102400000
+                        },
+                        {
+                            "id": 88001123,
+                            "activeType": 4,
+                            "status": 1,
+                            "nameOne": "抢答"
+                        }
+                    ]
+                }
+            }
+        """.trimIndent()
+
+        val parsed = gson.fromJson(signJson, cn.edu.usst.jwgl.data.model.ChaoXingActiveListResponse::class.java)
+        assertEquals(1, parsed.result)
+        val list = parsed.data?.activeList
+        assertNotNull(list)
+        assertEquals(2, list?.size)
+
+        val activeSign = list?.find { it.isSignActivity() && it.isActive() }
+        assertNotNull(activeSign)
+        assertEquals(88001122L, activeSign?.id)
+        assertEquals("[普通签到]", activeSign?.nameTwo)
+    }
+
+    @Test
+    fun testUnifiedTodoSortOrder() {
+        val t1 = cn.edu.usst.jwgl.data.model.UnifiedTodo(
+            unifiedId = "cx_1",
+            platform = cn.edu.usst.jwgl.data.model.LearningPlatform.CHAOXING,
+            originalTodoId = "1",
+            courseId = "c1",
+            originalCourseId = "1",
+            courseName = "高数",
+            cleanCourseName = "高数",
+            title = "作业1",
+            cleanTitle = "作业1",
+            deadlineMillis = 2000L
+        )
+
+        val t2 = cn.edu.usst.jwgl.data.model.UnifiedTodo(
+            unifiedId = "tc_2",
+            platform = cn.edu.usst.jwgl.data.model.LearningPlatform.TRONCLASS,
+            originalTodoId = "2",
+            courseId = "c2",
+            originalCourseId = "2",
+            courseName = "线代",
+            cleanCourseName = "线代",
+            title = "作业2",
+            cleanTitle = "作业2",
+            deadlineMillis = 1000L
+        )
+
+        val list = mutableListOf(t1, t2)
+        list.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+
+        assertEquals("tc_2", list[0].unifiedId)
+        assertEquals("cx_1", list[1].unifiedId)
+    }
 }
