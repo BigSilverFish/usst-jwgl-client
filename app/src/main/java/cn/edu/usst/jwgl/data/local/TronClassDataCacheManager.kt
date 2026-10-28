@@ -62,6 +62,9 @@ class TronClassDataCacheManager(private val context: Context) {
         private const val PREFIX_DISCUSSIONS = "tc_cache_discussions_"
         private const val PREFIX_DISCUSSIONS_TIME = "tc_cache_discussions_time_"
 
+        private const val PREFIX_DISC_POSTS = "tc_cache_disc_posts_"
+        private const val PREFIX_LOCAL_POSTS = "tc_local_disc_posts_"
+
         private const val KEY_HOME_BULLETINS = "tc_cache_home_bulletins"
         private const val KEY_HOME_BULLETINS_TIME = "tc_cache_home_bulletins_time"
 
@@ -475,6 +478,43 @@ class TronClassDataCacheManager(private val context: Context) {
             res
         } catch (e: Exception) {
             Log.w(TAG, "Failed to deserialize cached discussions for course $courseId", e)
+            emptyList()
+        }
+    }
+
+    // --- 6.3 课堂讨论回复与发言缓存 ---
+    fun saveDiscussionPosts(targetId: Long, posts: List<TronClassDiscussionPost>) {
+        if (posts.isEmpty()) return
+        prefs.edit()
+            .putString(PREFIX_DISC_POSTS + targetId, gson.toJson(posts))
+            .apply()
+    }
+
+    fun getCachedDiscussionPosts(targetId: Long): List<TronClassDiscussionPost> {
+        val json = prefs.getString(PREFIX_DISC_POSTS + targetId, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<TronClassDiscussionPost>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun addLocalDiscussionPost(targetId: Long, post: TronClassDiscussionPost) {
+        val current = getLocalDiscussionPosts(targetId).toMutableList()
+        current.removeAll { it.id == post.id || (it.content == post.content && it.content != null) }
+        current.add(0, post)
+        prefs.edit()
+            .putString(PREFIX_LOCAL_POSTS + targetId, gson.toJson(current))
+            .apply()
+    }
+
+    fun getLocalDiscussionPosts(targetId: Long): List<TronClassDiscussionPost> {
+        val json = prefs.getString(PREFIX_LOCAL_POSTS + targetId, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<TronClassDiscussionPost>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
             emptyList()
         }
     }

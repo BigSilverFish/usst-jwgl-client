@@ -28,6 +28,7 @@ import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.TronClassBulletin
 import cn.edu.usst.jwgl.data.model.TronClassCourse
+import cn.edu.usst.jwgl.data.model.TronClassDiscussion
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.TronClassTodo
 import cn.edu.usst.jwgl.data.network.TronClassClient
@@ -817,6 +818,20 @@ class TronClassFragment : Fragment() {
 
     fun openExam(examId: Long, courseId: Long, title: String, courseName: String) {
         pushSecondaryFragment(TronClassExamFragment.newInstance(examId, courseId, title, courseName), "exam_$examId")
+    }
+
+    fun openDiscussion(
+        activityId: Long,
+        courseId: Long,
+        title: String,
+        courseName: String,
+        topicId: Long = 0L,
+        discussion: TronClassDiscussion? = null
+    ) {
+        pushSecondaryFragment(
+            TronClassDiscussionFragment.newInstance(activityId, courseId, title, courseName, topicId, discussion),
+            "discussion_$activityId"
+        )
     }
 
     fun openDownloads() {
