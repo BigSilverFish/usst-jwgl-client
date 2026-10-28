@@ -520,7 +520,7 @@ class JwglWebActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.d(TAG, "onPageStarted: host=$host, url=$url")
-                if (!isTrustedCasLoginUrl(url) && (url == null || !url.contains("login_slogin.html"))) {
+                if (!isTrustedCasLoginUrl(url)) {
                     casAttemptCount = 0
                 }
             }
@@ -549,68 +549,7 @@ class JwglWebActivity : AppCompatActivity() {
                     return
                 }
 
-                // 2. 直录播平台本地登录页 (live.usst.edu.cn UI) 自动填充与登录兼容
-                if (url != null && url.contains("live.usst.edu.cn") && !isTrustedCasLoginUrl(url)) {
-                    val auth = AuthPreferences(this@JwglWebActivity)
-                    val studentId = auth.getStudentId()
-                    val password = auth.getPassword()
-                    if (studentId.isNotEmpty() && password.isNotEmpty()) {
-                        val quotedStudentId = JSONObject.quote(studentId)
-                        val quotedPassword = JSONObject.quote(password)
-                        val jsLive = """
-                            (function() {
-                                if (window._usstLiveAutoLoginRunning) return;
-                                
-                                var attempts = 0;
-                                var timer = setInterval(function() {
-                                    attempts++;
-                                    if (attempts > 30) {
-                                        clearInterval(timer);
-                                        return;
-                                    }
-                                    
-                                    var u = document.querySelector("input[placeholder*='用户名']") || 
-                                            document.querySelector("input[placeholder*='账号']") ||
-                                            document.querySelector("input[name='username']") ||
-                                            document.querySelector(".login-form input[type='text']") ||
-                                            document.querySelector("input[type='text']");
-                                    var p = document.querySelector("input[placeholder*='密码']") ||
-                                            document.querySelector("input[name='password']") ||
-                                            document.querySelector(".login-form input[type='password']") ||
-                                            document.querySelector("input[type='password']");
-                                    var btn = Array.from(document.querySelectorAll("button, .el-button, .van-button, div[role='button']")).find(function(b) {
-                                        var t = b.innerText ? b.innerText.trim() : "";
-                                        return t === "登录" || t === "登 录";
-                                    });
-
-                                    if (u && p && btn && !u.disabled && !p.disabled) {
-                                        clearInterval(timer);
-                                        window._usstLiveAutoLoginRunning = true;
-                                        console.log("Found Live login form, auto-filling credentials...");
-                                        
-                                        u.focus();
-                                        u.value = $quotedStudentId;
-                                        u.dispatchEvent(new Event('input', { bubbles: true }));
-                                        u.dispatchEvent(new Event('change', { bubbles: true }));
-
-                                        p.focus();
-                                        p.value = $quotedPassword;
-                                        p.dispatchEvent(new Event('input', { bubbles: true }));
-                                        p.dispatchEvent(new Event('change', { bubbles: true }));
-
-                                        setTimeout(function() {
-                                            console.log("Submitting Live login form...");
-                                            btn.click();
-                                        }, 300);
-                                    }
-                                }, 300);
-                            })();
-                        """.trimIndent()
-                        view?.evaluateJavascript(jsLive, null)
-                    }
-                }
-
-                // 3. 统一身份认证 (CAS) 智能自动填充与提交 (同时兼容移动端与桌面端 CAS 布局)
+                // 2. 统一身份认证 (CAS SSO) 智能自动填充与提交 (同时兼容移动端与桌面端 CAS 布局)
                 if (isTrustedCasLoginUrl(url) || isTrustedCasLoginUrl(view?.url)) {
                     if (casAttemptCount < 3) {
                         val auth = AuthPreferences(this@JwglWebActivity)
