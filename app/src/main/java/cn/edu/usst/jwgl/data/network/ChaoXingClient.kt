@@ -7,17 +7,22 @@ import com.google.gson.Gson
 import cn.edu.usst.jwgl.data.local.AccountVault
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
-import cn.edu.usst.jwgl.data.model.ChaoXingClazzDataResponse
-import cn.edu.usst.jwgl.data.model.ChaoXingCourse
-import cn.edu.usst.jwgl.data.model.ChaoXingLoginResponse
-import cn.edu.usst.jwgl.data.model.ChaoXingUserInfo
+import cn.edu.usst.jwgl.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.nio.charset.StandardCharsets
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -47,9 +52,42 @@ class ChaoXingClient(private val context: Context) {
         const val FANYA_LOGIN_URL = "$PASSPORT_URL/fanyalogin"
         const val COURSE_DATA_URL = "http://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1"
         const val USST_FANYA_URL = "http://usst.fanya.chaoxing.com"
+        const val NOTICE_LIST_URL = "https://notice.chaoxing.com/pc/notice/getNoticeList"
+        const val STU_WORK_URL = "http://mooc1-api.chaoxing.com/work/stu-work"
+        const val ACTIVE_LIST_URL = "https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist"
+        const val PRE_SIGN_URL = "https://mobilelearn.chaoxing.com/newsign/preSign"
+        const val SUBMIT_SIGN_URL = "https://mobilelearn.chaoxing.com/pptSign/stuSignajax"
 
         // 超星官方 AES-128-CBC 密钥与初始向量
         private const val AES_KEY_STRING = "u2oh6Vu^HWe4_AES"
+
+        /**
+         * 解析各种可能格式的超星作业截止时间
+         */
+        fun parseDdlMillis(timeStr: String?): Long? {
+            if (timeStr.isNullOrBlank()) return null
+            val raw = timeStr.trim().replace("截止时间：", "").replace("截止时间:", "").replace("截止:", "").trim()
+            val formats = listOf(
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA),
+                SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA),
+                SimpleDateFormat("MM-dd HH:mm", Locale.CHINA),
+                SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.CHINA)
+            )
+            for (sdf in formats) {
+                try {
+                    val d = sdf.parse(raw) ?: continue
+                    if (!raw.contains("202")) {
+                        val cal = java.util.Calendar.getInstance()
+                        val curYear = cal.get(java.util.Calendar.YEAR)
+                        cal.time = d
+                        cal.set(java.util.Calendar.YEAR, curYear)
+                        return cal.timeInMillis
+                    }
+                    return d.time
+                } catch (_: Exception) {}
+            }
+            return null
+        }
 
         /**
          * 超星客户端用户名与密码加密算法 (AES-128-CBC, PKCS5Padding, Base64)
@@ -436,7 +474,279 @@ class ChaoXingClient(private val context: Context) {
     }
 
     /**
-     * 6. 外部 Cookie 注入 (用于 WebView 网页端 SSO 完成后的凭据无缝回流)
+     * 6. 拉取超星全局未完成/待办作业列表 (转换为 UnifiedTodo)
+     */
+    suspend fun fetchTodos(studentId: String? = null): Result<List<UnifiedTodo>> = withContext(Dispatchers.IO) {
+        val ensureRes = ensureSession(studentId)
+        if (ensureRes.isFailure) {
+            return@withContext Result.failure(ensureRes.exceptionOrNull() ?: Exception("超星登录状态失效"))
+        }
+
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+
+        try {
+            val req = Request.Builder()
+                .url(STU_WORK_URL)
+                .header("Cookie", cookies)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .get()
+                .build()
+
+            val resp = okHttpClient.newCall(req).execute()
+            val html = resp.body?.string() ?: ""
+
+            val todoList = mutableListOf<UnifiedTodo>()
+            if (resp.isSuccessful && html.isNotBlank()) {
+                val doc = Jsoup.parse(html)
+                val items = doc.select("ul.stu-work-list > li, .work-list > li, ul > li[data]")
+
+                for (el in items) {
+                    val title = el.select(".title, .item-title, p.title, h3").text().trim()
+                    if (title.isBlank()) continue
+
+                    val courseName = el.select(".course-name, .course, span.course-name").text().trim()
+                        .ifBlank { "超星课程" }
+                    val timeStr = el.select(".time, .end-time, .status-time, span.time").text().trim()
+                    val ddlMillis = parseDdlMillis(timeStr)
+                    val statusText = el.select(".status, .state, span.status").text().trim()
+                    val isSub = statusText.contains("已交") || statusText.contains("已完成") || statusText.contains("待批改")
+
+                    // 过滤已提交的作业，聚焦未交与待办
+                    if (isSub) continue
+
+                    val dataUrl = el.attr("data").ifBlank { el.select("a").attr("href") }
+                    val workId = Regex("""(?:workId|workid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+                        ?: System.currentTimeMillis().toString()
+                    val courseId = Regex("""(?:courseId|courseid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: "0"
+                    val classId = Regex("""(?:classId|clazzId|clazzid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+
+                    todoList.add(
+                        UnifiedTodo(
+                            unifiedId = "cx_work_${workId}",
+                            platform = LearningPlatform.CHAOXING,
+                            originalTodoId = workId,
+                            courseId = "cx_${courseId}_${classId ?: "0"}",
+                            originalCourseId = courseId,
+                            originalClassId = classId,
+                            courseName = courseName,
+                            cleanCourseName = courseName,
+                            title = title,
+                            cleanTitle = title,
+                            deadlineDate = ddlMillis?.let { Date(it) },
+                            deadlineMillis = ddlMillis,
+                            type = "homework",
+                            typeDisplayName = "作业",
+                            isSubmitted = false,
+                            isLocked = ddlMillis != null && ddlMillis < System.currentTimeMillis(),
+                            detailUrl = dataUrl
+                        )
+                    )
+                }
+            }
+
+            // 按截止时间升序排序（临期的在前）
+            todoList.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+            Log.i(TAG, "Successfully fetched ${todoList.size} ChaoXing uncompleted todos for $studentId")
+            Result.success(todoList)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchTodos error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 7. 拉取超星课程通知与系统公告 (转换为 UnifiedBulletin)
+     */
+    suspend fun fetchNotices(studentId: String? = null): Result<List<UnifiedBulletin>> = withContext(Dispatchers.IO) {
+        val ensureRes = ensureSession(studentId)
+        if (ensureRes.isFailure) {
+            return@withContext Result.failure(ensureRes.exceptionOrNull() ?: Exception("超星登录状态失效"))
+        }
+
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+
+        try {
+            val form = FormBody.Builder()
+                .add("type", "0")
+                .add("sort", "0")
+                .build()
+
+            val req = Request.Builder()
+                .url(NOTICE_LIST_URL)
+                .post(form)
+                .header("Cookie", cookies)
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .build()
+
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+
+            if (!resp.isSuccessful) {
+                return@withContext Result.failure(Exception("拉取超星通知失败 (${resp.code})"))
+            }
+
+            val parsed = gson.fromJson(body, ChaoXingNoticeResponse::class.java)
+            val bulletinList = mutableListOf<UnifiedBulletin>()
+
+            parsed.notices?.list?.forEach { notice ->
+                val title = (notice.title ?: "课程通知").trim()
+                val rawContent = notice.content ?: ""
+                val clean = Jsoup.parse(rawContent).text().trim().ifBlank { title }
+                val timeStr = if (notice.completeTime > 0) {
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(notice.completeTime))
+                } else ""
+
+                bulletinList.add(
+                    UnifiedBulletin(
+                        unifiedId = "cx_notice_${notice.id}",
+                        platform = LearningPlatform.CHAOXING,
+                        originalBulletinId = notice.id.toString(),
+                        courseId = "cx_${notice.sourceId}",
+                        originalCourseId = notice.sourceId.toString(),
+                        courseName = notice.sourceName ?: "学习通通知",
+                        title = title,
+                        content = rawContent,
+                        cleanContent = clean,
+                        publishTimeText = timeStr,
+                        publishMillis = notice.completeTime,
+                        imageUrls = emptyList()
+                    )
+                )
+            }
+
+            // 按发布时间倒序排列
+            bulletinList.sortByDescending { it.publishMillis }
+            Log.i(TAG, "Successfully fetched ${bulletinList.size} ChaoXing notices for $studentId")
+            Result.success(bulletinList)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchNotices error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 8. 并发探测多门课程中当前正在进行中的签到活动
+     */
+    suspend fun fetchActiveSignsForCourses(
+        courses: List<ChaoXingCourse>,
+        studentId: String? = null
+    ): Result<List<Pair<ChaoXingCourse, ChaoXingActiveItem>>> = withContext(Dispatchers.IO) {
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+
+        try {
+            coroutineScope {
+                val results = courses.map { course ->
+                    async {
+                        try {
+                            val url = "$ACTIVE_LIST_URL?courseId=${course.courseId}&classId=${course.classId}&fid=0&showNotStartedActive=0&_=${System.currentTimeMillis()}"
+                            val req = Request.Builder()
+                                .url(url)
+                                .header("Cookie", cookies)
+                                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                                .get()
+                                .build()
+
+                            val resp = okHttpClient.newCall(req).execute()
+                            val body = resp.body?.string() ?: ""
+                            if (!resp.isSuccessful || body.isBlank()) return@async emptyList<Pair<ChaoXingCourse, ChaoXingActiveItem>>()
+
+                            val parsed = gson.fromJson(body, ChaoXingActiveListResponse::class.java)
+                            val activeSigns = parsed.data?.activeList?.filter { it.isSignActivity() && it.isActive() } ?: emptyList()
+                            activeSigns.map { Pair(course, it) }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Check active sign failed for course: ${course.courseName}", e)
+                            emptyList<Pair<ChaoXingCourse, ChaoXingActiveItem>>()
+                        }
+                    }
+                }.awaitAll().flatten()
+
+                Result.success(results)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchActiveSignsForCourses error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 9. 提交超星课堂签到 (预签到 -> 正式签到两步安全执行)
+     * 支持：普通签到、二维码动态 enc 签到、位置经纬度签到
+     */
+    suspend fun submitSign(
+        courseId: String,
+        classId: String,
+        activeId: Long,
+        signType: String = "普通签到",
+        enc: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        address: String? = null,
+        studentId: String? = null
+    ): Result<ChaoXingSignResult> = withContext(Dispatchers.IO) {
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+        val uid = prefs.getUid(studentId) ?: ""
+
+        try {
+            // 第一步：预签到初始化 (Pre-Sign)
+            val preUrl = "$PRE_SIGN_URL?courseId=$courseId&classId=$classId&activePrimaryId=$activeId&uid=$uid&general=1&sys=1&ls=1&appType=15&ut=s"
+            val preReq = Request.Builder()
+                .url(preUrl)
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                .get()
+                .build()
+
+            val preResp = okHttpClient.newCall(preReq).execute()
+            preResp.body?.close()
+
+            // 第二步：正式提交签到 (Submit Ajax)
+            val submitBuilder = java.lang.StringBuilder("$SUBMIT_SIGN_URL?activeId=$activeId&appType=15&ifTiJiao=1")
+            if (!enc.isNullOrBlank()) {
+                submitBuilder.append("&enc=").append(java.net.URLEncoder.encode(enc, "UTF-8"))
+            }
+            if (latitude != null && longitude != null) {
+                submitBuilder.append("&latitude=").append(latitude)
+                    .append("&longitude=").append(longitude)
+                    .append("&address=").append(java.net.URLEncoder.encode(address ?: "上海理工大学", "UTF-8"))
+            }
+
+            val submitReq = Request.Builder()
+                .url(submitBuilder.toString())
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                .get()
+                .build()
+
+            val submitResp = okHttpClient.newCall(submitReq).execute()
+            val respText = submitResp.body?.string()?.trim() ?: ""
+
+            val isSuccess = respText.contains("success", ignoreCase = true) ||
+                            respText.contains("成功") ||
+                            respText.contains("您已签到过了")
+
+            val msg = if (isSuccess) {
+                if (respText.contains("您已签到过了")) "您已完成过该签到" else "超星签到成功"
+            } else {
+                respText.ifBlank { "签到提交失败，请重试" }
+            }
+
+            Log.i(TAG, "submitSign activeId=$activeId, result: $msg")
+            Result.success(
+                ChaoXingSignResult(
+                    isSuccess = isSuccess,
+                    message = msg,
+                    activeId = activeId,
+                    signType = signType
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "submitSign failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 10. 外部 Cookie 注入 (用于 WebView 网页端 SSO 完成后的凭据无缝回流)
      */
     fun injectCookies(cookies: String, studentId: String? = null) {
         if (cookies.isBlank()) return
