@@ -902,3 +902,70 @@ data class TronClassDiscussion(
         }
     }
 }
+
+/**
+ * 课堂讨论回复/发言实体类
+ */
+data class TronClassDiscussionPost(
+    @SerializedName("id")
+    val id: Long = 0L,
+
+    @SerializedName("topic_id")
+    val topicId: Long? = null,
+
+    @SerializedName("activity_id")
+    val activityId: Long? = null,
+
+    @SerializedName("content")
+    val content: String? = null,
+
+    @SerializedName("created_at")
+    val createdAt: String? = null,
+
+    @SerializedName("updated_at")
+    val updatedAt: String? = null,
+
+    @SerializedName("user")
+    val user: TronClassDiscussion.TronClassDiscussionUser? = null,
+
+    @SerializedName("creator")
+    val creator: TronClassDiscussion.TronClassDiscussionUser? = null,
+
+    @SerializedName("likes_count")
+    var likesCount: Int = 0,
+
+    @SerializedName("is_liked")
+    var isLiked: Boolean = false,
+
+    // 是否为本设备当前用户本人发送的回复
+    var isSelf: Boolean = false
+) : Serializable {
+
+    fun getAuthorName(): String {
+        val name = (user?.name ?: creator?.name ?: "").trim()
+        return if (name.isNotBlank()) {
+            if (isSelf && !name.contains("我")) "$name (我)" else name
+        } else {
+            if (isSelf) "我" else "同学"
+        }
+    }
+
+    fun getFormattedTime(): String {
+        val iso = createdAt ?: return "刚刚"
+        return try {
+            val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val date = inFormat.parse(iso)
+            if (date != null) {
+                val outFormat = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
+                outFormat.format(date)
+            } else {
+                iso.substringBefore("T")
+            }
+        } catch (_: Exception) {
+            iso.take(16).replace("T", " ")
+        }
+    }
+}
+

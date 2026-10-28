@@ -298,7 +298,7 @@ class TronClassCourseDetailFragment : Fragment() {
 
         // 4. Tab 3: 课堂讨论 Adapter
         discussionAdapter = TronClassDiscussionAdapter { discussion ->
-            showDiscussionDetailDialog(discussion)
+            openDiscussionDetail(discussion)
         }
         binding.rvDiscussions.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
         binding.rvDiscussions.adapter = discussionAdapter
@@ -674,6 +674,22 @@ class TronClassCourseDetailFragment : Fragment() {
     }
 
     /**
+     * 打开完整课堂讨论交互页面 (查看要求、发送讨论、看别人讨论)
+     */
+    private fun openDiscussionDetail(discussion: TronClassDiscussion) {
+        val ctx = context ?: return
+        val mainAct = activity as? MainActivity
+        val actId = discussion.activityItem?.id ?: discussion.id
+        val topicId = discussion.id
+        val title = discussion.getCleanTitle()
+        if (mainAct != null) {
+            mainAct.openTronClassDiscussion(actId, courseId, title, courseName, topicId, discussion)
+        } else {
+            TronClassDiscussionActivity.start(ctx, actId, courseId, title, courseName, topicId, discussion)
+        }
+    }
+
+    /**
      * 查看课堂讨论详情弹窗
      */
     private fun showDiscussionDetailDialog(discussion: TronClassDiscussion) {
@@ -888,7 +904,7 @@ class TronClassCourseDetailFragment : Fragment() {
                 }
             }
             "forum" -> {
-                showDiscussionDetailDialog(TronClassDiscussion.fromActivity(act))
+                openDiscussionDetail(TronClassDiscussion.fromActivity(act))
             }
             "material" -> handleDownloadClick(act)
             else -> handleDownloadClick(act)
