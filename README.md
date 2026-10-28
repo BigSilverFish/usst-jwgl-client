@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.1">
-    <img src="https://img.shields.io/badge/Release-v1.2.1-blue.svg" alt="Release v1.2.1" />
+  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.2">
+    <img src="https://img.shields.io/badge/Release-v1.2.2-blue.svg" alt="Release v1.2.2" />
   </a>
   <a href="https://developer.android.com">
     <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-green.svg" alt="Android 7.0+" />
@@ -192,6 +192,26 @@
 
 ## 📝 版本更新历史 (Changelog)
 
+### v1.2.2 (2026-10-28) - 一网畅学全面重构 · 讨论区上线 · 官方直通车全自动 SSO
+- **🎓 一网畅学 (TronClass) 架构与交互重构**：
+  - **主页重构为三列 Tab 导航**：清晰划分「待办作业」、「课程公告」、「在修课程」，信息结构更加纯粹高效；
+  - **课程二级详情页升级**：重构为「章节课件」、「课程公告」、「作业测验」、「课堂讨论」四大 Tab；
+  - **班级成员抽屉化**：将班级成员改为顶栏右侧圆形按键唤起的原生底部弹窗，优化纵向视觉焦点；
+  - **完整课堂讨论功能**：精确识别 `forum` 活动，完整支持查看讨论详情、浏览全班发言、发表个人观点、回帖交流与点赞互动；
+  - **签到卡片智能融合**：有待签到时顶部红色 Hero 卡片优雅过渡为绿色，并在底部动态显示签到课程与快捷操作，无签到时自动复原。
+- **🚀 官方系统直通车 CAS SSO 单点登录彻底根治**：
+  - **学工一体化 (new2017)**：接入 WebVPN 外网专线通道，后台通过通用 OkHttp CAS SSO 静默完成换票与 Cookie 注入，直达学生个人主页（学籍异动、奖学金等无感直开）；
+  - **官方教务系统 (jwgl)**：统一 CAS 预认证与会话保活机制，精准拦截正方原生登录页，杜绝密码误输导致的验证码风控与登录死循环；
+  - **课程直播与点播平台 (live)**：接入通用后台 CAS SSO 预授权，支持 Web 与移动端 Cookie 双向同步，秒级进入课程直播与当堂点播回放。
+- **📡 签到监听与多账号管理**：
+  - **后台签到监听**：新增上课时段轻量级后台签到监听机制与系统通知预警；
+  - **雷达点名精准匹配**：全校 21 栋教学楼实测 GPS 坐标分流与军工路校区、复兴路校区、营口路校区基准匹配；
+  - **硬件级多账号管理**：基于 Android Keystore 硬件加密实现畅课多账号独立设备码隔离与无缝一键切换。
+- **🎨 界面与底层性能优化**：
+  - **响应式导航适配**：针对底部导航栏与侧边栏抽屉模式自适应优化，汉堡菜单与页面操作按键智能显隐；
+  - **页面平滑预热**：实现主页面静默预加载与异步安全解密，大幅优化冷热启动与 Tab 切换黑屏/卡顿；
+  - **深色模式全量打磨**：课程公告、讨论列表与弹窗卡片全量优化深色模式对比度，提供极佳的夜间阅读体验。
+
 ### v1.2.1 (2026-10-25) - 综合安全加固与体验优化版
 - **🔑 登录与认证体验重大增强**：
   - **新增官方 SSO 页面登录选项**：登录页增加官方网页统一身份认证通道，彻底解决校园网偶发图片验证码与拼图滑块阻断登录的问题；
@@ -256,12 +276,12 @@
 ## 📥 下载与安装
 
 > [!TIP]
-> **升级建议**：建议所有用户更新至最新 **v1.2.1** 版本，享受更强固的硬件级凭据加密、验证码阻断防护、直通车状态栏避让修复与纯净 64 位原生体验！
+> **升级建议**：建议所有用户更新至最新 **v1.2.2** 版本，畅享全面重构的一网畅学体验、课堂讨论互动交流、官方直通车全自动 SSO 与更极速流畅的原生性能！
 
 请前往 [GitHub Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 获取正式安装包：
 
-- **最新稳定版本**：[v1.2.1 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.1)
-- **直接下载 APK**：[app-release.apk (v1.2.1)](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.1/app-release.apk)
+- **最新稳定版本**：[v1.2.2 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.2)
+- **直接下载 APK**：[app-release.apk (v1.2.2)](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.2/app-release.apk)
 - **运行环境**：Android 7.0 (API 24) 及以上版本的 64 位安卓设备 (`arm64-v8a`)。
 
 ---
