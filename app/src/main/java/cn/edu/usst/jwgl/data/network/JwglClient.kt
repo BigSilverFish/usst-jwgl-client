@@ -206,38 +206,80 @@ object JwglClient {
         }
     }
 
-    suspend fun loginWebVpn(studentId: String, password: String, serviceUrl: String = "https://new2017.webvpn.usst.edu.cn/default.aspx"): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun preAuthCasService(
+        serviceUrl: String,
+        studentId: String,
+        password: String
+    ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val encodedService = java.net.URLEncoder.encode(serviceUrl, "UTF-8")
-            val casUrl = "https://ids6-443.webvpn.usst.edu.cn/authserver/login?service=$encodedService"
-            val req1 = Request.Builder().url(casUrl).header("User-Agent", USER_AGENT).get().build()
-            val resp1 = client.newCall(req1).execute()
-            val html1 = resp1.body?.string().orEmpty()
+            Log.d(TAG, "--- Starting CAS SSO pre-auth for $serviceUrl ---")
+            val entryReq = Request.Builder()
+                .url(serviceUrl)
+                .header("User-Agent", USER_AGENT)
+                .get()
+                .build()
 
-            val lt = Jsoup.parse(html1).select("input[name=lt]").attr("value")
-            val execution = Jsoup.parse(html1).select("input[name=execution]").attr("value")
+            val entryResp = client.newCall(entryReq).execute()
+            val currentUrl = entryResp.request.url.toString()
+            val respHtml = entryResp.body?.string().orEmpty()
 
-            if (lt.isNotEmpty() && execution.isNotEmpty()) {
-                val formBody = FormBody.Builder()
-                    .add("username", studentId)
-                    .add("password", password)
-                    .add("lt", lt)
-                    .add("dllt", "userNamePasswordLogin")
-                    .add("execution", execution)
-                    .add("_eventId", "submit")
-                    .add("rmShown", "1")
-                    .build()
-                val req2 = Request.Builder()
-                    .url(casUrl)
-                    .header("User-Agent", USER_AGENT)
-                    .post(formBody)
-                    .build()
-                val resp2 = client.newCall(req2).execute()
-                resp2.close()
+            // 如果已经被重定向或直接到达目标页面（非登录页）
+            if (!currentUrl.contains("authserver/login") && !currentUrl.contains("/cas/login")) {
+                Log.d(TAG, "Already authenticated or no login required: $currentUrl")
+                return@withContext Result.success(currentUrl)
             }
-            Result.success(Unit)
+
+            // 解析 CAS 登录表单与隐藏域
+            val doc = Jsoup.parse(respHtml)
+            val form = doc.select("form").first()
+            val formAction = form?.attr("action").orEmpty()
+            val lt = doc.select("input[name=lt]").`val`()
+            val execution = doc.select("input[name=execution]").`val`()
+            val eventId = doc.select("input[name=_eventId]").`val`().ifEmpty { "submit" }
+
+            val casPostUrl = if (formAction.isNotEmpty()) {
+                entryResp.request.url.resolve(formAction)?.toString() ?: currentUrl
+            } else {
+                currentUrl
+            }
+
+            if (lt.isEmpty() || execution.isEmpty()) {
+                Log.w(TAG, "Cannot find lt/execution in CAS page: $currentUrl")
+                return@withContext Result.failure(IOException("无法解析 CAS 认证令牌"))
+            }
+
+            val formBody = FormBody.Builder()
+                .add("username", studentId.trim())
+                .add("password", password.trim())
+                .add("lt", lt)
+                .add("dllt", "userNamePasswordLogin")
+                .add("execution", execution)
+                .add("_eventId", eventId)
+                .add("rmShown", "1")
+                .build()
+
+            val loginReq = Request.Builder()
+                .url(casPostUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", currentUrl)
+                .post(formBody)
+                .build()
+
+            val loginResp = client.newCall(loginReq).execute()
+            val finalUrl = loginResp.request.url.toString()
+            val finalHtml = loginResp.body?.string().orEmpty()
+            Log.d(TAG, "Pre-auth finished with status ${loginResp.code}, finalUrl: $finalUrl")
+
+            if (finalUrl.contains("authserver/login") || finalUrl.contains("/cas/login")) {
+                val errDoc = Jsoup.parse(finalHtml)
+                val errMsg = errDoc.select("#showErrorTip, .auth_error, #msg, .error-message, #errorMsg").text().trim()
+                val failReason = if (errMsg.isNotEmpty()) errMsg else "统一身份认证账号或密码错误"
+                return@withContext Result.failure(IOException(failReason))
+            }
+
+            Result.success(finalUrl)
         } catch (e: Exception) {
-            Log.w(TAG, "loginWebVpn failed", e)
+            Log.e(TAG, "preAuthCasService failed for $serviceUrl", e)
             Result.failure(e)
         }
     }
