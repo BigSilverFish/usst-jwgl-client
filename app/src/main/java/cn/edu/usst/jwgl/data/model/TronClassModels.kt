@@ -845,7 +845,10 @@ data class TronClassDiscussion(
     val user: TronClassDiscussionUser? = null,
 
     @SerializedName("creator")
-    val creator: TronClassDiscussionUser? = null
+    val creator: TronClassDiscussionUser? = null,
+
+    // 关联的课程活动对象（当讨论对应 forum 类型的活动时）
+    val activityItem: TronClassActivityItem? = null
 ) : Serializable {
     data class TronClassDiscussionUser(
         @SerializedName("id")
@@ -858,10 +861,16 @@ data class TronClassDiscussion(
         val avatarUrl: String? = null
     ) : Serializable
 
-    fun getAuthorName(): String = (user?.name ?: creator?.name ?: "").trim().ifBlank { "匿名同学" }
-    fun getCleanTitle(): String = (title ?: "").trim().ifBlank { "课堂讨论主题" }
+    fun getAuthorName(): String {
+        return (user?.name ?: creator?.name ?: "").trim().ifBlank {
+            if (activityItem != null) "课程教师" else "匿名同学"
+        }
+    }
+
+    fun getCleanTitle(): String = (title ?: activityItem?.getCleanTitle() ?: "").trim().ifBlank { "课堂讨论主题" }
+
     fun getFormattedTime(): String {
-        val iso = createdAt ?: return ""
+        val iso = createdAt ?: activityItem?.startTime ?: activityItem?.endTime ?: return ""
         return try {
             val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
@@ -875,6 +884,21 @@ data class TronClassDiscussion(
             }
         } catch (_: Exception) {
             iso.take(16).replace("T", " ")
+        }
+    }
+
+    companion object {
+        fun fromActivity(act: TronClassActivityItem): TronClassDiscussion {
+            return TronClassDiscussion(
+                id = act.id,
+                title = act.getCleanTitle(),
+                content = act.data?.description,
+                createdAt = act.startTime ?: act.endTime,
+                repliesCount = 0,
+                viewsCount = 0,
+                creator = TronClassDiscussionUser(name = "课程教师"),
+                activityItem = act
+            )
         }
     }
 }
