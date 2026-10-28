@@ -118,9 +118,17 @@ object JwglClient {
     suspend fun login(studentId: String, password: String): Result<StudentProfile> = withContext(Dispatchers.IO) {
         try {
             clearSession()
-            Log.d(TAG, "--- Starting CAS SSO login flow ---")
+            Log.d(TAG, "--- Starting login flow for $studentId ---")
 
-            // 1. Visit entry URL to initiate CAS SSO session
+            // 1. 优先尝试正方教务系统官方原生 RSA 表单登录 (USST 当前教务主登录方式)
+            val zfRes = loginZfsoft(studentId, password)
+            if (zfRes.isSuccess) {
+                Log.d(TAG, "--- ZFSOFT native login succeeded for $studentId ---")
+                return@withContext zfRes
+            }
+            Log.w(TAG, "ZFSOFT native login failed (${zfRes.exceptionOrNull()?.message}), trying CAS SSO fallback...")
+
+            // 2. 备用尝试 CAS SSO 统一身份认证
             val entryReq = Request.Builder()
                 .url(ENTRY_URL)
                 .header("User-Agent", USER_AGENT)
@@ -132,7 +140,7 @@ object JwglClient {
             val casHtml = entryResp.body?.string() ?: ""
             Log.d(TAG, "Entry reached CAS page (HTML len: ${casHtml.length})")
 
-            // 2. Parse CAS hidden fields
+            // 3. Parse CAS hidden fields
             val doc = Jsoup.parse(casHtml)
             val lt = doc.select("input[name=lt]").`val`()
             val execution = doc.select("input[name=execution]").`val`()
@@ -141,10 +149,12 @@ object JwglClient {
             Log.d(TAG, "Parsed CAS tokens: ltPresent=${lt.isNotEmpty()}, executionPresent=${execution.isNotEmpty()}, _eventId=$eventId")
 
             if (lt.isEmpty() || execution.isEmpty()) {
+                val zfError = zfRes.exceptionOrNull()
+                if (zfError != null) return@withContext Result.failure(zfError)
                 return@withContext Result.failure(IOException("无法解析 CAS 认证令牌"))
             }
 
-            // 3. Post credentials to CAS SSO
+            // 4. Post credentials to CAS SSO
             val formBody = FormBody.Builder()
                 .add("username", studentId.trim())
                 .add("password", password.trim())
@@ -183,7 +193,7 @@ object JwglClient {
                 return@withContext Result.failure(IOException(failReason))
             }
 
-            // 4. Fetch full student profile
+            // 5. Fetch full student profile
             Log.d(TAG, "Fetching student profile...")
             val profile = fetchStudentProfile(studentId)
             Log.d(TAG, "Fetched student profile successfully")
@@ -191,6 +201,106 @@ object JwglClient {
         } catch (e: Exception) {
             Log.e(TAG, "Login exception", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * 正方教务系统官方原生 RSA 加密登录
+     */
+    suspend fun loginZfsoft(studentId: String, password: String): Result<StudentProfile> = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Starting ZFSOFT native RSA authentication for $studentId...")
+            // 1. 请求登录页面获取会话 cookie 与 csrftoken
+            val loginPageUrl = "https://jwgl.usst.edu.cn/jwglxt/xtgl/login_slogin.html?language=zh_CN&_t=${System.currentTimeMillis()}"
+            val req1 = Request.Builder()
+                .url(loginPageUrl)
+                .header("User-Agent", USER_AGENT)
+                .get()
+                .build()
+            val resp1 = client.newCall(req1).execute()
+            val html1 = resp1.body?.string() ?: ""
+            val doc1 = Jsoup.parse(html1)
+            val csrftoken = doc1.select("#csrftoken").`val`().ifEmpty {
+                doc1.select("input[name=csrftoken]").`val`()
+            }
+
+            // 2. 获取 RSA 公钥 (modulus 与 exponent)
+            val pubKeyUrl = "https://jwgl.usst.edu.cn/jwglxt/xtgl/login_getPublicKey.html?time=${System.currentTimeMillis()}"
+            val req2 = Request.Builder()
+                .url(pubKeyUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", loginPageUrl)
+                .get()
+                .build()
+            val resp2 = client.newCall(req2).execute()
+            val pubKeyJson = resp2.body?.string() ?: ""
+            val json = org.json.JSONObject(pubKeyJson)
+            val modulus = json.getString("modulus")
+            val exponent = json.getString("exponent")
+
+            // 3. 使用 RSA 对密码加密
+            val encryptedPassword = encryptRsaPassword(password, modulus, exponent)
+
+            // 4. 发起登录 POST 请求
+            val postUrl = "https://jwgl.usst.edu.cn/jwglxt/xtgl/login_slogin.html?time=${System.currentTimeMillis()}"
+            val formBody = FormBody.Builder()
+                .add("csrftoken", csrftoken)
+                .add("language", "zh_CN")
+                .add("yhm", studentId.trim())
+                .add("mm", encryptedPassword)
+                .build()
+            val postReq = Request.Builder()
+                .url(postUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", loginPageUrl)
+                .post(formBody)
+                .build()
+            val postResp = client.newCall(postReq).execute()
+            val postHtml = postResp.body?.string() ?: ""
+            val postFinalUrl = postResp.request.url.toString()
+            Log.d(TAG, "ZFSOFT login response status: ${postResp.code}, finalUrl: $postFinalUrl")
+
+            if (postFinalUrl.contains("login_slogin.html") || postHtml.contains("用户名或密码不正确") || postHtml.contains("密码错误")) {
+                val errDoc = Jsoup.parse(postHtml)
+                val errMsg = errDoc.select("#tips, .alert-danger").text().trim()
+                val failReason = if (errMsg.isNotEmpty()) errMsg else "教务系统用户名或密码错误"
+                Log.w(TAG, "ZFSOFT login rejected: $failReason")
+                return@withContext Result.failure(IOException(failReason))
+            }
+
+            // 5. 校验获取学生档案
+            val profile = fetchStudentProfile(studentId)
+            Log.d(TAG, "ZFSOFT login verified successfully, profile: ${profile.name}")
+            Result.success(profile)
+        } catch (e: Exception) {
+            Log.w(TAG, "ZFSOFT native login exception", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun encryptRsaPassword(password: String, modulusB64: String, exponentB64: String): String {
+        val modBytes = try {
+            android.util.Base64.decode(modulusB64, android.util.Base64.DEFAULT)
+        } catch (_: Throwable) {
+            java.util.Base64.getDecoder().decode(modulusB64)
+        }
+        val expBytes = try {
+            android.util.Base64.decode(exponentB64, android.util.Base64.DEFAULT)
+        } catch (_: Throwable) {
+            java.util.Base64.getDecoder().decode(exponentB64)
+        }
+        val modBigInt = java.math.BigInteger(1, modBytes)
+        val expBigInt = java.math.BigInteger(1, expBytes)
+        val keySpec = java.security.spec.RSAPublicKeySpec(modBigInt, expBigInt)
+        val keyFactory = java.security.KeyFactory.getInstance("RSA")
+        val pubKey = keyFactory.generatePublic(keySpec)
+        val cipher = javax.crypto.Cipher.getInstance("RSA/ECB/PKCS1Padding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, pubKey)
+        val encrypted = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
+        return try {
+            android.util.Base64.encodeToString(encrypted, android.util.Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            java.util.Base64.getEncoder().encodeToString(encrypted)
         }
     }
 

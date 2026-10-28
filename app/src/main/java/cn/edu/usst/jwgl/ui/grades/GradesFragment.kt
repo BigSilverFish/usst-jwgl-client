@@ -544,7 +544,8 @@ class GradesFragment : Fragment() {
             val tempFile = File(targetDir, "temp_ranking_${System.currentTimeMillis()}.pdf")
 
             try {
-                // 1. 下载排名证明 PDF
+                // 1. 下载排名证明 PDF (确保同步最新 WebView 会话凭证)
+                cn.edu.usst.jwgl.util.CookieSyncHelper.syncWebViewCookiesToJwgl()
                 val result = JwglClient.downloadGradeDocument(
                     context = requireContext(),
                     docType = GradeDocumentType.RANKING_CERTIFICATE,
