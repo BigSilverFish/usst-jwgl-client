@@ -28,6 +28,7 @@ class TronClassDataCacheManager(private val context: Context) {
     private val memExams = ConcurrentHashMap<Long, List<TronClassExam>>()
     private val memMembers = ConcurrentHashMap<Long, List<TronClassMember>>()
     private val memBulletins = ConcurrentHashMap<Long, List<TronClassBulletin>>()
+    private val memDiscussions = ConcurrentHashMap<Long, List<TronClassDiscussion>>()
     private val memHomeBulletins = ConcurrentHashMap<String, List<TronClassBulletin>>()
 
     companion object {
@@ -57,6 +58,9 @@ class TronClassDataCacheManager(private val context: Context) {
 
         private const val PREFIX_BULLETINS = "tc_cache_bulletins_"
         private const val PREFIX_BULLETINS_TIME = "tc_cache_bulletins_time_"
+
+        private const val PREFIX_DISCUSSIONS = "tc_cache_discussions_"
+        private const val PREFIX_DISCUSSIONS_TIME = "tc_cache_discussions_time_"
 
         private const val KEY_HOME_BULLETINS = "tc_cache_home_bulletins"
         private const val KEY_HOME_BULLETINS_TIME = "tc_cache_home_bulletins_time"
@@ -88,6 +92,14 @@ class TronClassDataCacheManager(private val context: Context) {
 
         fun getExamDetail(context: Context, examId: Long): TronClassExamDetail? {
             return getInstance(context).getCachedExamDetail(examId)
+        }
+
+        fun saveCourseDiscussions(context: Context, courseId: Long, discussions: List<TronClassDiscussion>) {
+            getInstance(context).saveCourseDiscussions(courseId, discussions)
+        }
+
+        fun getCourseDiscussions(context: Context, courseId: Long): List<TronClassDiscussion>? {
+            return getInstance(context).getCachedCourseDiscussions(courseId).takeIf { it.isNotEmpty() }
         }
 
         fun getDataCacheSize(context: Context): Long {
@@ -441,6 +453,32 @@ class TronClassDataCacheManager(private val context: Context) {
 
     fun getHomeBulletinsCacheTime(): Long = prefs.getLong(KEY_HOME_BULLETINS_TIME, 0L)
 
+    // --- 6.2 课程课堂讨论缓存 ---
+    fun saveCourseDiscussions(courseId: Long, discussions: List<TronClassDiscussion>) {
+        if (discussions.isEmpty()) return
+        memDiscussions[courseId] = discussions
+        prefs.edit()
+            .putString(PREFIX_DISCUSSIONS + courseId, gson.toJson(discussions))
+            .putLong(PREFIX_DISCUSSIONS_TIME + courseId, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedCourseDiscussions(courseId: Long): List<TronClassDiscussion> {
+        memDiscussions[courseId]?.let { return it }
+        val json = prefs.getString(PREFIX_DISCUSSIONS + courseId, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<TronClassDiscussion>>() {}.type
+            val res: List<TronClassDiscussion> = gson.fromJson(json, type) ?: emptyList()
+            if (res.isNotEmpty()) {
+                memDiscussions[courseId] = res
+            }
+            res
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached discussions for course $courseId", e)
+            emptyList()
+        }
+    }
+
     // --- 7. 测验做题与查卷详情缓存 ---
     fun saveExamDetail(examId: Long, detail: TronClassExamDetail) {
         prefs.edit()
@@ -485,6 +523,7 @@ class TronClassDataCacheManager(private val context: Context) {
         memExams.clear()
         memMembers.clear()
         memBulletins.clear()
+        memDiscussions.clear()
         memHomeBulletins.clear()
         prefs.edit().clear().apply()
         return size
