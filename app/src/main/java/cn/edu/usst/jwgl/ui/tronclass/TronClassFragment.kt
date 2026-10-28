@@ -1070,6 +1070,10 @@ class TronClassFragment : Fragment() {
         val active = tronClassActiveRollcalls.firstOrNull()
         val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
+        // 确保顶部卡片中的姓名与学号始终保持纯白高对比度文字
+        b.tvTronClassUserName.setTextColor(Color.WHITE)
+        b.tvTronClassUserNo.setTextColor(Color.parseColor("#E0FFFFFF"))
+
         if (active != null) {
             // 当有签到时：卡片背景变绿，底部显示正在签到的课程
             val greenBg = if (isDark) Color.parseColor("#1B4D2E") else Color.parseColor("#15803D")
