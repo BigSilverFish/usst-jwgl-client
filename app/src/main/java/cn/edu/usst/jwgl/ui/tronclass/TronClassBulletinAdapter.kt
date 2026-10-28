@@ -43,6 +43,14 @@ class TronClassBulletinAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(b: TronClassBulletin) {
+            val cName = b.courseName?.trim()
+            if (!cName.isNullOrBlank()) {
+                binding.layoutBulletinCourseTag.visibility = View.VISIBLE
+                binding.tvBulletinCourseName.text = cName
+            } else {
+                binding.layoutBulletinCourseTag.visibility = View.GONE
+            }
+
             binding.tvBulletinTitle.text = if (!b.title.isNullOrBlank()) b.title else "课程通知"
 
             val dateStr = formatIsoDate(b.createdAt)

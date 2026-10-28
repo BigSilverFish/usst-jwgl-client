@@ -28,6 +28,7 @@ class TronClassDataCacheManager(private val context: Context) {
     private val memExams = ConcurrentHashMap<Long, List<TronClassExam>>()
     private val memMembers = ConcurrentHashMap<Long, List<TronClassMember>>()
     private val memBulletins = ConcurrentHashMap<Long, List<TronClassBulletin>>()
+    private val memHomeBulletins = ConcurrentHashMap<String, List<TronClassBulletin>>()
 
     companion object {
         private const val TAG = "TronClassDataCache"
@@ -56,6 +57,9 @@ class TronClassDataCacheManager(private val context: Context) {
 
         private const val PREFIX_BULLETINS = "tc_cache_bulletins_"
         private const val PREFIX_BULLETINS_TIME = "tc_cache_bulletins_time_"
+
+        private const val KEY_HOME_BULLETINS = "tc_cache_home_bulletins"
+        private const val KEY_HOME_BULLETINS_TIME = "tc_cache_home_bulletins_time"
 
         private const val PREFIX_EXAM_DETAIL = "tc_cache_exam_detail_"
         private const val PREFIX_EXAM_DETAIL_TIME = "tc_cache_exam_detail_time_"
@@ -409,6 +413,34 @@ class TronClassDataCacheManager(private val context: Context) {
         }
     }
 
+    // --- 6.1 主页多课程聚合公告缓存 ---
+    fun saveHomeBulletins(bulletins: List<TronClassBulletin>) {
+        if (bulletins.isEmpty()) return
+        memHomeBulletins["all"] = bulletins
+        prefs.edit()
+            .putString(KEY_HOME_BULLETINS, gson.toJson(bulletins))
+            .putLong(KEY_HOME_BULLETINS_TIME, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedHomeBulletins(): List<TronClassBulletin> {
+        memHomeBulletins["all"]?.let { return it }
+        val json = prefs.getString(KEY_HOME_BULLETINS, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<TronClassBulletin>>() {}.type
+            val res: List<TronClassBulletin> = gson.fromJson(json, type) ?: emptyList()
+            if (res.isNotEmpty()) {
+                memHomeBulletins["all"] = res
+            }
+            res
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to deserialize cached home bulletins from prefs", e)
+            emptyList()
+        }
+    }
+
+    fun getHomeBulletinsCacheTime(): Long = prefs.getLong(KEY_HOME_BULLETINS_TIME, 0L)
+
     // --- 7. 测验做题与查卷详情缓存 ---
     fun saveExamDetail(examId: Long, detail: TronClassExamDetail) {
         prefs.edit()
@@ -453,6 +485,7 @@ class TronClassDataCacheManager(private val context: Context) {
         memExams.clear()
         memMembers.clear()
         memBulletins.clear()
+        memHomeBulletins.clear()
         prefs.edit().clear().apply()
         return size
     }
