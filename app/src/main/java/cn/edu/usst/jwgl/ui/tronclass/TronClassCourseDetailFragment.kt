@@ -1,7 +1,6 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.ProgressDialog
-import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -10,9 +9,6 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -34,8 +30,7 @@ import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassCourseDetailBinding
-import cn.edu.usst.jwgl.databinding.DialogTronclassBulletinDetailBinding
-import cn.edu.usst.jwgl.databinding.ItemTronclassAttachmentBinding
+import cn.edu.usst.jwgl.databinding.DialogTronclassClassMembersBinding
 import cn.edu.usst.jwgl.ui.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -56,15 +51,20 @@ class TronClassCourseDetailFragment : Fragment() {
     private var departmentName: String = ""
 
     private lateinit var activityAdapter: TronClassCourseDetailAdapter
-    private lateinit var examAdapter: TronClassExamAdapter
-    private lateinit var memberAdapter: TronClassMemberAdapter
     private lateinit var bulletinAdapter: TronClassBulletinAdapter
+    private lateinit var assessmentAdapter: TronClassAssessmentAdapter
+    private lateinit var discussionAdapter: TronClassDiscussionAdapter
+
+    // 活跃中的班级成员弹窗引用（若打开时接收到数据更新，可实时刷新）
+    private var activeMemberAdapter: TronClassMemberAdapter? = null
+    private var activeMemberDialogBinding: DialogTronclassClassMembersBinding? = null
 
     private var cachedModules: List<TronClassModule> = emptyList()
     private var cachedActivities: List<TronClassActivityItem> = emptyList()
     private var cachedExams: List<TronClassExam> = emptyList()
     private var cachedMembers: List<TronClassMember> = emptyList()
     private var cachedBulletins: List<TronClassBulletin> = emptyList()
+    private var cachedDiscussions: List<TronClassDiscussion> = emptyList()
 
     companion object {
         private const val ARG_COURSE = "arg_course"
@@ -201,10 +201,9 @@ class TronClassCourseDetailFragment : Fragment() {
 
         val wasUnpadded = b.rvActivities.paddingTop <= (8 * density).toInt()
         b.rvActivities.setPadding(hPad, headerHeight, hPad, bottomPadding)
-        b.rvExams.setPadding(hPad, headerHeight, hPad, bottomPadding)
-        b.layoutMembers.setPadding(hPad, headerHeight, hPad, 0)
-        b.rvMembers.setPadding(0, 0, 0, bottomPadding)
         b.rvBulletins.setPadding(hPad, headerHeight, hPad, bottomPadding)
+        b.rvAssessments.setPadding(hPad, headerHeight, hPad, bottomPadding)
+        b.rvDiscussions.setPadding(hPad, headerHeight, hPad, bottomPadding)
 
         if (wasUnpadded) {
             (b.rvActivities.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
@@ -219,17 +218,22 @@ class TronClassCourseDetailFragment : Fragment() {
         }
         binding.tvHeaderPageTitle.text = courseName
 
+        // 顶栏右侧新增圆形按键：唤起班级成员底部弹窗
+        binding.btnClassMembers.setOnClickListener {
+            showClassMembersBottomSheet()
+        }
+
         binding.btnRollcallHistory.setOnClickListener {
             val dialog = TronClassRollcallHistoryBottomSheetDialog.newInstance(courseId, courseName)
             dialog.show(parentFragmentManager, "rollcall_history_$courseId")
         }
 
-        binding.btnRefresh.setOnClickListener {
-            loadCourseData(forceRefresh = true)
-        }
-
         binding.btnCacheManager.setOnClickListener {
             showCacheManagementDialog()
+        }
+
+        binding.btnRefresh.setOnClickListener {
+            loadCourseData(forceRefresh = true)
         }
     }
 
@@ -237,7 +241,7 @@ class TronClassCourseDetailFragment : Fragment() {
         val context = requireContext()
         val isPad = TabletLayoutHelper.isTabletLandscape(context)
 
-        // 1. 章节课件 Adapter (支持在列表顶部自然嵌入学习进度卡片与自动刷课按钮，实现极致0ms原生流式复用)
+        // 1. Tab 0: 章节课件 Adapter (支持在列表顶部自然嵌入学习进度卡片与自动刷课按钮)
         activityAdapter = TronClassCourseDetailAdapter(
             onActivityClick = { act -> handleActivityClick(act) },
             onDownloadClick = { act -> handleDownloadClick(act) },
@@ -260,45 +264,46 @@ class TronClassCourseDetailFragment : Fragment() {
         }
         binding.rvActivities.adapter = activityAdapter
 
-        // 2. 测验测试 Adapter
-        examAdapter = TronClassExamAdapter { exam ->
-            val mainAct = activity as? MainActivity
-            if (mainAct != null) {
-                mainAct.openTronClassExam(exam.id, courseId, exam.getCleanTitle(), courseName)
-            } else {
-                TronClassExamActivity.start(
-                    context,
-                    exam.id,
-                    courseId,
-                    exam.getCleanTitle(),
-                    courseName
-                )
-            }
-        }
-        binding.rvExams.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
-        binding.rvExams.adapter = examAdapter
-
-        // 3. 班级成员 Adapter & Search
-        memberAdapter = TronClassMemberAdapter()
-        binding.rvMembers.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
-        binding.rvMembers.adapter = memberAdapter
-
-        binding.etMemberSearch.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                memberAdapter.filter(s?.toString() ?: "")
-            }
-            override fun afterTextChanged(s: Editable?) {}
-        })
-
-        // 4. 课程公告 Adapter
+        // 2. Tab 1: 课程公告 Adapter
         bulletinAdapter = TronClassBulletinAdapter { bulletin ->
             showBulletinDetailDialog(bulletin)
         }
         binding.rvBulletins.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
         binding.rvBulletins.adapter = bulletinAdapter
 
-        // 0. 本地缓存秒级直出 (离线优先，重新进入或切换 Tab 0ms 瞬间显示，拒绝数秒白屏与假性“暂无”)
+        // 3. Tab 2: 作业测验 Adapter (聚合作业与测验)
+        assessmentAdapter = TronClassAssessmentAdapter { item ->
+            val mainAct = activity as? MainActivity
+            when (item) {
+                is TronClassAssessmentItem.Homework -> {
+                    val act = item.activity
+                    if (mainAct != null) {
+                        mainAct.openTronClassHomework(act.id, courseId, act.getCleanTitle(), courseName)
+                    } else {
+                        TronClassHomeworkActivity.start(context, act.id, courseId, act.getCleanTitle(), courseName)
+                    }
+                }
+                is TronClassAssessmentItem.Exam -> {
+                    val exam = item.exam
+                    if (mainAct != null) {
+                        mainAct.openTronClassExam(exam.id, courseId, exam.getCleanTitle(), courseName)
+                    } else {
+                        TronClassExamActivity.start(context, exam.id, courseId, exam.getCleanTitle(), courseName)
+                    }
+                }
+            }
+        }
+        binding.rvAssessments.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
+        binding.rvAssessments.adapter = assessmentAdapter
+
+        // 4. Tab 3: 课堂讨论 Adapter
+        discussionAdapter = TronClassDiscussionAdapter { discussion ->
+            showDiscussionDetailDialog(discussion)
+        }
+        binding.rvDiscussions.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
+        binding.rvDiscussions.adapter = discussionAdapter
+
+        // 0. 本地缓存秒级直出 (离线优先，0ms 瞬间显示，拒绝白屏)
         val cacheMgr = TronClassDataCacheManager.getInstance(context)
         val initialModules = cacheMgr.getCachedCourseModules(courseId)
         if (initialModules.isNotEmpty()) {
@@ -320,57 +325,68 @@ class TronClassCourseDetailFragment : Fragment() {
             val uiItems = buildCourseStructure(cachedModules, cachedActivities, completedCount, totalActs)
             activityAdapter.updateData(uiItems)
         }
-        val initialExams = cacheMgr.getCachedCourseExams(courseId)
-        if (initialExams.isNotEmpty()) {
-            cachedExams = initialExams
-            examAdapter.updateData(initialExams)
-        }
-        val initialMembers = cacheMgr.getCachedCourseMembers(courseId)
-        if (initialMembers.isNotEmpty()) {
-            cachedMembers = initialMembers
-            memberAdapter.updateData(initialMembers)
-        }
+
         val initialBulletins = cacheMgr.getCachedCourseBulletins(courseId)
         if (initialBulletins.isNotEmpty()) {
             cachedBulletins = initialBulletins
             bulletinAdapter.updateData(initialBulletins)
         }
 
-        // 5. 四个 Tab 切换
+        val initialExams = cacheMgr.getCachedCourseExams(courseId)
+        if (initialExams.isNotEmpty()) {
+            cachedExams = initialExams
+        }
+        val initialAssessments = buildAssessmentItems(cachedActivities, cachedExams)
+        if (initialAssessments.isNotEmpty()) {
+            assessmentAdapter.updateData(initialAssessments)
+        }
+
+        val initialDiscussions = cacheMgr.getCachedCourseDiscussions(courseId)
+        if (initialDiscussions.isNotEmpty()) {
+            cachedDiscussions = initialDiscussions
+            discussionAdapter.updateData(initialDiscussions)
+        }
+
+        val initialMembers = cacheMgr.getCachedCourseMembers(courseId)
+        if (initialMembers.isNotEmpty()) {
+            cachedMembers = initialMembers
+        }
+
+        // 5. 四个 Tab 切换监听 (0: 章节课件, 1: 课程公告, 2: 作业测验, 3: 课堂讨论)
         binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab?) {
                 when (tab?.position) {
                     0 -> {
                         // 章节课件 (含顶部的学习进度卡片)
                         binding.rvActivities.visibility = View.VISIBLE
-                        binding.rvExams.visibility = View.GONE
-                        binding.layoutMembers.visibility = View.GONE
                         binding.rvBulletins.visibility = View.GONE
+                        binding.rvAssessments.visibility = View.GONE
+                        binding.rvDiscussions.visibility = View.GONE
                         checkEmptyState(activityAdapter.itemCount == 0, "暂无章节课件或活动")
                     }
                     1 -> {
-                        // 测验测试
-                        binding.rvActivities.visibility = View.GONE
-                        binding.rvExams.visibility = View.VISIBLE
-                        binding.layoutMembers.visibility = View.GONE
-                        binding.rvBulletins.visibility = View.GONE
-                        checkEmptyState(examAdapter.itemCount == 0, "本课程暂无测验与考试")
-                    }
-                    2 -> {
-                        // 班级成员
-                        binding.rvActivities.visibility = View.GONE
-                        binding.rvExams.visibility = View.GONE
-                        binding.layoutMembers.visibility = View.VISIBLE
-                        binding.rvBulletins.visibility = View.GONE
-                        checkEmptyState(memberAdapter.itemCount == 0, "暂无班级成员名单")
-                    }
-                    3 -> {
                         // 课程公告
                         binding.rvActivities.visibility = View.GONE
-                        binding.rvExams.visibility = View.GONE
-                        binding.layoutMembers.visibility = View.GONE
                         binding.rvBulletins.visibility = View.VISIBLE
+                        binding.rvAssessments.visibility = View.GONE
+                        binding.rvDiscussions.visibility = View.GONE
                         checkEmptyState(bulletinAdapter.itemCount == 0, "暂无课程公告")
+                    }
+                    2 -> {
+                        // 作业测验
+                        binding.rvActivities.visibility = View.GONE
+                        binding.rvBulletins.visibility = View.GONE
+                        binding.rvAssessments.visibility = View.VISIBLE
+                        binding.rvDiscussions.visibility = View.GONE
+                        checkEmptyState(assessmentAdapter.itemCount == 0, "本课程暂无作业与测验")
+                    }
+                    3 -> {
+                        // 课堂讨论
+                        binding.rvActivities.visibility = View.GONE
+                        binding.rvBulletins.visibility = View.GONE
+                        binding.rvAssessments.visibility = View.GONE
+                        binding.rvDiscussions.visibility = View.VISIBLE
+                        checkEmptyState(discussionAdapter.itemCount == 0, "本课程暂无课堂讨论")
                     }
                 }
             }
@@ -387,7 +403,7 @@ class TronClassCourseDetailFragment : Fragment() {
     private fun checkEmptyState(isEmpty: Boolean, msg: String) {
         val b = _binding ?: return
         if (isEmpty && b.swipeRefresh.isRefreshing) {
-            // 加载中且暂无本地缓存时，不提前展示误导性的“暂无”，避免白屏跳变
+            // 加载中且暂无本地缓存时，不提前展示误导性的“暂无”，避免视觉跳变
             b.layoutEmpty.visibility = View.GONE
             return
         }
@@ -397,6 +413,23 @@ class TronClassCourseDetailFragment : Fragment() {
         } else {
             b.layoutEmpty.visibility = View.GONE
         }
+    }
+
+    private fun buildAssessmentItems(
+        activities: List<TronClassActivityItem>,
+        exams: List<TronClassExam>
+    ): List<TronClassAssessmentItem> {
+        val list = mutableListOf<TronClassAssessmentItem>()
+        // 1. 过滤作业活动
+        val homeworks = activities.filter { it.type == "homework" }
+        for (hw in homeworks) {
+            list.add(TronClassAssessmentItem.Homework(hw))
+        }
+        // 2. 测验考试项
+        for (ex in exams) {
+            list.add(TronClassAssessmentItem.Exam(ex))
+        }
+        return list
     }
 
     private fun loadCourseData(forceRefresh: Boolean) {
@@ -419,10 +452,11 @@ class TronClassCourseDetailFragment : Fragment() {
             val activitiesDef = async { client.fetchCourseActivities(courseId) }
             val readsDef = async { client.fetchActivityReads(courseId) }
 
-            // 2. 次要信息异步通道 (Exams + Members + Bulletins)
-            val examsDef = async { client.fetchCourseExams(courseId) }
-            val membersDef = async { client.fetchCourseMembers(courseId) }
+            // 2. 次要信息异步通道 (Bulletins + Exams + Discussions + Members)
             val bulletinsDef = async { client.fetchCourseBulletins(courseId) }
+            val examsDef = async { client.fetchCourseExams(courseId) }
+            val discussionsDef = async { client.fetchCourseDiscussions(courseId) }
+            val membersDef = async { client.fetchCourseMembers(courseId) }
 
             // 优先等待核心大纲返回并即时渲染上屏 (避免次要信息拖慢核心课件显示)
             val modulesRes = modulesDef.await()
@@ -462,50 +496,178 @@ class TronClassCourseDetailFragment : Fragment() {
                 if (b1.tabLayout.selectedTabPosition == 0) {
                     checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
                 }
+
+                // 同步刷新作业测验中来自活动的作业项
+                val updatedAssessments = buildAssessmentItems(cachedActivities, cachedExams)
+                assessmentAdapter.updateData(updatedAssessments)
+                if (b1.tabLayout.selectedTabPosition == 2) {
+                    checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
+                }
             }
 
             // 次要信息随后就绪，增量写回缓存与 Adapter
-            val examsRes = examsDef.await()
-            val b2 = _binding ?: return@launch
-            if (examsRes.isSuccess) {
-                cachedExams = examsRes.getOrDefault(emptyList())
-                if (cachedExams.isNotEmpty()) {
-                    cacheMgr.saveCourseExams(courseId, cachedExams)
-                }
-                examAdapter.updateData(cachedExams)
-                if (b2.tabLayout.selectedTabPosition == 1) {
-                    checkEmptyState(cachedExams.isEmpty(), "本课程暂无测验与考试")
-                }
-            }
-
-            val membersRes = membersDef.await()
-            val b3 = _binding ?: return@launch
-            if (membersRes.isSuccess) {
-                cachedMembers = membersRes.getOrDefault(emptyList())
-                if (cachedMembers.isNotEmpty()) {
-                    cacheMgr.saveCourseMembers(courseId, cachedMembers)
-                }
-                memberAdapter.updateData(cachedMembers)
-                if (b3.tabLayout.selectedTabPosition == 2) {
-                    checkEmptyState(cachedMembers.isEmpty(), "暂无班级成员名单")
-                }
-            }
-
             val bulletinsRes = bulletinsDef.await()
-            val b4 = _binding ?: return@launch
+            val b2 = _binding ?: return@launch
             if (bulletinsRes.isSuccess) {
                 cachedBulletins = bulletinsRes.getOrDefault(emptyList())
                 if (cachedBulletins.isNotEmpty()) {
                     cacheMgr.saveCourseBulletins(courseId, cachedBulletins)
                 }
                 bulletinAdapter.updateData(cachedBulletins)
-                if (b4.tabLayout.selectedTabPosition == 3) {
+                if (b2.tabLayout.selectedTabPosition == 1) {
                     checkEmptyState(cachedBulletins.isEmpty(), "暂无课程公告")
                 }
             }
 
+            val examsRes = examsDef.await()
+            val b3 = _binding ?: return@launch
+            if (examsRes.isSuccess) {
+                cachedExams = examsRes.getOrDefault(emptyList())
+                if (cachedExams.isNotEmpty()) {
+                    cacheMgr.saveCourseExams(courseId, cachedExams)
+                }
+                val updatedAssessments = buildAssessmentItems(cachedActivities, cachedExams)
+                assessmentAdapter.updateData(updatedAssessments)
+                if (b3.tabLayout.selectedTabPosition == 2) {
+                    checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
+                }
+            }
+
+            val discussionsRes = discussionsDef.await()
+            val b4 = _binding ?: return@launch
+            if (discussionsRes.isSuccess) {
+                cachedDiscussions = discussionsRes.getOrDefault(emptyList())
+                if (cachedDiscussions.isNotEmpty()) {
+                    cacheMgr.saveCourseDiscussions(courseId, cachedDiscussions)
+                }
+                discussionAdapter.updateData(cachedDiscussions)
+                if (b4.tabLayout.selectedTabPosition == 3) {
+                    checkEmptyState(cachedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+                }
+            }
+
+            val membersRes = membersDef.await()
+            if (membersRes.isSuccess) {
+                cachedMembers = membersRes.getOrDefault(emptyList())
+                if (cachedMembers.isNotEmpty()) {
+                    cacheMgr.saveCourseMembers(courseId, cachedMembers)
+                }
+                // 若用户当前正打开班级成员弹窗，同步刷新其列表
+                activeMemberAdapter?.updateData(cachedMembers)
+                activeMemberDialogBinding?.tvMemberCountBadge?.text = "共 ${cachedMembers.size} 人"
+                activeMemberDialogBinding?.layoutEmptyMembers?.visibility = if (cachedMembers.isEmpty()) View.VISIBLE else View.GONE
+            }
+
             b4.swipeRefresh.isRefreshing = false
         }
+    }
+
+    /**
+     * 唤起“班级成员”底部弹窗 (Material3 BottomSheetDialog，支持搜索与大屏居中自适应)
+     */
+    private fun showClassMembersBottomSheet() {
+        val ctx = context ?: return
+        val isPad = TabletLayoutHelper.isTabletLandscape(ctx)
+
+        val dialog = BottomSheetDialog(ctx)
+        val dialogBinding = DialogTronclassClassMembersBinding.inflate(layoutInflater)
+        dialog.setContentView(dialogBinding.root)
+
+        activeMemberDialogBinding = dialogBinding
+
+        dialogBinding.tvMemberCountBadge.text = "共 ${cachedMembers.size} 人"
+
+        val memberAdapter = TronClassMemberAdapter()
+        activeMemberAdapter = memberAdapter
+        memberAdapter.updateData(cachedMembers)
+
+        dialogBinding.rvDialogMembers.layoutManager = if (isPad) GridLayoutManager(ctx, 2) else LinearLayoutManager(ctx)
+        dialogBinding.rvDialogMembers.adapter = memberAdapter
+
+        dialogBinding.layoutEmptyMembers.visibility = if (cachedMembers.isEmpty()) View.VISIBLE else View.GONE
+        dialogBinding.tvEmptyMembersText.text = "暂无班级成员"
+
+        dialogBinding.etMemberSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val q = s?.toString() ?: ""
+                memberAdapter.filter(q)
+                if (memberAdapter.itemCount == 0) {
+                    dialogBinding.layoutEmptyMembers.visibility = View.VISIBLE
+                    dialogBinding.tvEmptyMembersText.text = if (q.isBlank()) "暂无班级成员" else "未找到与 \"$q\" 相关的成员"
+                } else {
+                    dialogBinding.layoutEmptyMembers.visibility = View.GONE
+                }
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        dialogBinding.btnCloseDialog.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.setOnDismissListener {
+            activeMemberAdapter = null
+            activeMemberDialogBinding = null
+        }
+
+        // 大屏平板模式宽度居中优化
+        TabletLayoutHelper.setupBottomSheetForLargeScreen(dialog, ctx)
+
+        // 默认让弹窗展开良好高度
+        dialog.setOnShowListener {
+            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            if (bottomSheet != null) {
+                val behavior = BottomSheetBehavior.from(bottomSheet)
+                behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                behavior.skipCollapsed = true
+            }
+        }
+
+        dialog.show()
+
+        // 如果当前没有成员数据，触发一次静默拉取
+        if (cachedMembers.isEmpty()) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val membersRes = client.fetchCourseMembers(courseId)
+                if (membersRes.isSuccess) {
+                    cachedMembers = membersRes.getOrDefault(emptyList())
+                    if (cachedMembers.isNotEmpty()) {
+                        TronClassDataCacheManager.getInstance(ctx).saveCourseMembers(courseId, cachedMembers)
+                    }
+                    memberAdapter.updateData(cachedMembers)
+                    dialogBinding.tvMemberCountBadge.text = "共 ${cachedMembers.size} 人"
+                    dialogBinding.layoutEmptyMembers.visibility = if (cachedMembers.isEmpty()) View.VISIBLE else View.GONE
+                }
+            }
+        }
+    }
+
+    /**
+     * 查看课堂讨论详情弹窗
+     */
+    private fun showDiscussionDetailDialog(discussion: TronClassDiscussion) {
+        val ctx = context ?: return
+        val author = discussion.getAuthorName()
+        val timeStr = discussion.getFormattedTime()
+        val title = discussion.getCleanTitle()
+        val rawContent = discussion.content
+        val contentText = if (!rawContent.isNullOrBlank()) {
+            TronClassHtmlHelper.htmlToPlainText(rawContent).trim()
+        } else {
+            "（发起人未附带详细说明文字）"
+        }
+
+        val msg = "发起人: $author\n" +
+                "发布时间: ${if (timeStr.isNotBlank()) timeStr else "近期"}\n" +
+                "互动数据: ${discussion.repliesCount} 条回复 · ${discussion.viewsCount} 次浏览\n\n" +
+                "【讨论正文】\n$contentText"
+
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle(title)
+            .setMessage(msg)
+            .setPositiveButton("我知道了", null)
+            .show()
     }
 
     private fun startAutoBrushProgress() {

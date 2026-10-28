@@ -1227,6 +1227,54 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
+     * 13.2 获取课程讨论列表
+     * GET /api/courses/{courseId}/forum/topics 或 GET /api/courses/{courseId}/discussions
+     */
+    suspend fun fetchCourseDiscussions(courseId: Long): Result<List<TronClassDiscussion>> = withContext(Dispatchers.IO) {
+        try {
+            val url1 = "$BASE_URL/api/courses/$courseId/forum/topics"
+            var req = Request.Builder().url(url1).build()
+            var resp = okHttpClient.newCall(req).execute()
+            var body = resp.body?.string() ?: ""
+
+            if (!resp.isSuccessful) {
+                if (resp.code == 401 && refreshSession().isSuccess) {
+                    return@withContext fetchCourseDiscussions(courseId)
+                }
+                // 回退到备用端点 /discussions
+                val url2 = "$BASE_URL/api/courses/$courseId/discussions"
+                req = Request.Builder().url(url2).build()
+                resp = okHttpClient.newCall(req).execute()
+                body = resp.body?.string() ?: ""
+            }
+
+            if (!resp.isSuccessful) {
+                return@withContext Result.success(emptyList())
+            }
+
+            val type = object : TypeToken<List<TronClassDiscussion>>() {}.type
+            val items: List<TronClassDiscussion> = try {
+                if (body.trim().startsWith("[")) {
+                    gson.fromJson(body, type) ?: emptyList()
+                } else {
+                    val json = JSONObject(body)
+                    val arr = json.optJSONArray("topics") ?: json.optJSONArray("discussions") ?: json.optJSONArray("items")
+                    if (arr != null) {
+                        gson.fromJson(arr.toString(), type) ?: emptyList()
+                    } else emptyList()
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            Result.success(items)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCourseDiscussions error", e)
+            Result.success(emptyList())
+        }
+    }
+
+    /**
      * 14. è·åæ´»å¨è¯¦æ (åå«ä½ä¸è¯´æå¯ææ¬åè¯åè§å)
      * GET /api/activities/{activityId}
      */

@@ -815,3 +815,66 @@ data class TronClassExamDetail(
     val submissionId: Long? = selectedSubmissionId,
     val score: Double? = currentScore ?: finalScore
 ) : Serializable
+
+/**
+ * 课堂讨论模型
+ */
+data class TronClassDiscussion(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("title")
+    val title: String? = null,
+
+    @SerializedName("content")
+    val content: String? = null,
+
+    @SerializedName("created_at")
+    val createdAt: String? = null,
+
+    @SerializedName("updated_at")
+    val updatedAt: String? = null,
+
+    @SerializedName("replies_count")
+    val repliesCount: Int = 0,
+
+    @SerializedName("views_count")
+    val viewsCount: Int = 0,
+
+    @SerializedName("user")
+    val user: TronClassDiscussionUser? = null,
+
+    @SerializedName("creator")
+    val creator: TronClassDiscussionUser? = null
+) : Serializable {
+    data class TronClassDiscussionUser(
+        @SerializedName("id")
+        val id: Long = 0,
+
+        @SerializedName("name")
+        val name: String? = null,
+
+        @SerializedName("avatar_url")
+        val avatarUrl: String? = null
+    ) : Serializable
+
+    fun getAuthorName(): String = (user?.name ?: creator?.name ?: "").trim().ifBlank { "匿名同学" }
+    fun getCleanTitle(): String = (title ?: "").trim().ifBlank { "课堂讨论主题" }
+    fun getFormattedTime(): String {
+        val iso = createdAt ?: return ""
+        return try {
+            val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val date = inFormat.parse(iso)
+            if (date != null) {
+                val outFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
+                outFormat.format(date)
+            } else {
+                iso.substringBefore("T")
+            }
+        } catch (_: Exception) {
+            iso.take(16).replace("T", " ")
+        }
+    }
+}

@@ -64,6 +64,11 @@ object TronClassHtmlHelper {
     }
 
     /**
+     * 清理 HTML 获得纯文本别名
+     */
+    fun htmlToPlainText(html: String?): String = getCleanText(html)
+
+    /**
      * 清理 HTML 并在深色主题下正确展示：
      * 1. 移除 <img> 标签（避免原生 TextView 显示异常绿块，图片单独提取为原生控件加载）；
      * 2. 清除所有 style 中的 color 属性（如 color: black, color: #000000），使文字颜色自动跟随 TextView 的 text_primary（高亮浅色）；

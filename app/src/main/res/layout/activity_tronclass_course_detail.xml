@@ -25,9 +25,9 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="24dp" />
 
-            <!-- 2. Exams / Quizzes RecyclerView -->
+            <!-- 2. Course Bulletins RecyclerView -->
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvExams"
+                android:id="@+id/rvBulletins"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
@@ -35,69 +35,19 @@
                 android:paddingBottom="24dp"
                 android:visibility="gone" />
 
-            <!-- 3. Class Members Layout (Search + RecyclerView) -->
-            <LinearLayout
-                android:id="@+id/layoutMembers"
+            <!-- 3. Assessments (Homework & Exams) RecyclerView -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvAssessments"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
-                android:orientation="vertical"
-                android:visibility="gone">
+                android:paddingTop="8dp"
+                android:paddingBottom="24dp"
+                android:visibility="gone" />
 
-                <!-- Search Bar -->
-                <androidx.cardview.widget.CardView
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginHorizontal="16dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginBottom="6dp"
-                    app:cardBackgroundColor="@color/surface"
-                    app:cardCornerRadius="22dp"
-                    app:cardElevation="0.5dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingHorizontal="14dp">
-
-                        <ImageView
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:src="@drawable/ic_search"
-                            app:tint="@color/text_tertiary" />
-
-                        <EditText
-                            android:id="@+id/etMemberSearch"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:layout_marginStart="8dp"
-                            android:background="@null"
-                            android:hint="搜索班级成员姓名、学号或院系"
-                            android:imeOptions="actionSearch"
-                            android:inputType="text"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_tertiary"
-                            android:textSize="13.5sp" />
-
-                    </LinearLayout>
-
-                </androidx.cardview.widget.CardView>
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rvMembers"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:clipToPadding="false"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="24dp" />
-
-            </LinearLayout>
-
-            <!-- 4. Course Bulletins RecyclerView -->
+            <!-- 4. Class Discussions RecyclerView -->
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvBulletins"
+                android:id="@+id/rvDiscussions"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
@@ -185,6 +135,20 @@
                     android:textStyle="bold" />
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnClassMembers"
+                    style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:padding="0dp"
+                    android:contentDescription="班级成员"
+                    app:icon="@drawable/ic_group"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="20dp"
+                    app:iconTint="@color/primary" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnRollcallHistory"
                     style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
                     android:layout_width="36dp"
@@ -250,17 +214,17 @@
                 <com.google.android.material.tabs.TabItem
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="测验测试" />
-
-                <com.google.android.material.tabs.TabItem
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="班级成员" />
-
-                <com.google.android.material.tabs.TabItem
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
                     android:text="课程公告" />
+
+                <com.google.android.material.tabs.TabItem
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="作业测验" />
+
+                <com.google.android.material.tabs.TabItem
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="课堂讨论" />
 
             </com.google.android.material.tabs.TabLayout>
 
