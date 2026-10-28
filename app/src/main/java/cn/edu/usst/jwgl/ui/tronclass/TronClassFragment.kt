@@ -28,10 +28,15 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.model.LearningPlatform
 import cn.edu.usst.jwgl.data.model.TronClassBulletin
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.TronClassTodo
+import cn.edu.usst.jwgl.data.model.UnifiedBulletin
+import cn.edu.usst.jwgl.data.model.UnifiedCourse
+import cn.edu.usst.jwgl.data.model.UnifiedTodo
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.LayoutPageTronclassBinding
 import cn.edu.usst.jwgl.ui.MainActivity
@@ -59,12 +64,17 @@ class TronClassFragment : Fragment() {
     private val binding get() = _binding!!
 
     private val tronClassClient by lazy { TronClassClient(requireContext()) }
+    private val chaoXingClient by lazy { ChaoXingClient(requireContext()) }
     private lateinit var tronClassTodoAdapter: TronClassTodoAdapter
     private lateinit var tronClassBulletinAdapter: TronClassBulletinAdapter
     private lateinit var tronClassCourseAdapter: TronClassCourseAdapter
 
     private var allTronClassCourses: List<TronClassCourse> = emptyList()
     private var allTronClassBulletins: List<TronClassBulletin> = emptyList()
+    private var allUnifiedCourses: List<UnifiedCourse> = emptyList()
+    private var allUnifiedTodos: List<UnifiedTodo> = emptyList()
+    private var allUnifiedBulletins: List<UnifiedBulletin> = emptyList()
+    private var currentPlatformFilter: LearningPlatform? = null
     private var currentSelectedSemester: String? = null
     private var tronClassCourseSearchQuery: String = ""
     private var tronClassActiveRollcalls: List<TronClassRollcall> = emptyList()
@@ -263,6 +273,10 @@ class TronClassFragment : Fragment() {
     private fun setupAdapters() {
         tronClassTodoAdapter = TronClassTodoAdapter { todo ->
             openHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
+        }.apply {
+            onChaoXingClickListener = { cxTodo ->
+                showChaoXingTodoDialog(cxTodo)
+            }
         }
         binding.rvTronClassTodos.adapter = tronClassTodoAdapter
 
@@ -275,15 +289,24 @@ class TronClassFragment : Fragment() {
                 courseId = bulletin.courseId,
                 courseName = bulletin.courseName ?: ""
             )
+        }.apply {
+            onChaoXingClickListener = { cxBulletin ->
+                showChaoXingNoticeDialog(cxBulletin)
+            }
         }
         binding.rvTronClassBulletins.adapter = tronClassBulletinAdapter
 
         tronClassCourseAdapter = TronClassCourseAdapter { course ->
             openCourseDetail(course)
+        }.apply {
+            onChaoXingClickListener = { cxCourse ->
+                showChaoXingCourseDialog(cxCourse)
+            }
         }
         binding.rvTronClassCourses.adapter = tronClassCourseAdapter
 
         setupTabLayout()
+        setupPlatformFilterPills()
     }
 
     private fun setupTabLayout() {
@@ -329,6 +352,104 @@ class TronClassFragment : Fragment() {
         binding.btnTronClassCourseSearchClear.setOnClickListener {
             binding.etTronClassCourseSearch.setText("")
         }
+    }
+
+    private fun setupPlatformFilterPills() {
+        binding.btnFilterAll.setOnClickListener {
+            selectPlatformFilter(null)
+        }
+        binding.btnFilterTronClass.setOnClickListener {
+            selectPlatformFilter(LearningPlatform.TRONCLASS)
+        }
+        binding.btnFilterChaoXing.setOnClickListener {
+            selectPlatformFilter(LearningPlatform.CHAOXING)
+        }
+        updatePlatformFilterPillStyles()
+    }
+
+    private fun selectPlatformFilter(platform: LearningPlatform?) {
+        currentPlatformFilter = platform
+        updatePlatformFilterPillStyles()
+        renderCurrentPlatformFilteredData()
+    }
+
+    private fun updatePlatformFilterPillStyles() {
+        val b = _binding ?: return
+        val activeColor = ContextCompat.getColor(requireContext(), R.color.primary)
+        val inactiveColor = ContextCompat.getColor(requireContext(), R.color.text_secondary)
+
+        b.btnFilterAll.setTextColor(if (currentPlatformFilter == null) activeColor else inactiveColor)
+        b.btnFilterAll.paint.isFakeBoldText = (currentPlatformFilter == null)
+
+        b.btnFilterTronClass.setTextColor(if (currentPlatformFilter == LearningPlatform.TRONCLASS) activeColor else inactiveColor)
+        b.btnFilterTronClass.paint.isFakeBoldText = (currentPlatformFilter == LearningPlatform.TRONCLASS)
+
+        b.btnFilterChaoXing.setTextColor(if (currentPlatformFilter == LearningPlatform.CHAOXING) activeColor else inactiveColor)
+        b.btnFilterChaoXing.paint.isFakeBoldText = (currentPlatformFilter == LearningPlatform.CHAOXING)
+    }
+
+    private fun renderCurrentPlatformFilteredData() {
+        val filter = currentPlatformFilter
+        val isDual = chaoXingClient.isLoggedIn()
+
+        // 1. 待办作业过滤
+        val filteredTodos = when (filter) {
+            null -> allUnifiedTodos
+            LearningPlatform.TRONCLASS -> allUnifiedTodos.filter { it.platform.isTronClass }
+            LearningPlatform.CHAOXING -> allUnifiedTodos.filter { it.platform.isChaoXing }
+        }
+        tronClassTodoAdapter.updateUnifiedData(filteredTodos, multiPlatform = isDual)
+        updateTodoTabBadge(filteredTodos.size)
+
+        // 2. 公告过滤
+        val filteredBulletins = when (filter) {
+            null -> allUnifiedBulletins
+            LearningPlatform.TRONCLASS -> allUnifiedBulletins.filter { it.platform.isTronClass }
+            LearningPlatform.CHAOXING -> allUnifiedBulletins.filter { it.platform.isChaoXing }
+        }
+        tronClassBulletinAdapter.updateUnifiedData(filteredBulletins, multiPlatform = isDual)
+        updateBulletinTabBadge(filteredBulletins.size)
+
+        // 3. 课程过滤 (结合学期与搜索词)
+        val filteredCourses = when (filter) {
+            null -> allUnifiedCourses
+            LearningPlatform.TRONCLASS -> allUnifiedCourses.filter { it.platform.isTronClass }
+            LearningPlatform.CHAOXING -> allUnifiedCourses.filter { it.platform.isChaoXing }
+        }
+        val query = tronClassCourseSearchQuery.lowercase()
+        val finalCourses = if (query.isBlank()) {
+            filteredCourses
+        } else {
+            filteredCourses.filter {
+                it.cleanName.lowercase().contains(query) || it.teacherName.lowercase().contains(query)
+            }
+        }
+        tronClassCourseAdapter.updateUnifiedData(finalCourses, multiPlatform = isDual)
+        updateCourseTabBadge(finalCourses.size)
+    }
+
+    private fun showChaoXingTodoDialog(todo: UnifiedTodo) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(todo.cleanTitle)
+            .setMessage("【超星学习通课程】${todo.cleanCourseName}\n\n截止时间：${todo.getFormattedDeadline()} (${todo.getRemainingTimeText()})\n\n状态：未完成待提交")
+            .setPositiveButton("我知道了", null)
+            .show()
+    }
+
+    private fun showChaoXingCourseDialog(course: UnifiedCourse) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(course.cleanName)
+            .setMessage("【超星学习通课程】\n\n授课教师：${course.teacherName.ifBlank { "教师" }}\n开课机构：${course.department ?: "上海理工大学"}\n班级编号：${course.originalClassId ?: ""}\n\n该课程相关作业已自动合并至「待办作业」流。")
+            .setPositiveButton("确定", null)
+            .show()
+    }
+
+    private fun showChaoXingNoticeDialog(bulletin: UnifiedBulletin) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(bulletin.title)
+            .setMessage("【超星通知 · ${bulletin.courseName}】\n发布时间：${bulletin.publishTimeText}\n\n${bulletin.cleanContent}")
+            .setPositiveButton("关闭", null)
+            .show()
     }
 
     private fun setupButtons() {
@@ -629,6 +750,56 @@ class TronClassFragment : Fragment() {
                 } else {
                     updateBulletinTabBadge(0)
                 }
+            }
+
+            // 5. 并发拉取超星学习通数据 (如果存在有效认证或可静默换票)
+            try {
+                val cxEnsure = chaoXingClient.ensureSession()
+                if (cxEnsure.isSuccess) {
+                    val cxCoursesDeferred = async { chaoXingClient.fetchCourses().getOrDefault(emptyList()) }
+                    val cxTodosDeferred = async { chaoXingClient.fetchTodos().getOrDefault(emptyList()) }
+                    val cxNoticesDeferred = async { chaoXingClient.fetchNotices().getOrDefault(emptyList()) }
+
+                    val cxCourses = cxCoursesDeferred.await()
+                    val cxTodos = cxTodosDeferred.await()
+                    val cxNotices = cxNoticesDeferred.await()
+
+                    // 合并待办作业 (按时间升序混排)
+                    val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                    val uTodos = mutableListOf<UnifiedTodo>()
+                    uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                    uTodos.addAll(cxTodos)
+                    uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                    allUnifiedTodos = uTodos
+
+                    // 合并课程
+                    val uCourses = mutableListOf<UnifiedCourse>()
+                    uCourses.addAll(allTronClassCourses.map { UnifiedCourse.fromTronClass(it) })
+                    uCourses.addAll(cxCourses.map { UnifiedCourse.fromChaoXing(it) })
+                    allUnifiedCourses = uCourses
+
+                    // 合并公告
+                    val uBulletins = mutableListOf<UnifiedBulletin>()
+                    uBulletins.addAll(allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                    uBulletins.addAll(cxNotices)
+                    uBulletins.sortByDescending { it.publishMillis }
+                    allUnifiedBulletins = uBulletins
+
+                    renderCurrentPlatformFilteredData()
+                } else {
+                    val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                    allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                    allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
+                    allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                    renderCurrentPlatformFilteredData()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "ChaoXing aggregate fetch failed: ${e.message}", e)
+                val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
+                allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                renderCurrentPlatformFilteredData()
             }
         }
     }

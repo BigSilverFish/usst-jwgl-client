@@ -1,5 +1,9 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -7,20 +11,30 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.model.LearningPlatform
 import cn.edu.usst.jwgl.data.model.TronClassBulletin
+import cn.edu.usst.jwgl.data.model.UnifiedBulletin
 import cn.edu.usst.jwgl.databinding.ItemTronclassBulletinBinding
 import com.google.android.material.card.MaterialCardView
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
 
 class TronClassBulletinAdapter(
-    private var items: List<TronClassBulletin> = emptyList(),
-    private val onItemClick: ((TronClassBulletin) -> Unit)? = null
+    private val onTronClassClick: ((TronClassBulletin) -> Unit)? = null
 ) : RecyclerView.Adapter<TronClassBulletinAdapter.BulletinViewHolder>() {
 
+    private var items: List<UnifiedBulletin> = emptyList()
+    var isMultiPlatformMode: Boolean = false
+    var onChaoXingClickListener: ((UnifiedBulletin) -> Unit)? = null
+    var onUnifiedClickListener: ((UnifiedBulletin) -> Unit)? = null
+
     fun updateData(newItems: List<TronClassBulletin>) {
-        items = newItems
+        this.items = newItems.map { UnifiedBulletin.fromTronClass(it) }
+        this.isMultiPlatformMode = false
+        notifyDataSetChanged()
+    }
+
+    fun updateUnifiedData(newItems: List<UnifiedBulletin>, multiPlatform: Boolean = false) {
+        this.items = newItems
+        this.isMultiPlatformMode = multiPlatform
         notifyDataSetChanged()
     }
 
@@ -42,27 +56,39 @@ class TronClassBulletinAdapter(
     inner class BulletinViewHolder(private val binding: ItemTronclassBulletinBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(b: TronClassBulletin) {
-            val cName = b.courseName?.trim()
-            if (!cName.isNullOrBlank()) {
+        fun bind(b: UnifiedBulletin) {
+            val context = binding.root.context
+
+            // 1. 课程名外标签 (有课程名时显示，无时隐藏)
+            val cName = b.courseName.trim()
+            if (cName.isNotBlank() && cName != "全校通知") {
                 binding.layoutBulletinCourseTag.visibility = View.VISIBLE
                 binding.tvBulletinCourseName.text = cName
             } else {
                 binding.layoutBulletinCourseTag.visibility = View.GONE
             }
 
-            binding.tvBulletinTitle.text = if (!b.title.isNullOrBlank()) b.title else "课程通知"
+            // 2. 标题行与平台微徽标
+            if (isMultiPlatformMode) {
+                val badgeText = if (b.platform.isChaoXing) "【学习通】" else "【畅课】"
+                val badgeColor = b.platform.getBrandColor()
+                val ssb = SpannableStringBuilder(badgeText).apply {
+                    setSpan(ForegroundColorSpan(badgeColor), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(StyleSpan(android.graphics.Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                ssb.append(b.title.ifBlank { "课程通知" })
+                binding.tvBulletinTitle.text = ssb
+            } else {
+                binding.tvBulletinTitle.text = b.title.ifBlank { "课程通知" }
+            }
 
-            val dateStr = formatIsoDate(b.createdAt)
-            binding.tvBulletinDate.text = dateStr
+            binding.tvBulletinDate.text = b.publishTimeText ?: ""
 
-            val rawContent = b.content ?: ""
-            val cleanText = TronClassHtmlHelper.getCleanText(rawContent)
-            binding.tvBulletinContent.text = cleanText.ifBlank { "（包含图片或表格内容，点击查看详情）" }
+            // 3. 正文摘要纯文本
+            binding.tvBulletinContent.text = b.cleanContent.ifBlank { "（包含图片或表格内容，点击查看详情）" }
 
-            val imageUrls = TronClassHtmlHelper.extractImageUrls(rawContent)
-            val context = binding.root.context
-
+            // 4. 附图与缩略图预览
+            val imageUrls = b.imageUrls
             if (imageUrls.isEmpty()) {
                 binding.layoutImagesPreview.visibility = View.GONE
             } else if (imageUrls.size == 1) {
@@ -121,24 +147,28 @@ class TronClassBulletinAdapter(
                 }
             }
 
+            // 5. 双轨点击分发
             binding.root.setOnClickListener {
-                onItemClick?.invoke(b)
-            }
-        }
-
-        private fun formatIsoDate(iso: String?): String {
-            if (iso.isNullOrBlank()) return ""
-            return try {
-                val inFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                    timeZone = TimeZone.getTimeZone("UTC")
+                if (onUnifiedClickListener != null) {
+                    onUnifiedClickListener?.invoke(b)
+                } else {
+                    when (b.platform) {
+                        LearningPlatform.TRONCLASS -> {
+                            val raw = b.rawTronClassBulletin ?: TronClassBulletin(
+                                id = b.originalBulletinId.toLongOrNull() ?: 0L,
+                                courseId = b.originalCourseId.toLongOrNull() ?: 0L,
+                                title = b.title,
+                                content = b.content,
+                                courseName = b.courseName,
+                                createdAt = b.publishTimeText
+                            )
+                            onTronClassClick?.invoke(raw)
+                        }
+                        LearningPlatform.CHAOXING -> {
+                            onChaoXingClickListener?.invoke(b)
+                        }
+                    }
                 }
-                val date = inFormat.parse(iso)
-                val outFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).apply {
-                    timeZone = TimeZone.getDefault()
-                }
-                if (date != null) outFormat.format(date) else iso
-            } catch (e: Exception) {
-                iso.take(10)
             }
         }
     }
