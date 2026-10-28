@@ -3,7 +3,9 @@ package cn.edu.usst.jwgl.ui.tronclass
 import android.app.Activity.RESULT_OK
 import android.app.ProgressDialog
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -354,16 +356,17 @@ class TronClassFragment : Fragment() {
             triggerSmartRollcall()
         }
 
+        binding.llTronClassHeroRollcall.setOnClickListener {
+            triggerSmartRollcall()
+        }
+
         binding.btnTronClassLoginPrompt.setOnClickListener {
             promptTronClassLogin()
         }
 
-        binding.btnTronClassQuickSign.setOnClickListener {
-            triggerSmartRollcall()
-        }
-
         binding.swipeRefreshTronClass.isEnabled = false
         updateTronClassUserHeader()
+        updateHeroCardAndSignButtonState()
     }
 
     private fun setupBackStackListener() {
@@ -555,26 +558,10 @@ class TronClassFragment : Fragment() {
                 }
             }
 
-            // 3. 处理正在进行的课堂签到
+            // 3. 处理正在进行的课堂签到（合并在顶部 Hero 卡片中展示：有签到时卡片变绿并在底部显示签到课程）
             if (rollcallsRes.isSuccess) {
                 tronClassActiveRollcalls = rollcallsRes.getOrDefault(emptyList())
-                if (tronClassActiveRollcalls.isNotEmpty()) {
-                    val r = tronClassActiveRollcalls.first()
-                    b.cardTronClassActiveRollcall.visibility = View.VISIBLE
-                    val typeDesc = r.getTypeDisplayName()
-                    val btnText = when (r.getNormalizedType()) {
-                        "number" -> "口令签到"
-                        "radar" -> "雷达签到"
-                        "self_registration" -> "自主签到"
-                        else -> "扫码签到"
-                    }
-                    b.tvTronClassActiveRollcallInfo.text = "课程: ${r.courseName ?: "课堂教学"} · $typeDesc"
-                    b.btnTronClassQuickSign.text = btnText
-                    updateSmartSignButtonState()
-                } else {
-                    b.cardTronClassActiveRollcall.visibility = View.GONE
-                    updateSmartSignButtonState()
-                }
+                updateHeroCardAndSignButtonState()
             } else {
                 val err = rollcallsRes.exceptionOrNull()
                 Log.w(TAG, "Failed to fetch rollcalls: ${err?.message}", err)
@@ -1077,19 +1064,66 @@ class TronClassFragment : Fragment() {
             .show()
     }
 
-    private fun updateSmartSignButtonState() {
+    private fun updateHeroCardAndSignButtonState() {
         val b = _binding ?: return
+        val ctx = context ?: return
         val active = tronClassActiveRollcalls.firstOrNull()
+        val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
         if (active != null) {
+            // 当有签到时：卡片背景变绿，底部显示正在签到的课程
+            val greenBg = if (isDark) Color.parseColor("#1B4D2E") else Color.parseColor("#15803D")
+            val btnTextColor = if (isDark) Color.parseColor("#1B4D2E") else Color.parseColor("#15803D")
+
+            b.cardTronClassHero.setCardBackgroundColor(ColorStateList.valueOf(greenBg))
+            b.btnTronClassSmartSign.backgroundTintList = ColorStateList.valueOf(Color.WHITE)
+            b.btnTronClassSmartSign.strokeColor = ColorStateList.valueOf(Color.WHITE)
+            b.btnTronClassSmartSign.setTextColor(btnTextColor)
+            b.btnTronClassSmartSign.iconTint = ColorStateList.valueOf(btnTextColor)
+
             when (active.getNormalizedType()) {
-                "radar" -> b.btnTronClassSmartSign.text = "📡 雷达签到"
-                "number" -> b.btnTronClassSmartSign.text = "🔢 口令签到"
-                "self_registration" -> b.btnTronClassSmartSign.text = "✍️ 自主签到"
-                else -> b.btnTronClassSmartSign.text = "📷 扫码签到"
+                "radar" -> {
+                    b.btnTronClassSmartSign.text = "📡 雷达签到"
+                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_radar)
+                }
+                "number" -> {
+                    b.btnTronClassSmartSign.text = "🔢 口令签到"
+                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_format_size)
+                }
+                "self_registration" -> {
+                    b.btnTronClassSmartSign.text = "✍️ 自主签到"
+                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_edit)
+                }
+                else -> {
+                    b.btnTronClassSmartSign.text = "📷 扫码签到"
+                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
+                }
             }
+
+            b.llTronClassHeroRollcall.visibility = View.VISIBLE
+            val typeDesc = active.getTypeDisplayName()
+            b.tvTronClassHeroRollcallCourse.text = "当前签到：${active.courseName ?: "课堂教学"} · $typeDesc"
+
         } else {
+            // 无签到时：卡片恢复为默认红色，隐藏底部签到课程条
+            val redBg = if (isDark) Color.parseColor("#4A151B") else ContextCompat.getColor(ctx, R.color.primary)
+            val redBtnTextColor = if (isDark) Color.parseColor("#8C1D27") else ContextCompat.getColor(ctx, R.color.primary)
+
+            b.cardTronClassHero.setCardBackgroundColor(ColorStateList.valueOf(redBg))
+            b.btnTronClassSmartSign.backgroundTintList = ColorStateList.valueOf(Color.WHITE)
+            b.btnTronClassSmartSign.strokeColor = ColorStateList.valueOf(Color.WHITE)
+            b.btnTronClassSmartSign.setTextColor(redBtnTextColor)
+            b.btnTronClassSmartSign.iconTint = ColorStateList.valueOf(redBtnTextColor)
+
             b.btnTronClassSmartSign.text = "⚡ 课堂签到"
+            b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
+
+            b.llTronClassHeroRollcall.visibility = View.GONE
         }
+    }
+
+    private fun updateSmartSignButtonState() {
+        updateHeroCardAndSignButtonState()
     }
 
     override fun onDestroyView() {
