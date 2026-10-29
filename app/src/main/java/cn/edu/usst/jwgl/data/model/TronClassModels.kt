@@ -209,6 +209,18 @@ data class TronClassRollcall(
     @SerializedName("is_radar")
     val isRadar: Boolean = false,
 
+    @SerializedName("latitude")
+    val latitude: Double? = null,
+
+    @SerializedName("longitude")
+    val longitude: Double? = null,
+
+    @SerializedName("scope")
+    val scope: Double? = null,
+
+    @SerializedName("classroom")
+    val classroom: String? = null,
+
     @SerializedName("created_at")
     val createdAt: String? = null
 ) : Serializable {

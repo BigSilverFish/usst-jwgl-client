@@ -157,4 +157,20 @@ class CoordinateUtilsTest {
         assertEquals(31.289567, yk?.latitude ?: 0.0, 0.000001)
         assertEquals(121.534146, yk?.longitude ?: 0.0, 0.000001)
     }
+
+    @Test
+    fun testFindNearestBuilding_RealPhoneLocationNearBuilding3() {
+        // 真机在三教实测物理定位 (WGS-84 原生坐标)
+        val phoneWgsLat = 31.297542
+        val phoneWgsLng = 121.553112
+
+        val (nearest, dist) = CoordinateUtils.findNearestBuildingFromWgs84(phoneWgsLat, phoneWgsLng)
+        assertEquals("b_516_3j_w", nearest.id)
+        assertTrue("物理距离应在35米之内 (实测28.8米)，当前为: $dist", dist < 35.0)
+
+        // 直接传入 GCJ-02 坐标测试
+        val (nearestGcj, distGcj) = CoordinateUtils.findNearestBuilding(nearest.latitude, nearest.longitude)
+        assertEquals("b_516_3j_w", nearestGcj.id)
+        assertEquals(0.0, distGcj, 0.0001)
+    }
 }

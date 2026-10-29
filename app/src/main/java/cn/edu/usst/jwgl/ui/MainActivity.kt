@@ -812,10 +812,19 @@ class MainActivity : AppCompatActivity() {
             val rId = intent.getLongExtra("extra_rollcall_id", 0L)
             val cName = intent.getStringExtra("extra_course_name")
             val room = intent.getStringExtra("extra_classroom")
+            val tLat = if (intent.hasExtra("extra_latitude")) intent.getDoubleExtra("extra_latitude", 0.0).takeIf { it != 0.0 } else null
+            val tLng = if (intent.hasExtra("extra_longitude")) intent.getDoubleExtra("extra_longitude", 0.0).takeIf { it != 0.0 } else null
+            val tScope = if (intent.hasExtra("extra_scope")) intent.getDoubleExtra("extra_scope", 0.0).takeIf { it != 0.0 } else null
             switchTab(MainTab.TRONCLASS)
             binding.root.postDelayed({
-                cn.edu.usst.jwgl.ui.tronclass.RadarRollcallBottomSheetDialog.newInstance(rId, cName, room)
-                    .show(supportFragmentManager, "RadarRollcallBottomSheet")
+                cn.edu.usst.jwgl.ui.tronclass.RadarRollcallBottomSheetDialog.newInstance(
+                    rollcallId = rId,
+                    courseName = cName,
+                    classroom = room,
+                    teacherLat = tLat,
+                    teacherLng = tLng,
+                    teacherScope = tScope
+                ).show(supportFragmentManager, "RadarRollcallBottomSheet")
             }, 250)
         }
 

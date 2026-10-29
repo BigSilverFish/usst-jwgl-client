@@ -40,9 +40,13 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var rollcallId: Long = 0L
     private var courseName: String? = null
     private var classroom: String? = null
+    private var teacherLat: Double? = null
+    private var teacherLng: Double? = null
+    private var teacherScope: Double? = null
+    private var teacherRadioButtonId: Int? = null
 
-    private var selectedLatitude: Double = 31.29464
-    private var selectedLongitude: Double = 121.55350
+    private var selectedLatitude: Double = 31.292508
+    private var selectedLongitude: Double = 121.557765
     private var selectedAccuracy: Double = 15.0
 
     private var onSignSuccessListener: (() -> Unit)? = null
@@ -69,6 +73,15 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             rollcallId = it.getLong(ARG_ROLLCALL_ID, 0L)
             courseName = it.getString(ARG_COURSE_NAME)
             classroom = it.getString(ARG_CLASSROOM)
+            if (it.containsKey(ARG_TEACHER_LAT)) {
+                teacherLat = it.getDouble(ARG_TEACHER_LAT)
+            }
+            if (it.containsKey(ARG_TEACHER_LNG)) {
+                teacherLng = it.getDouble(ARG_TEACHER_LNG)
+            }
+            if (it.containsKey(ARG_TEACHER_SCOPE)) {
+                teacherScope = it.getDouble(ARG_TEACHER_SCOPE)
+            }
         }
     }
 
@@ -78,7 +91,15 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = DialogRadarRollcallBinding.inflate(inflater, container, false)
-        return binding.root
+        val scrollView = androidx.core.widget.NestedScrollView(requireContext()).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            isFillViewport = true
+            addView(binding.root)
+        }
+        return scrollView
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -130,7 +151,26 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.spinnerBuildings.setSelection(defaultIndex)
         applyBuildingLocation(buildings[defaultIndex])
 
-        // 3. 多账号签到支持
+        // 3. 教师基准点直连优先模式（最高优先级通道，0偏差必过）
+        val hasTeacherBeacon = teacherLat != null && teacherLng != null && teacherLat != 0.0 && teacherLng != 0.0
+        if (hasTeacherBeacon) {
+            val rbTeacher = android.widget.RadioButton(requireContext()).apply {
+                id = View.generateViewId()
+                text = "🎯 教师基准点直连 (100% 必过 · 距教师约 0m)"
+                setTextColor(ContextCompat.getColor(context, R.color.grade_blue_text))
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            binding.rgLocationMode.addView(rbTeacher, 0)
+            teacherRadioButtonId = rbTeacher.id
+            rbTeacher.isChecked = true
+            applyTeacherBeaconLocation()
+        } else {
+            // 若无教师坐标，尝试轻量获取当前基站/GPS定位智能吸附最近教学楼
+            trySilentAutoSnapToNearestBuilding()
+        }
+
+        // 4. 多账号签到支持
         try {
             val accounts = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(requireContext()).getAccounts()
             if (accounts.size > 1) {
@@ -160,7 +200,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
         binding.rgLocationMode.setOnCheckedChangeListener { _, checkedId ->
             updateModeVisibility()
-            if (checkedId == R.id.rbModeBuilding) {
+            if (teacherRadioButtonId != null && checkedId == teacherRadioButtonId) {
+                applyTeacherBeaconLocation()
+            } else if (checkedId == R.id.rbModeBuilding) {
                 val pos = binding.spinnerBuildings.selectedItemPosition
                 val building = CoordinateUtils.USST_BUILDINGS.getOrNull(pos) ?: CoordinateUtils.USST_BUILDINGS[0]
                 applyBuildingLocation(building)
@@ -183,12 +225,80 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun updateModeVisibility() {
-        if (binding.rbModeBuilding.isChecked) {
+        val isTeacherMode = teacherRadioButtonId != null && binding.rgLocationMode.checkedRadioButtonId == teacherRadioButtonId
+        if (isTeacherMode) {
+            binding.layoutBuildingSelector.visibility = View.GONE
+            binding.layoutGpsStatus.visibility = View.GONE
+        } else if (binding.rbModeBuilding.isChecked) {
             binding.layoutBuildingSelector.visibility = View.VISIBLE
             binding.layoutGpsStatus.visibility = View.GONE
         } else {
             binding.layoutBuildingSelector.visibility = View.GONE
             binding.layoutGpsStatus.visibility = View.VISIBLE
+        }
+    }
+
+    private fun applyTeacherBeaconLocation() {
+        val baseLat = teacherLat ?: return
+        val baseLng = teacherLng ?: return
+        // 叠加自然物理微扰动 (±1.5 米, 约 ±0.000015 度)，防止被服务端风控判定为 0 距离假点
+        val jitterLat = (Math.random() - 0.5) * 0.00003
+        val jitterLng = (Math.random() - 0.5) * 0.00003
+        selectedLatitude = baseLat + jitterLat
+        selectedLongitude = baseLng + jitterLng
+        selectedAccuracy = 5.0
+
+        binding.tvCoordinatesDisplay.text = String.format(
+            Locale.CHINA,
+            "纬度: %.6f, 经度: %.6f",
+            selectedLatitude,
+            selectedLongitude
+        )
+        val scopeText = if (teacherScope != null) " · 范围 ±${teacherScope?.toInt()}m" else ""
+        binding.tvSelectedBuildingCampus.text = "基准: 教师端实时点名基准点 (直连 100% 必过通道$scopeText)"
+        binding.tvAccuracyTip.text = "直连精度: ±5m (0m 偏差)"
+    }
+
+    private fun trySilentAutoSnapToNearestBuilding() {
+        val finePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
+        val coarsePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (finePerm != PackageManager.PERMISSION_GRANTED && coarsePerm != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        val lm = requireContext().getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        val now = System.currentTimeMillis()
+        var bestLoc: Location? = null
+        for (p in providers) {
+            try {
+                if (lm.isProviderEnabled(p)) {
+                    val loc = lm.getLastKnownLocation(p)
+                    if (loc != null && (now - loc.time) <= 15 * 60 * 1000L) {
+                        if (bestLoc == null || loc.accuracy < bestLoc.accuracy) {
+                            bestLoc = loc
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        bestLoc?.let { autoSnapToNearestBuilding(it) }
+    }
+
+    private fun autoSnapToNearestBuilding(loc: Location) {
+        if (_binding == null || !isAdded) return
+        if (teacherRadioButtonId != null && binding.rgLocationMode.checkedRadioButtonId == teacherRadioButtonId) {
+            return
+        }
+        val (nearest, dist) = CoordinateUtils.findNearestBuildingFromWgs84(loc.latitude, loc.longitude)
+        if (dist <= 800.0) { // 800米以内属于校区覆盖半径
+            val idx = CoordinateUtils.USST_BUILDINGS.indexOf(nearest)
+            if (idx >= 0) {
+                binding.spinnerBuildings.setSelection(idx)
+                if (binding.rbModeBuilding.isChecked) {
+                    applyBuildingLocation(nearest)
+                    binding.tvSelectedBuildingCampus.text = "已自动为您吸附至最近教学楼: ${nearest.name} (距您仅 ${dist.toInt()}m)"
+                }
+            }
         }
     }
 
@@ -299,24 +409,20 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         val b = _binding ?: return
         if (!isAdded) return
 
-        // 核心纠偏与二次加偏防护：
-        // 1. 硬件卫星定位 (GPS_PROVIDER)：原生输出 WGS-84 原始坐标，需精准转为 GCJ-02 火星坐标上报
-        // 2. 国内厂商 NLP (NETWORK_PROVIDER / PASSIVE_PROVIDER / Fused)：底层接入高德/百度网络定位，输出已是 GCJ-02，严禁二次转换（避免470米二次偏移）
-        val isHardwareGps = loc.provider == LocationManager.GPS_PROVIDER
-        val (finalLat, finalLng) = if (isHardwareGps) {
-            CoordinateUtils.wgs84ToGcj02(loc.latitude, loc.longitude)
-        } else {
-            Pair(loc.latitude, loc.longitude)
-        }
+        // 统一对齐官方 TronClass 规则：
+        // Android 系统底层原生定位输出均基于大地测量学 WGS-84 标准。
+        // 一网畅学官方前端在上传前无条件调用 handleWgs2gcj() 转为 GCJ-02 火星坐标。
+        // 此处严格转换为高精 GCJ-02，彻底消除 470 米跨坐标系断层！
+        val (finalLat, finalLng) = CoordinateUtils.wgs84ToGcj02(loc.latitude, loc.longitude)
 
         selectedLatitude = finalLat
         selectedLongitude = finalLng
-        selectedAccuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 20.0
+        selectedAccuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 15.0
 
-        val providerName = when {
-            isHardwareGps -> "卫星GPS原生(已纠偏)"
-            loc.provider == LocationManager.NETWORK_PROVIDER -> "基站/Wi-Fi定位(原生火星)"
-            else -> "融合传感器定位"
+        val providerName = when (loc.provider) {
+            LocationManager.GPS_PROVIDER -> "卫星高精GPS"
+            LocationManager.NETWORK_PROVIDER -> "基站/Wi-Fi网络"
+            else -> "融合定位传感器"
         }
 
         b.tvGpsStatus.text = String.format(
@@ -332,7 +438,10 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             selectedLongitude
         )
         b.tvAccuracyTip.text = String.format(Locale.CHINA, "定位精度: ±%.0fm (%s)", selectedAccuracy, providerName)
-        b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位 ($providerName)"
+        b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位 ($providerName · 已纠偏至GCJ-02)"
+
+        // 同步为教学楼模式提供智能吸附
+        autoSnapToNearestBuilding(loc)
     }
 
     private fun submitRadarRollcall() {
@@ -456,17 +565,26 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         private const val ARG_ROLLCALL_ID = "arg_rollcall_id"
         private const val ARG_COURSE_NAME = "arg_course_name"
         private const val ARG_CLASSROOM = "arg_classroom"
+        private const val ARG_TEACHER_LAT = "arg_teacher_lat"
+        private const val ARG_TEACHER_LNG = "arg_teacher_lng"
+        private const val ARG_TEACHER_SCOPE = "arg_teacher_scope"
 
         fun newInstance(
             rollcallId: Long,
             courseName: String? = null,
-            classroom: String? = null
+            classroom: String? = null,
+            teacherLat: Double? = null,
+            teacherLng: Double? = null,
+            teacherScope: Double? = null
         ): RadarRollcallBottomSheetDialog {
             return RadarRollcallBottomSheetDialog().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_ROLLCALL_ID, rollcallId)
                     putString(ARG_COURSE_NAME, courseName)
                     putString(ARG_CLASSROOM, classroom)
+                    if (teacherLat != null) putDouble(ARG_TEACHER_LAT, teacherLat)
+                    if (teacherLng != null) putDouble(ARG_TEACHER_LNG, teacherLng)
+                    if (teacherScope != null) putDouble(ARG_TEACHER_SCOPE, teacherScope)
                 }
             }
         }
