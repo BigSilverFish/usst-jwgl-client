@@ -118,38 +118,30 @@ object CoordinateUtils {
      */
     val USST_BUILDINGS = listOf(
         // 本部北校区（军工路516号北区）- GCJ-02 真实火星坐标
-        CampusBuilding("b_516_1j_m", "一教中", "本部北校区", 31.292508, 121.557765, listOf("一教中", "一教中区", "第一教学楼中")),
-        CampusBuilding("b_516_1j_e", "一教东", "本部北校区", 31.292667, 121.558364, listOf("一教东", "一教东区", "第一教学楼东")),
-        CampusBuilding("b_516_1j_w", "一教西", "本部北校区", 31.292069, 121.557436, listOf("一教西", "一教西区", "第一教学楼西")),
-        CampusBuilding("b_516_3j_e", "三教东", "本部北校区", 31.295819, 121.558035, listOf("三教东", "三教东区", "第三教学楼东")),
-        CampusBuilding("b_516_3j_w", "三教西", "本部北校区", 31.295600, 121.557586, listOf("三教西", "三教西区", "第三教学楼西")),
-        // 综合楼A/B/C/D区为四座相互独立的教学楼
-        CampusBuilding("b_516_zh_a", "综合楼A区", "本部北校区", 31.290733, 121.554972, listOf("综合楼A区", "综合楼A", "综A", "综楼A", "综合A", "教学综合楼A区", "教学综合楼A")),
-        CampusBuilding("b_516_zh_b", "综合楼B区", "本部北校区", 31.291172, 121.555632, listOf("综合楼B区", "综合楼B", "综B", "综楼B", "综合B", "教学综合楼B区", "教学综合楼B")),
-        CampusBuilding("b_516_zh_c", "综合楼C区", "本部北校区", 31.290283, 121.555392, listOf("综合楼C区", "综合楼C", "综C", "综楼C", "综合C", "教学综合楼C区", "教学综合楼C")),
-        CampusBuilding("b_516_zh_d", "综合楼D区", "本部北校区", 31.290723, 121.555722, listOf("综合楼D区", "综合楼D", "综D", "综楼D", "综合D", "教学综合楼D区", "教学综合楼D")),
-        CampusBuilding("b_516_ggsy", "公共实验楼", "本部北校区", 31.291491, 121.557070, listOf("公共实验楼", "公实楼", "实验楼")),
-        CampusBuilding("b_516_jsz", "计算中心", "本部北校区", 31.296161, 121.557007, listOf("计算中心", "计算机中心", "机房")),
-        CampusBuilding("b_516_gys", "光仪所", "本部北校区", 31.294073, 121.555799, listOf("光仪所", "上海光学仪器研究所", "光仪所辅房")),
-        CampusBuilding("b_516_580_ty", "580体育活动中心", "本部北校区", 31.293365, 121.554271, listOf("580体育活动中心", "580体育馆", "580操场", "体育活动中心", "体育馆", "风雨操场")),
-        CampusBuilding("b_516_xty", "新体育健身中心", "本部北校区", 31.291970, 121.559994, listOf("新体育健身中心", "健身中心", "新体育中心", "体育健身中心")),
-        CampusBuilding("b_516_bxty", "北校田径场", "本部北校区", 31.291990, 121.559005, listOf("北校田径场", "北田径场", "北区操场", "北操", "北操场")),
+        CampusBuilding("b_516_1j_e", "一教东", "本部北校区", 31.291731, 121.556084, listOf("一教东", "一教东区", "第一教学楼东", "一教中", "第一教学楼中")),
+        CampusBuilding("b_516_1j_w", "一教西", "本部北校区", 31.291376, 121.555443, listOf("一教西", "一教西区", "第一教学楼西")),
+        CampusBuilding("b_516_3j_e", "三教", "本部北校区", 31.294850, 121.555663, listOf("三教", "第三教学楼", "3教", "三教东", "三教西", "三教东区", "三教西区", "第三教学楼东", "第三教学楼西")),
+        CampusBuilding("b_516_zh_a", "综合楼A区", "本部北校区", 31.290008, 121.552855, listOf("综合楼A区", "综合楼A", "综A", "综楼A", "综合A", "教学综合楼A区", "教学综合楼A")),
+        CampusBuilding("b_516_zh_b", "综合楼B区", "本部北校区", 31.290425, 121.553512, listOf("综合楼B区", "综合楼B", "综B", "综楼B", "综合B", "教学综合楼B区", "教学综合楼B")),
+        CampusBuilding("b_516_zh_c", "综合楼C区", "本部北校区", 31.289549, 121.553327, listOf("综合楼C区", "综合楼C", "综C", "综楼C", "综合C", "教学综合楼C区", "教学综合楼C")),
+        CampusBuilding("b_516_zh_d", "综合楼D区", "本部北校区", 31.289939, 121.553901, listOf("综合楼D区", "综合楼D", "综D", "综楼D", "综合D", "教学综合楼D区", "教学综合楼D")),
+        CampusBuilding("b_516_ggsy", "公共实验楼", "本部北校区", 31.290732, 121.554982, listOf("公共实验楼", "公实楼", "实验楼")),
+        CampusBuilding("b_516_jsz", "计算中心", "本部北校区", 31.295343, 121.554926, listOf("计算中心", "计算机中心", "机房")),
+        CampusBuilding("b_516_gys", "光仪所", "本部北校区", 31.293320, 121.553673, listOf("光仪所", "上海光学仪器研究所", "光仪所辅房")),
+        CampusBuilding("b_516_580_ty", "580体育活动中心", "本部北校区", 31.292575, 121.552187, listOf("580体育活动中心", "580体育馆", "580操场", "体育活动中心", "体育馆", "风雨操场")),
+        CampusBuilding("b_516_xty", "新体育健身中心", "本部北校区", 31.291248, 121.557887, listOf("新体育健身中心", "健身中心", "新体育中心", "体育健身中心")),
+        CampusBuilding("b_516_bxty", "北校田径场", "本部北校区", 31.291041, 121.556672, listOf("北校田径场", "北田径场", "北区操场", "北操", "北操场")),
 
         // 本部南校区（军工路516号南区）- GCJ-02 真实火星坐标
-        CampusBuilding("b_516_zy", "卓越楼", "本部南校区", 31.289548, 121.557047, listOf("卓越楼", "卓越", "卓越工程大楼")),
-        CampusBuilding("b_516_gh", "国合楼", "本部南校区", 31.288319, 121.558348, listOf("国合楼", "国合", "国际交流合作楼")),
-        CampusBuilding("b_516_4j_e", "四教东", "本部南校区", 31.287394, 121.559692, listOf("四教东", "四教东区", "第四教学楼东")),
-        CampusBuilding("b_516_4j_w", "四教西", "本部南校区", 31.287394, 121.559122, listOf("四教西", "四教西区", "第四教学楼西")),
+        CampusBuilding("b_516_zy", "卓越楼", "本部南校区", 31.288889, 121.554837, listOf("卓越楼", "卓越", "卓越工程大楼")),
+        CampusBuilding("b_516_gh", "国合楼", "本部南校区", 31.287511, 121.556312, listOf("国合楼", "国合", "国际交流合作楼")),
+        CampusBuilding("b_516_4j_w", "四教", "本部南校区", 31.286636, 121.557302, listOf("四教", "第四教学楼", "4教", "四教东", "四教西", "四教东区", "四教西区", "第四教学楼东", "第四教学楼西")),
 
-        // 军工路1100号校区 - GCJ-02 真实火星坐标
-        CampusBuilding("b_1100_qx", "勤学楼", "军工路1100号", 31.300310, 121.548769, listOf("勤学", "勤学楼")),
-        CampusBuilding("b_1100_bx", "博学楼", "军工路1100号", 31.300329, 121.549289, listOf("博学", "博学楼")),
-        CampusBuilding("b_1100_lx", "乐学楼", "军工路1100号", 31.300100, 121.548689, listOf("乐学", "乐学楼")),
-        CampusBuilding("b_1100_gw", "格物楼", "军工路1100号", 31.300612, 121.548028, listOf("格物", "格物楼")),
-        CampusBuilding("b_1100_dl", "达理楼", "军工路1100号", 31.300081, 121.548109, listOf("达理", "达理楼", "1100号图书馆", "1100图")),
-        CampusBuilding("b_1100_hd", "1100学生活动中心", "军工路1100号", 31.300690, 121.548569, listOf("1100学生活动中心", "1100学活", "学生活动中心", "学活")),
-        CampusBuilding("b_1100_jt", "1100申阶梯", "军工路1100号", 31.301170, 121.549219, listOf("1100申阶梯", "申阶梯", "阶梯教室")),
-        CampusBuilding("b_1100_ty", "1100体育活动中心", "军工路1100号", 31.300769, 121.549278, listOf("1100体育活动中心", "1100乒操馆", "乒操馆", "1100体育馆")),
+        // 军工路1100号校区 - GCJ-02 真实火星坐标（精简合并点位）
+        CampusBuilding("b_1100_bx", "博学楼", "军工路1100号", 31.299551, 121.547103, listOf("博学楼", "博学")),
+        CampusBuilding("b_1100_dl", "达理楼·勤学楼·乐学楼", "军工路1100号", 31.299427, 121.546237, listOf("达理楼", "达理", "勤学楼", "勤学", "乐学楼", "乐学", "1100号图书馆", "1100图", "1100图书馆")),
+        CampusBuilding("b_1100_hd", "格物楼·1100学生活动中心", "军工路1100号", 31.299917, 121.546015, listOf("格物楼", "格物", "1100学生活动中心", "学生活动中心", "1100学活", "学活")),
+        CampusBuilding("b_1100_jt", "1100申阶梯·体育活动中心", "军工路1100号", 31.300101, 121.547137, listOf("1100申阶梯", "申阶梯", "阶梯教室", "1100体育活动中心", "1100乒操馆", "乒操馆", "1100体育馆", "体育活动中心", "体育馆")),
 
         // 外校区教学楼（GCJ-02实测坐标）
         CampusBuilding("b_fx_jxl", "复兴路教学楼", "复兴路校区", 31.211925, 121.460448, listOf("复兴路教学楼", "复兴路", "复兴校区", "复兴教学楼")),
@@ -178,50 +170,45 @@ object CoordinateUtils {
             if (lower.contains(alias.lowercase())) return b
         }
 
-        // 3. 多覆盖点单体建筑智能分流（一教、三教、四教是单栋大体量建筑，多个点位用于解决定位覆盖度问题）
+        // 3. 专属单体与组合楼宇智能规则分流
         val roomOffset = extractRoomOffset(lower)
 
-        // 3.1 第一教学楼（一教）：东、中、西多点覆盖
+        // 3.1 第一教学楼（一教）：东、西双点高精覆盖
         if (lower.contains("一教") || lower.contains("第一教学楼") || lower.contains("1教")) {
-            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_1j_e" }
             if (lower.contains("西")) return USST_BUILDINGS.find { it.id == "b_516_1j_w" }
-            if (lower.contains("中")) return USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_1j_e" }
             if (roomOffset != null) {
-                return when {
-                    roomOffset <= 19 -> USST_BUILDINGS.find { it.id == "b_516_1j_e" }
-                    roomOffset in 20..35 -> USST_BUILDINGS.find { it.id == "b_516_1j_m" }
-                    else -> USST_BUILDINGS.find { it.id == "b_516_1j_w" }
-                } ?: USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+                return if (roomOffset <= 25) {
+                    USST_BUILDINGS.find { it.id == "b_516_1j_e" }
+                } else {
+                    USST_BUILDINGS.find { it.id == "b_516_1j_w" }
+                } ?: USST_BUILDINGS.find { it.id == "b_516_1j_e" }
             }
-            return USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+            return USST_BUILDINGS.find { it.id == "b_516_1j_e" }
         }
 
-        // 3.2 第三教学楼（三教）：东、西多点覆盖
+        // 3.2 第三教学楼（三教）：单点统一覆盖
         if (lower.contains("三教") || lower.contains("第三教学楼") || lower.contains("3教")) {
-            if (lower.contains("西")) return USST_BUILDINGS.find { it.id == "b_516_3j_w" }
-            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_3j_e" }
-            if (roomOffset != null) {
-                return if (roomOffset <= 10) {
-                    USST_BUILDINGS.find { it.id == "b_516_3j_w" }
-                } else {
-                    USST_BUILDINGS.find { it.id == "b_516_3j_e" }
-                } ?: USST_BUILDINGS.find { it.id == "b_516_3j_e" }
-            }
             return USST_BUILDINGS.find { it.id == "b_516_3j_e" }
         }
 
-        // 3.3 第四教学楼（四教）：东、西多点覆盖
+        // 3.3 第四教学楼（四教）：单点统一覆盖
         if (lower.contains("四教") || lower.contains("第四教学楼") || lower.contains("4教")) {
-            if (lower.contains("西")) return USST_BUILDINGS.find { it.id == "b_516_4j_w" }
-            if (lower.contains("东")) return USST_BUILDINGS.find { it.id == "b_516_4j_e" }
-            if (roomOffset != null) {
-                return if (roomOffset <= 12) {
-                    USST_BUILDINGS.find { it.id == "b_516_4j_w" }
-                } else {
-                    USST_BUILDINGS.find { it.id == "b_516_4j_e" }
-                } ?: USST_BUILDINGS.find { it.id == "b_516_4j_e" }
-            }
-            return USST_BUILDINGS.find { it.id == "b_516_4j_e" }
+            return USST_BUILDINGS.find { it.id == "b_516_4j_w" }
+        }
+
+        // 3.4 军工路1100号校区精简组团规则
+        if (lower.contains("达理") || lower.contains("勤学") || lower.contains("乐学")) {
+            return USST_BUILDINGS.find { it.id == "b_1100_dl" }
+        }
+        if (lower.contains("格物") || lower.contains("学活") || (lower.contains("1100") && lower.contains("活动"))) {
+            return USST_BUILDINGS.find { it.id == "b_1100_hd" }
+        }
+        if (lower.contains("申阶梯") || lower.contains("阶梯") || (lower.contains("1100") && (lower.contains("体") || lower.contains("操")))) {
+            return USST_BUILDINGS.find { it.id == "b_1100_jt" }
+        }
+        if (lower.contains("博学")) {
+            return USST_BUILDINGS.find { it.id == "b_1100_bx" }
         }
 
         // 3.4 综合楼独立4座楼兜底（若未在别名命中，按分区字母匹配）
