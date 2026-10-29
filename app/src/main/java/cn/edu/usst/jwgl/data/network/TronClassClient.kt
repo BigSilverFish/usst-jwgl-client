@@ -679,10 +679,13 @@ class TronClassClient(private val context: Context) {
                 val jsonObj = try { JSONObject(body) } catch (e: Exception) { null }
                 val errCode = jsonObj?.optString("errorCode", "") ?: ""
                 val rawMsg = jsonObj?.optString("message", "") ?: ""
+                val distance = if (jsonObj?.has("distance") == true) jsonObj.optDouble("distance") else null
 
                 val friendlyMsg = when {
-                    errCode == "ROLLCALL_RADAR_OUT_OF_SCOPE" || rawMsg.contains("scope", ignoreCase = true) ->
-                        "当前定位超出签到有效范围，请靠近上课教室或选择正确教学楼基准"
+                    errCode == "ROLLCALL_RADAR_OUT_OF_SCOPE" || rawMsg.contains("scope", ignoreCase = true) -> {
+                        val distText = if (distance != null) " (相距约 ${distance.toInt()} 米)" else ""
+                        "当前定位超出签到有效范围$distText，请靠近教室或切换为教学楼基准模式"
+                    }
                     errCode == "RADAR_ROLLCALL_POSITION_INVALID" ->
                         "经纬度坐标为空或无效，请重新定位"
                     errCode == "ROLLCALL_DEVICE_ALREADY_IN_USE" ->
@@ -693,7 +696,7 @@ class TronClassClient(private val context: Context) {
                     resp.code == 404 -> "点名已结束或已关闭"
                     else -> "签到失败 (${resp.code})"
                 }
-                Result.success(RollcallSubmitResult(false, friendlyMsg))
+                Result.success(RollcallSubmitResult(false, friendlyMsg, distance = distance))
             }
         } catch (e: Exception) {
             Log.e(TAG, "answerRadarRollcall error", e)

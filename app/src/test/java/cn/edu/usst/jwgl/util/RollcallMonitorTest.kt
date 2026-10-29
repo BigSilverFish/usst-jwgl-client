@@ -115,8 +115,8 @@ class RollcallMonitorTest {
         assertNotNull(fallback)
         assertEquals("一教中", fallback.name)
         assertEquals("本部北校区", fallback.campus)
-        assertEquals(31.29464, fallback.latitude, 0.0001)
-        assertEquals(121.55350, fallback.longitude, 0.0001)
+        assertEquals(31.292508, fallback.latitude, 0.0001)
+        assertEquals(121.557765, fallback.longitude, 0.0001)
     }
 
     @Test

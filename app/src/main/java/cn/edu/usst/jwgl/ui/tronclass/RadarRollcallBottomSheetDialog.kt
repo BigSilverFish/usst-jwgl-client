@@ -233,6 +233,8 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         }
 
         var bestLocation: Location? = null
+        val maxCacheAgeMs = 10 * 60 * 1000L // 只采纳10分钟以内的有效近期缓存，避免使用校外历史旧坐标
+        val now = System.currentTimeMillis()
 
         // 尝试从 GPS 和 Network 获取最近的已缓存位置
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
@@ -240,7 +242,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             try {
                 if (locationManager.isProviderEnabled(provider)) {
                     val loc = locationManager.getLastKnownLocation(provider)
-                    if (loc != null) {
+                    if (loc != null && (now - loc.time) <= maxCacheAgeMs) {
                         if (bestLocation == null || loc.accuracy < bestLocation.accuracy) {
                             bestLocation = loc
                         }
@@ -253,7 +255,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             handleReceivedLocation(bestLocation)
         }
 
-        // 同时发起一次实时单次定位监听以获得最新数据
+        // 同时发起实时单次定位监听以获得最新数据（并发向卫星和网络定位申请更新）
         try {
             val listener = object : LocationListener {
                 override fun onLocationChanged(loc: Location) {
@@ -272,10 +274,18 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             }
             activeLocationListener = listener
 
+            var updateRequested = false
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
-            } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                updateRequested = true
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener)
+                updateRequested = true
+            }
+
+            if (!updateRequested && bestLocation == null) {
+                binding.tvGpsStatus.text = "GPS与网络定位服务均未开启，请先在系统设置中开启定位"
             }
         } catch (e: Exception) {
             val b = _binding
@@ -288,15 +298,31 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private fun handleReceivedLocation(loc: Location) {
         val b = _binding ?: return
         if (!isAdded) return
-        // 原生 GPS 产生 WGS-84 坐标，必须转换为 GCJ-02 火星坐标上报
-        val (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(loc.latitude, loc.longitude)
-        selectedLatitude = gcjLat
-        selectedLongitude = gcjLng
+
+        // 核心纠偏与二次加偏防护：
+        // 1. 硬件卫星定位 (GPS_PROVIDER)：原生输出 WGS-84 原始坐标，需精准转为 GCJ-02 火星坐标上报
+        // 2. 国内厂商 NLP (NETWORK_PROVIDER / PASSIVE_PROVIDER / Fused)：底层接入高德/百度网络定位，输出已是 GCJ-02，严禁二次转换（避免470米二次偏移）
+        val isHardwareGps = loc.provider == LocationManager.GPS_PROVIDER
+        val (finalLat, finalLng) = if (isHardwareGps) {
+            CoordinateUtils.wgs84ToGcj02(loc.latitude, loc.longitude)
+        } else {
+            Pair(loc.latitude, loc.longitude)
+        }
+
+        selectedLatitude = finalLat
+        selectedLongitude = finalLng
         selectedAccuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 20.0
+
+        val providerName = when {
+            isHardwareGps -> "卫星GPS原生(已纠偏)"
+            loc.provider == LocationManager.NETWORK_PROVIDER -> "基站/Wi-Fi定位(原生火星)"
+            else -> "融合传感器定位"
+        }
 
         b.tvGpsStatus.text = String.format(
             Locale.CHINA,
-            "定位成功 (GPS原生转火星坐标，精度 ±%.0fm)",
+            "定位成功 (%s · 精度 ±%.0fm)",
+            providerName,
             selectedAccuracy
         )
         b.tvCoordinatesDisplay.text = String.format(
@@ -305,8 +331,8 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             selectedLatitude,
             selectedLongitude
         )
-        b.tvAccuracyTip.text = String.format(Locale.CHINA, "定位精度: ±%.0fm", selectedAccuracy)
-        b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位"
+        b.tvAccuracyTip.text = String.format(Locale.CHINA, "定位精度: ±%.0fm (%s)", selectedAccuracy, providerName)
+        b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位 ($providerName)"
     }
 
     private fun submitRadarRollcall() {
