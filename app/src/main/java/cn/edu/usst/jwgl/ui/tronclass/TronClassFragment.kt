@@ -28,11 +28,14 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
 import cn.edu.usst.jwgl.data.model.LearningPlatform
 import cn.edu.usst.jwgl.data.model.TronClassBulletin
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.TronClassTodo
+import cn.edu.usst.jwgl.data.model.UnifiedActiveRollcall
 import cn.edu.usst.jwgl.data.model.UnifiedBulletin
 import cn.edu.usst.jwgl.data.model.UnifiedCourse
 import cn.edu.usst.jwgl.data.model.UnifiedTodo
@@ -78,6 +81,8 @@ class TronClassFragment : Fragment() {
     private var currentSelectedSemester: String? = null
     private var tronClassCourseSearchQuery: String = ""
     private var tronClassActiveRollcalls: List<TronClassRollcall> = emptyList()
+    private var allUnifiedActiveRollcalls: List<UnifiedActiveRollcall> = emptyList()
+    private var cachedChaoXingCourses: List<ChaoXingCourse> = emptyList()
     private var isAutoAuthenticatingTronClass = false
 
     // 授权登录 Launcher
@@ -429,19 +434,146 @@ class TronClassFragment : Fragment() {
     }
 
     private fun showChaoXingTodoDialog(todo: UnifiedTodo) {
+        val ddlText = todo.getFormattedDeadline()
+        val remainText = todo.getRemainingTimeText()
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(todo.cleanTitle)
-            .setMessage("【超星学习通课程】${todo.cleanCourseName}\n\n截止时间：${todo.getFormattedDeadline()} (${todo.getRemainingTimeText()})\n\n状态：未完成待提交")
-            .setPositiveButton("我知道了", null)
+            .setMessage("【超星学习通课程】${todo.cleanCourseName}\n\n截止时间：$ddlText ($remainText)\n状态：未完成待提交\n\n点击「立即去完成」可免密直通超星移动端作业做题界面。")
+            .setPositiveButton("🚀 立即去完成") { _, _ ->
+                ChaoXingNavigator.openHomework(
+                    context = requireContext(),
+                    courseId = todo.originalCourseId,
+                    classId = todo.originalClassId,
+                    workId = todo.originalTodoId,
+                    title = todo.cleanTitle,
+                    detailUrl = todo.detailUrl
+                )
+            }
+            .setNegativeButton("稍后处理", null)
             .show()
     }
 
     private fun showChaoXingCourseDialog(course: UnifiedCourse) {
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(course.cleanName)
-            .setMessage("【超星学习通课程】\n\n授课教师：${course.teacherName.ifBlank { "教师" }}\n开课机构：${course.department ?: "上海理工大学"}\n班级编号：${course.originalClassId ?: ""}\n\n该课程相关作业已自动合并至「待办作业」流。")
-            .setPositiveButton("确定", null)
+            .setMessage("【超星学习通课程】\n\n授课教师：${course.teacherName.ifBlank { "任课教师" }}\n开课机构：${course.department ?: "上海理工大学"}\n班级编号：${course.originalClassId ?: "教学班"}\n\n点击「进入课程主页」可免密浏览课程章节、课件与教学互动。")
+            .setPositiveButton("📚 进入课程主页") { _, _ ->
+                ChaoXingNavigator.openCourse(
+                    context = requireContext(),
+                    courseId = course.originalCourseId,
+                    classId = course.originalClassId ?: "",
+                    courseName = course.cleanName
+                )
+            }
+            .setNeutralButton("⚡ 检查本课签到") { _, _ ->
+                checkChaoXingCourseSignSingle(course)
+            }
+            .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun checkChaoXingCourseSignSingle(course: UnifiedCourse) {
+        val ctx = context ?: return
+        val rawCx = course.rawChaoXingCourse ?: ChaoXingCourse(
+            courseId = course.originalCourseId,
+            classId = course.originalClassId ?: "",
+            courseName = course.cleanName,
+            teacherName = course.teacherName
+        )
+        val progress = ProgressDialog(ctx).apply {
+            setMessage("正在探测「${course.cleanName}」签到活动...")
+            setCancelable(false)
+            show()
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val res = chaoXingClient.fetchActiveSignsForCourses(listOf(rawCx))
+            progress.dismiss()
+            val signs = res.getOrDefault(emptyList())
+            if (signs.isNotEmpty()) {
+                val signPair = signs.first()
+                val activeItem = signPair.second
+                val typeName = (activeItem.nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("发现正在进行中的签到！")
+                    .setMessage("课程：${course.cleanName}\n类型：$typeName\n状态：进行中\n\n是否立即签到？")
+                    .setPositiveButton("立即签到") { _, _ ->
+                        performChaoXingSign(rawCx, activeItem)
+                    }
+                    .setNegativeButton("稍后", null)
+                    .show()
+            } else {
+                Toast.makeText(ctx, "「${course.cleanName}」当前暂无正在进行中的签到活动", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun performChaoXingSign(course: ChaoXingCourse, activeItem: ChaoXingActiveItem) {
+        val ctx = context ?: return
+        val signTypeName = (activeItem.nameTwo ?: "普通签到").replace("[", "").replace("]", "").trim()
+
+        if (signTypeName.contains("码") || signTypeName.contains("口令") || signTypeName.contains("数字")) {
+            val input = EditText(ctx).apply {
+                hint = "请输入签到码"
+                inputType = android.text.InputType.TYPE_CLASS_TEXT
+                setPadding(48, 36, 48, 36)
+            }
+            MaterialAlertDialogBuilder(ctx)
+                .setTitle("超星签到 · $signTypeName")
+                .setMessage("课程：${course.courseName}\n请输入教师给出的签到口令：")
+                .setView(input)
+                .setPositiveButton("提交签到") { _, _ ->
+                    val code = input.text.toString().trim()
+                    executeSubmitChaoXingSign(course, activeItem, enc = code)
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+
+        executeSubmitChaoXingSign(course, activeItem)
+    }
+
+    private fun executeSubmitChaoXingSign(course: ChaoXingCourse, activeItem: ChaoXingActiveItem, enc: String? = null) {
+        val ctx = context ?: return
+        val progress = ProgressDialog(ctx).apply {
+            setMessage("正在为「${course.courseName}」提交超星签到...")
+            setCancelable(false)
+            show()
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val signType = (activeItem.nameTwo ?: "普通签到").replace("[", "").replace("]", "").trim()
+            val res = chaoXingClient.submitSign(
+                courseId = course.courseId,
+                classId = course.classId,
+                activeId = activeItem.id,
+                signType = signType,
+                enc = enc,
+                latitude = 31.2936,
+                longitude = 121.5543,
+                address = "上海理工大学"
+            )
+            progress.dismiss()
+
+            res.onSuccess { result ->
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle(if (result.isSuccess) "签到成功 🎉" else "签到提示")
+                    .setMessage("课程：${course.courseName}\n活动：$signType\n反馈：${result.message}")
+                    .setPositiveButton("确定") { _, _ ->
+                        loadTronClassData(forceRefresh = true)
+                    }
+                    .show()
+            }.onFailure { err ->
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("签到提交异常")
+                    .setMessage("提交超星签到时发生异常：${err.message}\n请检查网络连接后重试。")
+                    .setPositiveButton("重试") { _, _ ->
+                        executeSubmitChaoXingSign(course, activeItem, enc)
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+        }
     }
 
     private fun showChaoXingNoticeDialog(bulletin: UnifiedBulletin) {
@@ -763,6 +895,47 @@ class TronClassFragment : Fragment() {
                     val cxCourses = cxCoursesDeferred.await()
                     val cxTodos = cxTodosDeferred.await()
                     val cxNotices = cxNoticesDeferred.await()
+                    cachedChaoXingCourses = cxCourses
+
+                    // 并发探测超星各门在修课程是否有进行中的签到
+                    val cxSignsDeferred = async {
+                        if (cxCourses.isNotEmpty()) {
+                            chaoXingClient.fetchActiveSignsForCourses(cxCourses).getOrDefault(emptyList())
+                        } else emptyList()
+                    }
+                    val cxSigns = cxSignsDeferred.await()
+
+                    // 双平台签到活动统一聚合
+                    val unifiedRollcalls = mutableListOf<UnifiedActiveRollcall>()
+                    tronClassActiveRollcalls.forEach { tc ->
+                        unifiedRollcalls.add(
+                            UnifiedActiveRollcall(
+                                unifiedId = "tc_${tc.getEffectiveId()}",
+                                platform = LearningPlatform.TRONCLASS,
+                                courseName = tc.courseName ?: "课堂教学",
+                                typeDisplayName = tc.getTypeDisplayName(),
+                                effectiveId = tc.getEffectiveId(),
+                                rawTronClassRollcall = tc
+                            )
+                        )
+                    }
+                    cxSigns.forEach { pair ->
+                        val course = pair.first
+                        val activeItem = pair.second
+                        val typeName = (activeItem.nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+                        unifiedRollcalls.add(
+                            UnifiedActiveRollcall(
+                                unifiedId = "cx_${activeItem.id}",
+                                platform = LearningPlatform.CHAOXING,
+                                courseName = course.courseName,
+                                typeDisplayName = typeName,
+                                effectiveId = activeItem.id,
+                                rawChaoXingSign = pair
+                            )
+                        )
+                    }
+                    allUnifiedActiveRollcalls = unifiedRollcalls
+                    updateHeroCardAndSignButtonState()
 
                     // 合并待办作业 (按时间升序混排)
                     val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
@@ -791,6 +964,17 @@ class TronClassFragment : Fragment() {
                     allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
                     allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
                     allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                    allUnifiedActiveRollcalls = tronClassActiveRollcalls.map { tc ->
+                        UnifiedActiveRollcall(
+                            unifiedId = "tc_${tc.getEffectiveId()}",
+                            platform = LearningPlatform.TRONCLASS,
+                            courseName = tc.courseName ?: "课堂教学",
+                            typeDisplayName = tc.getTypeDisplayName(),
+                            effectiveId = tc.getEffectiveId(),
+                            rawTronClassRollcall = tc
+                        )
+                    }
+                    updateHeroCardAndSignButtonState()
                     renderCurrentPlatformFilteredData()
                 }
             } catch (e: Exception) {
@@ -799,6 +983,17 @@ class TronClassFragment : Fragment() {
                 allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
                 allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
                 allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                allUnifiedActiveRollcalls = tronClassActiveRollcalls.map { tc ->
+                    UnifiedActiveRollcall(
+                        unifiedId = "tc_${tc.getEffectiveId()}",
+                        platform = LearningPlatform.TRONCLASS,
+                        courseName = tc.courseName ?: "课堂教学",
+                        typeDisplayName = tc.getTypeDisplayName(),
+                        effectiveId = tc.getEffectiveId(),
+                        rawTronClassRollcall = tc
+                    )
+                }
+                updateHeroCardAndSignButtonState()
                 renderCurrentPlatformFilteredData()
             }
         }
@@ -1064,35 +1259,82 @@ class TronClassFragment : Fragment() {
     }
 
     private fun triggerSmartRollcall() {
-        if (!tronClassClient.isLoggedIn()) {
-            promptTronClassLogin()
-            return
+        val active = allUnifiedActiveRollcalls.firstOrNull()
+        if (active != null) {
+            if (active.platform.isChaoXing && active.rawChaoXingSign != null) {
+                performChaoXingSign(active.rawChaoXingSign.first, active.rawChaoXingSign.second)
+                return
+            } else if (active.rawTronClassRollcall != null) {
+                dispatchRollcallByType(active.rawTronClassRollcall)
+                return
+            }
         }
 
-        val active = tronClassActiveRollcalls.firstOrNull()
-        if (active != null) {
-            dispatchRollcallByType(active)
+        if (!tronClassClient.isLoggedIn() && !chaoXingClient.isLoggedIn()) {
+            promptTronClassLogin()
             return
         }
 
         val ctx = context ?: return
         val progress = ProgressDialog(ctx).apply {
-            setMessage("正在探测是否有进行中的课堂签到...")
+            setMessage("正在探测双平台课堂签到活动...")
             setCancelable(false)
             show()
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val res = tronClassClient.fetchOngoingRollcalls()
+            val tcRollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
+            val cxSignsDeferred = async {
+                if (chaoXingClient.isLoggedIn() && cachedChaoXingCourses.isNotEmpty()) {
+                    chaoXingClient.fetchActiveSignsForCourses(cachedChaoXingCourses).getOrDefault(emptyList())
+                } else emptyList()
+            }
+
+            val tcRes = tcRollcallsDeferred.await()
+            val cxSigns = cxSignsDeferred.await()
             progress.dismiss()
 
-            val list = res.getOrDefault(emptyList())
-            tronClassActiveRollcalls = list
-            updateSmartSignButtonState()
+            val tcList = tcRes.getOrDefault(emptyList())
+            tronClassActiveRollcalls = tcList
 
-            val found = list.firstOrNull()
+            val unifiedRollcalls = mutableListOf<UnifiedActiveRollcall>()
+            tcList.forEach { tc ->
+                unifiedRollcalls.add(
+                    UnifiedActiveRollcall(
+                        unifiedId = "tc_${tc.getEffectiveId()}",
+                        platform = LearningPlatform.TRONCLASS,
+                        courseName = tc.courseName ?: "课堂教学",
+                        typeDisplayName = tc.getTypeDisplayName(),
+                        effectiveId = tc.getEffectiveId(),
+                        rawTronClassRollcall = tc
+                    )
+                )
+            }
+            cxSigns.forEach { pair ->
+                val course = pair.first
+                val activeItem = pair.second
+                val typeName = (activeItem.nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+                unifiedRollcalls.add(
+                    UnifiedActiveRollcall(
+                        unifiedId = "cx_${activeItem.id}",
+                        platform = LearningPlatform.CHAOXING,
+                        courseName = course.courseName,
+                        typeDisplayName = typeName,
+                        effectiveId = activeItem.id,
+                        rawChaoXingSign = pair
+                    )
+                )
+            }
+            allUnifiedActiveRollcalls = unifiedRollcalls
+            updateHeroCardAndSignButtonState()
+
+            val found = allUnifiedActiveRollcalls.firstOrNull()
             if (found != null) {
-                dispatchRollcallByType(found)
+                if (found.platform.isChaoXing && found.rawChaoXingSign != null) {
+                    performChaoXingSign(found.rawChaoXingSign.first, found.rawChaoXingSign.second)
+                } else if (found.rawTronClassRollcall != null) {
+                    dispatchRollcallByType(found.rawTronClassRollcall)
+                }
             } else {
                 showManualRollcallGuideDialog()
             }
@@ -1238,7 +1480,7 @@ class TronClassFragment : Fragment() {
     private fun updateHeroCardAndSignButtonState() {
         val b = _binding ?: return
         val ctx = context ?: return
-        val active = tronClassActiveRollcalls.firstOrNull()
+        val active = allUnifiedActiveRollcalls.firstOrNull()
         val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
         // 确保顶部卡片中的姓名与学号始终保持纯白高对比度文字
@@ -1256,28 +1498,35 @@ class TronClassFragment : Fragment() {
             b.btnTronClassSmartSign.setTextColor(btnTextColor)
             b.btnTronClassSmartSign.iconTint = ColorStateList.valueOf(btnTextColor)
 
-            when (active.getNormalizedType()) {
-                "radar" -> {
-                    b.btnTronClassSmartSign.text = "📡 雷达签到"
-                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_radar)
+            if (active.platform.isChaoXing) {
+                b.btnTronClassSmartSign.text = "⚡ 立即签到"
+                b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
+                b.tvTronClassHeroRollcallCourse.text = "当前签到：【学习通】${active.courseName} · ${active.typeDisplayName}"
+            } else {
+                val tc = active.rawTronClassRollcall
+                when (tc?.getNormalizedType()) {
+                    "radar" -> {
+                        b.btnTronClassSmartSign.text = "📡 雷达签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_radar)
+                    }
+                    "number" -> {
+                        b.btnTronClassSmartSign.text = "🔢 口令签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_format_size)
+                    }
+                    "self_registration" -> {
+                        b.btnTronClassSmartSign.text = "✍️ 自主签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_edit)
+                    }
+                    else -> {
+                        b.btnTronClassSmartSign.text = "📷 扫码签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
+                    }
                 }
-                "number" -> {
-                    b.btnTronClassSmartSign.text = "🔢 口令签到"
-                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_format_size)
-                }
-                "self_registration" -> {
-                    b.btnTronClassSmartSign.text = "✍️ 自主签到"
-                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_edit)
-                }
-                else -> {
-                    b.btnTronClassSmartSign.text = "📷 扫码签到"
-                    b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
-                }
+                val typeDesc = tc?.getTypeDisplayName() ?: active.typeDisplayName
+                b.tvTronClassHeroRollcallCourse.text = "当前签到：【畅课】${active.courseName} · $typeDesc"
             }
 
             b.llTronClassHeroRollcall.visibility = View.VISIBLE
-            val typeDesc = active.getTypeDisplayName()
-            b.tvTronClassHeroRollcallCourse.text = "当前签到：${active.courseName ?: "课堂教学"} · $typeDesc"
 
         } else {
             // 无签到时：卡片恢复为默认红色，隐藏底部签到课程条

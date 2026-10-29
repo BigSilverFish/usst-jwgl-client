@@ -1,7 +1,10 @@
 package cn.edu.usst.jwgl.util
 
+import android.content.Context
 import android.util.Log
 import android.webkit.CookieManager
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.JwglClient
 import okhttp3.Cookie
 
@@ -142,6 +145,79 @@ object CookieSyncHelper {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync cookies from WebView to JwglClient", e)
+        }
+    }
+
+    /**
+     * 将 ChaoXingPreferences 中保存的超星 Cookie 注入至 Android WebView CookieManager
+     */
+    fun syncChaoXingCookiesToWebView(context: Context, studentId: String? = null) {
+        try {
+            val prefs = ChaoXingPreferences(context)
+            val rawCookies = prefs.getCookies(studentId)
+            if (rawCookies.isNullOrBlank()) {
+                Log.d(TAG, "No ChaoXing cookies found to sync")
+                return
+            }
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+
+            val pairs = rawCookies.split(";")
+            val endpoints = listOf(
+                "https://chaoxing.com/",
+                "https://mooc1.chaoxing.com/",
+                "https://mooc2-ans.chaoxing.com/",
+                "https://mobilelearn.chaoxing.com/",
+                "https://passport2.chaoxing.com/",
+                "http://usst.fanya.chaoxing.com/",
+                "https://fanya.chaoxing.com/"
+            )
+
+            for (pair in pairs) {
+                val trimmed = pair.trim()
+                if (trimmed.isEmpty()) continue
+                val idx = trimmed.indexOf('=')
+                if (idx <= 0) continue
+                val key = trimmed.substring(0, idx).trim()
+                val value = trimmed.substring(idx + 1).trim()
+
+                // 1. 全局通配根域广播
+                val domainCookie = "$key=$value; Domain=.chaoxing.com; Path=/"
+                cookieManager.setCookie("https://chaoxing.com/", domainCookie)
+
+                // 2. 核心子域显式注入 (不带 Secure 属性以兼容 HTTP 泛雅端点)
+                val exactCookie = "$key=$value; Path=/"
+                for (ep in endpoints) {
+                    cookieManager.setCookie(ep, exactCookie)
+                }
+            }
+
+            // 补充兜底 fid=207，确保上理泛雅与机构认证绝对生效
+            val fidCookie = "fid=207; Domain=.chaoxing.com; Path=/"
+            cookieManager.setCookie("https://chaoxing.com/", fidCookie)
+
+            cookieManager.flush()
+            Log.d(TAG, "Successfully synced ChaoXing cookies to WebView CookieManager")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync ChaoXing cookies to WebView", e)
+        }
+    }
+
+    /**
+     * 将 WebView 中的超星最新 Cookie 反向同步回 ChaoXingPreferences 与 ChaoXingClient
+     */
+    fun syncWebViewCookiesToChaoXing(context: Context, studentId: String? = null) {
+        try {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.flush()
+            val cxCookie = cookieManager.getCookie("https://mooc1.chaoxing.com/")
+                ?: cookieManager.getCookie("https://chaoxing.com/")
+            if (!cxCookie.isNullOrBlank()) {
+                ChaoXingClient(context).injectCookies(cxCookie, studentId)
+                Log.d(TAG, "Successfully updated ChaoXing cookies from WebView back to preferences")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync WebView cookies back to ChaoXing", e)
         }
     }
 }

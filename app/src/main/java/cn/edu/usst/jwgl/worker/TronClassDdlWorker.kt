@@ -100,7 +100,102 @@ class TronClassDdlWorker(
             }
         }
 
+        // 尝试拉取超星学习通作业待办并纳入双轨 DDL 预警
+        try {
+            val cxClient = cn.edu.usst.jwgl.data.network.ChaoXingClient(appContext)
+            if (cxClient.isLoggedIn()) {
+                val cxTodos = cxClient.fetchTodos().getOrDefault(emptyList())
+                for (cxTodo in cxTodos) {
+                    val endMillis = cxTodo.deadlineMillis ?: continue
+                    val remainingMillis = endMillis - now
+                    if (remainingMillis <= 0) continue
+
+                    val todoKey = "cx_todo_${cxTodo.originalTodoId}"
+
+                    // 1. 二级紧急提醒
+                    if (isUrgentEnabled && remainingMillis in 0..urgentMillis) {
+                        val notifiedUrgent = sp.getBoolean("${todoKey}_notified_urgent", false)
+                        if (!notifiedUrgent) {
+                            showChaoXingDdlNotification(cxTodo, remainingMillis, isUrgent = true)
+                            sp.edit().putBoolean("${todoKey}_notified_urgent", true).apply()
+                        }
+                        continue
+                    }
+
+                    // 2. 一级截止预警
+                    if (is24hEnabled && remainingMillis in urgentMillis..TimeUnit.HOURS.toMillis(24)) {
+                        val notified24h = sp.getBoolean("${todoKey}_notified_24h", false)
+                        if (!notified24h) {
+                            showChaoXingDdlNotification(cxTodo, remainingMillis, isUrgent = false)
+                            sp.edit().putBoolean("${todoKey}_notified_24h", true).apply()
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // 超星预警静默兜底
+        }
+
         return Result.success()
+    }
+
+    private fun showChaoXingDdlNotification(todo: cn.edu.usst.jwgl.data.model.UnifiedTodo, remainingMillis: Long, isUrgent: Boolean) {
+        TronClassDdlReceiver.createNotificationChannel(appContext)
+
+        val hoursLeft = TimeUnit.MILLISECONDS.toHours(remainingMillis)
+        val minutesLeft = (remainingMillis % TimeUnit.HOURS.toMillis(1)) / TimeUnit.MINUTES.toMillis(1)
+        val timeLeftStr = if (hoursLeft > 0) "${hoursLeft}小时${minutesLeft}分钟" else "${minutesLeft}分钟"
+
+        val courseName = todo.cleanCourseName
+        val title = if (isUrgent) {
+            "⚠️【学习通】作业紧急临期提醒 (仅剩$timeLeftStr)"
+        } else {
+            "【学习通】作业截止预警 (剩$timeLeftStr)"
+        }
+
+        val content = if (isUrgent) {
+            "《$courseName》的「${todo.cleanTitle}」即将在 $timeLeftStr 后截止，请立即提交，避免逾期！"
+        } else {
+            "《$courseName》的「${todo.cleanTitle}」将在 $timeLeftStr 后截止，请合理安排时间尽快完成！"
+        }
+
+        val safeUrl = when {
+            !todo.detailUrl.isNullOrBlank() -> todo.detailUrl
+            else -> "https://mooc1.chaoxing.com/work/phone/work?courseId=${todo.originalCourseId}&classId=${todo.originalClassId ?: ""}&workId=${todo.originalTodoId}"
+        }
+
+        val intent = Intent(appContext, cn.edu.usst.jwgl.ui.JwglWebActivity::class.java).apply {
+            putExtra(cn.edu.usst.jwgl.ui.JwglWebActivity.EXTRA_URL, safeUrl)
+            putExtra(cn.edu.usst.jwgl.ui.JwglWebActivity.EXTRA_TITLE, todo.cleanTitle)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            appContext,
+            todo.unifiedId.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+
+        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(defaultSound)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        val notificationManager =
+            appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(todo.unifiedId.hashCode(), notification)
     }
 
     private fun showDdlNotification(todo: TronClassTodo, remainingMillis: Long, isUrgent: Boolean) {
