@@ -276,3 +276,16 @@ data class UnifiedBulletin(
         }
     }
 }
+
+/**
+ * 双平台统一正在进行中的签到活动模型
+ */
+data class UnifiedActiveRollcall(
+    val unifiedId: String,
+    val platform: LearningPlatform,
+    val courseName: String,
+    val typeDisplayName: String,
+    val effectiveId: Long,
+    val rawTronClassRollcall: TronClassRollcall? = null,
+    val rawChaoXingSign: Pair<ChaoXingCourse, ChaoXingActiveItem>? = null
+) : Serializable

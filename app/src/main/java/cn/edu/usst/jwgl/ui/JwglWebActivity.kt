@@ -209,11 +209,14 @@ class JwglWebActivity : AppCompatActivity() {
         prepareAndLoad(targetUrl)
     }
 
-    private fun isAllowedUsstHost(host: String?): Boolean {
+    private fun isAllowedTargetHost(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
         val lower = host.lowercase()
-        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn")
+        return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn") ||
+               lower == "chaoxing.com" || lower.endsWith(".chaoxing.com")
     }
+
+    private fun isAllowedUsstHost(host: String?): Boolean = isAllowedTargetHost(host)
 
     private fun isTrustedCasLoginUrl(rawUrl: String?): Boolean {
         if (rawUrl.isNullOrBlank()) return false
@@ -234,13 +237,19 @@ class JwglWebActivity : AppCompatActivity() {
         } ?: return DEFAULT_TARGET_URL
 
         val host = uri.host ?: return DEFAULT_TARGET_URL
-        if (!isAllowedUsstHost(host)) {
-            Log.w(TAG, "Blocked non-USST target URL host: $host")
+        if (!isAllowedTargetHost(host)) {
+            Log.w(TAG, "Blocked non-target URL host: $host")
             return DEFAULT_TARGET_URL
         }
         return when (uri.scheme?.lowercase()) {
             "https" -> uri.toString()
-            "http" -> uri.buildUpon().scheme("https").build().toString()
+            "http" -> {
+                if (host.lowercase().endsWith("chaoxing.com")) {
+                    uri.toString()
+                } else {
+                    uri.buildUpon().scheme("https").build().toString()
+                }
+            }
             else -> DEFAULT_TARGET_URL
         }
     }
@@ -339,7 +348,13 @@ class JwglWebActivity : AppCompatActivity() {
         val mobileChromeUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         val desktopChromeUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-        binding.webView.settings.userAgentString = if (isDesktopMode) desktopChromeUa else mobileChromeUa
+        val baseUa = if (isDesktopMode) desktopChromeUa else mobileChromeUa
+        val finalUa = if (url.contains("chaoxing.com")) {
+            "$baseUa ChaoXingStudy/ChaoXingStudy_5.2.4"
+        } else {
+            baseUa
+        }
+        binding.webView.settings.userAgentString = finalUa
         Log.d(TAG, "Selected UA (desktopMode=$isDesktopMode) for $url: ${binding.webView.settings.userAgentString}")
     }
 
@@ -521,9 +536,11 @@ class JwglWebActivity : AppCompatActivity() {
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 Log.w(TAG, "onPageFinished: host=$host, url=$url")
 
-                // If on a successful destination page, sync fresh cookies back to JwglClient
+                // If on a successful destination page, sync fresh cookies back to JwglClient / ChaoXingClient
                 if (url != null && (url.contains("jwglxt") || url.contains("index_initMenu") || url.contains("live.usst.edu.cn") || url.contains("new2017.usst.edu.cn") || url.contains("new2017.webvpn.usst.edu.cn"))) {
                     CookieSyncHelper.syncWebViewCookiesToJwgl()
+                } else if (url != null && url.contains("chaoxing.com")) {
+                    CookieSyncHelper.syncWebViewCookiesToChaoXing(this@JwglWebActivity)
                 }
 
                 // 1. 正方教务原生登录拦截保护：一旦落入正方原生登录页，立即强制重定向至 SSO 入口
@@ -821,13 +838,13 @@ class JwglWebActivity : AppCompatActivity() {
                     return true
                 }
 
-                if (!isAllowedUsstHost(host)) {
+                if (!isAllowedTargetHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
                     Toast.makeText(this@JwglWebActivity, "已拦截非校园网域名访问: ${host ?: ""}", Toast.LENGTH_SHORT).show()
                     return true
                 }
 
-                if (scheme == "http") {
+                if (scheme == "http" && host?.lowercase()?.endsWith("chaoxing.com") != true) {
                     val httpsUrl = uri.buildUpon().scheme("https").build().toString()
                     view?.loadUrl(httpsUrl)
                     return true
@@ -848,10 +865,10 @@ class JwglWebActivity : AppCompatActivity() {
                     view?.loadUrl(XG_TARGET_URL)
                     return true
                 }
-                if (!isAllowedUsstHost(host)) {
+                if (!isAllowedTargetHost(host)) {
                     return true
                 }
-                if (scheme == "http") {
+                if (scheme == "http" && host?.lowercase()?.endsWith("chaoxing.com") != true) {
                     val httpsUrl = uri.buildUpon().scheme("https").build().toString()
                     view?.loadUrl(httpsUrl)
                     return true
@@ -865,6 +882,24 @@ class JwglWebActivity : AppCompatActivity() {
         val authPrefs = AuthPreferences(this)
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
+
+        val isChaoXing = targetUrl.contains("chaoxing.com")
+        if (isChaoXing) {
+            binding.layoutLoading.visibility = View.VISIBLE
+            binding.tvLoadingMessage.text = "正在为超星学习通同步登录凭据..."
+
+            lifecycleScope.launch {
+                val cxClient = cn.edu.usst.jwgl.data.network.ChaoXingClient(this@JwglWebActivity)
+                withContext(Dispatchers.IO) {
+                    cxClient.ensureSession(studentId.ifBlank { null })
+                }
+                CookieSyncHelper.syncChaoXingCookiesToWebView(this@JwglWebActivity, studentId.ifBlank { null })
+
+                binding.layoutLoading.visibility = View.GONE
+                binding.webView.loadUrl(targetUrl)
+            }
+            return
+        }
 
         // 1. 同步 JwglClient (OkHttp) 已有的认证 Cookie (JSESSIONID, CASTGC) 至 WebView
         CookieSyncHelper.syncJwglCookiesToWebView()
