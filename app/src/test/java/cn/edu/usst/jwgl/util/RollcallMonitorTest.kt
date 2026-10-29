@@ -107,16 +107,16 @@ class RollcallMonitorTest {
 
     @Test
     fun testRadarRollcall_fallbackBuilding() {
-        // 未指定教室或空字符串 -> 回退至本部北校区核心第一教学楼
+        // 未指定教室或空字符串 -> 回退至本部北校区核心第一教学楼东
         val emptyMatch = CoordinateUtils.findMatchingBuilding("")
         assertNull(emptyMatch)
 
-        val fallback = emptyMatch ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_m" } ?: CoordinateUtils.USST_BUILDINGS.first()
+        val fallback = emptyMatch ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" } ?: CoordinateUtils.USST_BUILDINGS.first()
         assertNotNull(fallback)
-        assertEquals("一教中", fallback.name)
+        assertEquals("一教东", fallback.name)
         assertEquals("本部北校区", fallback.campus)
-        assertEquals(31.292508, fallback.latitude, 0.0001)
-        assertEquals(121.557765, fallback.longitude, 0.0001)
+        assertEquals(31.291731, fallback.latitude, 0.0001)
+        assertEquals(121.556084, fallback.longitude, 0.0001)
     }
 
     @Test

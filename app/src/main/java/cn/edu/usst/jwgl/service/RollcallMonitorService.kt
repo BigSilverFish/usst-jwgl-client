@@ -195,7 +195,7 @@ class RollcallMonitorService : Service() {
         // 1. 自动匹配教学楼经纬度基准
         val building = CoordinateUtils.findMatchingBuilding(room)
             ?: CoordinateUtils.findMatchingBuilding(courseName)
-            ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_m" }
+            ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" }
             ?: CoordinateUtils.USST_BUILDINGS.first()
 
         // 优先采纳教师端下发的实时高精基准坐标（0偏差必过通道），若未下发则采纳教学楼 GCJ-02 基准
