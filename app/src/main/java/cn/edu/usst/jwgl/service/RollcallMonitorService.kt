@@ -189,7 +189,7 @@ class RollcallMonitorService : Service() {
     ) {
         val rollcallId = rollcall.getEffectiveId()
         val matchedSession = RollcallScheduleHelper.findMatchingClassSession(this, rollcall.courseName) ?: currentSession
-        val room = matchedSession.room
+        val room = rollcall.classroom ?: matchedSession.room
         val courseName = rollcall.courseName ?: matchedSession.courseName
 
         // 1. 自动匹配教学楼经纬度基准
@@ -198,14 +198,19 @@ class RollcallMonitorService : Service() {
             ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_m" }
             ?: CoordinateUtils.USST_BUILDINGS.first()
 
-        Log.i(TAG, "Auto signing radar rollcall $rollcallId with building: ${building.name} (${building.campus})")
+        // 优先采纳教师端下发的实时高精基准坐标（0偏差必过通道），若未下发则采纳教学楼 GCJ-02 基准
+        val targetLat = rollcall.latitude ?: building.latitude
+        val targetLng = rollcall.longitude ?: building.longitude
+        val accuracy = if (rollcall.latitude != null) 5.0 else 15.0
+
+        Log.i(TAG, "Auto signing radar rollcall $rollcallId with lat=$targetLat, lng=$targetLng (isTeacherBeacon=${rollcall.latitude != null}, building=${building.name})")
 
         // 2. 批量签到（多账号自动分流并各自使用独立设备指纹）
         val results = tronClassClient.batchAnswerRadarRollcall(
             rollcallId = rollcallId,
-            latitude = building.latitude,
-            longitude = building.longitude,
-            accuracy = 15.0
+            latitude = targetLat,
+            longitude = targetLng,
+            accuracy = accuracy
         )
 
         val primarySuccess = results.firstOrNull()?.success == true
@@ -226,7 +231,10 @@ class RollcallMonitorService : Service() {
             building = building,
             success = primarySuccess,
             message = details,
-            classroom = room
+            classroom = room,
+            latitude = rollcall.latitude,
+            longitude = rollcall.longitude,
+            scope = rollcall.scope
         )
 
         // 4. 更新前台服务常驻通知状态

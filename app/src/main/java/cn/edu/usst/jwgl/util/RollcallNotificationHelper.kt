@@ -111,7 +111,10 @@ object RollcallNotificationHelper {
         building: CoordinateUtils.CampusBuilding?,
         success: Boolean,
         message: String?,
-        classroom: String? = null
+        classroom: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        scope: Double? = null
     ) {
         createChannels(context)
 
@@ -125,6 +128,9 @@ object RollcallNotificationHelper {
                 putExtra("extra_rollcall_id", rollcallId)
                 putExtra("extra_course_name", courseName)
                 putExtra("extra_classroom", classroom)
+                if (latitude != null) putExtra("extra_latitude", latitude)
+                if (longitude != null) putExtra("extra_longitude", longitude)
+                if (scope != null) putExtra("extra_scope", scope)
             }
         }
 

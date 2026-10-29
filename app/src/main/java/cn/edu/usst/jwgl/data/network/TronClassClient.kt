@@ -474,6 +474,11 @@ class TronClassClient(private val context: Context) {
                         item.optString("courseName",
                             item.optString("course_name",
                                 item.optString("title", null))))
+                    val rLat = if (item.has("latitude") && !item.isNull("latitude")) item.optDouble("latitude") else null
+                    val rLng = if (item.has("longitude") && !item.isNull("longitude")) item.optDouble("longitude") else null
+                    val rScope = if (item.has("scope") && !item.isNull("scope")) item.optDouble("scope") else null
+                    val rClassroom = item.optString("classroom", null)
+
                     val r = TronClassRollcall(
                         id = item.optLong("id", item.optLong("rollcallId", item.optLong("rollcall_id"))),
                         rollcallId = item.optLong("rollcallId", item.optLong("id", item.optLong("rollcall_id"))),
@@ -483,7 +488,11 @@ class TronClassClient(private val context: Context) {
                         status = item.optString("status", item.optString("rollcall_status", null)),
                         source = item.optString("source", null),
                         isNumber = isNumber,
-                        isRadar = isRadar
+                        isRadar = isRadar,
+                        latitude = rLat,
+                        longitude = rLng,
+                        scope = rScope,
+                        classroom = rClassroom
                     )
                     list.add(r)
                 }

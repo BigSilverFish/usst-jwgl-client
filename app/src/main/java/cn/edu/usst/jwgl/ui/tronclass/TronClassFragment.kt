@@ -1392,9 +1392,13 @@ class TronClassFragment : Fragment() {
         classroom: String? = null
     ) {
         val ctx = context ?: return
-        val rollcallId = designatedRollcallId
-            ?: tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "radar" }?.getEffectiveId()
-            ?: tronClassActiveRollcalls.firstOrNull()?.getEffectiveId()
+        val activeRollcall = if (designatedRollcallId != null && designatedRollcallId > 0L) {
+            tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == designatedRollcallId }
+        } else {
+            tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "radar" }
+                ?: tronClassActiveRollcalls.firstOrNull()
+        }
+        val rollcallId = designatedRollcallId ?: activeRollcall?.getEffectiveId()
 
         if (rollcallId == null || rollcallId <= 0L) {
             val input = EditText(ctx).apply {
@@ -1425,8 +1429,11 @@ class TronClassFragment : Fragment() {
 
         val dialog = RadarRollcallBottomSheetDialog.newInstance(
             rollcallId = rollcallId,
-            courseName = courseName ?: tronClassActiveRollcalls.firstOrNull { it.getEffectiveId() == rollcallId }?.courseName,
-            classroom = classroom
+            courseName = courseName ?: activeRollcall?.courseName,
+            classroom = classroom ?: activeRollcall?.classroom,
+            teacherLat = activeRollcall?.latitude,
+            teacherLng = activeRollcall?.longitude,
+            teacherScope = activeRollcall?.scope
         )
         dialog.setOnSignSuccessListener {
             loadTronClassData(forceRefresh = true)
