@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Translucent glass colors on Android 12+ (API 31+) where BlurView hardware blur is supported -->
+    <color name="surface_glass">#991B1C20</color>
+    <color name="surface_glass_dense">#B31B1C20</color>
+    <color name="surface_glass_translucent">#801B1C20</color>
+    <color name="bottom_nav_glass">#731B1C20</color>
+    <color name="bottom_nav_glass_start">#731B1C20</color>
+    <color name="bottom_nav_glass_end">#2E1B1C20</color>
+</resources>
