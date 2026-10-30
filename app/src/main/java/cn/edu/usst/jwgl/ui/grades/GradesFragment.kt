@@ -1,6 +1,8 @@
 package cn.edu.usst.jwgl.ui.grades
 
 import android.graphics.Typeface
+import android.content.res.Configuration
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.text.SpannableString
@@ -33,6 +35,7 @@ import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.adapter.CourseGradeAdapter
 import cn.edu.usst.jwgl.util.AppException
+import cn.edu.usst.jwgl.util.TabletLayoutHelper
 import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.util.RankingPdfParser
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -61,6 +64,7 @@ class GradesFragment : Fragment() {
     private var gradeReport: GradeReport? = null
     private var selectedGradeSemesterTitle: String = ""
     private var isTabletLandscapeMode: Boolean = false
+    private var gridSpacingDecoration: RecyclerView.ItemDecoration? = null
 
     private val cacheManager by lazy {
         DataCacheManager.getInstance(requireContext())
@@ -86,13 +90,15 @@ class GradesFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        gridSpacingDecoration?.let { binding.rvGrades.removeItemDecoration(it) }
+        gridSpacingDecoration = null
         _binding = null
     }
 
     private fun initViews() {
         // RecyclerView 基础配置
         binding.rvGrades.adapter = gradeAdapter
-        binding.rvGrades.layoutManager = LinearLayoutManager(requireContext())
+        updateRecyclerViewLayoutManager(getOptimalSpanCount())
 
         // 下拉刷新
         binding.swipeRefreshGrades.setColorSchemeResources(R.color.primary)
@@ -347,6 +353,67 @@ class GradesFragment : Fragment() {
     }
 
     /**
+     * 根据当前屏幕可用宽度与平板横屏状态，自适应计算最优分栏数
+     */
+    private fun getOptimalSpanCount(): Int {
+        val screenWidthDp = resources.configuration.screenWidthDp
+        return if (isTabletLandscapeMode) {
+            // 平板横屏：常驻左侧栏(265dp) + 内容内边距(32dp) + 左侧总览/学期主面板(~260-290dp)
+            // 右侧课程列表可用宽度约为 (screenWidthDp - 587dp)
+            // 小尺寸平板(如 Nexus 9, screenWidthDp=1024dp)右侧可用约 437dp：
+            // 若分 2 列则单卡片仅 213dp，且全屏形成 3 栏极度拥挤；自适应为 1 列时卡片宽 437dp，舒展大方
+            // 中大尺寸平板(>= 1200dp)右侧可用 >= 600dp，分 2 列
+            // 超大平板或桌面模式(>= 1600dp)分 3 列
+            when {
+                screenWidthDp >= 1600 -> 3
+                screenWidthDp >= 1200 -> 2
+                else -> 1
+            }
+        } else {
+            // 竖屏或手机模式（垂直堆叠布局，无常驻侧栏与主从面板）：
+            // 手机(<600dp)采用单列；平板竖屏(>=600dp)分 2 列；大屏竖屏(>=900dp)分 3 列
+            when {
+                screenWidthDp >= 900 -> 3
+                screenWidthDp >= 600 -> 2
+                else -> 1
+            }
+        }
+    }
+
+    /**
+     * 根据计算出的最优分栏数动态更新 RecyclerView 的 LayoutManager 与间距装饰
+     */
+    private fun updateRecyclerViewLayoutManager(spanCount: Int) {
+        val density = resources.displayMetrics.density
+        val spacingPx = (10 * density).toInt()
+
+        gridSpacingDecoration?.let { binding.rvGrades.removeItemDecoration(it) }
+
+        if (spanCount <= 1) {
+            binding.rvGrades.layoutManager = LinearLayoutManager(requireContext())
+            gridSpacingDecoration = null
+        } else {
+            binding.rvGrades.layoutManager = GridLayoutManager(requireContext(), spanCount)
+            val decoration = object : RecyclerView.ItemDecoration() {
+                override fun getItemOffsets(
+                    outRect: Rect,
+                    view: View,
+                    parent: RecyclerView,
+                    state: RecyclerView.State
+                ) {
+                    val position = parent.getChildAdapterPosition(view)
+                    if (position == RecyclerView.NO_POSITION) return
+                    val column = position % spanCount
+                    outRect.left = column * spacingPx / spanCount
+                    outRect.right = spacingPx - (column + 1) * spacingPx / spanCount
+                }
+            }
+            binding.rvGrades.addItemDecoration(decoration)
+            gridSpacingDecoration = decoration
+        }
+    }
+
+    /**
      * 切换平板横竖屏双栏/单栏模式
      */
     fun updateTabletLandscapeMode(isTabletLandscape: Boolean) {
@@ -354,11 +421,13 @@ class GradesFragment : Fragment() {
         if (_binding == null) return
 
         val density = resources.displayMetrics.density
+        val screenWidthDp = resources.configuration.screenWidthDp
 
         if (isTabletLandscape) {
+            val leftPaneWidthDp = if (screenWidthDp < 960) 260 else 290
             binding.llGradesBody.orientation = LinearLayout.HORIZONTAL
             binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
-                (300 * density).toInt(),
+                (leftPaneWidthDp * density).toInt(),
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
             binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
@@ -369,7 +438,7 @@ class GradesFragment : Fragment() {
             (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
             binding.cardGradesSemesterMaster.visibility = View.VISIBLE
 
-            binding.rvGrades.layoutManager = GridLayoutManager(requireContext(), 2)
+            updateRecyclerViewLayoutManager(getOptimalSpanCount())
             gradeReport?.let { populateGradesSemesterMasterList(it) }
         } else {
             binding.llGradesBody.orientation = LinearLayout.VERTICAL
@@ -384,8 +453,15 @@ class GradesFragment : Fragment() {
             (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = (8 * density).toInt()
             binding.cardGradesSemesterMaster.visibility = View.GONE
 
-            binding.rvGrades.layoutManager = LinearLayoutManager(requireContext())
+            updateRecyclerViewLayoutManager(getOptimalSpanCount())
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val isTabletLandscape = (activity as? MainActivity)?.isTabletLandscapeModeActive()
+            ?: TabletLayoutHelper.isTabletLandscape(requireContext(), newConfig)
+        updateTabletLandscapeMode(isTabletLandscape)
     }
 
     /**
