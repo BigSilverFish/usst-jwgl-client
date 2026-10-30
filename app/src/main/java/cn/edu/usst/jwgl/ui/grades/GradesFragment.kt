@@ -1,6 +1,7 @@
 package cn.edu.usst.jwgl.ui.grades
 
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
@@ -145,11 +146,15 @@ class GradesFragment : Fragment() {
     }
 
     private fun initBlurHeader() {
-        val decorView = activity?.window?.decorView?.findViewById<ViewGroup>(android.R.id.content)
-        if (decorView != null) {
-            binding.blurViewGradesHeader.setupWith(decorView, RenderEffectBlur())
-                .setBlurRadius(16f)
-                .setBlurAutoUpdate(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val decorView = activity?.window?.decorView?.findViewById<ViewGroup>(android.R.id.content)
+            if (decorView != null) {
+                try {
+                    binding.blurViewGradesHeader.setupWith(decorView, RenderEffectBlur())
+                        .setBlurRadius(16f)
+                        .setBlurAutoUpdate(true)
+                } catch (_: Exception) {}
+            }
         }
     }
 
