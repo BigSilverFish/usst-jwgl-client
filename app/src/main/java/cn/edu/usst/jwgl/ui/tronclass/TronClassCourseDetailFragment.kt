@@ -36,6 +36,7 @@ import eightbitlab.com.blurview.RenderEffectBlur
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.model.*
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
@@ -148,16 +149,28 @@ class TronClassCourseDetailFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val args = arguments ?: return
-        unifiedCourse = args.getSerializable(ARG_UNIFIED_COURSE) as? UnifiedCourse
-        val course = args.getSerializable(ARG_COURSE) as? TronClassCourse
-        rawChaoXingCourse = unifiedCourse?.rawChaoXingCourse ?: args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse
-        platform = unifiedCourse?.platform ?: (args.getSerializable(ARG_PLATFORM) as? LearningPlatform)
-            ?: if (rawChaoXingCourse != null && course == null) LearningPlatform.CHAOXING else LearningPlatform.TRONCLASS
+        unifiedCourse = (args.getSerializable(ARG_UNIFIED_COURSE)
+            ?: args.getSerializable(TronClassCourseDetailActivity.EXTRA_UNIFIED_COURSE)) as? UnifiedCourse
+        val course = (args.getSerializable(ARG_COURSE)
+            ?: args.getSerializable(TronClassCourseDetailActivity.EXTRA_COURSE)) as? TronClassCourse
+        rawChaoXingCourse = unifiedCourse?.rawChaoXingCourse
+            ?: (args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse)
+            ?: (args.getSerializable(TronClassCourseDetailActivity.EXTRA_CHAOXING_COURSE) as? ChaoXingCourse)
+        platform = unifiedCourse?.platform
+            ?: (args.getSerializable(ARG_PLATFORM) as? LearningPlatform)
+            ?: (args.getSerializable(TronClassCourseDetailActivity.EXTRA_PLATFORM) as? LearningPlatform)
+            ?: if (rawChaoXingCourse != null && course != null) LearningPlatform.DUAL
+            else if (rawChaoXingCourse != null) LearningPlatform.CHAOXING
+            else LearningPlatform.TRONCLASS
 
-        courseId = unifiedCourse?.rawTronClassCourse?.id ?: course?.id ?: args.getLong(ARG_COURSE_ID, 0L)
-        courseName = unifiedCourse?.cleanName ?: course?.getCleanName() ?: args.getString(ARG_COURSE_NAME) ?: "课程详情"
-        courseCode = unifiedCourse?.courseCode ?: course?.courseCode ?: args.getString(ARG_COURSE_CODE) ?: ""
-        departmentName = unifiedCourse?.department ?: course?.department?.name ?: args.getString(ARG_DEPT_NAME) ?: ""
+        courseId = unifiedCourse?.rawTronClassCourse?.id ?: course?.id
+            ?: args.getLong(ARG_COURSE_ID, args.getLong(TronClassCourseDetailActivity.EXTRA_COURSE_ID, 0L))
+        courseName = unifiedCourse?.cleanName ?: course?.getCleanName()
+            ?: args.getString(ARG_COURSE_NAME) ?: args.getString(TronClassCourseDetailActivity.EXTRA_COURSE_NAME) ?: "课程详情"
+        courseCode = unifiedCourse?.courseCode ?: course?.courseCode
+            ?: args.getString(ARG_COURSE_CODE) ?: args.getString(TronClassCourseDetailActivity.EXTRA_COURSE_CODE) ?: ""
+        departmentName = unifiedCourse?.department ?: course?.department?.name
+            ?: args.getString(ARG_DEPT_NAME) ?: args.getString(TronClassCourseDetailActivity.EXTRA_DEPT_NAME) ?: ""
     }
 
     override fun onCreateView(
@@ -177,6 +190,31 @@ class TronClassCourseDetailFragment : Fragment() {
         chaoXingClient = ChaoXingClient(context)
         chaoXingDetailClient = ChaoXingCourseDetailClient(context)
         cacheManager = TronClassCacheManager(context)
+
+        // 自动探测补全学习通课程映射 (如果当前只关联了畅课，但超星已有同名课程，自动升级为 DUAL 双平台)
+        val cxPrefs = ChaoXingPreferences(context)
+        if (rawChaoXingCourse == null && cxPrefs.isLoggedIn()) {
+            val cachedCxList = cxPrefs.getCachedCourses()
+            val cleanTarget = courseName
+                .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
+                .replace(Regex("""\s+"""), "")
+                .lowercase()
+            val matched = cachedCxList.firstOrNull { cx ->
+                val cleanCx = cx.courseName
+                    .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                    .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
+                    .replace(Regex("""\s+"""), "")
+                    .lowercase()
+                cleanTarget.isNotEmpty() && cleanCx.isNotEmpty() &&
+                        (cleanTarget == cleanCx || cleanTarget.contains(cleanCx) || cleanCx.contains(cleanTarget))
+            }
+            if (matched != null) {
+                rawChaoXingCourse = matched
+                platform = if (courseId > 0) LearningPlatform.DUAL else LearningPlatform.CHAOXING
+                Log.w(TAG, "Auto-bound ChaoXing course: ${matched.courseName} (id=${matched.courseId}) to $courseName, upgraded platform to $platform")
+            }
+        }
 
         val density = resources.displayMetrics.density
         val mainAct = activity as? MainActivity
@@ -864,6 +902,7 @@ class TronClassCourseDetailFragment : Fragment() {
             if (b1.tabLayout.selectedTabPosition == 0) {
                 checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
             }
+            updateCombinedAssessmentsUI()
         }
 
         // 通道 2: 渲染公告
@@ -889,36 +928,38 @@ class TronClassCourseDetailFragment : Fragment() {
             }
         }
 
-        // 通道 3: 渲染作业测验 (不依赖其它通道，优先直出)
+        // 通道 3: 渲染作业测验 (不依赖其它通道，优先直出，三路子通道并行拉取即时上屏)
         val jobAssessments = launch {
-            val examsRes = examsDef.await()
-            val cxWorksRes = cxWorksDef.await()
-            val cxExamsRes = cxExamsDef.await()
-            val b3 = _binding ?: return@launch
-            if (examsRes.isSuccess) cachedExams = examsRes.getOrDefault(emptyList())
-            if (cxWorksRes.isSuccess && cxCourse != null) {
-                cachedCxWorks = cxWorksRes.getOrDefault(emptyList())
-                if (cachedCxWorks.isNotEmpty()) {
-                    cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+            supervisorScope {
+                launch {
+                    val cxWorksRes = cxWorksDef.await()
+                    if (cxWorksRes.isSuccess && cxCourse != null) {
+                        cachedCxWorks = cxWorksRes.getOrDefault(emptyList())
+                        if (cachedCxWorks.isNotEmpty()) {
+                            cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+                        }
+                        updateCombinedAssessmentsUI()
+                    }
+                }
+                launch {
+                    val cxExamsRes = cxExamsDef.await()
+                    if (cxExamsRes.isSuccess && cxCourse != null) {
+                        cachedCxExams = cxExamsRes.getOrDefault(emptyList())
+                        if (cachedCxExams.isNotEmpty()) {
+                            cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
+                        }
+                        updateCombinedAssessmentsUI()
+                    }
+                }
+                launch {
+                    val examsRes = examsDef.await()
+                    if (examsRes.isSuccess) {
+                        cachedExams = examsRes.getOrDefault(emptyList())
+                        updateCombinedAssessmentsUI()
+                    }
                 }
             }
-            if (cxExamsRes.isSuccess && cxCourse != null) {
-                cachedCxExams = cxExamsRes.getOrDefault(emptyList())
-                if (cachedCxExams.isNotEmpty()) {
-                    cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
-                }
-            }
-
-            Log.w(TAG, "Dual assessments: tcExams=${cachedExams.size}, cxWorks=${cachedCxWorks.size}, cxExams=${cachedCxExams.size}, cxWorksSuccess=${cxWorksRes.isSuccess}, cxExamsSuccess=${cxExamsRes.isSuccess}")
-
-            val combinedAssessments = mutableListOf<TronClassAssessmentItem>()
-            combinedAssessments.addAll(buildAssessmentItems(cachedActivities, cachedExams))
-            combinedAssessments.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
-            combinedAssessments.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
-            assessmentAdapter.updateData(combinedAssessments)
-            if (b3.tabLayout.selectedTabPosition == 2) {
-                checkEmptyState(combinedAssessments.isEmpty(), "本课程暂无作业与测验")
-            }
+            updateCombinedAssessmentsUI()
         }
 
         // 通道 4: 渲染讨论区
@@ -947,6 +988,18 @@ class TronClassCourseDetailFragment : Fragment() {
 
         kotlinx.coroutines.joinAll(jobChapters, jobBulletins, jobAssessments, jobDiscussions, jobMembers)
         _binding?.swipeRefresh?.isRefreshing = false
+    }
+
+    private fun updateCombinedAssessmentsUI() {
+        val b = _binding ?: return
+        val combinedAssessments = mutableListOf<TronClassAssessmentItem>()
+        combinedAssessments.addAll(buildAssessmentItems(cachedActivities, cachedExams))
+        combinedAssessments.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+        combinedAssessments.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+        assessmentAdapter.updateData(combinedAssessments)
+        if (b.tabLayout.selectedTabPosition == 2) {
+            checkEmptyState(combinedAssessments.isEmpty(), "本课程暂无作业与测验")
+        }
     }
 
     /**
