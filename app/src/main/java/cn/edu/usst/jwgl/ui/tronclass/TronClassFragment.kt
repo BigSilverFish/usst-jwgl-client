@@ -872,8 +872,31 @@ class TronClassFragment : Fragment() {
     }
 
     fun promptChaoXingLogin() {
-        val intent = Intent(requireContext(), ChaoXingLoginActivity::class.java)
-        chaoXingLoginLauncher.launch(intent)
+        val ctx = context ?: return
+        val progress = ProgressDialog(ctx).apply {
+            setMessage("正在通过学校统一身份认证 (SSO) 登录学习通...")
+            setCancelable(false)
+            show()
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ssoRes = withContext(Dispatchers.IO) {
+                chaoXingClient.loginWithCasSso()
+            }
+            try {
+                progress.dismiss()
+            } catch (_: Exception) {}
+
+            if (ssoRes.isSuccess) {
+                Toast.makeText(ctx, "超星学习通 SSO 登录成功！🎉", Toast.LENGTH_SHORT).show()
+                updateTronClassUserHeader()
+                loadTronClassData(forceRefresh = true)
+            } else {
+                Log.w(TAG, "Silent CAS SSO failed, launching ChaoXingLoginActivity fallback...", ssoRes.exceptionOrNull())
+                val intent = Intent(ctx, ChaoXingLoginActivity::class.java)
+                chaoXingLoginLauncher.launch(intent)
+            }
+        }
     }
 
     private fun showChaoXingAccountDialog() {

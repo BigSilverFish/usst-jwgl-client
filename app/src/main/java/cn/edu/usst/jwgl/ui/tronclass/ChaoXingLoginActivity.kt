@@ -42,7 +42,8 @@ class ChaoXingLoginActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ChaoXingLoginActivity"
-        const val LOGIN_URL = "https://passport2.chaoxing.com/login?fid=207&refer=https://i.chaoxing.com/base"
+        const val SSO_URL = "https://tyrzfw.chaoxing.com/auth3/usst/cas/init?isLogout=0&refer=https%3A%2F%2Fi.chaoxing.com&casinfo=&casenc=&casfrom=login"
+        const val FALLBACK_LOGIN_URL = "https://passport2.chaoxing.com/login?fid=207&refer=https://i.chaoxing.com/base"
 
         fun start(context: Context) {
             val intent = Intent(context, ChaoXingLoginActivity::class.java)
@@ -70,8 +71,14 @@ class ChaoXingLoginActivity : AppCompatActivity() {
 
     private fun loadLoginPage() {
         binding.layoutLoading.visibility = View.VISIBLE
-        binding.tvLoadingMsg.text = "正在载入超星学习通认证页面..."
-        binding.webView.loadUrl(LOGIN_URL)
+        binding.tvLoadingMsg.text = "正在通过学校统一身份认证 (SSO) 接入超星学习通..."
+
+        // 1. 将教务已有的 CAS Cookie (CASTGC) 注入 WebView，实现免密静默登录
+        CookieSyncHelper.syncJwglCookiesToWebView()
+        CookieSyncHelper.syncChaoXingCookiesToWebView(this)
+
+        // 2. 加载 USST SSO CAS 入口
+        binding.webView.loadUrl(SSO_URL)
 
         // 6秒兜底：若网络较慢未自动触发隐藏加载框，确保 WebView 展现
         binding.root.postDelayed({
@@ -113,7 +120,7 @@ class ChaoXingLoginActivity : AppCompatActivity() {
 
                 url?.let {
                     checkAndHandleLoginSuccess(it)
-                    autoFillStudentNo(it)
+                    autoFillCredentials(it)
                 }
             }
 
@@ -127,25 +134,55 @@ class ChaoXingLoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun autoFillStudentNo(url: String) {
-        if (!url.contains("passport2.chaoxing.com/login")) return
-        val currentSid = AuthPreferences(this).getStudentId().trim()
+    private fun autoFillCredentials(url: String) {
+        val authPrefs = AuthPreferences(this)
+        val currentSid = authPrefs.getStudentId().trim()
+        val currentPwd = authPrefs.getPassword().trim()
         if (currentSid.isEmpty()) return
 
         val quotedSid = JSONObject.quote(currentSid)
-        val js = """
-            (function() {
-                try {
-                    var u = document.querySelector("#uname") || document.querySelector("#phone") || document.querySelector("input[name='uname']");
-                    if (u && (!u.value || u.value.trim().length === 0)) {
-                        u.value = $quotedSid;
-                        u.dispatchEvent(new Event('input', { bubbles: true }));
-                        u.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                } catch(e) {}
-            })();
-        """.trimIndent()
-        binding.webView.evaluateJavascript(js, null)
+        val quotedPwd = JSONObject.quote(currentPwd)
+
+        if (url.contains("ids6.usst.edu.cn/authserver/login") || url.contains("cas/login")) {
+            // CAS 统一身份认证登录页自动填入学校学号和密码并自动点击提交
+            val js = """
+                (function() {
+                    try {
+                        var u = document.querySelector("#username");
+                        var p = document.querySelector("#password");
+                        var btn = document.querySelector("#login_submit") || document.querySelector("button[type='submit']") || document.querySelector(".auth_login_btn");
+                        if (u && (!u.value || u.value.trim().length === 0)) {
+                            u.value = $quotedSid;
+                            u.dispatchEvent(new Event('input', { bubbles: true }));
+                            u.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        if (p && (!p.value || p.value.trim().length === 0) && $quotedPwd.length > 0) {
+                            p.value = $quotedPwd;
+                            p.dispatchEvent(new Event('input', { bubbles: true }));
+                            p.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        if (btn && u && u.value && p && p.value) {
+                            btn.click();
+                        }
+                    } catch(e) {}
+                })();
+            """.trimIndent()
+            binding.webView.evaluateJavascript(js, null)
+        } else if (url.contains("passport2.chaoxing.com/login")) {
+            val js = """
+                (function() {
+                    try {
+                        var u = document.querySelector("#uname") || document.querySelector("#phone") || document.querySelector("input[name='uname']");
+                        if (u && (!u.value || u.value.trim().length === 0)) {
+                            u.value = $quotedSid;
+                            u.dispatchEvent(new Event('input', { bubbles: true }));
+                            u.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    } catch(e) {}
+                })();
+            """.trimIndent()
+            binding.webView.evaluateJavascript(js, null)
+        }
     }
 
     /**
@@ -157,11 +194,13 @@ class ChaoXingLoginActivity : AppCompatActivity() {
         val cookieManager = CookieManager.getInstance()
         val passportCookie = cookieManager.getCookie("https://passport2.chaoxing.com/") ?: ""
         val iCookie = cookieManager.getCookie("https://i.chaoxing.com/") ?: ""
+        val tyrzfwCookie = cookieManager.getCookie("https://tyrzfw.chaoxing.com/") ?: ""
         val rootCookie = cookieManager.getCookie("https://chaoxing.com/") ?: ""
-        val allCookies = "$passportCookie; $iCookie; $rootCookie"
+        val allCookies = "$passportCookie; $iCookie; $tyrzfwCookie; $rootCookie"
 
         val uid = extractUid(allCookies)
-        val isTargetUrl = url.contains("i.chaoxing.com") ||
+        val isTargetUrl = looksLoggedIn(url) ||
+                url.contains("i.chaoxing.com") ||
                 url.contains("/base") ||
                 url.contains("mooc1.chaoxing.com") ||
                 (url.contains("passport2.chaoxing.com") && !url.contains("/login"))
@@ -169,7 +208,7 @@ class ChaoXingLoginActivity : AppCompatActivity() {
         if (!uid.isNullOrBlank() && (isTargetUrl || passportCookie.contains("UID="))) {
             isHandlingSuccess = true
             binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMsg.text = "超星学习通验证成功，正在同步课程与数据..."
+            binding.tvLoadingMsg.text = "超星学习通 SSO 验证成功，正在同步课程数据..."
             binding.webView.visibility = View.GONE
 
             lifecycleScope.launch {
@@ -178,7 +217,7 @@ class ChaoXingLoginActivity : AppCompatActivity() {
                     client.fetchCourses()
                 }
 
-                Toast.makeText(this@ChaoXingLoginActivity, "超星学习通绑定成功！🎉", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ChaoXingLoginActivity, "超星学习通单点登录成功！🎉", Toast.LENGTH_SHORT).show()
                 setResult(RESULT_OK)
                 finish()
             }
@@ -186,6 +225,18 @@ class ChaoXingLoginActivity : AppCompatActivity() {
         }
 
         return false
+    }
+
+    private fun looksLoggedIn(url: String): Boolean {
+        val uri = android.net.Uri.parse(url) ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        if (host == "passport2.chaoxing.com" || host.endsWith(".passport2.chaoxing.com")) {
+            return false
+        }
+        if (host == "i.chaoxing.com" || host == "mooc1.chaoxing.com" || host == "mooc2-ans.chaoxing.com") {
+            return true
+        }
+        return host.endsWith(".chaoxing.com") && !host.contains("passport") && !host.contains("auth") && !uri.path.orEmpty().contains("/cas/")
     }
 
     private fun extractUid(cookieStr: String): String? {
