@@ -42,6 +42,7 @@ object LearningPlatformBadgeHelper {
             when (platform) {
                 LearningPlatform.TRONCLASS -> Color.parseColor("#134E4A") to Color.parseColor("#5EEAD4") // 深色 Teal 900 / Teal 300
                 LearningPlatform.CHAOXING -> Color.parseColor("#7C2D12") to Color.parseColor("#FDBA74")  // 深色 Orange 900 / Orange 300
+                LearningPlatform.DUAL -> Color.parseColor("#4C1D95") to Color.parseColor("#DDD6FE")      // 深色 Purple 900 / Purple 200
             }
         } else {
             platform.getBadgeBgColor() to platform.getBadgeTextColor() // 浅色 Teal 50/700, Orange 100/700

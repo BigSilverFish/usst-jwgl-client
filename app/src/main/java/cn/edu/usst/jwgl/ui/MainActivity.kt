@@ -38,6 +38,7 @@ import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeDocumentType
 import cn.edu.usst.jwgl.data.model.StudentProfile
+import cn.edu.usst.jwgl.data.model.UnifiedCourse
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -2532,6 +2533,14 @@ class MainActivity : AppCompatActivity() {
 
     fun getTronClassFragment(): TronClassFragment? =
         supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment
+
+    fun openTronClassCourseDetail(course: UnifiedCourse) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openCourseDetail(course)
+    }
 
     fun openTronClassCourseDetail(course: TronClassCourse) {
         if (currentTab != MainTab.TRONCLASS) {

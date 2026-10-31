@@ -482,7 +482,9 @@ data class TronClassActivityItem(
     @SerializedName("data")
     val data: ActivityDetailData? = null,
 
-    var completeness: String? = null
+    var completeness: String? = null,
+    var extraChaoXingChapter: ChaoXingChapter? = null,
+    var extraChaoXingCourse: ChaoXingCourse? = null
 ) : Serializable {
 
     data class ActivityDetailData(

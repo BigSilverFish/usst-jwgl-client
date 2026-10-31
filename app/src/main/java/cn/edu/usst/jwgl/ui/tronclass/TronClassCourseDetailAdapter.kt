@@ -203,6 +203,21 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
+                "chaoxing_chapter" -> {
+                    binding.tvTypeBadge.text = "学习通"
+                    binding.tvTypeBadge.setBackgroundColor(Color.parseColor("#FFEDD5"))
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#C2410C"))
+                    binding.tvActivityMeta.text = if (act.completeness == "complete" || act.completeness == "full") "已学完" else "查看课件/视频"
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
+                    binding.ivActivityIcon.setColorFilter(Color.parseColor("#EA580C"))
+
+                    binding.btnAction.visibility = View.VISIBLE
+                    binding.btnAction.text = "课件"
+                    binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
                 else -> {
                     binding.tvTypeBadge.text = act.type
                     binding.tvActivityMeta.text = upload?.getFormattedSize() ?: ""

@@ -58,7 +58,11 @@ class TronClassCourseAdapter(
 
             // 1. 课程名称与平台徽标
             if (isMultiPlatformMode) {
-                val badgeText = if (course.platform.isChaoXing) "【学习通】" else "【畅课】"
+                val badgeText = when {
+                    course.platform.isDual -> "【畅课+学习通】"
+                    course.platform.isChaoXing -> "【学习通】"
+                    else -> "【畅课】"
+                }
                 val badgeColor = course.platform.getBrandColor()
                 val ssb = SpannableStringBuilder(badgeText).apply {
                     setSpan(ForegroundColorSpan(badgeColor), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -108,7 +112,18 @@ class TronClassCourseAdapter(
                             onTronClassClick?.invoke(raw)
                         }
                         LearningPlatform.CHAOXING -> {
-                            onChaoXingClickListener?.invoke(course)
+                            if (onChaoXingClickListener != null) {
+                                onChaoXingClickListener?.invoke(course)
+                            } else {
+                                onUnifiedClickListener?.invoke(course)
+                            }
+                        }
+                        LearningPlatform.DUAL -> {
+                            if (onUnifiedClickListener != null) {
+                                onUnifiedClickListener?.invoke(course)
+                            } else if (course.rawTronClassCourse != null) {
+                                onTronClassClick?.invoke(course.rawTronClassCourse)
+                            }
                         }
                     }
                 }

@@ -167,6 +167,13 @@ class TronClassBulletinAdapter(
                         LearningPlatform.CHAOXING -> {
                             onChaoXingClickListener?.invoke(b)
                         }
+                        LearningPlatform.DUAL -> {
+                            if (b.rawTronClassBulletin != null) {
+                                onTronClassClick?.invoke(b.rawTronClassBulletin)
+                            } else {
+                                onChaoXingClickListener?.invoke(b)
+                            }
+                        }
                     }
                 }
             }

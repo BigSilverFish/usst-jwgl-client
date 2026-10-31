@@ -78,6 +78,20 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
 
         fun start(
             context: Context,
+            title: String,
+            courseName: String,
+            videoUrl: String
+        ) {
+            val intent = Intent(context, TronClassVideoPlayerActivity::class.java).apply {
+                putExtra("title", title)
+                putExtra("course_name", courseName)
+                putExtra("direct_video_url", videoUrl)
+            }
+            context.startActivity(intent)
+        }
+
+        fun start(
+            context: Context,
             activityId: Long,
             courseId: Long,
             title: String,
@@ -190,14 +204,22 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
     }
 
     private fun prepareAndPlayVideo() {
+        val directUrl = intent.getStringExtra("direct_video_url")
         val cachedFile = cacheManager.getExistingFile(uploadId, uploadName)
-        val uri: Uri = if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
-            Log.d(TAG, "Playing from local offline cache: ${cachedFile.absolutePath}")
-            Uri.fromFile(cachedFile)
-        } else {
-            val streamUrl = client.getVideoStreamUrl(uploadId)
-            Log.d(TAG, "Playing online stream: $streamUrl")
-            Uri.parse(streamUrl)
+        val uri: Uri = when {
+            !directUrl.isNullOrBlank() -> {
+                Log.d(TAG, "Playing from direct video stream URL: $directUrl")
+                Uri.parse(directUrl)
+            }
+            cachedFile != null && cachedFile.exists() && cachedFile.length() > 0 -> {
+                Log.d(TAG, "Playing from local offline cache: ${cachedFile.absolutePath}")
+                Uri.fromFile(cachedFile)
+            }
+            else -> {
+                val streamUrl = client.getVideoStreamUrl(uploadId)
+                Log.d(TAG, "Playing online stream: $streamUrl")
+                Uri.parse(streamUrl)
+            }
         }
 
         val headers = mutableMapOf(

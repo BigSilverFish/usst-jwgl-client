@@ -476,9 +476,11 @@ class ChaoXingClient(private val context: Context) {
             val parsedResp = gson.fromJson(body, ChaoXingClazzDataResponse::class.java)
             val courseList = mutableListOf<ChaoXingCourse>()
 
+            val defaultUid = prefs.getUid(studentId)
             parsedResp.channelList?.forEach { channel ->
                 val content = channel.content ?: return@forEach
                 val classId = content.id ?: ""
+                val cpi = (channel.cpi ?: "").ifBlank { defaultUid }
                 val courseDataList = content.course?.data
 
                 if (!courseDataList.isNullOrEmpty()) {
@@ -496,7 +498,8 @@ class ChaoXingClient(private val context: Context) {
                                 teacherName = teacher,
                                 coverUrl = cover,
                                 schoolName = USST_SCHOOL_NAME,
-                                rawJson = ""
+                                rawJson = "",
+                                cpi = cpi ?: ""
                             )
                         )
                     }
@@ -511,7 +514,8 @@ class ChaoXingClient(private val context: Context) {
                                 teacherName = "",
                                 coverUrl = "",
                                 schoolName = USST_SCHOOL_NAME,
-                                rawJson = ""
+                                rawJson = "",
+                                cpi = cpi ?: ""
                             )
                         )
                     }

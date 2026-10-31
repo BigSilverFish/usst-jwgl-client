@@ -14,7 +14,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
+import com.google.android.material.button.MaterialButton
+import java.util.Locale
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -35,17 +41,22 @@ import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
+import cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassCourseDetailBinding
 import cn.edu.usst.jwgl.databinding.DialogTronclassClassMembersBinding
 import cn.edu.usst.jwgl.databinding.DialogTronclassCreateTopicBinding
 import cn.edu.usst.jwgl.databinding.DialogTronclassTopicDetailBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassDiscussionReplyBinding
+import cn.edu.usst.jwgl.ui.JwglWebActivity
 import cn.edu.usst.jwgl.ui.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 
 class TronClassCourseDetailFragment : Fragment() {
@@ -53,7 +64,13 @@ class TronClassCourseDetailFragment : Fragment() {
     private var _binding: ActivityTronclassCourseDetailBinding? = null
     private val binding get() = _binding!!
     private lateinit var client: TronClassClient
+    private lateinit var chaoXingClient: ChaoXingClient
+    private lateinit var chaoXingDetailClient: ChaoXingCourseDetailClient
     private lateinit var cacheManager: TronClassCacheManager
+
+    private var unifiedCourse: UnifiedCourse? = null
+    private var platform: LearningPlatform = LearningPlatform.TRONCLASS
+    private var rawChaoXingCourse: ChaoXingCourse? = null
 
     private var courseId: Long = 0L
     private var courseName: String = ""
@@ -76,12 +93,35 @@ class TronClassCourseDetailFragment : Fragment() {
     private var cachedBulletins: List<TronClassBulletin> = emptyList()
     private var cachedDiscussions: List<TronClassDiscussion> = emptyList()
 
+    private var cachedCxChapters: List<ChaoXingChapterUnit> = emptyList()
+    private var cachedCxWorks: List<ChaoXingWork> = emptyList()
+    private var cachedCxExams: List<ChaoXingExam> = emptyList()
+
     companion object {
+        private const val TAG = "TronClassDetail"
+        private const val ARG_UNIFIED_COURSE = "arg_unified_course"
+        private const val ARG_CHAOXING_COURSE = "arg_chaoxing_course"
+        private const val ARG_PLATFORM = "arg_platform"
         private const val ARG_COURSE = "arg_course"
         private const val ARG_COURSE_ID = "arg_course_id"
         private const val ARG_COURSE_NAME = "arg_course_name"
         private const val ARG_COURSE_CODE = "arg_course_code"
         private const val ARG_DEPT_NAME = "arg_dept_name"
+
+        fun newInstance(unifiedCourse: UnifiedCourse): TronClassCourseDetailFragment {
+            return TronClassCourseDetailFragment().apply {
+                arguments = Bundle().apply {
+                    putSerializable(ARG_UNIFIED_COURSE, unifiedCourse)
+                    putSerializable(ARG_COURSE, unifiedCourse.rawTronClassCourse)
+                    putSerializable(ARG_CHAOXING_COURSE, unifiedCourse.rawChaoXingCourse)
+                    putSerializable(ARG_PLATFORM, unifiedCourse.platform)
+                    putLong(ARG_COURSE_ID, unifiedCourse.rawTronClassCourse?.id ?: unifiedCourse.originalCourseId.toLongOrNull() ?: 0L)
+                    putString(ARG_COURSE_NAME, unifiedCourse.cleanName)
+                    putString(ARG_COURSE_CODE, unifiedCourse.courseCode ?: "")
+                    putString(ARG_DEPT_NAME, unifiedCourse.department ?: "")
+                }
+            }
+        }
 
         fun newInstance(course: TronClassCourse): TronClassCourseDetailFragment {
             return TronClassCourseDetailFragment().apply {
@@ -108,11 +148,16 @@ class TronClassCourseDetailFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val args = arguments ?: return
+        unifiedCourse = args.getSerializable(ARG_UNIFIED_COURSE) as? UnifiedCourse
         val course = args.getSerializable(ARG_COURSE) as? TronClassCourse
-        courseId = course?.id ?: args.getLong(ARG_COURSE_ID, 0L)
-        courseName = course?.getCleanName() ?: args.getString(ARG_COURSE_NAME) ?: "课程详情"
-        courseCode = course?.courseCode ?: args.getString(ARG_COURSE_CODE) ?: ""
-        departmentName = course?.department?.name ?: args.getString(ARG_DEPT_NAME) ?: ""
+        rawChaoXingCourse = unifiedCourse?.rawChaoXingCourse ?: args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse
+        platform = unifiedCourse?.platform ?: (args.getSerializable(ARG_PLATFORM) as? LearningPlatform)
+            ?: if (rawChaoXingCourse != null && course == null) LearningPlatform.CHAOXING else LearningPlatform.TRONCLASS
+
+        courseId = unifiedCourse?.rawTronClassCourse?.id ?: course?.id ?: args.getLong(ARG_COURSE_ID, 0L)
+        courseName = unifiedCourse?.cleanName ?: course?.getCleanName() ?: args.getString(ARG_COURSE_NAME) ?: "课程详情"
+        courseCode = unifiedCourse?.courseCode ?: course?.courseCode ?: args.getString(ARG_COURSE_CODE) ?: ""
+        departmentName = unifiedCourse?.department ?: course?.department?.name ?: args.getString(ARG_DEPT_NAME) ?: ""
     }
 
     override fun onCreateView(
@@ -129,6 +174,8 @@ class TronClassCourseDetailFragment : Fragment() {
 
         val context = requireContext()
         client = TronClassClient(context)
+        chaoXingClient = ChaoXingClient(context)
+        chaoXingDetailClient = ChaoXingCourseDetailClient(context)
         cacheManager = TronClassCacheManager(context)
 
         val density = resources.displayMetrics.density
@@ -307,6 +354,12 @@ class TronClassCourseDetailFragment : Fragment() {
                         TronClassExamActivity.start(context, exam.id, courseId, exam.getCleanTitle(), courseName)
                     }
                 }
+                is TronClassAssessmentItem.ChaoXingHomework -> {
+                    showChaoXingHomeworkBottomSheet(item.work)
+                }
+                is TronClassAssessmentItem.ChaoXingExamItem -> {
+                    showChaoXingExamBottomSheet(item.exam)
+                }
             }
         }
         binding.rvAssessments.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
@@ -378,6 +431,33 @@ class TronClassCourseDetailFragment : Fragment() {
         val initialMembers = cacheMgr.getCachedCourseMembers(courseId)
         if (initialMembers.isNotEmpty()) {
             cachedMembers = initialMembers
+        }
+
+        // 超星学习通本地秒级直出
+        val cxCourse = rawChaoXingCourse
+        if (cxCourse != null) {
+            val initialCxChapters = cacheMgr.getCachedChaoXingChapters(cxCourse.courseId)
+            if (initialCxChapters.isNotEmpty()) {
+                cachedCxChapters = initialCxChapters
+                val (cxMods, cxActs) = convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
+                if (platform == LearningPlatform.CHAOXING) {
+                    val comp = cxActs.count { it.completeness == "complete" }
+                    val uiItems = buildCourseStructure(cxMods, cxActs, comp, cxActs.size)
+                    activityAdapter.updateData(uiItems)
+                }
+            }
+            val initialCxWorks = cacheMgr.getCachedChaoXingHomeworks(cxCourse.courseId)
+            val initialCxExams = cacheMgr.getCachedChaoXingExams(cxCourse.courseId)
+            if (initialCxWorks.isNotEmpty() || initialCxExams.isNotEmpty()) {
+                cachedCxWorks = initialCxWorks
+                cachedCxExams = initialCxExams
+                if (platform == LearningPlatform.CHAOXING) {
+                    val assessList = mutableListOf<TronClassAssessmentItem>()
+                    assessList.addAll(initialCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+                    assessList.addAll(initialCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+                    assessmentAdapter.updateData(assessList)
+                }
+            }
         }
 
         // 5. 四个 Tab 切换监听 (0: 章节课件, 1: 课程公告, 2: 作业测验, 3: 课堂讨论)
@@ -500,142 +580,329 @@ class TronClassCourseDetailFragment : Fragment() {
     }
 
     private fun loadCourseData(forceRefresh: Boolean) {
-        if (courseId <= 0) {
+        if (courseId <= 0 && rawChaoXingCourse == null) {
             Toast.makeText(context, "无效的课程ID", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val hasCache = cachedActivities.isNotEmpty()
+        val hasCache = cachedActivities.isNotEmpty() || cachedCxChapters.isNotEmpty()
         if (!hasCache || forceRefresh) {
             _binding?.swipeRefresh?.isRefreshing = true
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            Log.e("TC_SESSION", "COURSE_ID: $courseId, SESSION_ID: ${client.getSessionId()}")
             val ctx = context ?: return@launch
             val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
 
-            // 1. 核心大纲/课件优先异步通道 (Modules + Activities + Reads)
-            val modulesDef = async { client.fetchCourseModules(courseId) }
-            val activitiesDef = async { client.fetchCourseActivities(courseId) }
-            val readsDef = async { client.fetchActivityReads(courseId) }
-
-            // 2. 次要信息异步通道 (Bulletins + Exams + Discussions + Members)
-            val bulletinsDef = async { client.fetchCourseBulletins(courseId) }
-            val examsDef = async { client.fetchCourseExams(courseId) }
-            val discussionsDef = async { client.fetchCourseDiscussions(courseId) }
-            val membersDef = async { client.fetchCourseMembers(courseId) }
-
-            // 优先等待核心大纲返回并即时渲染上屏 (避免次要信息拖慢核心课件显示)
-            val modulesRes = modulesDef.await()
-            val activitiesRes = activitiesDef.await()
-            val readsRes = readsDef.await()
-
-            val b1 = _binding ?: return@launch
-
-            if (modulesRes.isSuccess) {
-                cachedModules = modulesRes.getOrDefault(emptyList())
-                if (cachedModules.isNotEmpty()) {
-                    cacheMgr.saveCourseModules(courseId, cachedModules)
+            when (platform) {
+                LearningPlatform.TRONCLASS -> {
+                    loadTronClassCourseData(cacheMgr)
+                }
+                LearningPlatform.CHAOXING -> {
+                    loadChaoXingCourseData(cacheMgr)
+                }
+                LearningPlatform.DUAL -> {
+                    loadDualCourseData(cacheMgr)
                 }
             }
-            if (activitiesRes.isSuccess) {
-                cachedActivities = activitiesRes.getOrDefault(emptyList())
-                val readsMap = readsRes.getOrDefault(emptyMap())
-                if (cachedActivities.isNotEmpty()) {
-                    cacheMgr.saveCourseSyllabus(courseId, cachedActivities)
-                }
-                if (readsMap.isNotEmpty()) {
-                    cacheMgr.saveCourseReads(courseId, readsMap)
-                }
-
-                var completedCount = 0
-                for (act in cachedActivities) {
-                    val comp = readsMap[act.id]
-                    act.completeness = comp
-                    if (comp == "full" || comp == "complete") {
-                        completedCount++
-                    }
-                }
-
-                val totalActs = cachedActivities.size
-                val uiItems = buildCourseStructure(cachedModules, cachedActivities, completedCount, totalActs)
-                activityAdapter.updateData(uiItems)
-                if (b1.tabLayout.selectedTabPosition == 0) {
-                    checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
-                }
-
-                // 同步刷新作业测验中来自活动的作业项
-                val updatedAssessments = buildAssessmentItems(cachedActivities, cachedExams)
-                assessmentAdapter.updateData(updatedAssessments)
-                if (b1.tabLayout.selectedTabPosition == 2) {
-                    checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
-                }
-
-                // 同步刷新课堂讨论中来自活动的 forum 讨论项
-                val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
-                discussionAdapter.updateData(updatedDiscussions)
-                if (b1.tabLayout.selectedTabPosition == 3) {
-                    checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
-                }
-            }
-
-            // 次要信息随后就绪，增量写回缓存与 Adapter
-            val bulletinsRes = bulletinsDef.await()
-            val b2 = _binding ?: return@launch
-            if (bulletinsRes.isSuccess) {
-                cachedBulletins = bulletinsRes.getOrDefault(emptyList())
-                if (cachedBulletins.isNotEmpty()) {
-                    cacheMgr.saveCourseBulletins(courseId, cachedBulletins)
-                }
-                bulletinAdapter.updateData(cachedBulletins)
-                if (b2.tabLayout.selectedTabPosition == 1) {
-                    checkEmptyState(cachedBulletins.isEmpty(), "暂无课程公告")
-                }
-            }
-
-            val examsRes = examsDef.await()
-            val b3 = _binding ?: return@launch
-            if (examsRes.isSuccess) {
-                cachedExams = examsRes.getOrDefault(emptyList())
-                if (cachedExams.isNotEmpty()) {
-                    cacheMgr.saveCourseExams(courseId, cachedExams)
-                }
-                val updatedAssessments = buildAssessmentItems(cachedActivities, cachedExams)
-                assessmentAdapter.updateData(updatedAssessments)
-                if (b3.tabLayout.selectedTabPosition == 2) {
-                    checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
-                }
-            }
-
-            val discussionsRes = discussionsDef.await()
-            val b4 = _binding ?: return@launch
-            if (discussionsRes.isSuccess) {
-                cachedDiscussions = discussionsRes.getOrDefault(emptyList())
-                if (cachedDiscussions.isNotEmpty()) {
-                    cacheMgr.saveCourseDiscussions(courseId, cachedDiscussions)
-                }
-                val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
-                discussionAdapter.updateData(updatedDiscussions)
-                if (b4.tabLayout.selectedTabPosition == 3) {
-                    checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
-                }
-            }
-
-            val membersRes = membersDef.await()
-            if (membersRes.isSuccess) {
-                cachedMembers = membersRes.getOrDefault(emptyList())
-                if (cachedMembers.isNotEmpty()) {
-                    cacheMgr.saveCourseMembers(courseId, cachedMembers)
-                }
-                // 若用户当前正打开班级成员弹窗，同步刷新其列表
-                activeMemberAdapter?.updateData(cachedMembers)
-                activeMemberDialogBinding?.tvMemberCountBadge?.text = "共 ${cachedMembers.size} 人"
-                activeMemberDialogBinding?.layoutEmptyMembers?.visibility = if (cachedMembers.isEmpty()) View.VISIBLE else View.GONE
-            }
-
-            b4.swipeRefresh.isRefreshing = false
         }
+    }
+
+    private suspend fun loadTronClassCourseData(cacheMgr: TronClassDataCacheManager) = supervisorScope {
+        Log.e("TC_SESSION", "COURSE_ID: $courseId, SESSION_ID: ${client.getSessionId()}")
+
+        // 1. 核心大纲/课件优先异步通道 (Modules + Activities + Reads)
+        val modulesDef = async { client.fetchCourseModules(courseId) }
+        val activitiesDef = async { client.fetchCourseActivities(courseId) }
+        val readsDef = async { client.fetchActivityReads(courseId) }
+
+        // 2. 次要信息异步通道 (Bulletins + Exams + Discussions + Members)
+        val bulletinsDef = async { client.fetchCourseBulletins(courseId) }
+        val examsDef = async { client.fetchCourseExams(courseId) }
+        val discussionsDef = async { client.fetchCourseDiscussions(courseId) }
+        val membersDef = async { client.fetchCourseMembers(courseId) }
+
+        // 优先等待核心大纲返回并即时渲染上屏 (避免次要信息拖慢核心课件显示)
+        val modulesRes = modulesDef.await()
+        val activitiesRes = activitiesDef.await()
+        val readsRes = readsDef.await()
+
+        val b1 = _binding ?: return@supervisorScope
+
+        if (modulesRes.isSuccess) {
+            cachedModules = modulesRes.getOrDefault(emptyList())
+            if (cachedModules.isNotEmpty()) {
+                cacheMgr.saveCourseModules(courseId, cachedModules)
+            }
+        }
+        if (activitiesRes.isSuccess) {
+            cachedActivities = activitiesRes.getOrDefault(emptyList())
+            val readsMap = readsRes.getOrDefault(emptyMap())
+            if (cachedActivities.isNotEmpty()) {
+                cacheMgr.saveCourseSyllabus(courseId, cachedActivities)
+            }
+            if (readsMap.isNotEmpty()) {
+                cacheMgr.saveCourseReads(courseId, readsMap)
+            }
+
+            var completedCount = 0
+            for (act in cachedActivities) {
+                val comp = readsMap[act.id]
+                act.completeness = comp
+                if (comp == "full" || comp == "complete") {
+                    completedCount++
+                }
+            }
+
+            val totalActs = cachedActivities.size
+            val uiItems = buildCourseStructure(cachedModules, cachedActivities, completedCount, totalActs)
+            activityAdapter.updateData(uiItems)
+            if (b1.tabLayout.selectedTabPosition == 0) {
+                checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
+            }
+
+            // 同步刷新作业测验中来自活动的作业项
+            val updatedAssessments = buildAssessmentItems(cachedActivities, cachedExams)
+            assessmentAdapter.updateData(updatedAssessments)
+            if (b1.tabLayout.selectedTabPosition == 2) {
+                checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
+            }
+
+            // 同步刷新课堂讨论中来自活动的 forum 讨论项
+            val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+            discussionAdapter.updateData(updatedDiscussions)
+            if (b1.tabLayout.selectedTabPosition == 3) {
+                checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+            }
+        }
+
+        // 次要信息随后就绪，增量写回缓存与 Adapter
+        val bulletinsRes = bulletinsDef.await()
+        val b2 = _binding ?: return@supervisorScope
+        if (bulletinsRes.isSuccess) {
+            cachedBulletins = bulletinsRes.getOrDefault(emptyList())
+            if (cachedBulletins.isNotEmpty()) {
+                cacheMgr.saveCourseBulletins(courseId, cachedBulletins)
+            }
+            bulletinAdapter.updateData(cachedBulletins)
+            if (b2.tabLayout.selectedTabPosition == 1) {
+                checkEmptyState(cachedBulletins.isEmpty(), "暂无课程公告")
+            }
+        }
+
+        val examsRes = examsDef.await()
+        val b3 = _binding ?: return@supervisorScope
+        if (examsRes.isSuccess) {
+            cachedExams = examsRes.getOrDefault(emptyList())
+            if (cachedExams.isNotEmpty()) {
+                cacheMgr.saveCourseExams(courseId, cachedExams)
+            }
+            val updatedAssessments = buildAssessmentItems(cachedActivities, cachedExams)
+            assessmentAdapter.updateData(updatedAssessments)
+            if (b3.tabLayout.selectedTabPosition == 2) {
+                checkEmptyState(updatedAssessments.isEmpty(), "本课程暂无作业与测验")
+            }
+        }
+
+        val discussionsRes = discussionsDef.await()
+        val b4 = _binding ?: return@supervisorScope
+        if (discussionsRes.isSuccess) {
+            cachedDiscussions = discussionsRes.getOrDefault(emptyList())
+            if (cachedDiscussions.isNotEmpty()) {
+                cacheMgr.saveCourseDiscussions(courseId, cachedDiscussions)
+            }
+            val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+            discussionAdapter.updateData(updatedDiscussions)
+            if (b4.tabLayout.selectedTabPosition == 3) {
+                checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+            }
+        }
+
+        val membersRes = membersDef.await()
+        if (membersRes.isSuccess) {
+            cachedMembers = membersRes.getOrDefault(emptyList())
+            if (cachedMembers.isNotEmpty()) {
+                cacheMgr.saveCourseMembers(courseId, cachedMembers)
+            }
+            activeMemberAdapter?.updateData(cachedMembers)
+            activeMemberDialogBinding?.tvMemberCountBadge?.text = "共 ${cachedMembers.size} 人"
+            activeMemberDialogBinding?.layoutEmptyMembers?.visibility = if (cachedMembers.isEmpty()) View.VISIBLE else View.GONE
+        }
+
+        b4.swipeRefresh.isRefreshing = false
+    }
+
+    private suspend fun loadChaoXingCourseData(cacheMgr: TronClassDataCacheManager) = supervisorScope {
+        val cxCourse = rawChaoXingCourse ?: return@supervisorScope
+        val chaptersDef = async { chaoXingDetailClient.fetchChapters(cxCourse) }
+        val noticesDef = async { chaoXingClient.fetchNotices() }
+        val worksDef = async { chaoXingDetailClient.fetchHomeworks(cxCourse, withScores = true) }
+        val examsDef = async { chaoXingDetailClient.fetchExams(cxCourse) }
+
+        val chaptersRes = chaptersDef.await()
+        val b1 = _binding ?: return@supervisorScope
+
+        if (chaptersRes.isSuccess) {
+            cachedCxChapters = chaptersRes.getOrDefault(emptyList())
+            if (cachedCxChapters.isNotEmpty()) {
+                cacheMgr.saveChaoXingChapters(cxCourse.courseId, cachedCxChapters)
+            }
+            val (modules, acts) = convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
+            val completedCount = acts.count { it.completeness == "complete" }
+            val uiItems = buildCourseStructure(modules, acts, completedCount, acts.size)
+            activityAdapter.updateData(uiItems)
+            if (b1.tabLayout.selectedTabPosition == 0) {
+                checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
+            }
+        }
+
+        val noticesRes = noticesDef.await()
+        val b2 = _binding ?: return@supervisorScope
+        if (noticesRes.isSuccess) {
+            val allNotices = noticesRes.getOrDefault(emptyList())
+            val courseNotices = allNotices.filter {
+                it.originalCourseId == cxCourse.courseId ||
+                        it.courseName.contains(cxCourse.courseName) ||
+                        cxCourse.courseName.contains(it.courseName)
+            }
+            bulletinAdapter.updateUnifiedData(courseNotices, multiPlatform = false)
+            if (b2.tabLayout.selectedTabPosition == 1) {
+                checkEmptyState(courseNotices.isEmpty(), "暂无课程公告")
+            }
+        }
+
+        val worksRes = worksDef.await()
+        val examsRes = examsDef.await()
+        val b3 = _binding ?: return@supervisorScope
+        if (worksRes.isSuccess || examsRes.isSuccess) {
+            cachedCxWorks = worksRes.getOrDefault(emptyList())
+            cachedCxExams = examsRes.getOrDefault(emptyList())
+            if (cachedCxWorks.isNotEmpty()) cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+            if (cachedCxExams.isNotEmpty()) cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
+
+            val assessList = mutableListOf<TronClassAssessmentItem>()
+            assessList.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+            assessList.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+            assessmentAdapter.updateData(assessList)
+            if (b3.tabLayout.selectedTabPosition == 2) {
+                checkEmptyState(assessList.isEmpty(), "本课程暂无作业与测验")
+            }
+        }
+        b3.swipeRefresh.isRefreshing = false
+    }
+
+    private suspend fun loadDualCourseData(cacheMgr: TronClassDataCacheManager) = supervisorScope {
+        val cxCourse = rawChaoXingCourse
+        Log.i(TAG, "loadDualCourseData start: courseId=$courseId, cxCourse=${cxCourse?.courseName} (courseId=${cxCourse?.courseId}, classId=${cxCourse?.classId}, cpi=${cxCourse?.cpi})")
+        // 1. 畅课异步通道
+        val modulesDef = async { if (courseId > 0) client.fetchCourseModules(courseId) else Result.success(emptyList()) }
+        val activitiesDef = async { if (courseId > 0) client.fetchCourseActivities(courseId) else Result.success(emptyList()) }
+        val readsDef = async { if (courseId > 0) client.fetchActivityReads(courseId) else Result.success(emptyMap()) }
+        val bulletinsDef = async { if (courseId > 0) client.fetchCourseBulletins(courseId) else Result.success(emptyList()) }
+        val examsDef = async { if (courseId > 0) client.fetchCourseExams(courseId) else Result.success(emptyList()) }
+        val discussionsDef = async { if (courseId > 0) client.fetchCourseDiscussions(courseId) else Result.success(emptyList()) }
+        val membersDef = async { if (courseId > 0) client.fetchCourseMembers(courseId) else Result.success(emptyList()) }
+
+        // 2. 超星异步通道
+        val cxChaptersDef = async { if (cxCourse != null) chaoXingDetailClient.fetchChapters(cxCourse) else Result.success(emptyList()) }
+        val cxNoticesDef = async { chaoXingClient.fetchNotices() }
+        val cxWorksDef = async { if (cxCourse != null) chaoXingDetailClient.fetchHomeworks(cxCourse, withScores = true) else Result.success(emptyList()) }
+        val cxExamsDef = async { if (cxCourse != null) chaoXingDetailClient.fetchExams(cxCourse) else Result.success(emptyList()) }
+
+        // 渲染章节
+        val modulesRes = modulesDef.await()
+        val activitiesRes = activitiesDef.await()
+        val readsRes = readsDef.await()
+        val cxChaptersRes = cxChaptersDef.await()
+
+        val b1 = _binding ?: return@supervisorScope
+        if (modulesRes.isSuccess) cachedModules = modulesRes.getOrDefault(emptyList())
+        if (activitiesRes.isSuccess) {
+            cachedActivities = activitiesRes.getOrDefault(emptyList())
+            val readsMap = readsRes.getOrDefault(emptyMap())
+            for (act in cachedActivities) {
+                act.completeness = readsMap[act.id]
+            }
+        }
+        val (cxMods, cxActs) = if (cxChaptersRes.isSuccess && cxCourse != null) {
+            cachedCxChapters = cxChaptersRes.getOrDefault(emptyList())
+            convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
+        } else Pair(emptyList(), emptyList())
+
+        Log.i(TAG, "Dual chapters: tcMods=${cachedModules.size}, tcActs=${cachedActivities.size}, cxMods=${cxMods.size}, cxActs=${cxActs.size}, cxSuccess=${cxChaptersRes.isSuccess}")
+
+        val combinedModules = cachedModules + cxMods
+        val combinedActivities = cachedActivities + cxActs
+        val completedCount = cachedActivities.count { it.completeness == "complete" || it.completeness == "full" } +
+                cxActs.count { it.completeness == "complete" }
+        val uiItems = buildCourseStructure(combinedModules, combinedActivities, completedCount, combinedActivities.size)
+        activityAdapter.updateData(uiItems)
+        if (b1.tabLayout.selectedTabPosition == 0) {
+            checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
+        }
+
+        // 渲染公告
+        val bulletinsRes = bulletinsDef.await()
+        val cxNoticesRes = cxNoticesDef.await()
+        val b2 = _binding ?: return@supervisorScope
+        if (bulletinsRes.isSuccess) cachedBulletins = bulletinsRes.getOrDefault(emptyList())
+        val combinedBulletins = mutableListOf<UnifiedBulletin>()
+        combinedBulletins.addAll(cachedBulletins.map { UnifiedBulletin.fromTronClass(it) })
+        if (cxNoticesRes.isSuccess && cxCourse != null) {
+            val cxNotices = cxNoticesRes.getOrDefault(emptyList()).filter {
+                it.originalCourseId == cxCourse.courseId ||
+                        it.courseName.contains(cxCourse.courseName) ||
+                        cxCourse.courseName.contains(it.courseName)
+            }
+            combinedBulletins.addAll(cxNotices)
+        }
+        combinedBulletins.sortByDescending { it.publishMillis }
+        bulletinAdapter.updateUnifiedData(combinedBulletins, multiPlatform = true)
+        if (b2.tabLayout.selectedTabPosition == 1) {
+            checkEmptyState(combinedBulletins.isEmpty(), "暂无课程公告")
+        }
+
+        // 渲染作业测验
+        val examsRes = examsDef.await()
+        val cxWorksRes = cxWorksDef.await()
+        val cxExamsRes = cxExamsDef.await()
+        val b3 = _binding ?: return@supervisorScope
+        if (examsRes.isSuccess) cachedExams = examsRes.getOrDefault(emptyList())
+        if (cxWorksRes.isSuccess) cachedCxWorks = cxWorksRes.getOrDefault(emptyList())
+        if (cxExamsRes.isSuccess) cachedCxExams = cxExamsRes.getOrDefault(emptyList())
+
+        Log.i(TAG, "Dual assessments: tcExams=${cachedExams.size}, cxWorks=${cachedCxWorks.size}, cxExams=${cachedCxExams.size}, cxWorksSuccess=${cxWorksRes.isSuccess}, cxExamsSuccess=${cxExamsRes.isSuccess}")
+
+        val combinedAssessments = mutableListOf<TronClassAssessmentItem>()
+        combinedAssessments.addAll(buildAssessmentItems(cachedActivities, cachedExams))
+        combinedAssessments.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+        combinedAssessments.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+        assessmentAdapter.updateData(combinedAssessments)
+        if (b3.tabLayout.selectedTabPosition == 2) {
+            checkEmptyState(combinedAssessments.isEmpty(), "本课程暂无作业与测验")
+        }
+
+        // 渲染讨论区
+        val discussionsRes = discussionsDef.await()
+        val b4 = _binding ?: return@supervisorScope
+        if (discussionsRes.isSuccess) {
+            cachedDiscussions = discussionsRes.getOrDefault(emptyList())
+            val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+            discussionAdapter.updateData(updatedDiscussions)
+            if (b4.tabLayout.selectedTabPosition == 3) {
+                checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+            }
+        }
+
+        // 班级成员
+        val membersRes = membersDef.await()
+        if (membersRes.isSuccess) {
+            cachedMembers = membersRes.getOrDefault(emptyList())
+            activeMemberAdapter?.updateData(cachedMembers)
+            activeMemberDialogBinding?.tvMemberCountBadge?.text = "共 ${cachedMembers.size} 人"
+        }
+
+        b4.swipeRefresh.isRefreshing = false
     }
 
     /**
@@ -1135,6 +1402,10 @@ class TronClassCourseDetailFragment : Fragment() {
 
     private fun handleActivityClick(act: TronClassActivityItem) {
         val context = context ?: return
+        if (act.type == "chaoxing_chapter") {
+            showChaoXingChapterBottomSheet(act)
+            return
+        }
         val mainAct = activity as? MainActivity
         when (act.type) {
             "online_video" -> {
@@ -1303,6 +1574,311 @@ class TronClassCourseDetailFragment : Fragment() {
             courseId = courseId,
             courseName = courseName
         )
+    }
+
+    // --- 超星学习通原生课程详情模块交互 ---
+
+    private fun convertCxUnitsToModulesAndActivities(
+        units: List<ChaoXingChapterUnit>,
+        cxCourse: ChaoXingCourse
+    ): Pair<List<TronClassModule>, List<TronClassActivityItem>> {
+        val modules = mutableListOf<TronClassModule>()
+        val activities = mutableListOf<TronClassActivityItem>()
+
+        units.forEachIndexed { unitIdx, unit ->
+            val modId = (unitIdx + 10000).toLong()
+            modules.add(
+                TronClassModule(
+                    id = modId,
+                    name = unit.title
+                )
+            )
+
+            unit.chapters.forEach { chapter ->
+                val actId = chapter.id.toLongOrNull() ?: (chapter.id.hashCode().toLong().let { if (it <= 0) -it + 1000000L else it })
+                activities.add(
+                    TronClassActivityItem(
+                        id = actId,
+                        title = if (chapter.number.isNotBlank()) "${chapter.number} ${chapter.title}" else chapter.title,
+                        type = "chaoxing_chapter",
+                        completeness = if (chapter.completed) "complete" else "",
+                        moduleId = modId,
+                        uploads = emptyList(),
+                        extraChaoXingChapter = chapter,
+                        extraChaoXingCourse = cxCourse
+                    )
+                )
+            }
+        }
+        return Pair(modules, activities)
+    }
+
+    private fun showChaoXingChapterBottomSheet(act: TronClassActivityItem) {
+        val ctx = context ?: return
+        val chapter = act.extraChaoXingChapter ?: ChaoXingChapter(
+            id = act.id.toString(),
+            title = act.getCleanTitle(),
+            completed = act.completeness == "complete" || act.completeness == "full"
+        )
+        val cxCourse = act.extraChaoXingCourse ?: rawChaoXingCourse ?: return
+
+        val dialog = BottomSheetDialog(ctx)
+        val view = layoutInflater.inflate(R.layout.dialog_chaoxing_chapter_attachments, null)
+        dialog.setContentView(view)
+
+        val tvTitle = view.findViewById<TextView>(R.id.tvChapterTitle)
+        val tvSub = view.findViewById<TextView>(R.id.tvChapterSub)
+        val progressBar = view.findViewById<ProgressBar>(R.id.progressBarLoading)
+        val llAttachments = view.findViewById<LinearLayout>(R.id.llAttachmentsContainer)
+        val tvEmpty = view.findViewById<TextView>(R.id.tvEmptyAttachments)
+
+        tvTitle.text = chapter.title
+        tvSub.text = if (chapter.number.isNotBlank()) "${chapter.number} · ${cxCourse.courseName}" else cxCourse.courseName
+
+        dialog.show()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            progressBar.visibility = View.VISIBLE
+            llAttachments.visibility = View.GONE
+            tvEmpty.visibility = View.GONE
+
+            val res = chaoXingDetailClient.fetchAttachments(cxCourse, chapter.id)
+            progressBar.visibility = View.GONE
+
+            if (res.isSuccess) {
+                val attachments = res.getOrDefault(emptyList())
+                if (attachments.isEmpty()) {
+                    tvEmpty.visibility = View.VISIBLE
+                    tvEmpty.text = "本章节暂无已上传的课件或附件"
+                } else {
+                    llAttachments.visibility = View.VISIBLE
+                    llAttachments.removeAllViews()
+                    for (attachment in attachments) {
+                        val itemView = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
+                        val ivIcon = itemView.findViewById<ImageView>(R.id.ivAttachmentIcon)
+                        val tvName = itemView.findViewById<TextView>(R.id.tvAttachmentName)
+                        val tvSize = itemView.findViewById<TextView>(R.id.tvAttachmentSize)
+                        val btnAction = itemView.findViewById<MaterialButton>(R.id.btnAttachmentAction)
+
+                        tvName.text = attachment.name
+                        tvSize.text = attachment.getFormattedSize().ifBlank { "课件资料" }
+
+                        val lowerName = attachment.name.lowercase(Locale.ROOT)
+                        val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
+                        val isPdf = lowerName.endsWith(".pdf")
+                        val isPpt = lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx")
+                        val isDoc = lowerName.endsWith(".doc") || lowerName.endsWith(".docx")
+
+                        when {
+                            isVideo -> {
+                                ivIcon.setImageResource(R.drawable.ic_live_video)
+                                ivIcon.setColorFilter(Color.parseColor("#EA580C"))
+                                btnAction.text = "播放"
+                                btnAction.setIconResource(R.drawable.ic_play_arrow)
+                            }
+                            isPdf -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_pdf)
+                                ivIcon.setColorFilter(ContextCompat.getColor(ctx, R.color.error))
+                                btnAction.text = "预览"
+                                btnAction.setIconResource(R.drawable.ic_file_doc)
+                            }
+                            isPpt -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(Color.parseColor("#F57C00"))
+                                btnAction.text = "预览/下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                            isDoc -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(Color.parseColor("#1976D2"))
+                                btnAction.text = "预览/下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                            else -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(ContextCompat.getColor(ctx, R.color.primary))
+                                btnAction.text = "下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                        }
+
+                        btnAction.setOnClickListener {
+                            handleChaoXingAttachmentClick(attachment)
+                        }
+                        itemView.setOnClickListener {
+                            handleChaoXingAttachmentClick(attachment)
+                        }
+                        llAttachments.addView(itemView)
+                    }
+                }
+            } else {
+                tvEmpty.visibility = View.VISIBLE
+                tvEmpty.text = "课件附件加载失败，点击重试"
+                tvEmpty.setOnClickListener {
+                    showChaoXingChapterBottomSheet(act)
+                }
+            }
+        }
+    }
+
+    private fun handleChaoXingAttachmentClick(attachment: ChaoXingCourseAttachment) {
+        val ctx = context ?: return
+        val progress = ProgressDialog(ctx).apply {
+            setMessage("正在解析「${attachment.name}」...")
+            setCancelable(false)
+            show()
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val res = chaoXingDetailClient.fetchYunFile(attachment.objectId)
+            progress.dismiss()
+            if (res.isSuccess) {
+                val yun = res.getOrNull()
+                val lowerName = attachment.name.lowercase(Locale.ROOT)
+                val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
+
+                if (isVideo) {
+                    val stream = yun?.streamUrl ?: ""
+                    if (stream.isNotBlank()) {
+                        TronClassVideoPlayerActivity.start(
+                            context = ctx,
+                            title = attachment.name,
+                            courseName = courseName,
+                            videoUrl = stream
+                        )
+                    } else {
+                        Toast.makeText(ctx, "该视频暂无可播放流地址", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    val pdfUrl = yun?.pdfUrl ?: ""
+                    val downloadUrl = yun?.downloadUrl ?: ""
+                    val targetUrl = pdfUrl.ifBlank { downloadUrl }
+
+                    if (targetUrl.isNotBlank()) {
+                        MaterialAlertDialogBuilder(ctx)
+                            .setTitle(attachment.name)
+                            .setMessage("课件大小：${attachment.getFormattedSize()}\n\n该文档已成功转换为移动端格式，可选择直接在线预览或下载到本地。")
+                            .setPositiveButton("在线预览") { _, _ ->
+                                JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                            }
+                            .setNeutralButton("复制下载链接") { _, _ ->
+                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                cm?.setPrimaryClip(android.content.ClipData.newPlainText("下载链接", targetUrl))
+                                Toast.makeText(ctx, "下载直链已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    } else {
+                        Toast.makeText(ctx, "该课件暂无可下载直链", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else {
+                Toast.makeText(ctx, "解析课件失败，请稍后重试", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showChaoXingHomeworkBottomSheet(work: ChaoXingWork) {
+        val ctx = context ?: return
+        val dialog = BottomSheetDialog(ctx)
+        val view = layoutInflater.inflate(R.layout.dialog_chaoxing_chapter_attachments, null)
+        dialog.setContentView(view)
+
+        val tvTitle = view.findViewById<TextView>(R.id.tvChapterTitle)
+        val tvSub = view.findViewById<TextView>(R.id.tvChapterSub)
+        val llAttachments = view.findViewById<LinearLayout>(R.id.llAttachmentsContainer)
+        val progressBar = view.findViewById<ProgressBar>(R.id.progressBarLoading)
+        val tvEmpty = view.findViewById<TextView>(R.id.tvEmptyAttachments)
+
+        progressBar.visibility = View.GONE
+        tvEmpty.visibility = View.GONE
+        llAttachments.visibility = View.VISIBLE
+        llAttachments.removeAllViews()
+
+        tvTitle.text = work.title
+        val scoreText = if (work.score.isNotBlank()) " · 得分: ${work.score}分" else ""
+        tvSub.text = "${work.statusText}$scoreText · ${work.courseName}"
+
+        val card = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
+        val ivIcon = card.findViewById<ImageView>(R.id.ivAttachmentIcon)
+        val tvName = card.findViewById<TextView>(R.id.tvAttachmentName)
+        val tvSize = card.findViewById<TextView>(R.id.tvAttachmentSize)
+        val btnAction = card.findViewById<MaterialButton>(R.id.btnAttachmentAction)
+
+        ivIcon.setImageResource(R.drawable.ic_homework)
+        ivIcon.setColorFilter(Color.parseColor("#EA580C"))
+        tvName.text = if (work.deadline.isNotBlank()) "截止时间: ${work.deadline}" else "无具体截止时间限制"
+        tvSize.text = "状态: ${work.statusText}$scoreText"
+        btnAction.text = if (work.statusText.contains("已批阅") || work.statusText.contains("已完成")) "查看批阅" else "进入答题"
+        btnAction.setIconResource(R.drawable.ic_chevron_right)
+
+        btnAction.setOnClickListener {
+            dialog.dismiss()
+            if (work.taskUrl.isNotBlank()) {
+                ChaoXingNavigator.openHomework(
+                    context = ctx,
+                    courseId = rawChaoXingCourse?.courseId ?: "0",
+                    classId = rawChaoXingCourse?.classId,
+                    workId = work.workId,
+                    title = work.title,
+                    detailUrl = work.taskUrl
+                )
+            } else {
+                Toast.makeText(ctx, "该作业暂无外部答题入口", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        llAttachments.addView(card)
+        dialog.show()
+    }
+
+    private fun showChaoXingExamBottomSheet(exam: ChaoXingExam) {
+        val ctx = context ?: return
+        val dialog = BottomSheetDialog(ctx)
+        val view = layoutInflater.inflate(R.layout.dialog_chaoxing_chapter_attachments, null)
+        dialog.setContentView(view)
+
+        val tvTitle = view.findViewById<TextView>(R.id.tvChapterTitle)
+        val tvSub = view.findViewById<TextView>(R.id.tvChapterSub)
+        val llAttachments = view.findViewById<LinearLayout>(R.id.llAttachmentsContainer)
+        val progressBar = view.findViewById<ProgressBar>(R.id.progressBarLoading)
+        val tvEmpty = view.findViewById<TextView>(R.id.tvEmptyAttachments)
+
+        progressBar.visibility = View.GONE
+        tvEmpty.visibility = View.GONE
+        llAttachments.visibility = View.VISIBLE
+        llAttachments.removeAllViews()
+
+        tvTitle.text = exam.title
+        val scoreText = if (exam.score.isNotBlank()) " · 得分: ${exam.score}分" else ""
+        tvSub.text = "${exam.status}$scoreText"
+
+        val card = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
+        val ivIcon = card.findViewById<ImageView>(R.id.ivAttachmentIcon)
+        val tvName = card.findViewById<TextView>(R.id.tvAttachmentName)
+        val tvSize = card.findViewById<TextView>(R.id.tvAttachmentSize)
+        val btnAction = card.findViewById<MaterialButton>(R.id.btnAttachmentAction)
+
+        ivIcon.setImageResource(R.drawable.ic_exam)
+        ivIcon.setColorFilter(Color.parseColor("#EA580C"))
+        tvName.text = if (exam.remaining.isNotBlank()) exam.remaining else "在线测试"
+        tvSize.text = "状态: ${exam.status}$scoreText"
+
+        val hasAnalysis = exam.analysisUrl.isNotBlank()
+        btnAction.text = if (hasAnalysis) "查看分析" else "进入测验"
+        btnAction.setIconResource(R.drawable.ic_chevron_right)
+
+        btnAction.setOnClickListener {
+            dialog.dismiss()
+            val targetUrl = if (hasAnalysis) exam.analysisUrl else {
+                val cx = rawChaoXingCourse
+                "https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/exam-list?courseid=${cx?.courseId}&clazzid=${cx?.classId}&personid=${cx?.cpi}"
+            }
+            ChaoXingNavigator.openChaoXingWebPage(ctx, targetUrl, exam.title)
+        }
+
+        llAttachments.addView(card)
+        dialog.show()
     }
 
     private fun showCacheManagementDialog() {

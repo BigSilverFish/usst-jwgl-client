@@ -497,6 +497,64 @@ class TronClassDataCacheManager(private val context: Context) {
         }
     }
 
+    // --- 9. 超星课程详情缓存 (章节、作业、考试) ---
+    fun saveChaoXingChapters(courseId: String, units: List<ChaoXingChapterUnit>) {
+        if (units.isEmpty()) return
+        val json = gson.toJson(units)
+        prefs.edit()
+            .putString("cx_cache_chapters_$courseId", json)
+            .putLong("cx_cache_chapters_time_$courseId", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedChaoXingChapters(courseId: String): List<ChaoXingChapterUnit> {
+        val json = prefs.getString("cx_cache_chapters_$courseId", null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<ChaoXingChapterUnit>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveChaoXingHomeworks(courseId: String, works: List<ChaoXingWork>) {
+        if (works.isEmpty()) return
+        val json = gson.toJson(works)
+        prefs.edit()
+            .putString("cx_cache_works_$courseId", json)
+            .putLong("cx_cache_works_time_$courseId", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedChaoXingHomeworks(courseId: String): List<ChaoXingWork> {
+        val json = prefs.getString("cx_cache_works_$courseId", null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<ChaoXingWork>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveChaoXingExams(courseId: String, exams: List<ChaoXingExam>) {
+        if (exams.isEmpty()) return
+        val json = gson.toJson(exams)
+        prefs.edit()
+            .putString("cx_cache_exams_$courseId", json)
+            .putLong("cx_cache_exams_time_$courseId", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedChaoXingExams(courseId: String): List<ChaoXingExam> {
+        val json = prefs.getString("cx_cache_exams_$courseId", null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<ChaoXingExam>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     // --- 8. 统计与清理缓存 ---
     fun getDataCacheCount(): Int {
         return prefs.all.count { it.key.startsWith("tc_cache_") && !it.key.endsWith("_time") }

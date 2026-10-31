@@ -135,6 +135,13 @@ class TronClassTodoAdapter(
                         LearningPlatform.CHAOXING -> {
                             onChaoXingClickListener?.invoke(todo)
                         }
+                        LearningPlatform.DUAL -> {
+                            if (todo.rawTronClassTodo != null) {
+                                onTronClassClick?.invoke(todo.rawTronClassTodo)
+                            } else {
+                                onChaoXingClickListener?.invoke(todo)
+                            }
+                        }
                     }
                 }
             }
