@@ -35,10 +35,19 @@ enum class LearningPlatform(
         brandColorHex = "#EA580C",     // Orange 600
         badgeBgColorHex = "#FFEDD5",   // Orange 100
         badgeTextColorHex = "#C2410C"  // Orange 700
+    ),
+    DUAL(
+        code = "dual",
+        displayName = "双平台 (畅课 + 学习通)",
+        shortName = "畅课+学习通",
+        brandColorHex = "#7C3AED",     // Purple 600
+        badgeBgColorHex = "#EDE9FE",   // Purple 100
+        badgeTextColorHex = "#6D28D9"  // Purple 700
     );
 
-    val isTronClass: Boolean get() = this == TRONCLASS
-    val isChaoXing: Boolean get() = this == CHAOXING
+    val isTronClass: Boolean get() = this == TRONCLASS || this == DUAL
+    val isChaoXing: Boolean get() = this == CHAOXING || this == DUAL
+    val isDual: Boolean get() = this == DUAL
 
     @ColorInt
     fun getBrandColor(): Int = Color.parseColor(brandColorHex)
@@ -127,6 +136,87 @@ data class UnifiedCourse(
                 uncompletedTodoCount = uncompletedCount,
                 rawChaoXingCourse = course
             )
+        }
+
+        /**
+         * 智能融合双平台课程列表，消灭同一课程分两个入口的冗余
+         */
+        fun fuseCourses(
+            tcCourses: List<TronClassCourse>,
+            cxCourses: List<ChaoXingCourse>,
+            fallbackSemesterCode: String? = null
+        ): List<UnifiedCourse> {
+            val uTcList = tcCourses.map { fromTronClass(it) }
+            val uCxList = cxCourses.map { fromChaoXing(it, fallbackSemesterCode = fallbackSemesterCode) }
+
+            val result = mutableListOf<UnifiedCourse>()
+            val matchedCxIds = mutableSetOf<String>()
+
+            fun normalize(name: String): String {
+                return name
+                    .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                    .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
+                    .replace(Regex("""\s+"""), "")
+                    .lowercase()
+                    .trim()
+            }
+
+            for (tc in uTcList) {
+                val tcNorm = normalize(tc.cleanName)
+                val matchedCx = uCxList.firstOrNull { cx ->
+                    if (matchedCxIds.contains(cx.unifiedId)) return@firstOrNull false
+                    val cxNorm = normalize(cx.cleanName)
+                    if (tcNorm.isEmpty() || cxNorm.isEmpty()) return@firstOrNull false
+
+                    // 1. 完全相同
+                    if (tcNorm == cxNorm) return@firstOrNull true
+                    // 2. 清洗后的 cleanName 忽略大小写及空白相同
+                    if (tc.cleanName.trim().equals(cx.cleanName.trim(), ignoreCase = true)) return@firstOrNull true
+                    // 3. 包含关系 (且长度差异 <= 3，如 "Web应用开发" 与 "Web应用开发")
+                    if ((tcNorm.contains(cxNorm) || cxNorm.contains(tcNorm)) && kotlin.math.abs(tcNorm.length - cxNorm.length) <= 3) {
+                        if (tc.teacherName.isNotBlank() && cx.teacherName.isNotBlank()) {
+                            val t1 = tc.teacherName.replace(" ", "")
+                            val t2 = cx.teacherName.replace(" ", "")
+                            return@firstOrNull t1.contains(t2) || t2.contains(t1)
+                        }
+                        return@firstOrNull true
+                    }
+                    false
+                }
+
+                if (matchedCx != null) {
+                    matchedCxIds.add(matchedCx.unifiedId)
+                    result.add(
+                        UnifiedCourse(
+                            unifiedId = "dual_${tc.originalCourseId}_${matchedCx.originalCourseId}",
+                            platform = LearningPlatform.DUAL,
+                            originalCourseId = tc.originalCourseId,
+                            originalClassId = matchedCx.originalClassId,
+                            name = tc.name,
+                            cleanName = tc.cleanName,
+                            teacherName = if (tc.teacherName.isNotBlank()) tc.teacherName else matchedCx.teacherName,
+                            coverUrl = tc.coverUrl ?: matchedCx.coverUrl,
+                            courseCode = tc.courseCode ?: matchedCx.courseCode,
+                            department = tc.department ?: matchedCx.department,
+                            semesterCode = tc.semesterCode ?: matchedCx.semesterCode,
+                            formattedSemesterName = tc.formattedSemesterName ?: matchedCx.formattedSemesterName,
+                            uncompletedTodoCount = tc.uncompletedTodoCount + matchedCx.uncompletedTodoCount,
+                            rawTronClassCourse = tc.rawTronClassCourse,
+                            rawChaoXingCourse = matchedCx.rawChaoXingCourse
+                        )
+                    )
+                } else {
+                    result.add(tc)
+                }
+            }
+
+            for (cx in uCxList) {
+                if (!matchedCxIds.contains(cx.unifiedId)) {
+                    result.add(cx)
+                }
+            }
+
+            return result
         }
     }
 }

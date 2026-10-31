@@ -315,8 +315,8 @@ class TronClassFragment : Fragment() {
         tronClassCourseAdapter = TronClassCourseAdapter { course ->
             openCourseDetail(course)
         }.apply {
-            onChaoXingClickListener = { cxCourse ->
-                showChaoXingCourseDialog(cxCourse)
+            onUnifiedClickListener = { course ->
+                openCourseDetail(course)
             }
         }
         binding.rvTronClassCourses.adapter = tronClassCourseAdapter
@@ -425,6 +425,7 @@ class TronClassFragment : Fragment() {
             null -> allUnifiedTodos
             LearningPlatform.TRONCLASS -> allUnifiedTodos.filter { it.platform.isTronClass }
             LearningPlatform.CHAOXING -> allUnifiedTodos.filter { it.platform.isChaoXing }
+            LearningPlatform.DUAL -> allUnifiedTodos.filter { it.platform == LearningPlatform.DUAL }
         }
         tronClassTodoAdapter.updateUnifiedData(filteredTodos, multiPlatform = isDual)
         updateTodoTabBadge(filteredTodos.size)
@@ -434,6 +435,7 @@ class TronClassFragment : Fragment() {
             null -> allUnifiedBulletins
             LearningPlatform.TRONCLASS -> allUnifiedBulletins.filter { it.platform.isTronClass }
             LearningPlatform.CHAOXING -> allUnifiedBulletins.filter { it.platform.isChaoXing }
+            LearningPlatform.DUAL -> allUnifiedBulletins.filter { it.platform == LearningPlatform.DUAL }
         }
         tronClassBulletinAdapter.updateUnifiedData(filteredBulletins, multiPlatform = isDual)
         updateBulletinTabBadge(filteredBulletins.size)
@@ -444,6 +446,7 @@ class TronClassFragment : Fragment() {
             null -> allUnifiedCourses
             LearningPlatform.TRONCLASS -> allUnifiedCourses.filter { it.platform.isTronClass }
             LearningPlatform.CHAOXING -> allUnifiedCourses.filter { it.platform.isChaoXing }
+            LearningPlatform.DUAL -> allUnifiedCourses.filter { it.platform == LearningPlatform.DUAL }
         }
 
         // (b) 学期筛选 (在未强制筛选超星时根据选中学期过滤；超星在修课程默认归属于当前在读学期)
@@ -518,22 +521,7 @@ class TronClassFragment : Fragment() {
     }
 
     private fun showChaoXingCourseDialog(course: UnifiedCourse) {
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(course.cleanName)
-            .setMessage("【超星学习通课程】\n\n授课教师：${course.teacherName.ifBlank { "任课教师" }}\n开课机构：${course.department ?: "上海理工大学"}\n班级编号：${course.originalClassId ?: "教学班"}\n\n点击「进入课程主页」可免密浏览课程章节、课件与教学互动。")
-            .setPositiveButton("📚 进入课程主页") { _, _ ->
-                ChaoXingNavigator.openCourse(
-                    context = requireContext(),
-                    courseId = course.originalCourseId,
-                    classId = course.originalClassId ?: "",
-                    courseName = course.cleanName
-                )
-            }
-            .setNeutralButton("⚡ 检查本课签到") { _, _ ->
-                checkChaoXingCourseSignSingle(course)
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        openCourseDetail(course)
     }
 
     private fun checkChaoXingCourseSignSingle(course: UnifiedCourse) {
@@ -1130,11 +1118,9 @@ class TronClassFragment : Fragment() {
                     uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
                     allUnifiedTodos = uTodos
 
-                    // 合并课程 (将超星在修课程关联至当前最新学期)
+                    // 智能融合双平台课程 (自动归并同名课程为 DUAL 课程，消灭两个入口)
                     val latestSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
-                    val uCourses = mutableListOf<UnifiedCourse>()
-                    uCourses.addAll(allTronClassCourses.map { UnifiedCourse.fromTronClass(it) })
-                    uCourses.addAll(cxCourses.map { UnifiedCourse.fromChaoXing(it, fallbackSemesterCode = latestSem) })
+                    val uCourses = UnifiedCourse.fuseCourses(allTronClassCourses, cxCourses, fallbackSemesterCode = latestSem)
                     allUnifiedCourses = uCourses
 
                     // 合并公告
@@ -1326,6 +1312,10 @@ class TronClassFragment : Fragment() {
             .replace(R.id.flTronClassSecondaryContainer, fragment, tag)
             .addToBackStack(tag)
             .commit()
+    }
+
+    fun openCourseDetail(course: UnifiedCourse) {
+        pushSecondaryFragment(TronClassCourseDetailFragment.newInstance(course), "course_detail_${course.unifiedId}")
     }
 
     fun openCourseDetail(course: TronClassCourse) {

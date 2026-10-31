@@ -7,6 +7,8 @@ import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.model.ChaoXingExam
+import cn.edu.usst.jwgl.data.model.ChaoXingWork
 import cn.edu.usst.jwgl.data.model.TronClassActivityItem
 import cn.edu.usst.jwgl.data.model.TronClassExam
 import cn.edu.usst.jwgl.databinding.ItemTronclassAssessmentBinding
@@ -18,6 +20,8 @@ import java.util.TimeZone
 sealed class TronClassAssessmentItem {
     data class Homework(val activity: TronClassActivityItem) : TronClassAssessmentItem()
     data class Exam(val exam: TronClassExam) : TronClassAssessmentItem()
+    data class ChaoXingHomework(val work: ChaoXingWork) : TronClassAssessmentItem()
+    data class ChaoXingExamItem(val exam: ChaoXingExam) : TronClassAssessmentItem()
 }
 
 class TronClassAssessmentAdapter(
@@ -151,6 +155,70 @@ class TronClassAssessmentAdapter(
                     } else {
                         binding.tvTimeRange.visibility = View.GONE
                     }
+                }
+                is TronClassAssessmentItem.ChaoXingHomework -> {
+                    val work = item.work
+                    binding.ivTypeIcon.setImageResource(R.drawable.ic_homework)
+                    binding.ivTypeIcon.setColorFilter(Color.parseColor("#EA580C"))
+                    binding.tvTypeBadge.text = "学习通作业"
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#EA580C"))
+                    binding.tvTitle.text = work.title
+
+                    val isCompleted = work.statusText.contains("已完成") || work.statusText.contains("已批阅") || work.statusText.contains("已交")
+                    if (work.score.isNotBlank()) {
+                        binding.tvStatusBadge.text = "${work.statusText} · ${work.score}分"
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                        binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                    } else if (isCompleted) {
+                        binding.tvStatusBadge.text = work.statusText.ifBlank { "已提交" }
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                        binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                    } else if (work.expired) {
+                        binding.tvStatusBadge.text = "已截止"
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#EEEEEE"))
+                        binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.text_tertiary))
+                    } else {
+                        binding.tvStatusBadge.text = work.statusText.ifBlank { "未交" }
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#FFF3E0"))
+                        binding.tvStatusBadge.setTextColor(Color.parseColor("#E65100"))
+                    }
+
+                    if (work.deadline.isNotBlank()) {
+                        binding.tvSubInfo.text = "截止时间: ${work.deadline}"
+                    } else {
+                        binding.tvSubInfo.text = "超星课程作业"
+                    }
+                    binding.tvTimeRange.visibility = View.GONE
+                }
+                is TronClassAssessmentItem.ChaoXingExamItem -> {
+                    val exam = item.exam
+                    binding.ivTypeIcon.setImageResource(R.drawable.ic_exam)
+                    binding.ivTypeIcon.setColorFilter(Color.parseColor("#EA580C"))
+                    binding.tvTypeBadge.text = "学习通测验"
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#EA580C"))
+                    binding.tvTitle.text = exam.title
+
+                    val isCompleted = exam.status.contains("已完成") || exam.status.contains("已批阅")
+                    if (exam.score.isNotBlank()) {
+                        binding.tvStatusBadge.text = "${exam.status} · ${exam.score}分"
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                        binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                    } else if (isCompleted) {
+                        binding.tvStatusBadge.text = exam.status.ifBlank { "已完成" }
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                        binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                    } else {
+                        binding.tvStatusBadge.text = exam.status.ifBlank { "未交" }
+                        binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#FFF3E0"))
+                        binding.tvStatusBadge.setTextColor(Color.parseColor("#E65100"))
+                    }
+
+                    if (exam.remaining.isNotBlank()) {
+                        binding.tvSubInfo.text = exam.remaining
+                    } else {
+                        binding.tvSubInfo.text = "超星课程在线测验/考试"
+                    }
+                    binding.tvTimeRange.visibility = View.GONE
                 }
             }
 
