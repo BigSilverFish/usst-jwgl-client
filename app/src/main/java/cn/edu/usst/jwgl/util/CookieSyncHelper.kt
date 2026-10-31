@@ -210,11 +210,32 @@ object CookieSyncHelper {
         try {
             val cookieManager = CookieManager.getInstance()
             cookieManager.flush()
-            val cxCookie = cookieManager.getCookie("https://mooc1.chaoxing.com/")
-                ?: cookieManager.getCookie("https://chaoxing.com/")
-            if (!cxCookie.isNullOrBlank()) {
-                ChaoXingClient(context).injectCookies(cxCookie, studentId)
-                Log.d(TAG, "Successfully updated ChaoXing cookies from WebView back to preferences")
+            val endpoints = listOf(
+                "https://passport2.chaoxing.com/",
+                "https://i.chaoxing.com/",
+                "https://mooc1.chaoxing.com/",
+                "https://mooc1-api.chaoxing.com/",
+                "https://chaoxing.com/",
+                "http://usst.fanya.chaoxing.com/"
+            )
+            val cookieMap = LinkedHashMap<String, String>()
+            for (ep in endpoints) {
+                val header = cookieManager.getCookie(ep) ?: continue
+                val parts = header.split(";")
+                for (part in parts) {
+                    val trimmed = part.trim()
+                    val eq = trimmed.indexOf('=')
+                    if (eq > 0) {
+                        val k = trimmed.substring(0, eq).trim()
+                        val v = trimmed.substring(eq + 1).trim()
+                        cookieMap[k] = v
+                    }
+                }
+            }
+            if (cookieMap.isNotEmpty()) {
+                val merged = cookieMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
+                ChaoXingClient(context).injectCookies(merged, studentId)
+                Log.d(TAG, "Successfully updated ChaoXing cookies (${cookieMap.size} items) from WebView back to preferences")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync WebView cookies back to ChaoXing", e)

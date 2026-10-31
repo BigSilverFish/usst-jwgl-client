@@ -96,6 +96,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".ui.tronclass.ChaoXingLoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ui.tronclass.TronClassCourseDetailActivity"
             android:exported="false"
             android:screenOrientation="portrait"

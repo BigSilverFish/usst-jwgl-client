@@ -3,5 +3,6 @@
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">usst.edu.cn</domain>
+        <domain includeSubdomains="true">chaoxing.com</domain>
     </domain-config>
 </network-security-config>

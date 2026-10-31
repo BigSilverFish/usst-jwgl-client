@@ -100,11 +100,16 @@ data class UnifiedCourse(
             )
         }
 
-        fun fromChaoXing(course: ChaoXingCourse, uncompletedCount: Int = 0): UnifiedCourse {
+        fun fromChaoXing(
+            course: ChaoXingCourse,
+            uncompletedCount: Int = 0,
+            fallbackSemesterCode: String? = null
+        ): UnifiedCourse {
             val rawName = course.courseName.trim()
             val regex = Regex("""^(.*?)\([0-9]{4}-[0-9]{4}-[0-9]+\)""")
             val clean = regex.find(rawName)?.groupValues?.get(1)?.trim() ?: rawName
             val semCode = Regex("""\(?([0-9]{4}-[0-9]{4}-[0-9]+)\)?""").find(rawName)?.groupValues?.get(1)
+                ?: fallbackSemesterCode
 
             return UnifiedCourse(
                 unifiedId = "cx_${course.courseId}_${course.classId}",
