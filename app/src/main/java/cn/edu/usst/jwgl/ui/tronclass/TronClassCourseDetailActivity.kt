@@ -16,6 +16,8 @@ class TronClassCourseDetailActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_UNIFIED_COURSE = "extra_unified_course"
         const val EXTRA_COURSE = "extra_course"
+        const val EXTRA_CHAOXING_COURSE = "extra_chaoxing_course"
+        const val EXTRA_PLATFORM = "extra_platform"
         const val EXTRA_COURSE_ID = "extra_course_id"
         const val EXTRA_COURSE_NAME = "extra_course_name"
         const val EXTRA_COURSE_CODE = "extra_course_code"
@@ -30,6 +32,8 @@ class TronClassCourseDetailActivity : AppCompatActivity() {
                 val intent = Intent(context, TronClassCourseDetailActivity::class.java).apply {
                     putExtra(EXTRA_UNIFIED_COURSE, unifiedCourse)
                     putExtra(EXTRA_COURSE, unifiedCourse.rawTronClassCourse)
+                    putExtra(EXTRA_CHAOXING_COURSE, unifiedCourse.rawChaoXingCourse)
+                    putExtra(EXTRA_PLATFORM, unifiedCourse.platform)
                     putExtra(EXTRA_COURSE_ID, unifiedCourse.rawTronClassCourse?.id ?: unifiedCourse.originalCourseId.toLongOrNull() ?: 0L)
                     putExtra(EXTRA_COURSE_NAME, unifiedCourse.cleanName)
                     putExtra(EXTRA_COURSE_CODE, unifiedCourse.courseCode ?: "")
