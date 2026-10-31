@@ -315,9 +315,37 @@ class ChaoXingClient(private val context: Context) {
     }
 
     /**
-     * 2. 全静默单点登录 (自动联动 AccountVault 解密本地密码换票)
+     * 2.1 基于上海理工大学统一身份认证 (CAS SSO) 换票登录 (参考 extrisha/litang)
+     * 利用教务已有 CASTGC 或保存的学校账号密码，走 ids6 -> tyrzfw 跳转链直接换取超星登录态，无需单独输入超星密码
+     */
+    suspend fun loginWithCasSso(forceEntry: Boolean = false): Result<ChaoXingLoginResponse> = withContext(Dispatchers.IO) {
+        val ssoResult = ChaoXingSsoClient.loginWithCas(context, forceEntry)
+        if (ssoResult.isSuccess) {
+            val userInfo = prefs.getUserInfo()
+            Result.success(
+                ChaoXingLoginResponse(
+                    status = true,
+                    msg = "SSO登录成功",
+                    url = "https://i.chaoxing.com"
+                )
+            )
+        } else {
+            Result.failure(ssoResult.exceptionOrNull() ?: Exception("超星统一身份认证失败"))
+        }
+    }
+
+    /**
+     * 2. 全静默单点登录 (优先走 USST CAS SSO，失败时自动联动 AccountVault 解密本地密码换票)
      */
     suspend fun silentLoginChaoXing(studentId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        // 1. 优先通过学校统一身份认证 (CAS SSO) 换票登录 (与 extrisha/litang 完全一致)
+        val ssoRes = loginWithCasSso()
+        if (ssoRes.isSuccess) {
+            Log.i(TAG, "silentLoginChaoXing succeeded via USST CAS SSO")
+            return@withContext Result.success(true)
+        }
+        Log.w(TAG, "silentLoginChaoXing: CAS SSO failed, trying fallback to institutional password login...", ssoRes.exceptionOrNull())
+
         val targetSid = if (!studentId.isNullOrBlank()) studentId else {
             try {
                 AuthPreferences(context).getStudentId()

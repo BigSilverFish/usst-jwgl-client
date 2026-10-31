@@ -221,4 +221,32 @@ class ChaoXingClientTest {
         assertEquals("tc_2", list[0].unifiedId)
         assertEquals("cx_1", list[1].unifiedId)
     }
+
+    @Test
+    fun testChaoXingSsoJsRedirectParsing() {
+        val htmlSample = """
+            <!DOCTYPE html>
+            <html>
+            <head><title>跳转中...</title></head>
+            <body></body>
+            <script>
+                window.location = "https:\/\/ids6.usst.edu.cn\/authserver\/login?service=https%3A%2F%2Ftyrzfw.chaoxing.com%2Fauth3%2Fusst%2Fcas%2Findex\u0026time=1730000000";
+            </script>
+            </html>
+        """.trimIndent()
+
+        val parsed = ChaoXingSsoClient.parseJsRedirect(htmlSample)
+        assertNotNull(parsed)
+        assertEquals(
+            "https://ids6.usst.edu.cn/authserver/login?service=https%3A%2F%2Ftyrzfw.chaoxing.com%2Fauth3%2Fusst%2Fcas%2Findex&time=1730000000",
+            parsed
+        )
+    }
+
+    @Test
+    fun testChaoXingSsoUnescapeJs() {
+        val raw = """https:\/\/i.chaoxing.com\/base\u0026query=1"""
+        val unescaped = ChaoXingSsoClient.unescapeJs(raw)
+        assertEquals("https://i.chaoxing.com/base&query=1", unescaped)
+    }
 }
