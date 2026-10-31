@@ -191,4 +191,105 @@ class ChaoXingCourseDetailClientTest {
         assertNull(labCourse.rawTronClassCourse)
         assertNotNull(labCourse.rawChaoXingCourse)
     }
+
+    @Test
+    fun testExtractWorkEnc() {
+        val html1 = """<input type="hidden" id="workEnc" name="workEnc" value="enc_abc123" />"""
+        assertEquals("enc_abc123", ChaoXingCourseDetailClient.extractWorkEnc(html1))
+
+        val html2 = """<input type="hidden" value="enc_xyz789" id="workEnc" />"""
+        assertEquals("enc_xyz789", ChaoXingCourseDetailClient.extractWorkEnc(html2))
+
+        val html3 = """<script>var workEnc = 'enc_script456';</script>"""
+        assertEquals("enc_script456", ChaoXingCourseDetailClient.extractWorkEnc(html3))
+
+        val html4 = """<a href="/mooc2/work/list?courseId=123&enc=enc_link777">作业</a>"""
+        assertEquals("enc_link777", ChaoXingCourseDetailClient.extractWorkEnc(html4))
+    }
+
+    @Test
+    fun testParseStuWorkHtmlForCourse() {
+        val course = ChaoXingCourse(
+            courseId = "267465694",
+            classId = "155659413",
+            courseName = "Web应用开发"
+        )
+
+        val html = """
+            <ul class="stu-work-list">
+                <li data="https://mooc1.chaoxing.com/work/task?courseId=267465694&workId=9001&enc=tokenA">
+                    <span class="course-name">Web应用开发</span>
+                    <h3 class="title">第一次作业：HTML与CSS基础</h3>
+                    <span class="status">已批阅</span>
+                    <span class="time">截止时间: 2026-10-20 23:59</span>
+                </li>
+                <li data="https://mooc1.chaoxing.com/work/task?courseId=267465694&workId=9002&enc=tokenB">
+                    <span class="course-name">Web应用开发</span>
+                    <h3 class="title">第二次作业：JavaScript异步与Fetch</h3>
+                    <span class="status">已交</span>
+                    <span class="time">截止时间: 2026-10-28 23:59</span>
+                </li>
+                <li data="https://mooc1.chaoxing.com/work/task?courseId=888888&workId=9003&enc=tokenC">
+                    <span class="course-name">大学英语</span>
+                    <h3 class="title">Unit 1 Vocabulary</h3>
+                    <span class="status">已交</span>
+                    <span class="time">截止时间: 2026-10-30 23:59</span>
+                </li>
+            </ul>
+        """.trimIndent()
+
+        val works = ChaoXingCourseDetailClient.parseStuWorkHtmlForCourse(html, course)
+        assertEquals(2, works.size)
+        assertEquals("9001", works[0].workId)
+        assertEquals("第一次作业：HTML与CSS基础", works[0].title)
+        assertEquals("已批阅", works[0].statusText)
+
+        assertEquals("9002", works[1].workId)
+        assertEquals("第二次作业：JavaScript异步与Fetch", works[1].title)
+        assertEquals("已交", works[1].statusText)
+    }
+
+    @Test
+    fun testParseRealChaoXingStuWorkHtml() {
+        val course = ChaoXingCourse(
+            courseId = "267465694",
+            classId = "155659413",
+            courseName = "Web应用开发"
+        )
+
+        val html = """
+            <li data="https://mooc1-api.chaoxing.com/mooc-ans/android/mtaskmsgspecial?taskrefId=57311946&amp;msgId=0&amp;courseId=267465694&amp;userId=341187823&amp;clazzId=155659413&amp;type=work&amp;enc_task=8a509f4fb98e27cc1a35fb5c49907a0b" onclick="goTask(this);">
+                <span class="spanImg">
+                    <img aria-hidden="true" src="//mooc1-api.chaoxing.com/mooc-ans/images/work/phone/task-work-gray.png" />
+                </span>
+                <div role="option">
+                    <p aria-hidden="true">http 协议与应用开发</p>
+                    <span aria-hidden="true">已交</span>
+                    <span aria-hidden="true">《Web应用开发...》</span>
+                    <span aria-label="作业名称http 协议与应用开发作业状态已交课程Web应用开发..."></span>
+                </div>
+            </li>
+            <li data="https://mooc1-api.chaoxing.com/mooc-ans/android/mtaskmsgspecial?taskrefId=56918192&amp;msgId=0&amp;courseId=267465694&amp;userId=341187823&amp;clazzId=155659413&amp;type=work&amp;enc_task=4e939720309e07730ba21b4ddd7c565d" onclick="goTask(this);">
+                <span class="spanImg">
+                    <img aria-hidden="true" src="//mooc1-api.chaoxing.com/mooc-ans/images/work/phone/task-work-gray.png" />
+                </span>
+                <div role="option">
+                    <p aria-hidden="true">实验：servlet开发</p>
+                    <span aria-hidden="true">已交</span>
+                    <span aria-hidden="true">《Web应用开发...》</span>
+                    <span aria-label="作业名称实验：servlet开发作业状态已交课程Web应用开发..."></span>
+                </div>
+            </li>
+        """.trimIndent()
+
+        val works = ChaoXingCourseDetailClient.parseStuWorkHtmlForCourse(html, course)
+        assertEquals(2, works.size)
+        assertEquals("57311946", works[0].workId)
+        assertEquals("http 协议与应用开发", works[0].title)
+        assertEquals("已交", works[0].statusText)
+
+        assertEquals("56918192", works[1].workId)
+        assertEquals("实验：servlet开发", works[1].title)
+        assertEquals("已交", works[1].statusText)
+    }
 }

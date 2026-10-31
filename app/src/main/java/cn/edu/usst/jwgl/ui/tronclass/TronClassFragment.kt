@@ -724,9 +724,7 @@ class TronClassFragment : Fragment() {
             allTronClassCourses = cachedTcCourses
             cachedChaoXingCourses = cachedCxCourses
             val latestTcSem = cachedTcCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
-            val mergedCourses = mutableListOf<UnifiedCourse>()
-            mergedCourses.addAll(cachedTcCourses.map { UnifiedCourse.fromTronClass(it) })
-            mergedCourses.addAll(cachedCxCourses.map { UnifiedCourse.fromChaoXing(it, fallbackSemesterCode = latestTcSem) })
+            val mergedCourses = UnifiedCourse.fuseCourses(cachedTcCourses, cachedCxCourses, fallbackSemesterCode = latestTcSem)
             allUnifiedCourses = mergedCourses
             setupSemesterChips(mergedCourses)
             renderUnifiedData()
@@ -767,9 +765,7 @@ class TronClassFragment : Fragment() {
                     allTronClassCourses = courses
                     cachedChaoXingCourses = cxAsyncCourses
                     val latestTcSem = courses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
-                    val uCourses = mutableListOf<UnifiedCourse>()
-                    uCourses.addAll(courses.map { UnifiedCourse.fromTronClass(it) })
-                    uCourses.addAll(cxAsyncCourses.map { UnifiedCourse.fromChaoXing(it, fallbackSemesterCode = latestTcSem) })
+                    val uCourses = UnifiedCourse.fuseCourses(courses, cxAsyncCourses, fallbackSemesterCode = latestTcSem)
                     allUnifiedCourses = uCourses
                     setupSemesterChips(uCourses)
                     renderUnifiedData()
