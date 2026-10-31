@@ -50,10 +50,10 @@ class ChaoXingClient(private val context: Context) {
         const val USST_SCHOOL_NAME = "上海理工大学"
         const val PASSPORT_URL = "https://passport2.chaoxing.com"
         const val FANYA_LOGIN_URL = "$PASSPORT_URL/fanyalogin"
-        const val COURSE_DATA_URL = "http://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1"
-        const val USST_FANYA_URL = "http://usst.fanya.chaoxing.com"
+        const val COURSE_DATA_URL = "https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1"
+        const val USST_FANYA_URL = "https://usst.fanya.chaoxing.com"
         const val NOTICE_LIST_URL = "https://notice.chaoxing.com/pc/notice/getNoticeList"
-        const val STU_WORK_URL = "http://mooc1-api.chaoxing.com/work/stu-work"
+        const val STU_WORK_URL = "https://mooc1-api.chaoxing.com/work/stu-work"
         const val ACTIVE_LIST_URL = "https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist"
         const val PRE_SIGN_URL = "https://mobilelearn.chaoxing.com/newsign/preSign"
         const val SUBMIT_SIGN_URL = "https://mobilelearn.chaoxing.com/pptSign/stuSignajax"
@@ -397,10 +397,10 @@ class ChaoXingClient(private val context: Context) {
             }
         }
 
-        // 1. 如果已有 Cookie 且最后验证在 30 分钟内，先做快速探活
+        // 1. 如果已有 Cookie 且包含有效 UID，探活检测
         if (prefs.isLoggedIn(sid)) {
             val lastTime = prefs.getLastLoginTime(sid)
-            val isRecent = System.currentTimeMillis() - lastTime < 30 * 60 * 1000L
+            val isRecent = System.currentTimeMillis() - lastTime < 15 * 60 * 1000L
             if (isRecent || checkSessionValid(sid)) {
                 return@withContext Result.success(true)
             }
@@ -408,7 +408,15 @@ class ChaoXingClient(private val context: Context) {
 
         // 2. 会话无效或已过期，触发静默登录
         Log.i(TAG, "ChaoXing session expired or missing for $sid, executing silent login...")
-        silentLoginChaoXing(sid)
+        val silentRes = silentLoginChaoXing(sid)
+        if (silentRes.isSuccess) {
+            return@withContext Result.success(true)
+        }
+
+        // 3. 静默登录也失败，彻底清理失效标记以触发前台提示
+        Log.w(TAG, "ChaoXing authentication failed. Clearing invalid session state for $sid.")
+        prefs.clearSession(sid)
+        Result.failure(silentRes.exceptionOrNull() ?: Exception("超星学习通未登录"))
     }
 
     /**
@@ -443,28 +451,48 @@ class ChaoXingClient(private val context: Context) {
             parsedResp.channelList?.forEach { channel ->
                 val content = channel.content ?: return@forEach
                 val classId = content.id ?: ""
-                val courseDataList = content.course?.data ?: return@forEach
+                val courseDataList = content.course?.data
 
-                for (data in courseDataList) {
-                    val courseId = data.id ?: continue
-                    val courseName = (data.name ?: content.name ?: "未知课程").trim()
-                    val teacher = (data.teacherfactor ?: "").trim()
-                    val cover = data.imageurl ?: ""
+                if (!courseDataList.isNullOrEmpty()) {
+                    for (data in courseDataList) {
+                        val courseId = data.id ?: continue
+                        val courseName = (data.name ?: content.name ?: "未知课程").trim()
+                        val teacher = (data.teacherfactor ?: "").trim()
+                        val cover = data.imageurl ?: ""
 
-                    courseList.add(
-                        ChaoXingCourse(
-                            courseId = courseId,
-                            classId = classId,
-                            courseName = courseName,
-                            teacherName = teacher,
-                            coverUrl = cover,
-                            schoolName = USST_SCHOOL_NAME,
-                            rawJson = ""
+                        courseList.add(
+                            ChaoXingCourse(
+                                courseId = courseId,
+                                classId = classId,
+                                courseName = courseName,
+                                teacherName = teacher,
+                                coverUrl = cover,
+                                schoolName = USST_SCHOOL_NAME,
+                                rawJson = ""
+                            )
                         )
-                    )
+                    }
+                } else {
+                    val directName = (content.name ?: "").trim()
+                    if (directName.isNotBlank() && classId.isNotBlank()) {
+                        courseList.add(
+                            ChaoXingCourse(
+                                courseId = classId,
+                                classId = classId,
+                                courseName = directName,
+                                teacherName = "",
+                                coverUrl = "",
+                                schoolName = USST_SCHOOL_NAME,
+                                rawJson = ""
+                            )
+                        )
+                    }
                 }
             }
 
+            if (courseList.isNotEmpty()) {
+                prefs.saveCachedCourses(courseList, studentId)
+            }
             Log.i(TAG, "Successfully fetched ${courseList.size} ChaoXing courses for $studentId")
             Result.success(courseList)
         } catch (e: Exception) {
@@ -546,6 +574,7 @@ class ChaoXingClient(private val context: Context) {
 
             // 按截止时间升序排序（临期的在前）
             todoList.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+            prefs.saveCachedTodos(todoList, studentId)
             Log.i(TAG, "Successfully fetched ${todoList.size} ChaoXing uncompleted todos for $studentId")
             Result.success(todoList)
         } catch (e: Exception) {
@@ -616,6 +645,7 @@ class ChaoXingClient(private val context: Context) {
 
             // 按发布时间倒序排列
             bulletinList.sortByDescending { it.publishMillis }
+            prefs.saveCachedNotices(bulletinList, studentId)
             Log.i(TAG, "Successfully fetched ${bulletinList.size} ChaoXing notices for $studentId")
             Result.success(bulletinList)
         } catch (e: Exception) {

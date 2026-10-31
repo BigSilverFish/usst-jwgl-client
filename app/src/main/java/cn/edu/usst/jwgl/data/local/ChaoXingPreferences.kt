@@ -5,7 +5,12 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
 import cn.edu.usst.jwgl.data.model.ChaoXingUserInfo
+import cn.edu.usst.jwgl.data.model.UnifiedBulletin
+import cn.edu.usst.jwgl.data.model.UnifiedTodo
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 /**
  * 超星学习通本地存储偏好 (硬件级加密存储 Cookie 与用户状态)
@@ -28,6 +33,9 @@ class ChaoXingPreferences(private val context: Context) {
         private const val KEY_SCHOOL_NAME = "cx_school_name"
         private const val KEY_LAST_LOGIN_TIME = "cx_last_login_time"
         private const val KEY_IS_LOGGED_IN = "cx_is_logged_in"
+        private const val KEY_CACHED_COURSES = "cx_cached_courses"
+        private const val KEY_CACHED_TODOS = "cx_cached_todos"
+        private const val KEY_CACHED_NOTICES = "cx_cached_notices"
 
         @Volatile
         private var memoryFallbackInstance: SharedPreferences? = null
@@ -129,7 +137,10 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun isLoggedIn(studentId: String? = null): Boolean {
         val prefix = getAccountPrefix(studentId)
-        return securePrefs.getBoolean(prefix + KEY_IS_LOGGED_IN, false) && !getCookies(studentId).isNullOrBlank()
+        val isLogged = securePrefs.getBoolean(prefix + KEY_IS_LOGGED_IN, false)
+        val cookies = getCookies(studentId)
+        val uid = getUid(studentId)
+        return isLogged && !cookies.isNullOrBlank() && !uid.isNullOrBlank() && uid != "0"
     }
 
     fun getLastLoginTime(studentId: String? = null): Long {
@@ -145,6 +156,77 @@ class ChaoXingPreferences(private val context: Context) {
             remove(prefix + KEY_IS_LOGGED_IN)
             remove(prefix + KEY_LAST_LOGIN_TIME)
         }.apply()
+        prefs.edit().apply {
+            remove(prefix + KEY_CACHED_COURSES)
+            remove(prefix + KEY_CACHED_TODOS)
+            remove(prefix + KEY_CACHED_NOTICES)
+        }.apply()
+    }
+
+    fun saveCachedCourses(courses: List<ChaoXingCourse>, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        try {
+            val json = Gson().toJson(courses)
+            prefs.edit().putString(prefix + KEY_CACHED_COURSES, json).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "saveCachedCourses error", e)
+        }
+    }
+
+    fun getCachedCourses(studentId: String? = null): List<ChaoXingCourse> {
+        val prefix = getAccountPrefix(studentId)
+        val json = prefs.getString(prefix + KEY_CACHED_COURSES, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<ChaoXingCourse>>() {}.type
+            Gson().fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "getCachedCourses error", e)
+            emptyList()
+        }
+    }
+
+    fun saveCachedTodos(todos: List<UnifiedTodo>, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        try {
+            val json = Gson().toJson(todos)
+            prefs.edit().putString(prefix + KEY_CACHED_TODOS, json).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "saveCachedTodos error", e)
+        }
+    }
+
+    fun getCachedTodos(studentId: String? = null): List<UnifiedTodo> {
+        val prefix = getAccountPrefix(studentId)
+        val json = prefs.getString(prefix + KEY_CACHED_TODOS, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<UnifiedTodo>>() {}.type
+            Gson().fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "getCachedTodos error", e)
+            emptyList()
+        }
+    }
+
+    fun saveCachedNotices(notices: List<UnifiedBulletin>, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        try {
+            val json = Gson().toJson(notices)
+            prefs.edit().putString(prefix + KEY_CACHED_NOTICES, json).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "saveCachedNotices error", e)
+        }
+    }
+
+    fun getCachedNotices(studentId: String? = null): List<UnifiedBulletin> {
+        val prefix = getAccountPrefix(studentId)
+        val json = prefs.getString(prefix + KEY_CACHED_NOTICES, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<UnifiedBulletin>>() {}.type
+            Gson().fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "getCachedNotices error", e)
+            emptyList()
+        }
     }
 
     fun getUserInfo(studentId: String? = null): ChaoXingUserInfo {
