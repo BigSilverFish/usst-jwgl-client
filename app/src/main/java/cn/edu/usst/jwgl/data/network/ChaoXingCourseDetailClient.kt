@@ -166,6 +166,52 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             val out = mutableListOf<ChaoXingWork>()
             if (html.isBlank()) return out
 
+            try {
+                val doc = org.jsoup.Jsoup.parse(html)
+                val lis = doc.select("li[onclick*='goTask'], li[data*='workId'], ul.work-list > li, .work-list > li")
+                for (li in lis) {
+                    val dataUrl = li.attr("data").ifBlank { li.select("a").attr("href") }
+                    val workId = Regex("""(?:workId|workid|taskrefId)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+                        ?: Regex("""[0-9]+""").find(li.attr("id"))?.value
+                        ?: ""
+                    if (workId.isBlank() && dataUrl.isBlank()) continue
+
+                    val label = li.attr("aria-label")
+                    var title = ""
+                    var status = ""
+                    if (label.contains(";")) {
+                        val parts = label.split(";")
+                        title = parts.first().trim()
+                        status = parts.drop(1).joinToString(";").trim()
+                    }
+
+                    if (title.isBlank()) {
+                        title = li.select(".overHidden2, p.title, .title, .item-title, h3, a, p").text().trim()
+                    }
+                    if (status.isBlank()) {
+                        status = li.select(".status, .state, span.status, p.status, span").text().trim()
+                    }
+
+                    val timeRaw = li.select(".time, .end-time, .status-time, div.time").text().trim()
+                    val isExpired = li.select(".icon-zy-g").isNotEmpty() ||
+                            li.html().contains("icon-zy-g") ||
+                            status.contains("已截止")
+
+                    out.add(
+                        ChaoXingWork(
+                            workId = workId.ifBlank { System.currentTimeMillis().toString() },
+                            title = title.ifBlank { "课程作业" },
+                            courseName = course.courseName,
+                            statusText = status.ifBlank { "未交" },
+                            deadline = timeRaw,
+                            expired = isExpired,
+                            taskUrl = dataUrl.replace("&amp;", "&")
+                        )
+                    )
+                }
+                if (out.isNotEmpty()) return out
+            } catch (_: Exception) {}
+
             val tagRe = Regex("""<li[^>]*goTask\(this\)[^>]*>""")
             val matches = tagRe.findAll(html).toList()
 
@@ -215,6 +261,124 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         taskUrl = dataUrl.replace("&amp;", "&")
                     )
                 )
+            }
+            return out
+        }
+
+        fun extractWorkEnc(html: String): String {
+            if (html.isBlank()) return ""
+            // 1. id="workEnc" ... value="..."
+            Regex("""id=["']workEnc["'][^>]*value=["']([^"']+)["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
+            // 2. value="..." ... id="workEnc"
+            Regex("""value=["']([^"']+)["'][^>]*id=["']workEnc["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
+            // 3. name="workEnc" ... value="..."
+            Regex("""name=["']workEnc["'][^>]*value=["']([^"']+)["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
+            // 4. value="..." ... name="workEnc"
+            Regex("""value=["']([^"']+)["'][^>]*name=["']workEnc["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
+            // 5. JavaScript / JSON: workEnc = "...", 'workEnc': "...", etc.
+            Regex("""['"]?workEnc['"]?\s*[:=,]\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
+            // 6. URL query parameter: /mooc2/work/list?...enc=...
+            Regex("""/mooc2/work/list\?[^"']*enc=([a-zA-Z0-9_-]+)""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
+            return ""
+        }
+
+        fun parseStuWorkHtmlForCourse(html: String, course: ChaoXingCourse): List<ChaoXingWork> {
+            val out = mutableListOf<ChaoXingWork>()
+            if (html.isBlank()) return out
+            try {
+                val doc = org.jsoup.Jsoup.parse(html)
+                val items = doc.select("ul.stu-work-list > li, .work-list > li, ul > li[data], li[data], li[onclick*='goTask']")
+
+                val cleanTargetCourse = course.courseName
+                    .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                    .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
+                    .replace(Regex("""\s+"""), "")
+                    .lowercase()
+                    .trim()
+
+                for (el in items) {
+                    val dataUrl = el.attr("data").ifBlank { el.select("a").attr("href") }
+                    if (dataUrl.isBlank()) continue
+
+                    val workId = Regex("""(?:workId|workid|taskrefId)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+                        ?: Regex("""[0-9]+""").find(el.attr("id"))?.value
+                        ?: ""
+                    val cId = Regex("""(?:courseId|courseid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: ""
+                    val clazzId = Regex("""(?:classId|clazzId|clazzid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: ""
+
+                    // 1. 标题提取 (优先读取 div[role=option] > p，其次读取 .title, 兜底读取 aria-label)
+                    var title = el.select("div[role='option'] > p, p").firstOrNull()?.text()?.trim().orEmpty()
+                    if (title.isBlank()) {
+                        title = el.select(".title, .item-title, p.title, h3").text().trim()
+                    }
+                    if (title.isBlank()) {
+                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
+                        title = Regex("""作业名称(.*?)作业状态""").find(aria)?.groupValues?.get(1)?.trim().orEmpty()
+                    }
+
+                    // 2. 状态与课程名称 (超星 stu-work 中通常由 div[role=option] 下的两个 span 分别承载状态与课程名称)
+                    val optionSpans = el.select("div[role='option'] > span")
+                    var statusText = ""
+                    var courseName = ""
+                    if (optionSpans.isNotEmpty()) {
+                        statusText = optionSpans[0].text().trim()
+                        if (optionSpans.size >= 2) {
+                            courseName = optionSpans[1].text().trim().replace("《", "").replace("》", "").replace("...", "")
+                        }
+                    }
+
+                    if (statusText.isBlank()) {
+                        statusText = el.select(".status, .state, span.status").text().trim()
+                    }
+                    if (statusText.isBlank()) {
+                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
+                        statusText = Regex("""作业状态(.*?)课程""").find(aria)?.groupValues?.get(1)?.trim().orEmpty()
+                    }
+                    if (statusText.isBlank()) {
+                        statusText = "已交"
+                    }
+
+                    if (courseName.isBlank()) {
+                        courseName = el.select(".course-name, .course, span.course-name").text().trim()
+                    }
+                    if (courseName.isBlank()) {
+                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
+                        courseName = Regex("""课程(.*)""").find(aria)?.groupValues?.get(1)?.trim().orEmpty().replace("...", "")
+                    }
+
+                    // 3. 课程归属判定 (多重判定：courseId 匹配、classId 匹配、课程名双向包含匹配)
+                    val cleanItemCourse = courseName
+                        .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                        .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
+                        .replace(Regex("""\s+"""), "")
+                        .lowercase()
+                        .trim()
+
+                    val matchCourse = (cId.isNotBlank() && cId == course.courseId) ||
+                            (clazzId.isNotBlank() && clazzId == course.classId) ||
+                            (cleanItemCourse.isNotBlank() && cleanTargetCourse.isNotBlank() &&
+                                    (cleanItemCourse.contains(cleanTargetCourse) || cleanTargetCourse.contains(cleanItemCourse))) ||
+                            (courseName.isNotBlank() && (courseName.contains(course.courseName) || course.courseName.contains(courseName)))
+
+                    if (!matchCourse) continue
+
+                    val timeStr = el.select(".time, .end-time, .status-time, span.time, div.time").text().trim()
+                    val isExpired = el.select(".icon-zy-g").isNotEmpty() || statusText.contains("已截止")
+
+                    out.add(
+                        ChaoXingWork(
+                            workId = workId.ifBlank { System.currentTimeMillis().toString() },
+                            title = title.ifBlank { "课程作业" },
+                            courseName = course.courseName,
+                            statusText = statusText,
+                            deadline = timeStr,
+                            expired = isExpired,
+                            taskUrl = dataUrl.replace("&amp;", "&")
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "parseStuWorkHtmlForCourse error: ${e.message}")
             }
             return out
         }
@@ -487,47 +651,120 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
         val cpi = getEffectiveCpi(course, studentId)
 
+        val allWorks = mutableListOf<ChaoXingWork>()
+
         try {
-            // Step 1: 访问 stucoursemiddle 获取 workEnc
-            val middleUrl = "https://mooc1-1.chaoxing.com/mooc-ans/visit/stucoursemiddle?courseid=${course.courseId}&clazzid=${course.classId}&vc=1&cpi=$cpi&ismooc2=1&v=2"
-            val reqMiddle = Request.Builder()
-                .url(middleUrl)
-                .header("Cookie", cookies)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .get()
-                .build()
+            // Channel 1: 尝试从 stucoursemiddle / studentcourse 提取 workEnc 请求 mooc2/work/list
+            var workEnc = ""
 
-            val respMiddle = okHttpClient.newCall(reqMiddle).execute()
-            val middleHtml = respMiddle.body?.string() ?: ""
-
-            val workEnc = Regex("""name="workEnc"\s+value="([^"]+)"""").find(middleHtml)?.groupValues?.get(1)
-                ?: Regex("""id="workEnc"\s+value="([^"]+)"""").find(middleHtml)?.groupValues?.get(1)
-                ?: Regex("""'workEnc'\s*,\s*'([^']+)'""").find(middleHtml)?.groupValues?.get(1)
-                ?: ""
-
-            if (workEnc.isBlank()) {
-                Log.w(TAG, "workEnc not found for course ${course.courseName}, skipping work list")
-                return@withContext Result.success(emptyList())
+            // 1a. 优先访问 mooc1-1 stucoursemiddle
+            val middleUrl1 = "https://mooc1-1.chaoxing.com/mooc-ans/visit/stucoursemiddle?courseid=${course.courseId}&clazzid=${course.classId}&vc=1&cpi=$cpi&ismooc2=1&v=2"
+            try {
+                val req1 = Request.Builder()
+                    .url(middleUrl1)
+                    .header("Cookie", cookies)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .get()
+                    .build()
+                val resp1 = okHttpClient.newCall(req1).execute()
+                val html1 = resp1.body?.string() ?: ""
+                workEnc = extractWorkEnc(html1)
+            } catch (e: Exception) {
+                Log.w(TAG, "stucoursemiddle mooc1-1 failed: ${e.message}")
             }
 
-            // Step 2: 携带 workEnc 请求 work/list
-            val listUrl = "https://mooc1.chaoxing.com/mooc2/work/list?courseId=${course.courseId}&classId=${course.classId}&enc=$workEnc&cpi=$cpi&ut=s"
-            val reqList = Request.Builder()
-                .url(listUrl)
-                .header("Cookie", cookies)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .get()
-                .build()
+            // 1b. 若未提取到，尝试 mooc1 stucoursemiddle
+            if (workEnc.isBlank()) {
+                val middleUrl2 = "https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=${course.courseId}&clazzid=${course.classId}&vc=1&cpi=$cpi"
+                try {
+                    val req2 = Request.Builder()
+                        .url(middleUrl2)
+                        .header("Cookie", cookies)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .get()
+                        .build()
+                    val resp2 = okHttpClient.newCall(req2).execute()
+                    val html2 = resp2.body?.string() ?: ""
+                    workEnc = extractWorkEnc(html2)
+                } catch (e: Exception) {
+                    Log.w(TAG, "stucoursemiddle mooc1 failed: ${e.message}")
+                }
+            }
 
-            val respList = okHttpClient.newCall(reqList).execute()
-            val listHtml = respList.body?.string() ?: ""
+            // 1c. 若还未提取到，尝试从已有的课程主页 studentcourse 提取
+            if (workEnc.isBlank()) {
+                val scUrl = "https://mooc2-ans.chaoxing.com/mycourse/studentcourse?courseid=${course.courseId}&clazzid=${course.classId}&cpi=$cpi&ut=s"
+                try {
+                    val reqSc = Request.Builder()
+                        .url(scUrl)
+                        .header("Cookie", cookies)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .get()
+                        .build()
+                    val respSc = okHttpClient.newCall(reqSc).execute()
+                    val htmlSc = respSc.body?.string() ?: ""
+                    workEnc = extractWorkEnc(htmlSc)
+                } catch (e: Exception) {
+                    Log.w(TAG, "studentcourse extract workEnc failed: ${e.message}")
+                }
+            }
 
-            val works = parseWorkListHtml(listHtml, course)
+            Log.w(TAG, "fetchHomeworks: course=${course.courseName}, courseId=${course.courseId}, classId=${course.classId}, cpi=$cpi, workEnc='$workEnc'")
+
+            // 1d. 如果获取到 workEnc，请求 mooc2/work/list
+            if (workEnc.isNotBlank()) {
+                val listUrl = "https://mooc1.chaoxing.com/mooc2/work/list?courseId=${course.courseId}&classId=${course.classId}&enc=$workEnc&cpi=$cpi&ut=s"
+                try {
+                    val reqList = Request.Builder()
+                        .url(listUrl)
+                        .header("Cookie", cookies)
+                        .header("Referer", "https://mooc2-ans.chaoxing.com/mycourse/studentcourse?courseid=${course.courseId}&clazzid=${course.classId}&cpi=$cpi&ut=s")
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .get()
+                        .build()
+
+                    val respList = okHttpClient.newCall(reqList).execute()
+                    val listHtml = respList.body?.string() ?: ""
+                    val works = parseWorkListHtml(listHtml, course)
+                    Log.w(TAG, "fetchHomeworks mooc2/work/list parsed ${works.size} works")
+                    allWorks.addAll(works)
+                } catch (e: Exception) {
+                    Log.w(TAG, "fetchHomeworks mooc2/work/list request failed", e)
+                }
+            }
+
+            // Channel 2: 无论 Channel 1 是否获取到，都拉取 STU_WORK_URL (全局作业列表通道) 进行智能补充或兜底
+            // 因为超星部分课程作业直接挂在全局作业平台中，且 STU_WORK_URL 包含已批阅与未交状态
+            try {
+                val stuWorkUrl = "https://mooc1-api.chaoxing.com/work/stu-work"
+                val reqStuWork = Request.Builder()
+                    .url(stuWorkUrl)
+                    .header("Cookie", cookies)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .get()
+                    .build()
+
+                val respStuWork = okHttpClient.newCall(reqStuWork).execute()
+                val stuWorkHtml = respStuWork.body?.string() ?: ""
+                val stuWorks = parseStuWorkHtmlForCourse(stuWorkHtml, course)
+                Log.w(TAG, "fetchHomeworks stu-work parsed ${stuWorks.size} works for course ${course.courseName}")
+
+                // 合并去重 (根据 workId)
+                val existingIds = allWorks.map { it.workId }.toSet()
+                for (sw in stuWorks) {
+                    if (!existingIds.contains(sw.workId)) {
+                        allWorks.add(sw)
+                    }
+                }
+                Log.w(TAG, "fetchHomeworks total combined works: ${allWorks.size}")
+            } catch (e: Exception) {
+                Log.w(TAG, "fetchHomeworks STU_WORK_URL fallback error", e)
+            }
 
             // Step 3: 若需要补全已批阅/已完成作业的分数，并发补充
-            if (withScores && works.isNotEmpty()) {
-                val targets = works.mapIndexedNotNull { index, work ->
-                    if (isGraded(work.statusText)) Pair(index, work) else null
+            if (withScores && allWorks.isNotEmpty()) {
+                val targets = allWorks.mapIndexedNotNull { index, work ->
+                    if (isGraded(work.statusText) && work.score.isBlank()) Pair(index, work) else null
                 }
                 if (targets.isNotEmpty()) {
                     coroutineScope {
@@ -540,15 +777,15 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         val results = scoreTasks.awaitAll()
                         for ((index, score) in results) {
                             if (score.isNotBlank()) {
-                                works[index] = works[index].withScore(score)
+                                allWorks[index] = allWorks[index].withScore(score)
                             }
                         }
                     }
                 }
             }
 
-            Log.i(TAG, "Successfully fetched ${works.size} homeworks for course ${course.courseName}")
-            Result.success(works)
+            Log.i(TAG, "Successfully fetched ${allWorks.size} homeworks for course ${course.courseName}")
+            Result.success(allWorks)
         } catch (e: Exception) {
             Log.e(TAG, "fetchHomeworks error", e)
             Result.failure(e)

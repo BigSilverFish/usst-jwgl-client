@@ -444,6 +444,13 @@ class TronClassCourseDetailFragment : Fragment() {
                     val comp = cxActs.count { it.completeness == "complete" }
                     val uiItems = buildCourseStructure(cxMods, cxActs, comp, cxActs.size)
                     activityAdapter.updateData(uiItems)
+                } else if (platform == LearningPlatform.DUAL) {
+                    val combMods = cachedModules + cxMods
+                    val combActs = cachedActivities + cxActs
+                    val comp = cachedActivities.count { it.completeness == "complete" || it.completeness == "full" } +
+                            cxActs.count { it.completeness == "complete" }
+                    val uiItems = buildCourseStructure(combMods, combActs, comp, combActs.size)
+                    activityAdapter.updateData(uiItems)
                 }
             }
             val initialCxWorks = cacheMgr.getCachedChaoXingHomeworks(cxCourse.courseId)
@@ -453,6 +460,12 @@ class TronClassCourseDetailFragment : Fragment() {
                 cachedCxExams = initialCxExams
                 if (platform == LearningPlatform.CHAOXING) {
                     val assessList = mutableListOf<TronClassAssessmentItem>()
+                    assessList.addAll(initialCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+                    assessList.addAll(initialCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+                    assessmentAdapter.updateData(assessList)
+                } else if (platform == LearningPlatform.DUAL) {
+                    val assessList = mutableListOf<TronClassAssessmentItem>()
+                    assessList.addAll(buildAssessmentItems(cachedActivities, cachedExams))
                     assessList.addAll(initialCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
                     assessList.addAll(initialCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
                     assessmentAdapter.updateData(assessList)
@@ -739,61 +752,68 @@ class TronClassCourseDetailFragment : Fragment() {
         val worksDef = async { chaoXingDetailClient.fetchHomeworks(cxCourse, withScores = true) }
         val examsDef = async { chaoXingDetailClient.fetchExams(cxCourse) }
 
-        val chaptersRes = chaptersDef.await()
-        val b1 = _binding ?: return@supervisorScope
-
-        if (chaptersRes.isSuccess) {
-            cachedCxChapters = chaptersRes.getOrDefault(emptyList())
-            if (cachedCxChapters.isNotEmpty()) {
-                cacheMgr.saveChaoXingChapters(cxCourse.courseId, cachedCxChapters)
-            }
-            val (modules, acts) = convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
-            val completedCount = acts.count { it.completeness == "complete" }
-            val uiItems = buildCourseStructure(modules, acts, completedCount, acts.size)
-            activityAdapter.updateData(uiItems)
-            if (b1.tabLayout.selectedTabPosition == 0) {
-                checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
-            }
-        }
-
-        val noticesRes = noticesDef.await()
-        val b2 = _binding ?: return@supervisorScope
-        if (noticesRes.isSuccess) {
-            val allNotices = noticesRes.getOrDefault(emptyList())
-            val courseNotices = allNotices.filter {
-                it.originalCourseId == cxCourse.courseId ||
-                        it.courseName.contains(cxCourse.courseName) ||
-                        cxCourse.courseName.contains(it.courseName)
-            }
-            bulletinAdapter.updateUnifiedData(courseNotices, multiPlatform = false)
-            if (b2.tabLayout.selectedTabPosition == 1) {
-                checkEmptyState(courseNotices.isEmpty(), "暂无课程公告")
+        val jobChapters = launch {
+            val chaptersRes = chaptersDef.await()
+            val b1 = _binding ?: return@launch
+            if (chaptersRes.isSuccess) {
+                cachedCxChapters = chaptersRes.getOrDefault(emptyList())
+                if (cachedCxChapters.isNotEmpty()) {
+                    cacheMgr.saveChaoXingChapters(cxCourse.courseId, cachedCxChapters)
+                }
+                val (modules, acts) = convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
+                val completedCount = acts.count { it.completeness == "complete" }
+                val uiItems = buildCourseStructure(modules, acts, completedCount, acts.size)
+                activityAdapter.updateData(uiItems)
+                if (b1.tabLayout.selectedTabPosition == 0) {
+                    checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
+                }
             }
         }
 
-        val worksRes = worksDef.await()
-        val examsRes = examsDef.await()
-        val b3 = _binding ?: return@supervisorScope
-        if (worksRes.isSuccess || examsRes.isSuccess) {
-            cachedCxWorks = worksRes.getOrDefault(emptyList())
-            cachedCxExams = examsRes.getOrDefault(emptyList())
-            if (cachedCxWorks.isNotEmpty()) cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
-            if (cachedCxExams.isNotEmpty()) cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
-
-            val assessList = mutableListOf<TronClassAssessmentItem>()
-            assessList.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
-            assessList.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
-            assessmentAdapter.updateData(assessList)
-            if (b3.tabLayout.selectedTabPosition == 2) {
-                checkEmptyState(assessList.isEmpty(), "本课程暂无作业与测验")
+        val jobNotices = launch {
+            val noticesRes = noticesDef.await()
+            val b2 = _binding ?: return@launch
+            if (noticesRes.isSuccess) {
+                val allNotices = noticesRes.getOrDefault(emptyList())
+                val courseNotices = allNotices.filter {
+                    it.originalCourseId == cxCourse.courseId ||
+                            it.courseName.contains(cxCourse.courseName) ||
+                            cxCourse.courseName.contains(it.courseName)
+                }
+                bulletinAdapter.updateUnifiedData(courseNotices, multiPlatform = false)
+                if (b2.tabLayout.selectedTabPosition == 1) {
+                    checkEmptyState(courseNotices.isEmpty(), "暂无课程公告")
+                }
             }
         }
-        b3.swipeRefresh.isRefreshing = false
+
+        val jobAssessments = launch {
+            val worksRes = worksDef.await()
+            val examsRes = examsDef.await()
+            val b3 = _binding ?: return@launch
+            if (worksRes.isSuccess || examsRes.isSuccess) {
+                cachedCxWorks = worksRes.getOrDefault(emptyList())
+                cachedCxExams = examsRes.getOrDefault(emptyList())
+                if (cachedCxWorks.isNotEmpty()) cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+                if (cachedCxExams.isNotEmpty()) cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
+
+                val assessList = mutableListOf<TronClassAssessmentItem>()
+                assessList.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+                assessList.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+                assessmentAdapter.updateData(assessList)
+                if (b3.tabLayout.selectedTabPosition == 2) {
+                    checkEmptyState(assessList.isEmpty(), "本课程暂无作业与测验")
+                }
+            }
+        }
+
+        kotlinx.coroutines.joinAll(jobChapters, jobNotices, jobAssessments)
+        _binding?.swipeRefresh?.isRefreshing = false
     }
 
     private suspend fun loadDualCourseData(cacheMgr: TronClassDataCacheManager) = supervisorScope {
         val cxCourse = rawChaoXingCourse
-        Log.i(TAG, "loadDualCourseData start: courseId=$courseId, cxCourse=${cxCourse?.courseName} (courseId=${cxCourse?.courseId}, classId=${cxCourse?.classId}, cpi=${cxCourse?.cpi})")
+        Log.w(TAG, "loadDualCourseData start: courseId=$courseId, cxCourse=${cxCourse?.courseName} (courseId=${cxCourse?.courseId}, classId=${cxCourse?.classId}, cpi=${cxCourse?.cpi})")
         // 1. 畅课异步通道
         val modulesDef = async { if (courseId > 0) client.fetchCourseModules(courseId) else Result.success(emptyList()) }
         val activitiesDef = async { if (courseId > 0) client.fetchCourseActivities(courseId) else Result.success(emptyList()) }
@@ -809,100 +829,124 @@ class TronClassCourseDetailFragment : Fragment() {
         val cxWorksDef = async { if (cxCourse != null) chaoXingDetailClient.fetchHomeworks(cxCourse, withScores = true) else Result.success(emptyList()) }
         val cxExamsDef = async { if (cxCourse != null) chaoXingDetailClient.fetchExams(cxCourse) else Result.success(emptyList()) }
 
-        // 渲染章节
-        val modulesRes = modulesDef.await()
-        val activitiesRes = activitiesDef.await()
-        val readsRes = readsDef.await()
-        val cxChaptersRes = cxChaptersDef.await()
+        // 通道 1: 渲染章节
+        val jobChapters = launch {
+            val modulesRes = modulesDef.await()
+            val activitiesRes = activitiesDef.await()
+            val readsRes = readsDef.await()
+            val cxChaptersRes = cxChaptersDef.await()
 
-        val b1 = _binding ?: return@supervisorScope
-        if (modulesRes.isSuccess) cachedModules = modulesRes.getOrDefault(emptyList())
-        if (activitiesRes.isSuccess) {
-            cachedActivities = activitiesRes.getOrDefault(emptyList())
-            val readsMap = readsRes.getOrDefault(emptyMap())
-            for (act in cachedActivities) {
-                act.completeness = readsMap[act.id]
+            val b1 = _binding ?: return@launch
+            if (modulesRes.isSuccess) cachedModules = modulesRes.getOrDefault(emptyList())
+            if (activitiesRes.isSuccess) {
+                cachedActivities = activitiesRes.getOrDefault(emptyList())
+                val readsMap = readsRes.getOrDefault(emptyMap())
+                for (act in cachedActivities) {
+                    act.completeness = readsMap[act.id]
+                }
             }
-        }
-        val (cxMods, cxActs) = if (cxChaptersRes.isSuccess && cxCourse != null) {
-            cachedCxChapters = cxChaptersRes.getOrDefault(emptyList())
-            convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
-        } else Pair(emptyList(), emptyList())
+            val (cxMods, cxActs) = if (cxChaptersRes.isSuccess && cxCourse != null) {
+                cachedCxChapters = cxChaptersRes.getOrDefault(emptyList())
+                if (cachedCxChapters.isNotEmpty()) {
+                    cacheMgr.saveChaoXingChapters(cxCourse.courseId, cachedCxChapters)
+                }
+                convertCxUnitsToModulesAndActivities(cachedCxChapters, cxCourse)
+            } else Pair(emptyList(), emptyList())
 
-        Log.i(TAG, "Dual chapters: tcMods=${cachedModules.size}, tcActs=${cachedActivities.size}, cxMods=${cxMods.size}, cxActs=${cxActs.size}, cxSuccess=${cxChaptersRes.isSuccess}")
+            Log.w(TAG, "Dual chapters: tcMods=${cachedModules.size}, tcActs=${cachedActivities.size}, cxMods=${cxMods.size}, cxActs=${cxActs.size}, cxSuccess=${cxChaptersRes.isSuccess}")
 
-        val combinedModules = cachedModules + cxMods
-        val combinedActivities = cachedActivities + cxActs
-        val completedCount = cachedActivities.count { it.completeness == "complete" || it.completeness == "full" } +
-                cxActs.count { it.completeness == "complete" }
-        val uiItems = buildCourseStructure(combinedModules, combinedActivities, completedCount, combinedActivities.size)
-        activityAdapter.updateData(uiItems)
-        if (b1.tabLayout.selectedTabPosition == 0) {
-            checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
-        }
-
-        // 渲染公告
-        val bulletinsRes = bulletinsDef.await()
-        val cxNoticesRes = cxNoticesDef.await()
-        val b2 = _binding ?: return@supervisorScope
-        if (bulletinsRes.isSuccess) cachedBulletins = bulletinsRes.getOrDefault(emptyList())
-        val combinedBulletins = mutableListOf<UnifiedBulletin>()
-        combinedBulletins.addAll(cachedBulletins.map { UnifiedBulletin.fromTronClass(it) })
-        if (cxNoticesRes.isSuccess && cxCourse != null) {
-            val cxNotices = cxNoticesRes.getOrDefault(emptyList()).filter {
-                it.originalCourseId == cxCourse.courseId ||
-                        it.courseName.contains(cxCourse.courseName) ||
-                        cxCourse.courseName.contains(it.courseName)
-            }
-            combinedBulletins.addAll(cxNotices)
-        }
-        combinedBulletins.sortByDescending { it.publishMillis }
-        bulletinAdapter.updateUnifiedData(combinedBulletins, multiPlatform = true)
-        if (b2.tabLayout.selectedTabPosition == 1) {
-            checkEmptyState(combinedBulletins.isEmpty(), "暂无课程公告")
-        }
-
-        // 渲染作业测验
-        val examsRes = examsDef.await()
-        val cxWorksRes = cxWorksDef.await()
-        val cxExamsRes = cxExamsDef.await()
-        val b3 = _binding ?: return@supervisorScope
-        if (examsRes.isSuccess) cachedExams = examsRes.getOrDefault(emptyList())
-        if (cxWorksRes.isSuccess) cachedCxWorks = cxWorksRes.getOrDefault(emptyList())
-        if (cxExamsRes.isSuccess) cachedCxExams = cxExamsRes.getOrDefault(emptyList())
-
-        Log.i(TAG, "Dual assessments: tcExams=${cachedExams.size}, cxWorks=${cachedCxWorks.size}, cxExams=${cachedCxExams.size}, cxWorksSuccess=${cxWorksRes.isSuccess}, cxExamsSuccess=${cxExamsRes.isSuccess}")
-
-        val combinedAssessments = mutableListOf<TronClassAssessmentItem>()
-        combinedAssessments.addAll(buildAssessmentItems(cachedActivities, cachedExams))
-        combinedAssessments.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
-        combinedAssessments.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
-        assessmentAdapter.updateData(combinedAssessments)
-        if (b3.tabLayout.selectedTabPosition == 2) {
-            checkEmptyState(combinedAssessments.isEmpty(), "本课程暂无作业与测验")
-        }
-
-        // 渲染讨论区
-        val discussionsRes = discussionsDef.await()
-        val b4 = _binding ?: return@supervisorScope
-        if (discussionsRes.isSuccess) {
-            cachedDiscussions = discussionsRes.getOrDefault(emptyList())
-            val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
-            discussionAdapter.updateData(updatedDiscussions)
-            if (b4.tabLayout.selectedTabPosition == 3) {
-                checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+            val combinedModules = cachedModules + cxMods
+            val combinedActivities = cachedActivities + cxActs
+            val completedCount = cachedActivities.count { it.completeness == "complete" || it.completeness == "full" } +
+                    cxActs.count { it.completeness == "complete" }
+            val uiItems = buildCourseStructure(combinedModules, combinedActivities, completedCount, combinedActivities.size)
+            activityAdapter.updateData(uiItems)
+            if (b1.tabLayout.selectedTabPosition == 0) {
+                checkEmptyState(uiItems.isEmpty(), "暂无章节课件或活动")
             }
         }
 
-        // 班级成员
-        val membersRes = membersDef.await()
-        if (membersRes.isSuccess) {
-            cachedMembers = membersRes.getOrDefault(emptyList())
-            activeMemberAdapter?.updateData(cachedMembers)
-            activeMemberDialogBinding?.tvMemberCountBadge?.text = "共 ${cachedMembers.size} 人"
+        // 通道 2: 渲染公告
+        val jobBulletins = launch {
+            val bulletinsRes = bulletinsDef.await()
+            val cxNoticesRes = cxNoticesDef.await()
+            val b2 = _binding ?: return@launch
+            if (bulletinsRes.isSuccess) cachedBulletins = bulletinsRes.getOrDefault(emptyList())
+            val combinedBulletins = mutableListOf<UnifiedBulletin>()
+            combinedBulletins.addAll(cachedBulletins.map { UnifiedBulletin.fromTronClass(it) })
+            if (cxNoticesRes.isSuccess && cxCourse != null) {
+                val cxNotices = cxNoticesRes.getOrDefault(emptyList()).filter {
+                    it.originalCourseId == cxCourse.courseId ||
+                            it.courseName.contains(cxCourse.courseName) ||
+                            cxCourse.courseName.contains(it.courseName)
+                }
+                combinedBulletins.addAll(cxNotices)
+            }
+            combinedBulletins.sortByDescending { it.publishMillis }
+            bulletinAdapter.updateUnifiedData(combinedBulletins, multiPlatform = true)
+            if (b2.tabLayout.selectedTabPosition == 1) {
+                checkEmptyState(combinedBulletins.isEmpty(), "暂无课程公告")
+            }
         }
 
-        b4.swipeRefresh.isRefreshing = false
+        // 通道 3: 渲染作业测验 (不依赖其它通道，优先直出)
+        val jobAssessments = launch {
+            val examsRes = examsDef.await()
+            val cxWorksRes = cxWorksDef.await()
+            val cxExamsRes = cxExamsDef.await()
+            val b3 = _binding ?: return@launch
+            if (examsRes.isSuccess) cachedExams = examsRes.getOrDefault(emptyList())
+            if (cxWorksRes.isSuccess && cxCourse != null) {
+                cachedCxWorks = cxWorksRes.getOrDefault(emptyList())
+                if (cachedCxWorks.isNotEmpty()) {
+                    cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+                }
+            }
+            if (cxExamsRes.isSuccess && cxCourse != null) {
+                cachedCxExams = cxExamsRes.getOrDefault(emptyList())
+                if (cachedCxExams.isNotEmpty()) {
+                    cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
+                }
+            }
+
+            Log.w(TAG, "Dual assessments: tcExams=${cachedExams.size}, cxWorks=${cachedCxWorks.size}, cxExams=${cachedCxExams.size}, cxWorksSuccess=${cxWorksRes.isSuccess}, cxExamsSuccess=${cxExamsRes.isSuccess}")
+
+            val combinedAssessments = mutableListOf<TronClassAssessmentItem>()
+            combinedAssessments.addAll(buildAssessmentItems(cachedActivities, cachedExams))
+            combinedAssessments.addAll(cachedCxWorks.map { TronClassAssessmentItem.ChaoXingHomework(it) })
+            combinedAssessments.addAll(cachedCxExams.map { TronClassAssessmentItem.ChaoXingExamItem(it) })
+            assessmentAdapter.updateData(combinedAssessments)
+            if (b3.tabLayout.selectedTabPosition == 2) {
+                checkEmptyState(combinedAssessments.isEmpty(), "本课程暂无作业与测验")
+            }
+        }
+
+        // 通道 4: 渲染讨论区
+        val jobDiscussions = launch {
+            val discussionsRes = discussionsDef.await()
+            val b4 = _binding ?: return@launch
+            if (discussionsRes.isSuccess) {
+                cachedDiscussions = discussionsRes.getOrDefault(emptyList())
+                val updatedDiscussions = buildDiscussionsList(cachedActivities, cachedDiscussions)
+                discussionAdapter.updateData(updatedDiscussions)
+                if (b4.tabLayout.selectedTabPosition == 3) {
+                    checkEmptyState(updatedDiscussions.isEmpty(), "本课程暂无课堂讨论")
+                }
+            }
+        }
+
+        // 通道 5: 班级成员
+        val jobMembers = launch {
+            val membersRes = membersDef.await()
+            if (membersRes.isSuccess) {
+                cachedMembers = membersRes.getOrDefault(emptyList())
+                activeMemberAdapter?.updateData(cachedMembers)
+                activeMemberDialogBinding?.tvMemberCountBadge?.text = "共 ${cachedMembers.size} 人"
+            }
+        }
+
+        kotlinx.coroutines.joinAll(jobChapters, jobBulletins, jobAssessments, jobDiscussions, jobMembers)
+        _binding?.swipeRefresh?.isRefreshing = false
     }
 
     /**
