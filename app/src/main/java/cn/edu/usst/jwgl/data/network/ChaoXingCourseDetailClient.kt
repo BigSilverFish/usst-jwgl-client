@@ -200,7 +200,12 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         status = li.select(".status, .state, span.status, p.status, span").text().trim()
                     }
 
-                    val timeRaw = li.select(".time, .end-time, .status-time, div.time").text().trim()
+                    var timeRaw = li.select(".time, .end-time, .status-time, div.time, span.time, p.time, .date").text().trim()
+                    if (timeRaw.isBlank()) {
+                        timeRaw = extractDeadlineFromText(li.text(), li.html(), li.attr("aria-label"))
+                    } else {
+                        timeRaw = cleanDeadline(timeRaw)
+                    }
                     val isExpired = li.select(".icon-zy-g").isNotEmpty() ||
                             li.html().contains("icon-zy-g") ||
                             status.contains("已截止")
@@ -256,7 +261,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                 val timeRaw = Regex("""class="time[^"]*"[^>]*>(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
                     .find(body)?.groupValues?.get(1) ?: ""
-                val timeText = stripHtml(timeRaw)
+                var timeText = cleanDeadline(stripHtml(timeRaw))
+                if (timeText.isBlank()) {
+                    timeText = extractDeadlineFromText(body, body, label)
+                }
 
                 out.add(
                     ChaoXingWork(
@@ -370,7 +378,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                     if (!matchCourse) continue
 
-                    val timeStr = el.select(".time, .end-time, .status-time, span.time, div.time").text().trim()
+                    var timeStr = el.select(".time, .end-time, .status-time, span.time, div.time, p.time, .date").text().trim()
+                    if (timeStr.isBlank()) {
+                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
+                        timeStr = extractDeadlineFromText(el.text(), el.html(), aria)
+                    } else {
+                        timeStr = cleanDeadline(timeStr)
+                    }
                     val isExpired = el.select(".icon-zy-g").isNotEmpty() || statusText.contains("已截止")
 
                     out.add(
@@ -405,6 +419,90 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 .replace("&nbsp;", " ")
                 .replace(Regex("""\s+"""), " ")
                 .trim()
+        }
+
+        /**
+         * 清理并规范化截止时间格式，去除前缀标签
+         */
+        fun cleanDeadline(raw: String?): String {
+            if (raw.isNullOrBlank()) return ""
+            var s = raw.trim()
+            val prefixes = listOf(
+                "截止时间：", "截止时间:", "截止时间",
+                "截止：", "截止:", "截止",
+                "提交截止：", "提交截止:", "提交截止",
+                "结束时间：", "结束时间:", "结束时间"
+            )
+            for (p in prefixes) {
+                if (s.startsWith(p)) {
+                    s = s.substring(p.length).trim()
+                }
+            }
+            return s.replace("\u00A0", " ").trim()
+        }
+
+        /**
+         * 从文本、HTML 或 aria-label 中智能提取作业截止时间
+         */
+        fun extractDeadlineFromText(text: String, html: String = "", aria: String = ""): String {
+            val candidates = listOf(aria, text, html)
+            for (src in candidates) {
+                if (src.isBlank()) continue
+                // 1. 优先提取显式带有截止关键词的时间串
+                val m1 = Regex("""(?:截止时间|截止|提交截止|结束时间)[:：]?\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?|\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{1,2})""").find(src)
+                if (m1 != null) {
+                    val t = cleanDeadline(m1.groupValues[1])
+                    if (t.isNotBlank()) return t
+                }
+                val m2 = Regex("""(?:截止时间|截止)\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{1,2})?)""").find(src)
+                if (m2 != null) {
+                    val t = cleanDeadline(m2.groupValues[1])
+                    if (t.isNotBlank()) return t
+                }
+            }
+            // 2. 匹配文本中直接包含的完整日期时间 (例如 "2026-10-31 23:59")
+            val m3 = Regex("""(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{1,2})""").find(text)
+            if (m3 != null) {
+                return cleanDeadline(m3.groupValues[1])
+            }
+            return ""
+        }
+
+        /**
+         * 清理教师评语，剔除网页模板占位词（如“教师批阅”、“教师批语”等表头文字），避免未批阅时误显
+         */
+        fun cleanTeacherComment(commentEl: org.jsoup.nodes.Element?): String {
+            if (commentEl == null) return ""
+            val pText = commentEl.select("p, .text, .content").text().trim()
+            val rawText = if (pText.isNotBlank()) pText else commentEl.text().trim()
+            return cleanTeacherCommentText(rawText)
+        }
+
+        fun cleanTeacherCommentText(raw: String?): String {
+            if (raw.isNullOrBlank()) return ""
+            var s = raw.trim()
+            val prefixes = listOf(
+                "教师批阅：", "教师批阅:", "教师批阅",
+                "教师批语：", "教师批语:", "教师批语",
+                "教师评语：", "教师评语:", "教师评语",
+                "批阅人：", "批阅人:", "批阅人",
+                "批改人：", "批改人:", "批改人",
+                "批阅：", "批阅:", "批阅",
+                "评语：", "评语:", "评语"
+            )
+            for (p in prefixes) {
+                if (s.startsWith(p)) {
+                    s = s.substring(p.length).trim()
+                }
+            }
+            val placeholders = setOf(
+                "", "暂无", "暂无评语", "暂无批语", "未批阅", "未批改", "待批阅", "待批改",
+                "教师批阅", "教师批语", "教师评语", "批阅", "等待批阅", "等待教师批阅"
+            )
+            if (s in placeholders) {
+                return ""
+            }
+            return s
         }
 
         /**
@@ -473,7 +571,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                     // 教师评语提取
                     val commentEl = qEl.select(".grayDiv, .pingyu, .remark, .comment, .teach-comment").firstOrNull()
-                    val commentText = commentEl?.text()?.replace("教师批语", "")?.replace("教师评语", "")?.replace("：", "")?.trim().orEmpty()
+                    val commentText = cleanTeacherComment(commentEl)
 
                     // 题目 ID 提取 (优先读取 data 属性，其次从 id 中提取纯数字，其次读取 questionid 属性)
                     var qId = qEl.attr("data").trim()
@@ -1070,6 +1168,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             var questionsHtml = html1
             var qCountText = ""
             var statusTextFromPage = ""
+            var deadlineFromPage = ""
+
+            // 尝试从起始引导页/答题页提取截止时间
+            val ddlFromHtml1 = extractDeadlineFromText(html1, html1)
+            if (ddlFromHtml1.isNotBlank()) {
+                deadlineFromPage = ddlFromHtml1
+            }
 
             // 如果返回的是 task-work 引导页，解析状态、题目总数并提取进入答卷的详情链接
             if (html1.contains("selectWorkQuestion") || html1.contains("GrayWord") || html1.contains("padTop250")) {
@@ -1156,6 +1261,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             }
 
             // 解析详细题目列表
+            if (deadlineFromPage.isBlank()) {
+                val ddlFromQuestions = extractDeadlineFromText(questionsHtml, questionsHtml)
+                if (ddlFromQuestions.isNotBlank()) {
+                    deadlineFromPage = ddlFromQuestions
+                }
+            }
+
             val parsedQuestions = parseQuestionsFromHtml(questionsHtml)
 
             // 提取批改得分
@@ -1213,7 +1325,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             if (teacherCommentBuilder.isEmpty()) {
                 val globalComment = Regex("""class="(?:pingyu|remark|comment|grayDiv)"[^>]*>([^<]+)<""").find(questionsHtml)?.groupValues?.get(1)?.trim()
                 if (!globalComment.isNullOrBlank() && !globalComment.contains("function")) {
-                    teacherCommentBuilder.append(globalComment)
+                    val cleanGlobal = cleanTeacherCommentText(globalComment)
+                    if (cleanGlobal.isNotBlank()) {
+                        teacherCommentBuilder.append(cleanGlobal)
+                    }
                 }
             }
 
@@ -1224,16 +1339,20 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 else -> "未提交"
             }
 
-            val isSub = finalStatus.contains("已交") || finalStatus.contains("已完成") || finalStatus.contains("批") ||
+            val isSub = finalStatus.contains("已交") || finalStatus.contains("已完成") || finalStatus.contains("已提交") ||
+                    finalStatus.contains("待批") || finalStatus.contains("已批") ||
                     studentAnswerBuilder.isNotEmpty() || studentAttachments.isNotEmpty()
-            val isGrd = score.isNotBlank() || finalStatus.contains("已批") || finalStatus.contains("已完成")
+            val isGrd = (score.isNotBlank() || finalStatus.contains("已完成") || (finalStatus.contains("已批") && !finalStatus.contains("待批") && !finalStatus.contains("未批"))) &&
+                    !finalStatus.contains("待批") && !finalStatus.contains("未批")
+
+            val finalDeadline = deadlineFromPage.ifBlank { cleanDeadline(work.deadline) }
 
             val detail = ChaoXingHomeworkDetail(
                 workId = work.workId,
                 title = work.title,
                 courseName = course?.courseName ?: work.courseName,
                 statusText = finalStatus,
-                deadline = work.deadline,
+                deadline = finalDeadline,
                 score = score,
                 questionsCountText = qCountText,
                 contentHtml = contentHtmlBuilder.toString(),

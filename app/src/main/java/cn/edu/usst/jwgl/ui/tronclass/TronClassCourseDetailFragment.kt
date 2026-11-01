@@ -1951,9 +1951,10 @@ class TronClassCourseDetailFragment : Fragment() {
 
         ivIcon.setImageResource(R.drawable.ic_homework)
         ivIcon.setColorFilter(Color.parseColor("#EA580C"))
-        tvName.text = if (work.deadline.isNotBlank()) "截止时间: ${work.deadline}" else "无具体截止时间限制"
+        val cleanDdl = ChaoXingCourseDetailClient.cleanDeadline(work.deadline)
+        tvName.text = if (cleanDdl.isNotBlank()) "截止时间: $cleanDdl" else "无具体截止时间限制"
         tvSize.text = "状态: ${work.statusText}$scoreText"
-        btnAction.text = if (work.statusText.contains("已批阅") || work.statusText.contains("已完成")) "查看批阅" else "进入答题"
+        btnAction.text = if (work.statusText.contains("已完成") || (work.statusText.contains("已批") && !work.statusText.contains("待批"))) "查看批阅" else "查看作业"
         btnAction.setIconResource(R.drawable.ic_chevron_right)
 
         btnAction.setOnClickListener {
