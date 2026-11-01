@@ -1571,6 +1571,26 @@ class TronClassCourseDetailFragment : Fragment() {
         val existingFile = cacheManager.getExistingFile(upload.id, upload.name)
         val isCached = existingFile != null && existingFile.exists() && existingFile.length() > 0
 
+        if (TronClassImageHelper.isImageUrl(upload.name)) {
+            val fileUrl = if (isCached && existingFile != null) "file://${existingFile.absolutePath}" else "https://1906.usst.edu.cn/api/uploads/${upload.id}"
+            TronClassImageHelper.showImageOptionsDialog(
+                context,
+                fileUrl,
+                title = upload.name,
+                courseId = courseId,
+                courseName = courseName
+            ) {
+                TronClassImageHelper.showFullScreenPreview(
+                    context,
+                    fileUrl,
+                    title = upload.name,
+                    courseId = courseId,
+                    courseName = courseName
+                )
+            }
+            return
+        }
+
         val msg = "文件名称：" + upload.name + "\n" +
                   "文件类型：" + typeName + "\n" +
                   "文件大小：" + upload.getFormattedSize() + "\n\n" +
@@ -1769,6 +1789,7 @@ class TronClassCourseDetailFragment : Fragment() {
 
                         val lowerName = attachment.name.lowercase(Locale.ROOT)
                         val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
+                        val isImage = TronClassImageHelper.isImageUrl(attachment.name)
                         val isPdf = lowerName.endsWith(".pdf")
                         val isPpt = lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx")
                         val isDoc = lowerName.endsWith(".doc") || lowerName.endsWith(".docx")
@@ -1779,6 +1800,12 @@ class TronClassCourseDetailFragment : Fragment() {
                                 ivIcon.setColorFilter(Color.parseColor("#EA580C"))
                                 btnAction.text = "播放"
                                 btnAction.setIconResource(R.drawable.ic_play_arrow)
+                            }
+                            isImage -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(Color.parseColor("#059669"))
+                                btnAction.text = "预览/保存"
+                                btnAction.setIconResource(R.drawable.ic_download)
                             }
                             isPdf -> {
                                 ivIcon.setImageResource(R.drawable.ic_file_pdf)
@@ -1840,6 +1867,7 @@ class TronClassCourseDetailFragment : Fragment() {
                 val yun = res.getOrNull()
                 val lowerName = attachment.name.lowercase(Locale.ROOT)
                 val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
+                val isImage = TronClassImageHelper.isImageUrl(attachment.name)
 
                 if (isVideo) {
                     val stream = yun?.streamUrl ?: ""
@@ -1852,6 +1880,18 @@ class TronClassCourseDetailFragment : Fragment() {
                         )
                     } else {
                         Toast.makeText(ctx, "该视频暂无可播放流地址", Toast.LENGTH_SHORT).show()
+                    }
+                } else if (isImage) {
+                    val imgUrl = yun?.downloadUrl?.ifBlank { yun?.pdfUrl } ?: ""
+                    if (imgUrl.isNotBlank()) {
+                        TronClassImageHelper.showFullScreenPreview(
+                            ctx,
+                            imgUrl,
+                            title = attachment.name,
+                            courseName = courseName
+                        )
+                    } else {
+                        Toast.makeText(ctx, "图片资源未就绪", Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     val pdfUrl = yun?.pdfUrl ?: ""

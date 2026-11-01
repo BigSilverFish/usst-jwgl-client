@@ -6,4 +6,7 @@
     <files-path name="internal_files_downloads" path="downloads/" />
     <cache-path name="pending_uploads" path="pending_uploads/" />
     <cache-path name="internal_cache_pdf" path="grade_reports/" />
+    <cache-path name="tronclass_images" path="tronclass_images/" />
+    <external-path name="external_pictures" path="Pictures/" />
+    <external-files-path name="external_files_pictures" path="Pictures/" />
 </paths>
