@@ -362,7 +362,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         courseName = Regex("""课程(.*)""").find(aria)?.groupValues?.get(1)?.trim().orEmpty().replace("...", "")
                     }
 
-                    // 3. 课程归属判定 (多重判定：courseId 匹配、classId 匹配、课程名双向包含匹配)
+                    // 3. 课程归属判定 (多重判定：courseId 匹配、classId 匹配、课程名双向包含匹配，且严格保持实验课与非实验课互斥)
                     val cleanItemCourse = courseName
                         .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
                         .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
@@ -370,11 +370,17 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         .lowercase()
                         .trim()
 
-                    val matchCourse = (cId.isNotBlank() && cId == course.courseId) ||
-                            (clazzId.isNotBlank() && clazzId == course.classId) ||
-                            (cleanItemCourse.isNotBlank() && cleanTargetCourse.isNotBlank() &&
-                                    (cleanItemCourse.contains(cleanTargetCourse) || cleanTargetCourse.contains(cleanItemCourse))) ||
-                            (courseName.isNotBlank() && (courseName.contains(course.courseName) || course.courseName.contains(courseName)))
+                    val isTargetLab = course.courseName.contains("实验") || cleanTargetCourse.contains("实验")
+                    val isItemLab = courseName.contains("实验") || title.contains("实验") || cleanItemCourse.contains("实验")
+
+                    val idMatch = (cId.isNotBlank() && cId == course.courseId) ||
+                            (clazzId.isNotBlank() && clazzId == course.classId)
+                    val nameMatch = if (isTargetLab != isItemLab) false else {
+                        (cleanItemCourse.isNotBlank() && cleanTargetCourse.isNotBlank() &&
+                                (cleanItemCourse == cleanTargetCourse || cleanItemCourse.contains(cleanTargetCourse) || cleanTargetCourse.contains(cleanItemCourse))) ||
+                        (courseName.isNotBlank() && (courseName == course.courseName || courseName.contains(course.courseName) || course.courseName.contains(courseName)))
+                    }
+                    val matchCourse = idMatch || nameMatch
 
                     if (!matchCourse) continue
 
@@ -422,7 +428,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         }
 
         /**
-         * 清理并规范化截止时间格式，去除前缀标签
+         * 清理并规范化截止时间格式，去除前缀标签，标准化日期连接符
          */
         fun cleanDeadline(raw: String?): String {
             if (raw.isNullOrBlank()) return ""
@@ -431,40 +437,119 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 "截止时间：", "截止时间:", "截止时间",
                 "截止：", "截止:", "截止",
                 "提交截止：", "提交截止:", "提交截止",
-                "结束时间：", "结束时间:", "结束时间"
+                "结束时间：", "结束时间:", "结束时间",
+                "作答时间：", "作答时间:", "作答时间",
+                "起止时间：", "起止时间:", "起止时间",
+                "有效时间：", "有效时间:", "有效时间"
             )
             for (p in prefixes) {
                 if (s.startsWith(p)) {
                     s = s.substring(p.length).trim()
                 }
             }
+            // 若传入时间区间如 "10-21 17:58 至 10-27 17:58"，提取区间终点作为截止时间
+            val rangeDelimiters = listOf("至", "到", "～", "~", "—", " - ")
+            for (delim in rangeDelimiters) {
+                if (s.contains(delim)) {
+                    val endPart = s.substringAfterLast(delim).trim()
+                    if (endPart.any { it.isDigit() }) {
+                        s = endPart
+                        break
+                    }
+                }
+            }
+            s = s.replace(Regex("""(\d{4})年(\d{1,2})月(\d{1,2})日?"""), "$1-$2-$3")
+            s = s.replace(Regex("""(\d{1,2})月(\d{1,2})日?"""), "$1-$2")
+            s = s.replace('/', '-').replace('.', '-')
             return s.replace("\u00A0", " ").trim()
         }
 
         /**
          * 从文本、HTML 或 aria-label 中智能提取作业截止时间
+         * 涵盖“作答时间/起止时间: xx 至 xx”、“截止时间: xx”等超星全形态格式
          */
         fun extractDeadlineFromText(text: String, html: String = "", aria: String = ""): String {
-            val candidates = listOf(aria, text, html)
+            val datePat = """(?:(?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)"""
+            val rangeRegex = Regex(
+                """(?:作答时间|起止时间|有效时间|考试时间|开放时间|时间范围)[:：]?\s*[\s\S]*?(?:至|到|~|～|—|\s+-\s+)\s*($datePat)"""
+            )
+            val ddlRegex = Regex(
+                """(?:截止时间|提交截止|结束时间|截止)[:：]?\s*($datePat)"""
+            )
+            val dualDateRegex = Regex(
+                """$datePat\s*(?:至|到|~|～|—|\s+-\s+)\s*($datePat)"""
+            )
+
+            // 0. 若存在 HTML，优先通过 Jsoup 精准分析常用时间容器（如 rightBord、time、end-time 等）
+            if (html.isNotBlank() && html.contains("<")) {
+                try {
+                    val doc = org.jsoup.Jsoup.parse(html)
+                    val targetedEls = doc.select(".rightBord, .detailsHead, .infoHead, .time, .end-time, .status-time, .work-time, .date")
+                    for (el in targetedEls) {
+                        val t = el.text().trim()
+                        val mRange = rangeRegex.find(t)
+                        if (mRange != null) {
+                            val ddl = cleanDeadline(mRange.groupValues[1])
+                            if (ddl.isNotBlank()) return ddl
+                        }
+                        val mDdl = ddlRegex.find(t)
+                        if (mDdl != null) {
+                            val ddl = cleanDeadline(mDdl.groupValues[1])
+                            if (ddl.isNotBlank()) return ddl
+                        }
+                        val mDual = dualDateRegex.find(t)
+                        if (mDual != null) {
+                            val ddl = cleanDeadline(mDual.groupValues[1])
+                            if (ddl.isNotBlank()) return ddl
+                        }
+                    }
+                    val wholeDocText = doc.text().trim()
+                    val mRangeWhole = rangeRegex.find(wholeDocText)
+                    if (mRangeWhole != null) {
+                        val ddl = cleanDeadline(mRangeWhole.groupValues[1])
+                        if (ddl.isNotBlank()) return ddl
+                    }
+                    val mDdlWhole = ddlRegex.find(wholeDocText)
+                    if (mDdlWhole != null) {
+                        val ddl = cleanDeadline(mDdlWhole.groupValues[1])
+                        if (ddl.isNotBlank()) return ddl
+                    }
+                    val mDualWhole = dualDateRegex.find(wholeDocText)
+                    if (mDualWhole != null) {
+                        val ddl = cleanDeadline(mDualWhole.groupValues[1])
+                        if (ddl.isNotBlank()) return ddl
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 1. 遍历 candidates (aria, text)
+            val candidates = listOf(aria, text)
             for (src in candidates) {
                 if (src.isBlank()) continue
-                // 1. 优先提取显式带有截止关键词的时间串
-                val m1 = Regex("""(?:截止时间|截止|提交截止|结束时间)[:：]?\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?|\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{1,2})""").find(src)
-                if (m1 != null) {
-                    val t = cleanDeadline(m1.groupValues[1])
-                    if (t.isNotBlank()) return t
+                val cleanSrc = if (src.contains("<")) src.replace(Regex("<[^>]+>"), " ").replace("&nbsp;", " ") else src
+                val mRange = rangeRegex.find(cleanSrc)
+                if (mRange != null) {
+                    val ddl = cleanDeadline(mRange.groupValues[1])
+                    if (ddl.isNotBlank()) return ddl
                 }
-                val m2 = Regex("""(?:截止时间|截止)\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{1,2})?)""").find(src)
-                if (m2 != null) {
-                    val t = cleanDeadline(m2.groupValues[1])
-                    if (t.isNotBlank()) return t
+                val mDdl = ddlRegex.find(cleanSrc)
+                if (mDdl != null) {
+                    val ddl = cleanDeadline(mDdl.groupValues[1])
+                    if (ddl.isNotBlank()) return ddl
+                }
+                val mDual = dualDateRegex.find(cleanSrc)
+                if (mDual != null) {
+                    val ddl = cleanDeadline(mDual.groupValues[1])
+                    if (ddl.isNotBlank()) return ddl
                 }
             }
-            // 2. 匹配文本中直接包含的完整日期时间 (例如 "2026-10-31 23:59")
-            val m3 = Regex("""(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{1,2})""").find(text)
-            if (m3 != null) {
-                return cleanDeadline(m3.groupValues[1])
+
+            // 2. 兜底直接匹配独立日期
+            val mStandalone = Regex("""(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?\s+\d{1,2}:\d{1,2})""").find(text)
+            if (mStandalone != null) {
+                return cleanDeadline(mStandalone.groupValues[1])
             }
+
             return ""
         }
 
@@ -480,7 +565,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
         fun cleanTeacherCommentText(raw: String?): String {
             if (raw.isNullOrBlank()) return ""
-            var s = raw.trim()
+            val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+            val validLines = mutableListOf<String>()
             val prefixes = listOf(
                 "教师批阅：", "教师批阅:", "教师批阅",
                 "教师批语：", "教师批语:", "教师批语",
@@ -490,19 +576,24 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 "批阅：", "批阅:", "批阅",
                 "评语：", "评语:", "评语"
             )
-            for (p in prefixes) {
-                if (s.startsWith(p)) {
-                    s = s.substring(p.length).trim()
-                }
-            }
             val placeholders = setOf(
                 "", "暂无", "暂无评语", "暂无批语", "未批阅", "未批改", "待批阅", "待批改",
                 "教师批阅", "教师批语", "教师评语", "批阅", "等待批阅", "等待教师批阅"
             )
-            if (s in placeholders) {
-                return ""
+
+            for (line in lines) {
+                var s = line
+                s = s.replace(Regex("""^第\d+题(?:批语|评语|批阅)[:：]?\s*"""), "").trim()
+                for (p in prefixes) {
+                    if (s.startsWith(p)) {
+                        s = s.substring(p.length).trim()
+                    }
+                }
+                if (s.isNotBlank() && s !in placeholders) {
+                    validLines.add(line)
+                }
             }
-            return s
+            return validLines.joinToString("\n").trim()
         }
 
         /**

@@ -126,13 +126,89 @@ class ChaoXingCourseDetailClientTest {
         assertEquals("554433", work1.workId)
         assertEquals("第3次课后作业: DOM事件与AJAX", work1.title)
         assertEquals("已批阅", work1.statusText)
-        assertEquals("截止时间: 2026-11-15 23:59", work1.deadline)
+        assertEquals("2026-11-15 23:59", work1.deadline)
         assertEquals("/mooc2/work/task?courseId=12345&workId=554433&enc=testtoken", work1.taskUrl)
 
         val work2 = works[1]
         assertEquals("554434", work2.workId)
         assertEquals("第4次实验报告: Vue3组件设计", work2.title)
         assertEquals("未交", work2.statusText)
+    }
+
+    @Test
+    fun testExtractDeadlineFromRightBordHtml() {
+        val snippet = """<div class="borderBom padBom20 detailsHead" style="overflow: hidden;"><p class="rightBord">作答时间:<em>10-21 17:58</em>至<em>10-27 17:58</em></p></div>"""
+        val ddl = ChaoXingCourseDetailClient.extractDeadlineFromText(snippet, snippet)
+        assertEquals("10-27 17:58", ddl)
+    }
+
+    @Test
+    fun testCleanDeadlineRange() {
+        val r1 = ChaoXingCourseDetailClient.cleanDeadline("作答时间: 10-21 17:58 至 10-27 17:58")
+        assertEquals("10-27 17:58", r1)
+
+        val r2 = ChaoXingCourseDetailClient.cleanDeadline("起止时间: 2026年10月21日 17:58 到 2026年10月27日 17:58")
+        assertEquals("2026-10-27 17:58", r2)
+
+        val r3 = ChaoXingCourseDetailClient.cleanDeadline("截止时间: 2026-11-15 23:59")
+        assertEquals("2026-11-15 23:59", r3)
+    }
+
+    @Test
+    fun testCleanTeacherCommentTextMultiLine() {
+        val fakeComments = "第1题批语: 教师批阅\n第2题批语: 教师批阅"
+        val cleaned = ChaoXingCourseDetailClient.cleanTeacherCommentText(fakeComments)
+        assertEquals("", cleaned)
+
+        val realComment = "第1题批语: 教师批阅\n第2题批语: 架构设计合理，代码风格优良！"
+        val cleanedReal = ChaoXingCourseDetailClient.cleanTeacherCommentText(realComment)
+        assertEquals("第2题批语: 架构设计合理，代码风格优良！", cleanedReal)
+    }
+
+    @Test
+    fun testFuseCoursesTheoryAndLabSeparation() {
+        // TronClass 理论课与实验课
+        val tcTheory = TronClassCourse(
+            id = 152768L,
+            name = "Web应用开发",
+            courseCode = "CS301",
+            instructors = listOf("张老师")
+        )
+        val tcLab = TronClassCourse(
+            id = 147005L,
+            name = "Web应用开发实验",
+            courseCode = "CS302",
+            instructors = listOf("张老师")
+        )
+
+        // ChaoXing 顺序颠倒：实验课在理论课前面
+        val cxLab = ChaoXingCourse(
+            courseId = "267484770",
+            classId = "155710701",
+            courseName = "Web应用开发实验",
+            teacherName = "张老师"
+        )
+        val cxTheory = ChaoXingCourse(
+            courseId = "267465694",
+            classId = "155659413",
+            courseName = "Web应用开发",
+            teacherName = "张老师"
+        )
+
+        val fused = UnifiedCourse.fuseCourses(
+            tcCourses = listOf(tcTheory, tcLab),
+            cxCourses = listOf(cxLab, cxTheory)
+        )
+
+        assertEquals(2, fused.size)
+
+        val theoryFused = fused.first { it.cleanName == "Web应用开发" }
+        assertEquals("152768", theoryFused.originalCourseId)
+        assertEquals("155659413", theoryFused.originalClassId) // 必须精准对应 155659413 (Web应用开发)，绝不能错配成 155710701
+
+        val labFused = fused.first { it.cleanName == "Web应用开发实验" }
+        assertEquals("147005", labFused.originalCourseId)
+        assertEquals("155710701", labFused.originalClassId) // 必须精准对应 155710701 (Web应用开发实验)
     }
 
     @Test

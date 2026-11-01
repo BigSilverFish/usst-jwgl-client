@@ -642,6 +642,10 @@ class MainActivity : AppCompatActivity() {
             !isPhoneBottomBarMode() &&
             binding.layoutDrawer.root.parent == binding.drawerLayout
         ) {
+            val drawerView = binding.layoutDrawer.root
+            if (drawerView.visibility != View.VISIBLE) {
+                drawerView.visibility = View.VISIBLE
+            }
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
     }
@@ -664,6 +668,9 @@ class MainActivity : AppCompatActivity() {
 
         val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
 
+        // 若抽屉处于展开态，先无动画闭合
+        binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+
         // 1. 常驻左侧导航栏 (Permanent Left Side Navigation)
         val drawerView = binding.layoutDrawer.root
         (drawerView.parent as? ViewGroup)?.removeView(drawerView)
@@ -674,18 +681,18 @@ class MainActivity : AppCompatActivity() {
         drawerView.translationY = 0f
         drawerView.alpha = 1f
 
-        if (binding.permanentSidebarContainer.indexOfChild(drawerView) < 0) {
-            binding.permanentSidebarContainer.addView(
-                drawerView,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
+        binding.permanentSidebarContainer.removeAllViews()
+        binding.permanentSidebarContainer.addView(
+            drawerView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             )
-        }
+        )
         binding.permanentSidebarContainer.visibility = View.VISIBLE
         binding.viewPermanentSidebarDivider.visibility = View.VISIBLE
         binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+        binding.permanentSidebarContainer.requestLayout()
         drawerView.requestLayout()
 
         // 隐藏各页面顶栏左上角汉堡包菜单图标
@@ -727,20 +734,12 @@ class MainActivity : AppCompatActivity() {
         drawerView.translationX = 0f
         drawerView.translationY = 0f
         drawerView.alpha = 1f
-        drawerView.visibility = View.INVISIBLE
+        // 关键：初始设为 GONE，在闭合抽屉时彻底不参与绘制与排版，从根源上杜绝漏出粉色胶囊或裁剪主内容
+        drawerView.visibility = View.GONE
 
         val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
-        val heightPx = resources.displayMetrics.heightPixels
 
-        // 关键：在加入 DrawerLayout 之前，主动完成测量并调用 layout 将其坐标重置为闭合位置 [-drawerWidthPx, 0, 0, heightPx]
-        // 这样 getWidth() 准确返回 310dp (620px)，且初始物理位置已完全在屏幕外（left=-620, right=0）
-        drawerView.measure(
-            View.MeasureSpec.makeMeasureSpec(drawerWidthPx, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY)
-        )
-        drawerView.layout(-drawerWidthPx, 0, 0, heightPx)
-
-        // 先设置 lockMode，此时 drawerView 还不在 drawerLayout 中，不会触发带有动画的 closeDrawer() 造成旧宽度计算残余
+        // 先设置 lockMode
         if (isPhoneBottomBarMode()) {
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
         } else {
@@ -2247,6 +2246,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        // Drawer visibility & slide state handling
+        binding.drawerLayout.addDrawerListener(object : androidx.drawerlayout.widget.DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerStateChanged(newState: Int) {
+                if (newState != androidx.drawerlayout.widget.DrawerLayout.STATE_IDLE && !isTabletLandscapeMode) {
+                    val dv = binding.layoutDrawer.root
+                    if (dv.parent == binding.drawerLayout && dv.visibility != View.VISIBLE) {
+                        dv.visibility = View.VISIBLE
+                    }
+                }
+            }
+            override fun onDrawerClosed(drawerView: View) {
+                if (!isTabletLandscapeMode) {
+                    drawerView.visibility = View.GONE
+                }
+            }
+        })
+
         // Back press handling: close drawer first if opened
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {

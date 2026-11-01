@@ -163,25 +163,37 @@ data class UnifiedCourse(
 
             for (tc in uTcList) {
                 val tcNorm = normalize(tc.cleanName)
-                val matchedCx = uCxList.firstOrNull { cx ->
+                val isTcLab = tc.name.contains("实验") || tc.cleanName.contains("实验")
+
+                // Pass 1: 优先精确全称匹配 (完全杜绝理论课与实验课被包含算法混淆)
+                var matchedCx = uCxList.firstOrNull { cx ->
                     if (matchedCxIds.contains(cx.unifiedId)) return@firstOrNull false
+                    val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
+                    if (isTcLab != isCxLab) return@firstOrNull false
                     val cxNorm = normalize(cx.cleanName)
                     if (tcNorm.isEmpty() || cxNorm.isEmpty()) return@firstOrNull false
+                    tcNorm == cxNorm || tc.cleanName.trim().equals(cx.cleanName.trim(), ignoreCase = true)
+                }
 
-                    // 1. 完全相同
-                    if (tcNorm == cxNorm) return@firstOrNull true
-                    // 2. 清洗后的 cleanName 忽略大小写及空白相同
-                    if (tc.cleanName.trim().equals(cx.cleanName.trim(), ignoreCase = true)) return@firstOrNull true
-                    // 3. 包含关系 (且长度差异 <= 3，如 "Web应用开发" 与 "Web应用开发")
-                    if ((tcNorm.contains(cxNorm) || cxNorm.contains(tcNorm)) && kotlin.math.abs(tcNorm.length - cxNorm.length) <= 3) {
-                        if (tc.teacherName.isNotBlank() && cx.teacherName.isNotBlank()) {
-                            val t1 = tc.teacherName.replace(" ", "")
-                            val t2 = cx.teacherName.replace(" ", "")
-                            return@firstOrNull t1.contains(t2) || t2.contains(t1)
+                // Pass 2: 仅在未精确匹配时，进行同类型下的模糊包含匹配 (严格保持实验课与非实验课互斥)
+                if (matchedCx == null) {
+                    matchedCx = uCxList.firstOrNull { cx ->
+                        if (matchedCxIds.contains(cx.unifiedId)) return@firstOrNull false
+                        val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
+                        if (isTcLab != isCxLab) return@firstOrNull false
+                        val cxNorm = normalize(cx.cleanName)
+                        if (tcNorm.isEmpty() || cxNorm.isEmpty()) return@firstOrNull false
+
+                        if ((tcNorm.contains(cxNorm) || cxNorm.contains(tcNorm)) && kotlin.math.abs(tcNorm.length - cxNorm.length) <= 3) {
+                            if (tc.teacherName.isNotBlank() && cx.teacherName.isNotBlank()) {
+                                val t1 = tc.teacherName.replace(" ", "")
+                                val t2 = cx.teacherName.replace(" ", "")
+                                return@firstOrNull t1.contains(t2) || t2.contains(t1)
+                            }
+                            return@firstOrNull true
                         }
-                        return@firstOrNull true
+                        false
                     }
-                    false
                 }
 
                 if (matchedCx != null) {

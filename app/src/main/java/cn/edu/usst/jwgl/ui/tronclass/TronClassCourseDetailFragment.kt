@@ -202,15 +202,34 @@ class TronClassCourseDetailFragment : Fragment() {
                 .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
                 .replace(Regex("""\s+"""), "")
                 .lowercase()
-            val matched = cachedCxList.firstOrNull { cx ->
+            val isTargetLab = courseName.contains("实验") || cleanTarget.contains("实验")
+
+            // 1. 优先精确匹配 (同为实验课或同为理论课)
+            var matched = cachedCxList.firstOrNull { cx ->
                 val cleanCx = cx.courseName
                     .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
                     .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
                     .replace(Regex("""\s+"""), "")
                     .lowercase()
-                cleanTarget.isNotEmpty() && cleanCx.isNotEmpty() &&
-                        (cleanTarget == cleanCx || cleanTarget.contains(cleanCx) || cleanCx.contains(cleanTarget))
+                val isCxLab = cx.courseName.contains("实验") || cleanCx.contains("实验")
+                (isTargetLab == isCxLab) && cleanTarget.isNotEmpty() && cleanCx.isNotEmpty() &&
+                        (cleanTarget == cleanCx || courseName.trim().equals(cx.courseName.trim(), ignoreCase = true))
             }
+
+            // 2. 兜底模糊包含匹配 (严格保持实验课与非实验课互斥，杜绝 Web应用开发 与 Web应用开发实验 互串)
+            if (matched == null) {
+                matched = cachedCxList.firstOrNull { cx ->
+                    val cleanCx = cx.courseName
+                        .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                        .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
+                        .replace(Regex("""\s+"""), "")
+                        .lowercase()
+                    val isCxLab = cx.courseName.contains("实验") || cleanCx.contains("实验")
+                    (isTargetLab == isCxLab) && cleanTarget.isNotEmpty() && cleanCx.isNotEmpty() &&
+                            (cleanTarget.contains(cleanCx) || cleanCx.contains(cleanTarget))
+                }
+            }
+
             if (matched != null) {
                 rawChaoXingCourse = matched
                 platform = if (courseId > 0) LearningPlatform.DUAL else LearningPlatform.CHAOXING

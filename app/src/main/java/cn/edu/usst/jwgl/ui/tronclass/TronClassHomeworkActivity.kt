@@ -49,7 +49,11 @@ class TronClassHomeworkActivity : AppCompatActivity() {
                 val intent = Intent(context, TronClassHomeworkActivity::class.java).apply {
                     putExtra(EXTRA_PLATFORM, "CHAOXING")
                     putExtra(EXTRA_CHAOXING_WORK, work)
-                    course?.let { putExtra(EXTRA_CHAOXING_COURSE, it) }
+                    putExtra("extra_chaoxing_work_json", com.google.gson.Gson().toJson(work))
+                    course?.let {
+                        putExtra(EXTRA_CHAOXING_COURSE, it)
+                        putExtra("extra_chaoxing_course_json", com.google.gson.Gson().toJson(it))
+                    }
                     putExtra(EXTRA_TITLE, work.title)
                     putExtra(EXTRA_COURSE_NAME, course?.courseName ?: work.courseName)
                 }
@@ -69,18 +73,28 @@ class TronClassHomeworkActivity : AppCompatActivity() {
         if (savedInstanceState == null) {
             val platform = intent.getStringExtra(EXTRA_PLATFORM) ?: "TRONCLASS"
             val fragment = if (platform == "CHAOXING") {
-                val work = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getSerializableExtra(EXTRA_CHAOXING_WORK, ChaoXingWork::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getSerializableExtra(EXTRA_CHAOXING_WORK) as? ChaoXingWork
+                val work = try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getSerializableExtra(EXTRA_CHAOXING_WORK, ChaoXingWork::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getSerializableExtra(EXTRA_CHAOXING_WORK) as? ChaoXingWork
+                    }
+                } catch (_: Exception) { null } ?: intent.getStringExtra("extra_chaoxing_work_json")?.let {
+                    try { com.google.gson.Gson().fromJson(it, ChaoXingWork::class.java) } catch (_: Exception) { null }
                 }
-                val course = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getSerializableExtra(EXTRA_CHAOXING_COURSE, ChaoXingCourse::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getSerializableExtra(EXTRA_CHAOXING_COURSE) as? ChaoXingCourse
+
+                val course = try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getSerializableExtra(EXTRA_CHAOXING_COURSE, ChaoXingCourse::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getSerializableExtra(EXTRA_CHAOXING_COURSE) as? ChaoXingCourse
+                    }
+                } catch (_: Exception) { null } ?: intent.getStringExtra("extra_chaoxing_course_json")?.let {
+                    try { com.google.gson.Gson().fromJson(it, ChaoXingCourse::class.java) } catch (_: Exception) { null }
                 }
+
                 if (work != null) {
                     TronClassHomeworkFragment.newInstanceForChaoXing(work, course)
                 } else {
