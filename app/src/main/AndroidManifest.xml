@@ -68,21 +68,24 @@
             android:name=".ui.MainActivity"
             android:exported="false"
             android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.wakeup.AddCourseActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.ExcelCleanActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
         <activity
             android:name=".ui.JwglWebActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize" />
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
         <activity
             android:name=".ui.scanner.MlKitScannerActivity"
@@ -103,36 +106,36 @@
         <activity
             android:name=".ui.tronclass.TronClassCourseDetailActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.tronclass.TronClassHomeworkActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.tronclass.TronClassDiscussionActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.tronclass.TronClassExamActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.tronclass.TronClassDownloadActivity"
             android:exported="false"
-            android:screenOrientation="portrait" />
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
         <activity
             android:name=".ui.tronclass.TronClassVideoPlayerActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize" />
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
         <!-- 15-min Course Reminder Receiver -->
         <receiver

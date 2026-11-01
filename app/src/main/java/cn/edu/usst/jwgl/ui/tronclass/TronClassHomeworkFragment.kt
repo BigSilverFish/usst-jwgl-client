@@ -1,5 +1,7 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
+import android.content.res.Configuration
+
 import android.Manifest
 import android.app.ProgressDialog
 import android.content.ClipData
@@ -373,19 +375,7 @@ class TronClassHomeworkFragment : Fragment() {
             }
         }
 
-        val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
-        if (isPad) {
-            binding.llHomeworkColumns.orientation = LinearLayout.HORIZONTAL
-            val margin10 = TabletLayoutHelper.dpToPx(requireContext(), 10f)
-            val leftParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.46f).apply {
-                marginEnd = margin10
-            }
-            val rightParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.54f).apply {
-                marginStart = margin10
-            }
-            binding.llHomeworkColLeft.layoutParams = leftParams
-            binding.llHomeworkColRight.layoutParams = rightParams
-        }
+        updateColumnsLayout()
 
         binding.btnRefresh.setOnClickListener {
             loadData(forceRefresh = true)
@@ -1523,6 +1513,42 @@ class TronClassHomeworkFragment : Fragment() {
 
         frame.setOnClickListener { dialog.dismiss() }
         dialog.show()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateColumnsLayout(newConfig)
+        _binding?.let { b ->
+            ViewCompat.requestApplyInsets(b.root)
+        }
+    }
+
+    private fun updateColumnsLayout(config: Configuration? = null) {
+        val ctx = context ?: return
+        val b = _binding ?: return
+        val isPad = TabletLayoutHelper.isTabletLandscape(ctx, config)
+        if (isPad) {
+            b.llHomeworkColumns.orientation = LinearLayout.HORIZONTAL
+            val margin10 = TabletLayoutHelper.dpToPx(ctx, 10f)
+            val leftParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.46f).apply {
+                marginEnd = margin10
+            }
+            val rightParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.54f).apply {
+                marginStart = margin10
+            }
+            b.llHomeworkColLeft.layoutParams = leftParams
+            b.llHomeworkColRight.layoutParams = rightParams
+        } else {
+            b.llHomeworkColumns.orientation = LinearLayout.VERTICAL
+            val fullParamsLeft = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = 0
+            }
+            val fullParamsRight = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = 0
+            }
+            b.llHomeworkColLeft.layoutParams = fullParamsLeft
+            b.llHomeworkColRight.layoutParams = fullParamsRight
+        }
     }
 
     override fun onDestroyView() {

@@ -648,20 +648,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeNavDrawer() {
         if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
-            if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                binding.drawerLayout.closeDrawer(GravityCompat.START)
-            }
+            binding.drawerLayout.closeDrawer(GravityCompat.START, false)
         }
     }
 
     private fun isNavDrawerOpen(): Boolean {
         return !isTabletLandscapeMode &&
                 binding.layoutDrawer.root.parent == binding.drawerLayout &&
-                binding.drawerLayout.isDrawerOpen(GravityCompat.START)
+                binding.drawerLayout.isDrawerVisible(GravityCompat.START)
     }
 
-    private fun setupTabletLandscapeLayout() {
-        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this)
+    private fun setupTabletLandscapeLayout(config: Configuration? = null) {
+        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this, config)
         if (!isTabletLandscapeMode) return
 
         val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
@@ -718,15 +716,19 @@ class MainActivity : AppCompatActivity() {
         if (drawerView.parent == null) {
             val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
                 (310 * resources.displayMetrics.density).toInt(),
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                gravity = GravityCompat.START
-            }
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                GravityCompat.START
+            )
             binding.drawerLayout.addView(drawerView, lp)
         }
         binding.permanentSidebarContainer.visibility = View.GONE
         binding.viewPermanentSidebarDivider.visibility = View.GONE
-        binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
+        binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+        if (isPhoneBottomBarMode()) {
+            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+        } else {
+            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
+        }
 
         /* 3. Restore two-pane to vertical */
         (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
@@ -747,17 +749,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this)
-        if (isTabletLandscape != isTabletLandscapeMode) {
+        val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this, newConfig)
+        val modeChanged = isTabletLandscape != isTabletLandscapeMode
+        if (modeChanged) {
             if (isTabletLandscape) {
-                setupTabletLandscapeLayout()
+                setupTabletLandscapeLayout(newConfig)
             } else {
                 restorePortraitLayout()
             }
-            applyPhoneNavigationMode()
-            applyContentBottomPadding()
         }
+
+        super.onConfigurationChanged(newConfig)
+
+        applyPhoneNavigationMode()
+        applyContentBottomPadding()
+
+        // 重新请求分发 WindowInsets，更新状态栏与导航栏高度
+        ViewCompat.requestApplyInsets(binding.root)
+
+        // 刷新各活跃 Fragment
+        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
+            ?.updateTabletLandscapeMode(isTabletLandscape)
+
+        (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)
+            ?.let { tf ->
+                tf.applyAdaptiveLayout()
+                tf.checkAndRefreshHeaderSpacing()
+            }
+
+        binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
+            val h = binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height
+            if (h > 0) updateMoreFeaturesHeaderSpacing(h)
+        }
+        binding.llProfileHeaderContainer.post {
+            val h = binding.llProfileHeaderContainer.height
+            if (h > 0) updateProfileHeaderSpacing(h)
+        }
+
+        // 刷新课表周页面排版与内边距
+        supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
+            .forEach {
+                it.applyContentPadding()
+                it.view?.post { if (it.isAdded) it.renderSchedule() }
+            }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

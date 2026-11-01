@@ -160,6 +160,7 @@ class TronClassFragment : Fragment() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         applyAdaptiveLayout()
+        checkAndRefreshHeaderSpacing()
     }
 
     override fun onResume() {
@@ -264,7 +265,7 @@ class TronClassFragment : Fragment() {
         applyAdaptiveLayout()
     }
 
-    private fun applyAdaptiveLayout() {
+    internal fun applyAdaptiveLayout() {
         val b = _binding ?: return
         val mainAct = activity as? MainActivity
         val isBottomBar = mainAct?.isBottomBarModeActive() ?: false
