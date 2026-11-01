@@ -345,6 +345,8 @@ class ChaoXingCourseDetailClientTest {
 
         val q1 = questions[0]
         assertEquals(1, q1.index)
+        assertEquals("1", q1.id)
+        assertEquals("4", q1.typeCode)
         assertTrue(q1.typeName.contains("简答题"))
         assertEquals("50 分", q1.scoreText)
         assertTrue(q1.cleanStem.contains("登录验证系统"))
@@ -357,6 +359,8 @@ class ChaoXingCourseDetailClientTest {
 
         val q2 = questions[1]
         assertEquals(2, q2.index)
+        assertEquals("2", q2.id)
+        assertEquals("4", q2.typeCode)
         assertTrue(q2.typeName.contains("简答题"))
         assertEquals("50 分", q2.scoreText)
         assertTrue(q2.cleanStem.contains("插播视频广告系统"))
@@ -374,5 +378,39 @@ class ChaoXingCourseDetailClientTest {
         assertEquals(5242880L, ChaoXingCourseDetailClient.parseSizeStrToBytes("5M"))
         assertEquals(100L, ChaoXingCourseDetailClient.parseSizeStrToBytes("100B"))
         assertEquals(0L, ChaoXingCourseDetailClient.parseSizeStrToBytes(""))
+    }
+
+    @Test
+    fun testFormatSizeForChaoxing() {
+        assertEquals("0B", ChaoXingCourseDetailClient.formatSizeForChaoxing(0L))
+        assertEquals("512B", ChaoXingCourseDetailClient.formatSizeForChaoxing(512L))
+        assertEquals("8.49K", ChaoXingCourseDetailClient.formatSizeForChaoxing((8.49 * 1024).toLong()))
+        assertEquals("2.50M", ChaoXingCourseDetailClient.formatSizeForChaoxing((2.5 * 1024 * 1024).toLong()))
+    }
+
+    @Test
+    fun testBuildAttachmentIframeHtml() {
+        val att = ChaoXingCourseAttachment(
+            objectId = "947babc1412b9ce532df444860018bab",
+            name = "servlet-captcha-login.zip",
+            size = (8.49 * 1024).toLong()
+        )
+        val iframeHtml = ChaoXingCourseDetailClient.buildAttachmentIframeHtml(att)
+        assertTrue(iframeHtml.contains("class=\"attach-iframe\""))
+        assertTrue(iframeHtml.contains("filename=\"servlet-captcha-login.zip\""))
+        assertTrue(iframeHtml.contains("filesize=\"8.49K\""))
+        assertTrue(iframeHtml.contains("filetype=\"zip\""))
+        assertTrue(iframeHtml.contains("objectid=\"947babc1412b9ce532df444860018bab\""))
+        assertTrue(iframeHtml.contains("src=\"/ananas/common-modules/attachment/insertCloud.html\""))
+
+        // Verify name parameter base64 decoding (use \sname to avoid matching filename)
+        val nameMatch = Regex("""\sname="([^"]+)"""").find(iframeHtml)
+        assertNotNull(nameMatch)
+        val encodedName = nameMatch!!.groupValues[1]
+        val decodedUrl = java.net.URLDecoder.decode(String(java.util.Base64.getDecoder().decode(encodedName), Charsets.UTF_8), "UTF-8")
+        assertTrue(decodedUrl.contains("\"objectid\":\"947babc1412b9ce532df444860018bab\""))
+        assertTrue(decodedUrl.contains("\"name\":\"servlet-captcha-login.zip\""))
+        assertTrue(decodedUrl.contains("\"type\":\"zip\""))
+        assertTrue(decodedUrl.contains("\"size\":\"8.49K\""))
     }
 }

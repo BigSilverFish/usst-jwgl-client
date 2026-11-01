@@ -11,9 +11,17 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import org.json.JSONObject
 import org.jsoup.Jsoup
+import java.io.File
+import java.net.URLEncoder
+import java.util.Locale
 
 /**
  * 超星学习通原生课程详情接口客户端
@@ -467,9 +475,32 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     val commentEl = qEl.select(".grayDiv, .pingyu, .remark, .comment, .teach-comment").firstOrNull()
                     val commentText = commentEl?.text()?.replace("教师批语", "")?.replace("教师评语", "")?.replace("：", "")?.trim().orEmpty()
 
+                    // 题目 ID 提取 (优先读取 data 属性，其次从 id 中提取纯数字，其次读取 questionid 属性)
+                    var qId = qEl.attr("data").trim()
+                    if (qId.isBlank()) {
+                        qId = Regex("""\d+""").find(qEl.attr("id"))?.value.orEmpty()
+                    }
+                    if (qId.isBlank()) {
+                        qId = qEl.select("[id^='qb']").firstOrNull()?.let { Regex("""\d+""").find(it.attr("id"))?.value }.orEmpty()
+                    }
+                    if (qId.isBlank()) {
+                        qId = qEl.attr("questionid").trim()
+                    }
+
+                    // 题目题型编码 (优先 questiontypeid，其次 .TiMu 的 data 属性，默认 "4" 主观题)
+                    var typeCode = qEl.attr("questiontypeid").trim()
+                    if (typeCode.isBlank()) {
+                        typeCode = qEl.select(".TiMu").attr("data").trim()
+                    }
+                    if (typeCode.isBlank()) {
+                        typeCode = "4"
+                    }
+
                     list.add(
                         ChaoXingQuestionItem(
                             index = index,
+                            id = qId,
+                            typeCode = typeCode,
                             typeName = typeScoreText.ifBlank { "主观题" },
                             scoreText = scoreText,
                             stemHtml = stemHtml,
@@ -486,6 +517,52 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 Log.w(TAG, "parseQuestionsFromHtml error: ${e.message}")
             }
             return list
+        }
+
+        /**
+         * 格式化超星附件大小 (如 "8.49K", "131.88K", "2.50M", "1024B")
+         */
+        fun formatSizeForChaoxing(bytes: Long): String {
+            if (bytes <= 0L) return "0B"
+            val kb = bytes / 1024.0
+            val mb = kb / 1024.0
+            return when {
+                mb >= 1.0 -> String.format(Locale.US, "%.2fM", mb)
+                kb >= 1.0 -> String.format(Locale.US, "%.2fK", kb)
+                else -> "${bytes}B"
+            }
+        }
+
+        /**
+         * 兼容 Base64 编码 (兼容 Android 运行期与 JVM 单元测试)
+         */
+        fun encodeAttachmentName(jsonStr: String): String {
+            val urlEncoded = URLEncoder.encode(jsonStr, "UTF-8")
+            val bytes = urlEncoded.toByteArray(Charsets.UTF_8)
+            val androidB64 = try {
+                android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            } catch (_: Throwable) {
+                null
+            }
+            if (!androidB64.isNullOrBlank()) {
+                return androidB64
+            }
+            return try {
+                java.util.Base64.getEncoder().encodeToString(bytes)
+            } catch (_: Throwable) {
+                ""
+            }
+        }
+
+        /**
+         * 构造超星 insertCloud 附件 iframe 嵌入标签
+         */
+        fun buildAttachmentIframeHtml(att: ChaoXingCourseAttachment): String {
+            val ext = att.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+            val sizeStr = formatSizeForChaoxing(att.size)
+            val jsonPayload = """{"objectid":"${att.objectId}","name":"${att.name}","type":"$ext","size":"$sizeStr"}"""
+            val encodedName = encodeAttachmentName(jsonPayload)
+            return """<div class="editor-iframe" contenteditable="false"><iframe class="attach-iframe" filename="${att.name}" filesize="$sizeStr" filetype="$ext" frameborder="0" module="insertAttach" name="$encodedName" objectid="${att.objectId}" scrolling="no" src="/ananas/common-modules/attachment/insertCloud.html" style="display: block; max-width: 620px; width: 100%; height: 74px;"></iframe></div>"""
         }
 
         fun parseSizeStrToBytes(sizeStr: String): Long {
@@ -1192,4 +1269,264 @@ class ChaoXingCourseDetailClient(private val context: Context) {
      */
     fun parseQuestionsFromHtml(html: String): List<ChaoXingQuestionItem> =
         Companion.parseQuestionsFromHtml(html)
+
+    /**
+     * 8. 上传文件到超星云盘，返回可在作业作答中引用的超星附件实体
+     */
+    suspend fun uploadAttachmentToPan(
+        file: File,
+        displayName: String,
+        studentId: String? = null,
+        onProgress: ((Int) -> Unit)? = null
+    ): Result<ChaoXingCourseAttachment> = withContext(Dispatchers.IO) {
+        try {
+            val ensureRes = chaoXingClient.ensureSession(studentId)
+            if (ensureRes.isFailure) {
+                return@withContext Result.failure(ensureRes.exceptionOrNull() ?: Exception("超星登录失效"))
+            }
+
+            val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+            val puid = prefs.getUid(studentId).orEmpty().ifBlank {
+                Regex("""(?:^|;\s*)(?:UID|_uid)=(\d+)""").find(cookies)?.groupValues?.get(1).orEmpty()
+            }
+
+            // 1. 获取上传 Token
+            val tokenReq = Request.Builder()
+                .url("https://pan-yz.chaoxing.com/api/token/uservalid")
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .get()
+                .build()
+
+            val tokenResp = okHttpClient.newCall(tokenReq).execute()
+            val tokenBody = tokenResp.body?.string().orEmpty()
+            val tokenJson = try {
+                JSONObject(tokenBody)
+            } catch (_: Exception) {
+                return@withContext Result.failure(Exception("获取超星网盘 Token 失败: $tokenBody"))
+            }
+
+            val token = tokenJson.optString("_token")
+            if (token.isBlank()) {
+                return@withContext Result.failure(Exception("超星网盘上传 Token 为空"))
+            }
+
+            // 2. 构造 Multipart 上传请求体 (带进度监听)
+            val mimeType = try {
+                val ext = displayName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+            } catch (_: Throwable) {
+                "application/octet-stream"
+            }
+
+            val fileReqBody = object : RequestBody() {
+                override fun contentType(): okhttp3.MediaType? = mimeType.toMediaTypeOrNull()
+                override fun contentLength(): Long = file.length()
+                override fun writeTo(sink: okio.BufferedSink) {
+                    val total = contentLength()
+                    var written = 0L
+                    val buffer = ByteArray(8192)
+                    file.inputStream().use { input ->
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            sink.write(buffer, 0, read)
+                            written += read
+                            if (total > 0 && onProgress != null) {
+                                val pct = ((written * 100) / total).toInt()
+                                onProgress(pct.coerceIn(0, 100))
+                            }
+                        }
+                    }
+                }
+            }
+
+            val multipartBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("puid", puid)
+                .addFormDataPart("_token", token)
+                .addFormDataPart("file", displayName, fileReqBody)
+                .build()
+
+            val uploadReq = Request.Builder()
+                .url("https://pan-yz.chaoxing.com/upload")
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .post(multipartBody)
+                .build()
+
+            val uploadResp = okHttpClient.newCall(uploadReq).execute()
+            val uploadBody = uploadResp.body?.string().orEmpty()
+            val uploadJson = try {
+                JSONObject(uploadBody)
+            } catch (_: Exception) {
+                return@withContext Result.failure(Exception("上传响应非 JSON: $uploadBody"))
+            }
+
+            if (uploadJson.optBoolean("result") || uploadJson.has("objectId")) {
+                val objectId = uploadJson.optString("objectId").ifBlank {
+                    uploadJson.optJSONObject("data")?.optString("objectId").orEmpty()
+                }
+                val size = uploadJson.optJSONObject("data")?.optLong("size", file.length()) ?: file.length()
+                val name = uploadJson.optJSONObject("data")?.optString("name", displayName) ?: displayName
+
+                if (objectId.isNotBlank()) {
+                    val att = ChaoXingCourseAttachment(
+                        objectId = objectId,
+                        name = name,
+                        size = size
+                    )
+                    Result.success(att)
+                } else {
+                    Result.failure(Exception("上传响应缺少 objectId: $uploadBody"))
+                }
+            } else {
+                val msg = uploadJson.optString("msg", "上传失败")
+                Result.failure(Exception("超星云盘上传失败: $msg"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "uploadAttachmentToPan error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 9. 提交或暂存超星作业与附件
+     */
+    suspend fun submitHomework(
+        work: ChaoXingWork,
+        course: ChaoXingCourse?,
+        comment: String,
+        attachments: List<ChaoXingCourseAttachment>,
+        isSubmit: Boolean = true,
+        studentId: String? = null
+    ): Result<ChaoXingSubmitResult> = withContext(Dispatchers.IO) {
+        try {
+            val ensureRes = chaoXingClient.ensureSession(studentId)
+            if (ensureRes.isFailure) {
+                return@withContext Result.failure(ensureRes.exceptionOrNull() ?: Exception("超星登录失效"))
+            }
+
+            val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+            val cpi = course?.let { getEffectiveCpi(it, studentId) } ?: prefs.getUid(studentId).orEmpty()
+
+            val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
+            var detail = cacheMgr.getCachedChaoXingHomeworkDetail(work.workId)
+            if (detail == null || detail.rawQuestions.isEmpty()) {
+                val dRes = fetchHomeworkDetail(work, course, studentId)
+                detail = dRes.getOrNull()
+            }
+
+            val questions = detail?.rawQuestions.orEmpty()
+            val courseId = course?.courseId.orEmpty().ifBlank {
+                Regex("""(?:courseId|courseid)=([0-9]+)""").find(work.taskUrl)?.groupValues?.get(1).orEmpty()
+            }
+            val classId = course?.classId.orEmpty().ifBlank {
+                Regex("""(?:classId|clazzId|clazzid)=([0-9]+)""").find(work.taskUrl)?.groupValues?.get(1).orEmpty()
+            }
+
+            // 构造作答 HTML (富文本段落 + 超星 insertCloud 附件 iframe)
+            val textHtml = if (comment.isNotBlank()) {
+                comment.split("\r\n", "\n").joinToString("") { line ->
+                    val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    "<p>$escaped</p>"
+                }
+            } else {
+                "<p><br/></p>"
+            }
+            val iframesHtml = attachments.joinToString("") { buildAttachmentIframeHtml(it) }
+            val finalAnswerHtml = textHtml + iframesHtml
+
+            val formBuilder = FormBody.Builder()
+            formBuilder.add("courseId", courseId)
+            formBuilder.add("classId", classId)
+            formBuilder.add("workId", work.workId)
+            if (cpi.isNotBlank()) formBuilder.add("cpi", cpi)
+
+            val pyFlag = if (isSubmit) "" else "1"
+            formBuilder.add("pyFlag", pyFlag)
+
+            if (questions.isNotEmpty()) {
+                val qids = questions.map { it.id.ifBlank { it.index.toString() } }
+                formBuilder.add("answerwqbid", qids.joinToString(",") + ",")
+
+                for ((idx, q) in questions.withIndex()) {
+                    val qid = q.id.ifBlank { q.index.toString() }
+                    formBuilder.add("answertype$qid", q.typeCode.ifBlank { "4" })
+                    if (idx == 0) {
+                        formBuilder.add("answer$qid", finalAnswerHtml)
+                    } else {
+                        val prevAns = q.myAnswerHtml.ifBlank { "<p><br/></p>" }
+                        formBuilder.add("answer$qid", prevAns)
+                    }
+                }
+            } else {
+                formBuilder.add("answerwqbid", "${work.workId},")
+                formBuilder.add("answertype${work.workId}", "4")
+                formBuilder.add("answer${work.workId}", finalAnswerHtml)
+            }
+
+            val request = Request.Builder()
+                .url("https://mooc1.chaoxing.com/mooc-ans/work/addStudentWorkNew")
+                .header("Host", "mooc1.chaoxing.com")
+                .header("Origin", "https://mooc1.chaoxing.com")
+                .header("Referer", detail?.taskUrl?.ifBlank { work.taskUrl } ?: work.taskUrl)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .header("Cookie", cookies)
+                .post(formBuilder.build())
+                .build()
+
+            val resp = okHttpClient.newCall(request).execute()
+            val respBody = resp.body?.string().orEmpty()
+            Log.i(TAG, "submitHomework response: code=${resp.code}, body=$respBody")
+
+            val json = try {
+                JSONObject(respBody)
+            } catch (_: Exception) {
+                JSONObject()
+            }
+
+            val isSuccess = json.optBoolean("status", false)
+            val msg = json.optString("msg", respBody)
+
+            if (isSuccess || respBody.contains("\"status\":true") || msg.contains("成功")) {
+                val updatedDetail = detail?.copy(
+                    isSubmitted = isSubmit,
+                    statusText = if (isSubmit) "已提交 · 待批阅" else "草稿已暂存",
+                    cleanMyAnswer = comment,
+                    myAnswerHtml = finalAnswerHtml,
+                    studentAttachments = attachments
+                ) ?: ChaoXingHomeworkDetail(
+                    workId = work.workId,
+                    title = work.title,
+                    courseName = course?.courseName ?: work.courseName,
+                    statusText = if (isSubmit) "已提交 · 待批阅" else "草稿已暂存",
+                    cleanMyAnswer = comment,
+                    myAnswerHtml = finalAnswerHtml,
+                    studentAttachments = attachments,
+                    isSubmitted = isSubmit
+                )
+                cacheMgr.saveChaoXingHomeworkDetail(work.workId, updatedDetail)
+
+                Result.success(
+                    ChaoXingSubmitResult(
+                        isSuccess = true,
+                        message = if (isSubmit) "作业与附件已成功提交至超星学习通！" else "作业草稿暂存成功！",
+                        isSubmitted = isSubmit
+                    )
+                )
+            } else {
+                val userMsg = when {
+                    msg.contains("code-2") -> "作业已截止或教师未开放重复提交权限"
+                    msg.contains("code-1") -> "作业参数校验未通过，请刷新后重试"
+                    msg.isNotBlank() -> msg
+                    else -> "提交失败 (${resp.code})"
+                }
+                Result.failure(Exception(userMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "submitHomework exception", e)
+            Result.failure(e)
+        }
+    }
 }
