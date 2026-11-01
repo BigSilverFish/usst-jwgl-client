@@ -39,6 +39,8 @@ import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeDocumentType
 import cn.edu.usst.jwgl.data.model.StudentProfile
 import cn.edu.usst.jwgl.data.model.UnifiedCourse
+import cn.edu.usst.jwgl.data.model.ChaoXingWork
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -2564,6 +2566,14 @@ class MainActivity : AppCompatActivity() {
         }
         supportFragmentManager.executePendingTransactions()
         getTronClassFragment()?.openHomework(activityId, courseId, title, courseName)
+    }
+
+    fun openChaoXingHomework(work: ChaoXingWork, course: ChaoXingCourse? = null) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openChaoXingHomework(work, course)
     }
 
     fun openTronClassExam(examId: Long, courseId: Long, title: String, courseName: String) {

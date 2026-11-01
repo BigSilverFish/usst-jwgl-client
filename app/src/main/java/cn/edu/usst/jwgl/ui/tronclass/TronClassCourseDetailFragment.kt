@@ -393,7 +393,12 @@ class TronClassCourseDetailFragment : Fragment() {
                     }
                 }
                 is TronClassAssessmentItem.ChaoXingHomework -> {
-                    showChaoXingHomeworkBottomSheet(item.work)
+                    val mainAct = activity as? MainActivity
+                    if (mainAct != null) {
+                        mainAct.openChaoXingHomework(item.work, rawChaoXingCourse)
+                    } else {
+                        TronClassHomeworkActivity.startForChaoXing(context, item.work, rawChaoXingCourse)
+                    }
                 }
                 is TronClassAssessmentItem.ChaoXingExamItem -> {
                     showChaoXingExamBottomSheet(item.exam)
@@ -1911,17 +1916,11 @@ class TronClassCourseDetailFragment : Fragment() {
 
         btnAction.setOnClickListener {
             dialog.dismiss()
-            if (work.taskUrl.isNotBlank()) {
-                ChaoXingNavigator.openHomework(
-                    context = ctx,
-                    courseId = rawChaoXingCourse?.courseId ?: "0",
-                    classId = rawChaoXingCourse?.classId,
-                    workId = work.workId,
-                    title = work.title,
-                    detailUrl = work.taskUrl
-                )
+            val mainAct = activity as? MainActivity
+            if (mainAct != null) {
+                mainAct.openChaoXingHomework(work, rawChaoXingCourse)
             } else {
-                Toast.makeText(ctx, "该作业暂无外部答题入口", Toast.LENGTH_SHORT).show()
+                TronClassHomeworkActivity.startForChaoXing(ctx, work, rawChaoXingCourse)
             }
         }
 

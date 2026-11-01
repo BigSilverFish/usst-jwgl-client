@@ -398,6 +398,122 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 .replace(Regex("""\s+"""), " ")
                 .trim()
         }
+
+        /**
+         * 解析答卷或做题页面 HTML 中的全部题目结构
+         */
+        fun parseQuestionsFromHtml(html: String): List<ChaoXingQuestionItem> {
+            val list = mutableListOf<ChaoXingQuestionItem>()
+            if (html.isBlank()) return list
+            try {
+                val doc = Jsoup.parse(html)
+                val qElements = doc.select(".singleQuesId, div[class*='singleQues'], .TiMu, .mark_item, .questionBlock")
+
+                for ((idx, qEl) in qElements.withIndex()) {
+                    val index = idx + 1
+                    val typeScoreEl = qEl.select(".stemGray, .question-type, .type").firstOrNull()
+                    val typeScoreText = typeScoreEl?.text()?.trim().orEmpty()
+                    val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText)
+                    val scoreText = scoreMatch?.groupValues?.get(1)?.let { "$it 分" } ?: ""
+
+                    // 题干提取
+                    val stemEl = qEl.select(".stemDiv .Picdiv, .Picdiv, .stemDiv, .qtContent, .workTextWrap, .font14").firstOrNull()
+                    val stemHtml = stemEl?.html()?.trim().orEmpty()
+                    val cleanStem = stemEl?.text()?.trim().orEmpty()
+
+                    // 提取题干中的教师附件或图片
+                    val teacherAtts = mutableListOf<ChaoXingCourseAttachment>()
+                    if (stemEl != null) {
+                        for (iframe in stemEl.select("iframe.attach-iframe, iframe[objectid]")) {
+                            val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
+                            val oid = iframe.attr("objectid")
+                            val fsStr = iframe.attr("filesize")
+                            if (oid.isNotBlank() && fn.isNotBlank()) {
+                                teacherAtts.add(
+                                    ChaoXingCourseAttachment(
+                                        objectId = oid,
+                                        name = fn,
+                                        size = parseSizeStrToBytes(fsStr)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // 学生作答提取
+                    val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer").firstOrNull()
+                    val ansHtml = ansEl?.html()?.trim().orEmpty()
+                    val cleanAns = ansEl?.text()?.trim().orEmpty()
+
+                    val studentAtts = mutableListOf<ChaoXingCourseAttachment>()
+                    if (ansEl != null) {
+                        for (iframe in ansEl.select("iframe.attach-iframe, iframe[objectid]")) {
+                            val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
+                            val oid = iframe.attr("objectid")
+                            val fsStr = iframe.attr("filesize")
+                            if (oid.isNotBlank() && fn.isNotBlank()) {
+                                studentAtts.add(
+                                    ChaoXingCourseAttachment(
+                                        objectId = oid,
+                                        name = fn,
+                                        size = parseSizeStrToBytes(fsStr)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // 教师评语提取
+                    val commentEl = qEl.select(".grayDiv, .pingyu, .remark, .comment, .teach-comment").firstOrNull()
+                    val commentText = commentEl?.text()?.replace("教师批语", "")?.replace("教师评语", "")?.replace("：", "")?.trim().orEmpty()
+
+                    list.add(
+                        ChaoXingQuestionItem(
+                            index = index,
+                            typeName = typeScoreText.ifBlank { "主观题" },
+                            scoreText = scoreText,
+                            stemHtml = stemHtml,
+                            cleanStem = cleanStem,
+                            myAnswerHtml = ansHtml,
+                            cleanMyAnswer = cleanAns,
+                            teacherComment = commentText,
+                            studentAttachments = studentAtts,
+                            teacherAttachments = teacherAtts
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "parseQuestionsFromHtml error: ${e.message}")
+            }
+            return list
+        }
+
+        fun parseSizeStrToBytes(sizeStr: String): Long {
+            if (sizeStr.isBlank()) return 0L
+            val trimmed = sizeStr.trim().uppercase()
+            return try {
+                when {
+                    trimmed.endsWith("KB") || trimmed.endsWith("K") -> {
+                        val num = trimmed.replace("KB", "").replace("K", "").trim().toDouble()
+                        (num * 1024).toLong()
+                    }
+                    trimmed.endsWith("MB") || trimmed.endsWith("M") -> {
+                        val num = trimmed.replace("MB", "").replace("M", "").trim().toDouble()
+                        (num * 1024 * 1024).toLong()
+                    }
+                    trimmed.endsWith("GB") || trimmed.endsWith("G") -> {
+                        val num = trimmed.replace("GB", "").replace("G", "").trim().toDouble()
+                        (num * 1024 * 1024 * 1024).toLong()
+                    }
+                    trimmed.endsWith("B") -> {
+                        trimmed.replace("B", "").trim().toLong()
+                    }
+                    else -> trimmed.toLongOrNull() ?: 0L
+                }
+            } catch (_: Exception) {
+                0L
+            }
+        }
     }
 
     private fun getEffectiveCpi(course: ChaoXingCourse, studentId: String?): String {
@@ -830,4 +946,250 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
     fun parseWorkListHtml(html: String, course: ChaoXingCourse): MutableList<ChaoXingWork> =
         Companion.parseWorkListHtml(html, course)
+
+    /**
+     * 7. 获取超星作业原生详细信息 (题干、各题说明、附件、学生作答、教师批阅与评语)
+     */
+    suspend fun fetchHomeworkDetail(
+        work: ChaoXingWork,
+        course: ChaoXingCourse? = null,
+        studentId: String? = null
+    ): Result<ChaoXingHomeworkDetail> = withContext(Dispatchers.IO) {
+        val ensureRes = chaoXingClient.ensureSession(studentId)
+        if (ensureRes.isFailure) {
+            return@withContext Result.failure(ensureRes.exceptionOrNull() ?: Exception("超星登录失效"))
+        }
+
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+        val cpi = course?.let { getEffectiveCpi(it, studentId) } ?: prefs.getUid(studentId).orEmpty()
+
+        // 优先检查本地离线缓存
+        val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
+        val cached = cacheMgr.getCachedChaoXingHomeworkDetail(work.workId)
+
+        // 构造起始 URL
+        var initialUrl = if (work.taskUrl.isNotBlank()) {
+            if (work.taskUrl.startsWith("http")) work.taskUrl else "https://mooc1.chaoxing.com" + work.taskUrl
+        } else {
+            "https://mooc1.chaoxing.com/work/phone/work?courseId=${course?.courseId ?: ""}&classId=${course?.classId ?: ""}&workId=${work.workId}"
+        }
+
+        if (cpi.isNotBlank() && !initialUrl.contains("cpi=")) {
+            initialUrl += if (initialUrl.contains("?")) "&cpi=$cpi" else "?cpi=$cpi"
+        }
+
+        try {
+            val req1 = Request.Builder()
+                .url(initialUrl)
+                .header("Cookie", cookies)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .get()
+                .build()
+
+            val resp1 = okHttpClient.newCall(req1).execute()
+            val html1 = resp1.body?.string() ?: ""
+            val finalUrl1 = resp1.request.url.toString()
+
+            var questionsHtml = html1
+            var qCountText = ""
+            var statusTextFromPage = ""
+
+            // 如果返回的是 task-work 引导页，解析状态、题目总数并提取进入答卷的详情链接
+            if (html1.contains("selectWorkQuestion") || html1.contains("GrayWord") || html1.contains("padTop250")) {
+                val statusMatch = Regex("""class="GrayWord[^"]*">([^<]+)<""").find(html1)
+                if (statusMatch != null) {
+                    statusTextFromPage = statusMatch.groupValues[1].trim()
+                }
+
+                val countMatch = Regex("""<p>(共\d+题[^<]*)</p>""").find(html1)
+                if (countMatch != null) {
+                    qCountText = countMatch.groupValues[1].trim()
+                }
+
+                // 提取 look / selectWorkQuestionYiPiYue / doHomeWork URL
+                val lookMatch = Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"])(/work/phone/selectWorkQuestion[^'"]+)""").find(html1)
+                    ?: Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"])(/work/phone/doHomeWork[^'"]+)""").find(html1)
+
+                val subPath = lookMatch?.groupValues?.get(1)?.trim().orEmpty()
+                if (subPath.isNotBlank()) {
+                    val detailSubUrlRaw = if (subPath.startsWith("http")) {
+                        subPath
+                    } else {
+                        val hostBase = if (finalUrl1.contains("mooc1-api.chaoxing.com")) {
+                            "https://mooc1-api.chaoxing.com/mooc-ans"
+                        } else {
+                            "https://mooc1.chaoxing.com/mooc-ans"
+                        }
+                        hostBase + (if (subPath.startsWith("/")) subPath else "/$subPath")
+                    }
+                    val detailSubUrl = if (detailSubUrlRaw.contains("selectWorkQuestion") && !detailSubUrlRaw.contains("isReport=false")) {
+                        detailSubUrlRaw + (if (detailSubUrlRaw.contains("?")) "&isReport=false" else "?isReport=false")
+                    } else {
+                        detailSubUrlRaw
+                    }
+
+                    try {
+                        val req2 = Request.Builder()
+                            .url(detailSubUrl)
+                            .header("Cookie", cookies)
+                            .header("Referer", finalUrl1)
+                            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                            .get()
+                            .build()
+                        val resp2 = okHttpClient.newCall(req2).execute()
+                        val html2 = resp2.body?.string() ?: ""
+                        if (html2.isNotBlank()) {
+                            questionsHtml = html2
+                            // 若返回的内容仍是答题卡概览，检查是否有带 isReport=false 的终态题目链接
+                            if (!html2.contains("singleQuesId") && html2.contains("selectWorkQuestion")) {
+                                val secondMatch = Regex("""(?:href=['"]|url\s*=\s*['"])(/work/phone/selectWorkQuestion[^'"]+)""").find(html2)
+                                val secondSub = secondMatch?.groupValues?.get(1)?.trim().orEmpty()
+                                if (secondSub.isNotBlank()) {
+                                    val secondUrl = (if (secondSub.startsWith("http")) secondSub else {
+                                        val host = if (finalUrl1.contains("mooc1-api.chaoxing.com")) "https://mooc1-api.chaoxing.com/mooc-ans" else "https://mooc1.chaoxing.com/mooc-ans"
+                                        host + (if (secondSub.startsWith("/")) secondSub else "/$secondSub")
+                                    }).let {
+                                        if (it.contains("selectWorkQuestion") && !it.contains("isReport=false")) {
+                                            it + (if (it.contains("?")) "&isReport=false" else "?isReport=false")
+                                        } else it
+                                    }
+                                    try {
+                                        val req3 = Request.Builder()
+                                            .url(secondUrl)
+                                            .header("Cookie", cookies)
+                                            .header("Referer", detailSubUrl)
+                                            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                                            .get()
+                                            .build()
+                                        val resp3 = okHttpClient.newCall(req3).execute()
+                                        val html3 = resp3.body?.string() ?: ""
+                                        if (html3.contains("singleQuesId") || html3.contains("TiMu")) {
+                                            questionsHtml = html3
+                                        }
+                                    } catch (e3: Exception) {
+                                        Log.w(TAG, "Failed to fetch question detail level 3: ${e3.message}")
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to fetch question detail sub-url: ${e.message}")
+                    }
+                }
+            }
+
+            // 解析详细题目列表
+            val parsedQuestions = parseQuestionsFromHtml(questionsHtml)
+
+            // 提取批改得分
+            var score = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(questionsHtml)?.groupValues?.get(1)
+                ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(questionsHtml)?.groupValues?.get(1)
+                ?: Regex("""得分[:：]\s*(\d+(?:\.\d+)?)""").find(questionsHtml)?.groupValues?.get(1)
+                ?: work.score
+
+            // 汇总题目说明 (HTML 及纯文本)
+            val contentHtmlBuilder = StringBuilder()
+            val cleanContentBuilder = StringBuilder()
+            val teacherAttachments = mutableListOf<ChaoXingCourseAttachment>()
+            val studentAttachments = mutableListOf<ChaoXingCourseAttachment>()
+            val studentAnswerBuilder = StringBuilder()
+            val teacherCommentBuilder = StringBuilder()
+
+            for (q in parsedQuestions) {
+                // 题目与要求
+                if (contentHtmlBuilder.isNotEmpty()) {
+                    contentHtmlBuilder.append("<br/><br/>")
+                    cleanContentBuilder.append("\n\n")
+                }
+                val qHeader = "第${q.index}题 ${q.typeName} ${if (q.scoreText.isNotBlank()) "(${q.scoreText})" else ""}".trim()
+                contentHtmlBuilder.append("<b>").append(qHeader).append("</b><br/>")
+                contentHtmlBuilder.append(q.stemHtml)
+
+                cleanContentBuilder.append("【").append(qHeader).append("】\n")
+                cleanContentBuilder.append(q.cleanStem)
+
+                teacherAttachments.addAll(q.teacherAttachments)
+                studentAttachments.addAll(q.studentAttachments)
+
+                // 作答记录
+                if (q.cleanMyAnswer.isNotBlank() || q.studentAttachments.isNotEmpty()) {
+                    if (studentAnswerBuilder.isNotEmpty()) studentAnswerBuilder.append("\n\n")
+                    studentAnswerBuilder.append("【第${q.index}题 作答】：\n")
+                    if (q.cleanMyAnswer.isNotBlank()) {
+                        studentAnswerBuilder.append(q.cleanMyAnswer)
+                    }
+                    if (q.studentAttachments.isNotEmpty()) {
+                        studentAnswerBuilder.append(" (含附件: ")
+                            .append(q.studentAttachments.joinToString(", ") { it.name })
+                            .append(")")
+                    }
+                }
+
+                // 教师评语
+                if (q.teacherComment.isNotBlank()) {
+                    if (teacherCommentBuilder.isNotEmpty()) teacherCommentBuilder.append("\n")
+                    teacherCommentBuilder.append("第${q.index}题批语：").append(q.teacherComment)
+                }
+            }
+
+            // 全局教师评语备选提取
+            if (teacherCommentBuilder.isEmpty()) {
+                val globalComment = Regex("""class="(?:pingyu|remark|comment|grayDiv)"[^>]*>([^<]+)<""").find(questionsHtml)?.groupValues?.get(1)?.trim()
+                if (!globalComment.isNullOrBlank() && !globalComment.contains("function")) {
+                    teacherCommentBuilder.append(globalComment)
+                }
+            }
+
+            val finalStatus = when {
+                statusTextFromPage.isNotBlank() -> statusTextFromPage
+                work.statusText.isNotBlank() -> work.statusText
+                studentAnswerBuilder.isNotEmpty() || studentAttachments.isNotEmpty() -> "已提交"
+                else -> "未提交"
+            }
+
+            val isSub = finalStatus.contains("已交") || finalStatus.contains("已完成") || finalStatus.contains("批") ||
+                    studentAnswerBuilder.isNotEmpty() || studentAttachments.isNotEmpty()
+            val isGrd = score.isNotBlank() || finalStatus.contains("已批") || finalStatus.contains("已完成")
+
+            val detail = ChaoXingHomeworkDetail(
+                workId = work.workId,
+                title = work.title,
+                courseName = course?.courseName ?: work.courseName,
+                statusText = finalStatus,
+                deadline = work.deadline,
+                score = score,
+                questionsCountText = qCountText,
+                contentHtml = contentHtmlBuilder.toString(),
+                cleanContent = cleanContentBuilder.toString(),
+                teacherAttachments = teacherAttachments.distinctBy { it.objectId },
+                myAnswerHtml = studentAnswerBuilder.toString(),
+                cleanMyAnswer = studentAnswerBuilder.toString(),
+                studentAttachments = studentAttachments.distinctBy { it.objectId },
+                teacherComment = teacherCommentBuilder.toString(),
+                isSubmitted = isSub,
+                isGraded = isGrd,
+                taskUrl = finalUrl1,
+                rawQuestions = parsedQuestions
+            )
+
+            // 存入本地二级缓存
+            cacheMgr.saveChaoXingHomeworkDetail(work.workId, detail)
+            Log.i(TAG, "Successfully fetched and cached ChaoXing homework detail: ${work.title} (${parsedQuestions.size} questions)")
+            Result.success(detail)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchHomeworkDetail error", e)
+            if (cached != null) {
+                Log.w(TAG, "Returning cached ChaoXingHomeworkDetail on failure")
+                Result.success(cached)
+            } else {
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * 解析答卷或做题页面 HTML 中的全部题目结构
+     */
+    fun parseQuestionsFromHtml(html: String): List<ChaoXingQuestionItem> =
+        Companion.parseQuestionsFromHtml(html)
 }

@@ -36,7 +36,14 @@ import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
 import cn.edu.usst.jwgl.data.model.TronClassActivityItem
 import cn.edu.usst.jwgl.data.model.TronClassSubmission
 import cn.edu.usst.jwgl.data.model.TronClassUpload
+import cn.edu.usst.jwgl.data.model.ChaoXingWork
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
+import cn.edu.usst.jwgl.data.model.ChaoXingHomeworkDetail
+import cn.edu.usst.jwgl.data.model.ChaoXingCourseAttachment
 import cn.edu.usst.jwgl.data.network.TronClassClient
+import cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient
+import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.ui.JwglWebActivity
 import cn.edu.usst.jwgl.databinding.ActivityTronclassHomeworkBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassAttachmentBinding
 import cn.edu.usst.jwgl.ui.MainActivity
@@ -57,6 +64,12 @@ class TronClassHomeworkFragment : Fragment() {
     private val binding get() = _binding!!
     private lateinit var client: TronClassClient
     private lateinit var cacheManager: TronClassCacheManager
+    private lateinit var chaoXingDetailClient: ChaoXingCourseDetailClient
+
+    private var platform: String = "TRONCLASS"
+    private var chaoXingWork: ChaoXingWork? = null
+    private var chaoXingCourse: ChaoXingCourse? = null
+    private var chaoXingHomeworkDetail: ChaoXingHomeworkDetail? = null
 
     private var activityId: Long = 0L
     private var courseId: Long = 0L
@@ -139,14 +152,30 @@ class TronClassHomeworkFragment : Fragment() {
         private const val ARG_COURSE_ID = "arg_course_id"
         private const val ARG_TITLE = "arg_title"
         private const val ARG_COURSE_NAME = "arg_course_name"
+        private const val ARG_PLATFORM = "arg_platform"
+        private const val ARG_CHAOXING_WORK = "arg_chaoxing_work"
+        private const val ARG_CHAOXING_COURSE = "arg_chaoxing_course"
 
         fun newInstance(activityId: Long, courseId: Long, title: String, courseName: String): TronClassHomeworkFragment {
             return TronClassHomeworkFragment().apply {
                 arguments = Bundle().apply {
+                    putString(ARG_PLATFORM, "TRONCLASS")
                     putLong(ARG_ACTIVITY_ID, activityId)
                     putLong(ARG_COURSE_ID, courseId)
                     putString(ARG_TITLE, title)
                     putString(ARG_COURSE_NAME, courseName)
+                }
+            }
+        }
+
+        fun newInstanceForChaoXing(work: ChaoXingWork, course: ChaoXingCourse? = null): TronClassHomeworkFragment {
+            return TronClassHomeworkFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_PLATFORM, "CHAOXING")
+                    putSerializable(ARG_CHAOXING_WORK, work)
+                    course?.let { putSerializable(ARG_CHAOXING_COURSE, it) }
+                    putString(ARG_TITLE, work.title)
+                    putString(ARG_COURSE_NAME, course?.courseName ?: work.courseName)
                 }
             }
         }
@@ -155,10 +184,23 @@ class TronClassHomeworkFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val args = arguments ?: return
+        platform = args.getString(ARG_PLATFORM, "TRONCLASS")
         activityId = args.getLong(ARG_ACTIVITY_ID, 0L)
         courseId = args.getLong(ARG_COURSE_ID, 0L)
         titleText = args.getString(ARG_TITLE) ?: "作业详情"
         courseNameText = args.getString(ARG_COURSE_NAME) ?: ""
+        chaoXingWork = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            args.getSerializable(ARG_CHAOXING_WORK, ChaoXingWork::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            args.getSerializable(ARG_CHAOXING_WORK) as? ChaoXingWork
+        }
+        chaoXingCourse = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            args.getSerializable(ARG_CHAOXING_COURSE, ChaoXingCourse::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse
+        }
     }
 
     override fun onCreateView(
@@ -176,6 +218,7 @@ class TronClassHomeworkFragment : Fragment() {
         val context = requireContext()
         client = TronClassClient(context)
         cacheManager = TronClassCacheManager(context)
+        chaoXingDetailClient = ChaoXingCourseDetailClient(context)
 
         val density = resources.displayMetrics.density
         val mainAct = activity as? MainActivity
@@ -344,6 +387,51 @@ class TronClassHomeworkFragment : Fragment() {
         binding.tvHomeworkTitle.text = titleText
         binding.tvCourseName.text = courseNameText
 
+        if (platform == "CHAOXING") {
+            setupChaoXingViews()
+        } else {
+            setupTronClassViews()
+        }
+    }
+
+    private fun setupChaoXingViews() {
+        // 首帧 0ms 瞬间显示已知元数据
+        renderChaoXingBasicUi(chaoXingWork)
+
+        // 隐藏一网畅学特有的文件选择/拍照/输入框等提交表单，转换为超星移动端作答控制面板
+        binding.tilSubmissionComment.visibility = View.GONE
+        binding.llPendingFiles.visibility = View.GONE
+        binding.llUploadProgress.visibility = View.GONE
+        binding.btnAddAttachment.visibility = View.GONE
+        binding.btnCameraSubmit.visibility = View.GONE
+        binding.btnToggleResubmit.visibility = View.GONE
+
+        binding.tvSubmitHeader.text = "超星移动端作答通道"
+        val isGradedOrSubmitted = chaoXingWork?.score?.isNotBlank() == true ||
+                chaoXingWork?.statusText?.contains("已批") == true ||
+                chaoXingWork?.statusText?.contains("已完成") == true ||
+                chaoXingWork?.statusText?.contains("已交") == true
+
+        binding.btnSubmitHomework.text = if (isGradedOrSubmitted) "在超星中查看完整答卷排版" else "前往超星学习通在线作答"
+        binding.btnSubmitHomework.setOnClickListener {
+            openChaoXingOnlinePortal()
+        }
+    }
+
+    private fun openChaoXingOnlinePortal() {
+        val cx = chaoXingWork ?: return
+        val targetUrl = chaoXingHomeworkDetail?.taskUrl?.ifBlank { cx.taskUrl } ?: cx.taskUrl
+        ChaoXingNavigator.openHomework(
+            context = requireContext(),
+            courseId = chaoXingCourse?.courseId ?: "",
+            classId = chaoXingCourse?.classId,
+            workId = cx.workId,
+            title = cx.title,
+            detailUrl = targetUrl
+        )
+    }
+
+    private fun setupTronClassViews() {
         binding.btnAddAttachment.setOnClickListener {
             filePickerLauncher.launch("*/*")
         }
@@ -356,6 +444,7 @@ class TronClassHomeworkFragment : Fragment() {
             performHomeworkSubmission()
         }
 
+        val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
         binding.btnToggleResubmit.setOnClickListener {
             isResubmitMode = !isResubmitMode
             binding.cardSubmitAction.visibility = if (isResubmitMode) View.VISIBLE else View.GONE
@@ -393,6 +482,46 @@ class TronClassHomeworkFragment : Fragment() {
     }
 
     private fun loadData(forceRefresh: Boolean) {
+        if (platform == "CHAOXING") {
+            loadChaoXingData(forceRefresh)
+        } else {
+            loadTronClassData(forceRefresh)
+        }
+    }
+
+    private fun loadChaoXingData(forceRefresh: Boolean) {
+        val cx = chaoXingWork ?: return
+        val cacheMgr = TronClassDataCacheManager.getInstance(requireContext())
+
+        // 1. 本地缓存秒级直出 (0ms 离线可用)
+        if (!forceRefresh) {
+            val cached = cacheMgr.getCachedChaoXingHomeworkDetail(cx.workId)
+            if (cached != null) {
+                chaoXingHomeworkDetail = cached
+                renderChaoXingDetailUi(cached)
+            }
+        }
+
+        _binding?.swipeRefresh?.isRefreshing = true
+        viewLifecycleOwner.lifecycleScope.launch {
+            val res = chaoXingDetailClient.fetchHomeworkDetail(cx, chaoXingCourse)
+            _binding?.swipeRefresh?.isRefreshing = false
+
+            if (res.isSuccess) {
+                val detail = res.getOrNull()
+                if (detail != null) {
+                    chaoXingHomeworkDetail = detail
+                    renderChaoXingDetailUi(detail)
+                }
+            } else {
+                if (chaoXingHomeworkDetail == null) {
+                    binding.tvRequirementDesc.text = "（题目说明拉取超时或网络波动，可点击底部按钮直接在超星作答界面查看）"
+                }
+            }
+        }
+    }
+
+    private fun loadTronClassData(forceRefresh: Boolean) {
         _binding?.swipeRefresh?.isRefreshing = true
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -595,6 +724,259 @@ class TronClassHomeworkFragment : Fragment() {
                 submitParams?.topMargin = 0
             }
             binding.cardSubmitAction.layoutParams = submitParams
+        }
+    }
+
+    private fun renderChaoXingBasicUi(work: ChaoXingWork?) {
+        if (work == null || _binding == null) return
+        val context = context ?: return
+        binding.tvHomeworkTitle.text = work.title
+        binding.tvCourseName.text = work.courseName.ifBlank { courseNameText }
+
+        if (work.deadline.isNotBlank()) {
+            val ddlMs = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(work.deadline)
+            val remainStr = if (ddlMs != null) {
+                val diff = ddlMs - System.currentTimeMillis()
+                if (diff <= 0) "已截止" else {
+                    val days = diff / (1000 * 60 * 60 * 24)
+                    val hours = (diff / (1000 * 60 * 60)) % 24
+                    if (days > 0) "剩 $days 天 $hours 小时" else "剩 $hours 小时"
+                }
+            } else if (work.expired) "已截止" else ""
+            binding.tvDeadline.text = "截止时间：${work.deadline} ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
+        } else {
+            binding.tvDeadline.text = "截止时间：未设定"
+        }
+
+        binding.tvScoreWeight.text = "平台来源：超星学习通 · 原生移动端详情"
+
+        when {
+            work.score.isNotBlank() -> {
+                binding.tvStatusBadge.text = "已批改 · ${work.score}分"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            work.statusText.contains("已完成") || work.statusText.contains("已批") -> {
+                binding.tvStatusBadge.text = "已批阅"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            work.statusText.contains("已交") || work.statusText.contains("待批") || work.statusText.contains("待评") -> {
+                binding.tvStatusBadge.text = "已提交 · 待批阅"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            else -> {
+                val st = work.statusText.ifBlank { "未提交" }
+                binding.tvStatusBadge.text = st
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.surface_variant)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            }
+        }
+    }
+
+    private fun renderChaoXingDetailUi(detail: ChaoXingHomeworkDetail) {
+        if (_binding == null) return
+        val context = context ?: return
+
+        // 1. Meta / Hero
+        binding.tvHomeworkTitle.text = detail.title
+        binding.tvCourseName.text = detail.courseName.ifBlank { courseNameText }
+        if (detail.deadline.isNotBlank()) {
+            binding.tvDeadline.text = "截止时间：" + detail.deadline
+        }
+        if (detail.questionsCountText.isNotBlank()) {
+            binding.tvScoreWeight.text = "题目概况：${detail.questionsCountText} · 来源：超星学习通"
+        }
+
+        // Status Badge
+        when {
+            detail.score.isNotBlank() -> {
+                binding.tvStatusBadge.text = "已批改 · ${detail.score}分"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            detail.isGraded -> {
+                binding.tvStatusBadge.text = "已批阅"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            detail.isSubmitted -> {
+                binding.tvStatusBadge.text = "已提交 · 待批阅"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            else -> {
+                binding.tvStatusBadge.text = detail.statusText.ifBlank { "未提交" }
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.surface_variant)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            }
+        }
+
+        // 2. Requirement Description & Attachments
+        val rawHtml = detail.contentHtml.ifBlank { detail.cleanContent }
+        if (rawHtml.isNotBlank()) {
+            val cleanedDesc = TronClassHtmlHelper.cleanHtmlForDarkTheme(rawHtml)
+            val descSpanned = HtmlCompat.fromHtml(cleanedDesc, HtmlCompat.FROM_HTML_MODE_LEGACY)
+            binding.tvRequirementDesc.text = if (descSpanned.isNotBlank()) descSpanned.trim() else detail.cleanContent
+        } else {
+            binding.tvRequirementDesc.text = "教师未提供文字说明"
+        }
+
+        // Images in requirement
+        val imageUrls = TronClassHtmlHelper.extractImageUrls(rawHtml)
+        binding.llRequirementImages.removeAllViews()
+        if (imageUrls.isNotEmpty()) {
+            binding.llRequirementImages.visibility = View.VISIBLE
+            for (imgUrl in imageUrls) {
+                val iv = createRequirementImageView(imgUrl)
+                binding.llRequirementImages.addView(iv)
+            }
+        } else {
+            binding.llRequirementImages.visibility = View.GONE
+        }
+
+        // Teacher Attachments
+        binding.llTeacherAttachments.removeAllViews()
+        if (detail.teacherAttachments.isNotEmpty()) {
+            binding.tvTeacherAttachmentsHeader.visibility = View.VISIBLE
+            for (att in detail.teacherAttachments) {
+                binding.llTeacherAttachments.addView(createChaoXingAttachmentItemView(att))
+            }
+        } else {
+            binding.tvTeacherAttachmentsHeader.visibility = View.GONE
+        }
+
+        // 3. Feedback Card
+        if (detail.isGraded || detail.score.isNotBlank() || detail.teacherComment.isNotBlank()) {
+            binding.cardFeedback.visibility = View.VISIBLE
+            binding.tvTeacherScore.text = if (detail.score.isNotBlank()) "${detail.score} 分" else "已批阅"
+            binding.tvTeacherComment.text = if (detail.teacherComment.isNotBlank()) {
+                "教师评语：${detail.teacherComment}"
+            } else {
+                "教师未留下文字评语"
+            }
+        } else {
+            binding.cardFeedback.visibility = View.GONE
+        }
+
+        // 4. Submission Record Card
+        if (detail.isSubmitted || detail.cleanMyAnswer.isNotBlank() || detail.studentAttachments.isNotEmpty()) {
+            binding.cardSubmissionRecord.visibility = View.VISIBLE
+            binding.tvSubmittedAt.text = "状态: " + detail.statusText
+            if (detail.cleanMyAnswer.isNotBlank()) {
+                binding.tvStudentComment.text = detail.cleanMyAnswer
+                binding.tvStudentComment.visibility = View.VISIBLE
+            } else {
+                binding.tvStudentComment.visibility = View.GONE
+            }
+
+            binding.llStudentUploads.removeAllViews()
+            if (detail.studentAttachments.isNotEmpty()) {
+                for (att in detail.studentAttachments) {
+                    binding.llStudentUploads.addView(createChaoXingAttachmentItemView(att))
+                }
+            } else {
+                val emptyTv = TextView(context).apply {
+                    text = "（答卷已提交至超星系统）"
+                    textSize = 12.5f
+                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                }
+                binding.llStudentUploads.addView(emptyTv)
+            }
+            binding.btnToggleResubmit.visibility = View.GONE
+        } else {
+            binding.cardSubmissionRecord.visibility = View.GONE
+        }
+
+        // 5. Action card
+        binding.cardSubmitAction.visibility = View.VISIBLE
+        binding.btnSubmitHomework.text = if (detail.isSubmitted) "在超星中查看完整答卷与排版" else "前往超星学习通在线作答"
+        binding.btnSubmitHomework.setOnClickListener {
+            val cx = chaoXingWork ?: return@setOnClickListener
+            ChaoXingNavigator.openHomework(
+                context = requireContext(),
+                courseId = chaoXingCourse?.courseId ?: "",
+                classId = chaoXingCourse?.classId,
+                workId = detail.workId,
+                title = detail.title,
+                detailUrl = detail.taskUrl.ifBlank { cx.taskUrl }
+            )
+        }
+    }
+
+    private fun createChaoXingAttachmentItemView(attachment: ChaoXingCourseAttachment): View {
+        val itemBinding = ItemTronclassAttachmentBinding.inflate(layoutInflater, null, false)
+        itemBinding.tvFileName.text = attachment.name
+        val sizeStr = attachment.getFormattedSize()
+        itemBinding.tvFileSize.text = if (sizeStr.isNotBlank()) "$sizeStr · 超星附件" else "超星附件"
+        itemBinding.btnFileAction.text = "查看/下载"
+        itemBinding.btnFileRemove.visibility = View.GONE
+
+        itemBinding.btnFileAction.setOnClickListener {
+            handleChaoXingAttachmentAction(attachment)
+        }
+        itemBinding.root.setOnClickListener {
+            handleChaoXingAttachmentAction(attachment)
+        }
+        return itemBinding.root
+    }
+
+    private fun handleChaoXingAttachmentAction(attachment: ChaoXingCourseAttachment) {
+        val ctx = context ?: return
+        @Suppress("DEPRECATION")
+        val progress = ProgressDialog(ctx).apply {
+            setMessage("正在解析「${attachment.name}」...")
+            setCancelable(false)
+            show()
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val res = chaoXingDetailClient.fetchYunFile(attachment.objectId)
+            progress.dismiss()
+            if (res.isSuccess) {
+                val yun = res.getOrNull()
+                val lowerName = attachment.name.lowercase(Locale.ROOT)
+                val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
+
+                if (isVideo) {
+                    val stream = yun?.streamUrl ?: ""
+                    if (stream.isNotBlank()) {
+                        TronClassVideoPlayerActivity.start(
+                            context = ctx,
+                            title = attachment.name,
+                            courseName = courseNameText,
+                            videoUrl = stream
+                        )
+                    } else {
+                        Toast.makeText(ctx, "该视频暂无可播放流地址", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    val pdfUrl = yun?.pdfUrl ?: ""
+                    val downloadUrl = yun?.downloadUrl ?: ""
+                    val targetUrl = pdfUrl.ifBlank { downloadUrl }
+
+                    if (targetUrl.isNotBlank()) {
+                        MaterialAlertDialogBuilder(ctx)
+                            .setTitle(attachment.name)
+                            .setMessage("附件大小：${attachment.getFormattedSize()}\n\n该文件已成功转换为移动端格式，可选择在线预览或复制下载链接。")
+                            .setPositiveButton("在线预览") { _, _ ->
+                                JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                            }
+                            .setNeutralButton("复制下载链接") { _, _ ->
+                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                cm?.setPrimaryClip(ClipData.newPlainText("下载链接", targetUrl))
+                                Toast.makeText(ctx, "下载直链已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    } else {
+                        Toast.makeText(ctx, "该附件暂无可下载直链", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else {
+                Toast.makeText(ctx, "解析附件失败，请稍后重试", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

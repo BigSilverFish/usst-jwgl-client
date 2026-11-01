@@ -292,4 +292,87 @@ class ChaoXingCourseDetailClientTest {
         assertEquals("实验：servlet开发", works[1].title)
         assertEquals("已交", works[1].statusText)
     }
+
+    @Test
+    fun testParseQuestionsFromHtml() {
+        val html = """
+            <div class="wid750">
+                <div class="singleQuesId" id="q_1">
+                    <div class="padlr30 whiteBg">
+                        <div class="stemDiv">
+                            1.<span class="stemGray">(简答题，50分)</span>
+                            <div class="Picdiv workTextWrap qtContent">
+                                <p>基于本节课所学知识与要求，实现一个基于Java Servlet的登录验证系统。</p>
+                            </div>
+                        </div>
+                        <span role="option">
+                            <p class="Color888 line30">我的答案</p>
+                            <div class="optionDiv workTextWrap stuAnswerContent" id="qb215283943">
+                                <p>已完成核心Servlet代码并打包附件。</p>
+                                <div class="editor-iframe">
+                                    <iframe class="attach-iframe" filename="servlet-captcha-login.zip" filesize="8.49K" objectid="947babc1412b9ce532df444860018bab"></iframe>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                    <div class="grayDiv">教师批语：代码逻辑清晰，注解规范，通过测试。</div>
+                </div>
+                <div class="singleQuesId" id="q_2">
+                    <div class="padlr30 whiteBg">
+                        <div class="stemDiv">
+                            2.<span class="stemGray">(简答题，50分)</span>
+                            <div class="Picdiv workTextWrap qtContent">
+                                <p>编写Java Servlet插播视频广告系统。</p>
+                            </div>
+                        </div>
+                        <span role="option">
+                            <p class="Color888 line30">我的答案</p>
+                            <div class="optionDiv workTextWrap stuAnswerContent" id="qb215283944">
+                                <p>已完成实验。</p>
+                                <div class="editor-iframe">
+                                    <iframe class="attach-iframe" filename="video_ad_system.zip" filesize="131.88K" objectid="9eb3f4c14170345a85d56a45f22b69e4"></iframe>
+                                </div>
+                            </div>
+                        </span>
+                    </div>
+                    <div class="grayDiv">教师批语：功能完善，运行顺畅。</div>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val questions = ChaoXingCourseDetailClient.parseQuestionsFromHtml(html)
+        assertEquals(2, questions.size)
+
+        val q1 = questions[0]
+        assertEquals(1, q1.index)
+        assertTrue(q1.typeName.contains("简答题"))
+        assertEquals("50 分", q1.scoreText)
+        assertTrue(q1.cleanStem.contains("登录验证系统"))
+        assertTrue(q1.cleanMyAnswer.contains("核心Servlet代码"))
+        assertEquals(1, q1.studentAttachments.size)
+        assertEquals("servlet-captcha-login.zip", q1.studentAttachments[0].name)
+        assertEquals("947babc1412b9ce532df444860018bab", q1.studentAttachments[0].objectId)
+        assertEquals((8.49 * 1024).toLong(), q1.studentAttachments[0].size)
+        assertTrue(q1.teacherComment.contains("代码逻辑清晰"))
+
+        val q2 = questions[1]
+        assertEquals(2, q2.index)
+        assertTrue(q2.typeName.contains("简答题"))
+        assertEquals("50 分", q2.scoreText)
+        assertTrue(q2.cleanStem.contains("插播视频广告系统"))
+        assertEquals(1, q2.studentAttachments.size)
+        assertEquals("video_ad_system.zip", q2.studentAttachments[0].name)
+        assertEquals("9eb3f4c14170345a85d56a45f22b69e4", q2.studentAttachments[0].objectId)
+        assertTrue(q2.teacherComment.contains("功能完善"))
+    }
+
+    @Test
+    fun testParseSizeStrToBytes() {
+        assertEquals(1024L, ChaoXingCourseDetailClient.parseSizeStrToBytes("1K"))
+        assertEquals(2048L, ChaoXingCourseDetailClient.parseSizeStrToBytes("2KB"))
+        assertEquals(1048576L, ChaoXingCourseDetailClient.parseSizeStrToBytes("1MB"))
+        assertEquals(5242880L, ChaoXingCourseDetailClient.parseSizeStrToBytes("5M"))
+        assertEquals(100L, ChaoXingCourseDetailClient.parseSizeStrToBytes("100B"))
+        assertEquals(0L, ChaoXingCourseDetailClient.parseSizeStrToBytes(""))
+    }
 }
