@@ -37,24 +37,38 @@ class LoginActivity : AppCompatActivity() {
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
 
+        authPrefs = AuthPreferences(this)
+        cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(this)
+
+        val savedId = authPrefs.getStudentId()
+        val isAutoEnabled = authPrefs.isAutoLoginEnabled()
+        val isFromLogout = intent.getBooleanExtra(EXTRA_FROM_LOGOUT, false)
+        val hasAgreed = authPrefs.hasAgreedDisclaimer()
+
+        // 极速冷启动快道：若用户已登录且有本地缓存档案，直接跳转 MainActivity，跳过登录页 XML 解析与视图渲染
+        if (hasAgreed && isAutoEnabled && savedId.isNotEmpty() && !isFromLogout) {
+            val cachedProfile = cacheManager.getProfile()
+            if (cachedProfile != null) {
+                val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
+                    putExtra(MainActivity.EXTRA_PROFILE, cachedProfile)
+                }
+                startActivity(intent)
+                overridePendingTransition(0, 0)
+                finish()
+                return
+            }
+        }
+
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         // Immediately initialize RemoteConfigManager with cached preferences
         RemoteConfigManager.init(this)
 
-        authPrefs = AuthPreferences(this)
-        cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(this)
-
         // Immediately fetch latest cloud configuration and show update dialog if available
         checkRemoteConfigAndUpdate()
 
-        // 异步预热全校课表本地缓存至内存（避免免登录查询全校课表或空教室时等待）
-        lifecycleScope.launch(Dispatchers.IO) {
-            cn.edu.usst.jwgl.data.network.LappClient.getFullSchoolScheduleCached(this@LoginActivity, "2026-2027", "1")
-        }
-
-        if (!authPrefs.hasAgreedDisclaimer()) {
+        if (!hasAgreed) {
             showDisclaimerDialog {
                 setupPrefillAndAutoLogin()
             }
