@@ -167,16 +167,7 @@ class ScheduleWeekFragment : Fragment() {
             emptyList()
         }
 
-        val isTabletLand = cn.edu.usst.jwgl.util.TabletLayoutHelper.isTabletLandscape(context)
-        val itemHeightPx = if (isTabletLand && table.itemHeight == 56) {
-            val topPad = cn.edu.usst.jwgl.ui.MainActivity.topBarHeightPx.takeIf { it > 0 } ?: dpToPx(110f)
-            val botPad = dpToPx(24f)
-            val availH = resources.displayMetrics.heightPixels - topPad - botPad
-            val calcH = (availH / table.nodes.coerceAtLeast(13)) - dpToPx(2f)
-            calcH.coerceIn(dpToPx(42f), dpToPx(54f))
-        } else {
-            dpToPx(table.itemHeight.toFloat())
-        }
+        val itemHeightPx = dpToPx(table.itemHeight.toFloat())
         val examSessionHeightPx = dpToPx(105f)
         val marTopPx = dpToPx(2f)
 
