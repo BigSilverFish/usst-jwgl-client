@@ -83,7 +83,8 @@ class TronClassHomeworkFragment : Fragment() {
         val file: File,
         val displayName: String,
         val size: Long,
-        var uploadResult: TronClassUpload? = null
+        var uploadResult: TronClassUpload? = null,
+        var chaoXingUploadResult: ChaoXingCourseAttachment? = null
     )
 
     private val pendingLocalFiles = mutableListOf<LocalPendingFile>()
@@ -361,6 +362,17 @@ class TronClassHomeworkFragment : Fragment() {
             Toast.makeText(requireContext(), "已复制作业题目与要求至剪贴板", Toast.LENGTH_SHORT).show()
         }
 
+        binding.btnWebPortal.setOnClickListener {
+            if (platform == "CHAOXING") {
+                openChaoXingOnlinePortal()
+            } else {
+                val actId = activityId
+                val cId = courseId
+                val url = "https://tronclass.usst.edu.cn/course/$cId/learning-activity#/$actId"
+                JwglWebActivity.start(requireContext(), url, titleText.ifBlank { "一网畅学作业" })
+            }
+        }
+
         val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
         if (isPad) {
             binding.llHomeworkColumns.orientation = LinearLayout.HORIZONTAL
@@ -398,23 +410,50 @@ class TronClassHomeworkFragment : Fragment() {
         // 首帧 0ms 瞬间显示已知元数据
         renderChaoXingBasicUi(chaoXingWork)
 
-        // 隐藏一网畅学特有的文件选择/拍照/输入框等提交表单，转换为超星移动端作答控制面板
-        binding.tilSubmissionComment.visibility = View.GONE
-        binding.llPendingFiles.visibility = View.GONE
-        binding.llUploadProgress.visibility = View.GONE
-        binding.btnAddAttachment.visibility = View.GONE
-        binding.btnCameraSubmit.visibility = View.GONE
-        binding.btnToggleResubmit.visibility = View.GONE
+        binding.btnAddAttachment.setOnClickListener {
+            filePickerLauncher.launch("*/*")
+        }
 
-        binding.tvSubmitHeader.text = "超星移动端作答通道"
-        val isGradedOrSubmitted = chaoXingWork?.score?.isNotBlank() == true ||
-                chaoXingWork?.statusText?.contains("已批") == true ||
-                chaoXingWork?.statusText?.contains("已完成") == true ||
-                chaoXingWork?.statusText?.contains("已交") == true
+        binding.btnCameraSubmit.setOnClickListener {
+            takePhoto()
+        }
 
-        binding.btnSubmitHomework.text = if (isGradedOrSubmitted) "在超星中查看完整答卷排版" else "前往超星学习通在线作答"
         binding.btnSubmitHomework.setOnClickListener {
-            openChaoXingOnlinePortal()
+            performChaoXingSubmission()
+        }
+
+        binding.tilSubmissionComment.hint = "请输入作答说明、实验结论或文字解答..."
+
+        val isPad = TabletLayoutHelper.isTabletLandscape(requireContext())
+        binding.btnToggleResubmit.setOnClickListener {
+            isResubmitMode = !isResubmitMode
+            binding.cardSubmitAction.visibility = if (isResubmitMode) View.VISIBLE else View.GONE
+            binding.btnToggleResubmit.text = if (isResubmitMode) "收起重新提交面板" else "重新提交 / 补充附件"
+
+            if (isPad) {
+                val submitParams = binding.cardSubmitAction.layoutParams as? ViewGroup.MarginLayoutParams
+                if (binding.cardSubmissionRecord.visibility == View.VISIBLE) {
+                    submitParams?.topMargin = TabletLayoutHelper.dpToPx(requireContext(), 14f)
+                } else {
+                    submitParams?.topMargin = 0
+                }
+                binding.cardSubmitAction.layoutParams = submitParams
+            }
+
+            if (isResubmitMode) {
+                if (binding.etSubmissionComment.text.isNullOrBlank()) {
+                    val prevComment = chaoXingHomeworkDetail?.cleanMyAnswer?.trim()
+                    if (!prevComment.isNullOrBlank()) {
+                        binding.etSubmissionComment.setText(prevComment)
+                        binding.etSubmissionComment.setSelection(prevComment.length)
+                    }
+                }
+                binding.scrollView.postDelayed({
+                    val b = _binding ?: return@postDelayed
+                    b.scrollView.smoothScrollTo(0, b.llHomeworkRootContainer.bottom)
+                    b.etSubmissionComment.requestFocus()
+                }, 100)
+            }
         }
     }
 
@@ -884,24 +923,35 @@ class TronClassHomeworkFragment : Fragment() {
                 }
                 binding.llStudentUploads.addView(emptyTv)
             }
-            binding.btnToggleResubmit.visibility = View.GONE
+            binding.btnToggleResubmit.visibility = View.VISIBLE
+            binding.cardSubmitAction.visibility = if (isResubmitMode) View.VISIBLE else View.GONE
+            binding.tvSubmitHeader.text = "重新提交作业"
+            binding.btnSubmitHomework.text = "重新提交至超星"
         } else {
             binding.cardSubmissionRecord.visibility = View.GONE
+            binding.btnToggleResubmit.visibility = View.GONE
+            binding.cardSubmitAction.visibility = View.VISIBLE
+            binding.tvSubmitHeader.text = "提交作业与附件"
+            binding.btnSubmitHomework.text = "确认提交至超星"
         }
 
-        // 5. Action card
-        binding.cardSubmitAction.visibility = View.VISIBLE
-        binding.btnSubmitHomework.text = if (detail.isSubmitted) "在超星中查看完整答卷与排版" else "前往超星学习通在线作答"
         binding.btnSubmitHomework.setOnClickListener {
-            val cx = chaoXingWork ?: return@setOnClickListener
-            ChaoXingNavigator.openHomework(
-                context = requireContext(),
-                courseId = chaoXingCourse?.courseId ?: "",
-                classId = chaoXingCourse?.classId,
-                workId = detail.workId,
-                title = detail.title,
-                detailUrl = detail.taskUrl.ifBlank { cx.taskUrl }
-            )
+            performChaoXingSubmission()
+        }
+
+        val isPad = TabletLayoutHelper.isTabletLandscape(context)
+        if (isPad) {
+            val subParams = binding.cardSubmissionRecord.layoutParams as? ViewGroup.MarginLayoutParams
+            subParams?.topMargin = 0
+            binding.cardSubmissionRecord.layoutParams = subParams
+
+            val submitParams = binding.cardSubmitAction.layoutParams as? ViewGroup.MarginLayoutParams
+            if (binding.cardSubmissionRecord.visibility == View.VISIBLE) {
+                submitParams?.topMargin = TabletLayoutHelper.dpToPx(context, 14f)
+            } else {
+                submitParams?.topMargin = 0
+            }
+            binding.cardSubmitAction.layoutParams = submitParams
         }
     }
 
@@ -1235,6 +1285,135 @@ class TronClassHomeworkFragment : Fragment() {
                     .setTitle("作业提交未完成")
                     .setMessage(err)
                     .setPositiveButton("确定", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun performChaoXingSubmission() {
+        val context = context ?: return
+        val rawComment = binding.etSubmissionComment.text?.toString()?.trim() ?: ""
+
+        if (pendingLocalFiles.isEmpty() && rawComment.isBlank()) {
+            Toast.makeText(context, "请选择至少一个附件文件或输入作答说明", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val actionDesc = if (isResubmitMode) "重新作答" else "作答与附件"
+        MaterialAlertDialogBuilder(context)
+            .setTitle("确认提交至超星学习通？")
+            .setMessage("即将将您的${actionDesc}（包含 ${pendingLocalFiles.size} 个待传附件）同步至超星系统。请选择操作：")
+            .setPositiveButton("立即正式提交") { _, _ ->
+                executeChaoXingUploadAndSubmit(rawComment, isSubmit = true)
+            }
+            .setNeutralButton("暂存草稿") { _, _ ->
+                executeChaoXingUploadAndSubmit(rawComment, isSubmit = false)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun executeChaoXingUploadAndSubmit(comment: String, isSubmit: Boolean) {
+        val context = context ?: return
+        val cx = chaoXingWork ?: return
+
+        binding.llUploadProgress.visibility = View.VISIBLE
+        binding.btnSubmitHomework.isEnabled = false
+        binding.btnAddAttachment.isEnabled = false
+        binding.btnCameraSubmit.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val uploadedList = mutableListOf<ChaoXingCourseAttachment>()
+
+            // 1. 上传各待提交文件至超星云盘
+            for ((idx, pf) in pendingLocalFiles.withIndex()) {
+                val existingUp = pf.chaoXingUploadResult
+                if (existingUp != null) {
+                    uploadedList.add(existingUp)
+                    continue
+                }
+
+                val b1 = _binding ?: return@launch
+                b1.tvUploadStatusText.text = "正在上传超星云盘 (${idx + 1}/${pendingLocalFiles.size}): ${pf.displayName}"
+                b1.progressBarUpload.progress = 0
+                b1.tvUploadProgressPercent.text = "0%"
+
+                val upRes = chaoXingDetailClient.uploadAttachmentToPan(pf.file, pf.displayName) { percent ->
+                    activity?.runOnUiThread {
+                        val pb = _binding ?: return@runOnUiThread
+                        pb.progressBarUpload.progress = percent
+                        pb.tvUploadProgressPercent.text = "$percent%"
+                    }
+                }
+
+                val b2 = _binding ?: return@launch
+                if (upRes.isSuccess) {
+                    val attItem = upRes.getOrNull() ?: run {
+                        b2.llUploadProgress.visibility = View.GONE
+                        b2.btnSubmitHomework.isEnabled = true
+                        b2.btnAddAttachment.isEnabled = true
+                        b2.btnCameraSubmit.isEnabled = true
+                        return@launch
+                    }
+                    pf.chaoXingUploadResult = attItem
+                    uploadedList.add(attItem)
+                } else {
+                    b2.llUploadProgress.visibility = View.GONE
+                    b2.btnSubmitHomework.isEnabled = true
+                    b2.btnAddAttachment.isEnabled = true
+                    b2.btnCameraSubmit.isEnabled = true
+
+                    val err = upRes.exceptionOrNull()?.message ?: "超星云盘上传失败"
+                    MaterialAlertDialogBuilder(context)
+                        .setTitle("附件上传失败")
+                        .setMessage("文件 ${pf.displayName} 上传至超星云盘未成功：\n$err")
+                        .setPositiveButton("重试", null)
+                        .show()
+                    return@launch
+                }
+            }
+
+            // 2. 提交作业及作答数据
+            val b3 = _binding ?: return@launch
+            b3.tvUploadStatusText.text = if (isSubmit) "正在提交作业数据至超星..." else "正在暂存作业草稿至超星..."
+
+            val submitRes = chaoXingDetailClient.submitHomework(
+                work = cx,
+                course = chaoXingCourse,
+                comment = comment,
+                attachments = uploadedList,
+                isSubmit = isSubmit
+            )
+
+            val b4 = _binding ?: return@launch
+            b4.llUploadProgress.visibility = View.GONE
+            b4.btnSubmitHomework.isEnabled = true
+            b4.btnAddAttachment.isEnabled = true
+            b4.btnCameraSubmit.isEnabled = true
+
+            if (submitRes.isSuccess) {
+                val resObj = submitRes.getOrNull()
+                pendingLocalFiles.clear()
+                binding.etSubmissionComment.setText("")
+                renderPendingFiles()
+                isResubmitMode = false
+
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(if (isSubmit) "🎉 超星作业提交成功！" else "💾 草稿暂存成功！")
+                    .setMessage(resObj?.message ?: "您的作答与附件已成功同步至超星系统。")
+                    .setPositiveButton("太棒了") { _, _ ->
+                        loadData(forceRefresh = true)
+                    }
+                    .show()
+            } else {
+                val err = submitRes.exceptionOrNull()?.message ?: "作业提交失败"
+                MaterialAlertDialogBuilder(context)
+                    .setTitle("作业提交未完成")
+                    .setMessage(err)
+                    .setPositiveButton("我知道了", null)
+                    .setNeutralButton("前往网页端查看") { _, _ ->
+                        openChaoXingOnlinePortal()
+                    }
                     .show()
             }
         }

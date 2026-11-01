@@ -587,6 +587,20 @@
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnWebPortal"
+                    style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:padding="0dp"
+                    android:contentDescription="网页端查看"
+                    app:icon="@drawable/ic_globe"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="20dp"
+                    app:iconTint="@color/primary" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnCopyTitle"
                     style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
                     android:layout_width="36dp"

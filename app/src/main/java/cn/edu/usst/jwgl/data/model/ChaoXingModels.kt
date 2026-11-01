@@ -372,6 +372,8 @@ data class ChaoXingHomeworkDetail(
  */
 data class ChaoXingQuestionItem(
     val index: Int,
+    val id: String = "",
+    val typeCode: String = "4",
     val typeName: String = "",
     val scoreText: String = "",
     val stemHtml: String = "",
@@ -382,5 +384,15 @@ data class ChaoXingQuestionItem(
     val studentAttachments: List<ChaoXingCourseAttachment> = emptyList(),
     val teacherAttachments: List<ChaoXingCourseAttachment> = emptyList()
 ) : Serializable
+
+/**
+ * 超星作业提交/暂存结果包装
+ */
+data class ChaoXingSubmitResult(
+    val isSuccess: Boolean,
+    val message: String,
+    val isSubmitted: Boolean = true
+) : Serializable
+
 
 
