@@ -103,6 +103,33 @@ class TronClassBulletinAdapter(
                     targetWidth = 720,
                     targetHeight = 360
                 )
+
+                binding.cardSingleImage.setOnClickListener {
+                    TronClassImageHelper.showFullScreenPreview(
+                        context,
+                        imageUrls[0],
+                        title = b.title,
+                        courseName = b.courseName
+                    )
+                }
+
+                binding.cardSingleImage.setOnLongClickListener { v ->
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    TronClassImageHelper.showImageOptionsDialog(
+                        context,
+                        imageUrls[0],
+                        title = b.title,
+                        courseName = b.courseName
+                    ) {
+                        TronClassImageHelper.showFullScreenPreview(
+                            context,
+                            imageUrls[0],
+                            title = b.title,
+                            courseName = b.courseName
+                        )
+                    }
+                    true
+                }
             } else {
                 binding.layoutImagesPreview.visibility = View.VISIBLE
                 binding.cardSingleImage.visibility = View.GONE
@@ -135,6 +162,34 @@ class TronClassBulletinAdapter(
                         scaleType = ImageView.ScaleType.CENTER_CROP
                     }
                     card.addView(iv)
+
+                    card.setOnClickListener {
+                        TronClassImageHelper.showFullScreenPreview(
+                            context,
+                            url,
+                            title = b.title,
+                            courseName = b.courseName
+                        )
+                    }
+
+                    card.setOnLongClickListener { v ->
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                        TronClassImageHelper.showImageOptionsDialog(
+                            context,
+                            url,
+                            title = b.title,
+                            courseName = b.courseName
+                        ) {
+                            TronClassImageHelper.showFullScreenPreview(
+                                context,
+                                url,
+                                title = b.title,
+                                courseName = b.courseName
+                            )
+                        }
+                        true
+                    }
+
                     binding.llThumbnailsContainer.addView(card)
 
                     TronClassImageLoader.load(

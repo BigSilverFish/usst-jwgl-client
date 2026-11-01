@@ -69,7 +69,52 @@ object TronClassBulletinDialogHelper {
         val rawContent = bulletin.content ?: "<p>暂无公告内容</p>"
         val htmlData = TronClassHtmlHelper.buildThemedHtmlDocument(bulletin.title ?: "课程公告", rawContent, isDarkMode)
 
-        dialogBinding.webViewContent.settings.javaScriptEnabled = false
+        dialogBinding.webViewContent.settings.javaScriptEnabled = true
+        dialogBinding.webViewContent.addJavascriptInterface(object {
+            @android.webkit.JavascriptInterface
+            fun openImage(url: String) {
+                dialogBinding.webViewContent.post {
+                    TronClassImageHelper.showFullScreenPreview(
+                        context = context,
+                        imageUrl = url,
+                        title = bulletin.title ?: "公告图片",
+                        courseId = courseId,
+                        courseName = cName
+                    )
+                }
+            }
+        }, "AndroidBridge")
+
+        // 支持长按 WebView 内图片弹出保存/分享/预览菜单
+        dialogBinding.webViewContent.setOnLongClickListener { v ->
+            val webView = v as? WebView ?: return@setOnLongClickListener false
+            val hitResult = webView.hitTestResult ?: return@setOnLongClickListener false
+            val type = hitResult.type
+            if (type == WebView.HitTestResult.IMAGE_TYPE || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                val imgUrl = hitResult.extra
+                if (!imgUrl.isNullOrBlank()) {
+                    webView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    TronClassImageHelper.showImageOptionsDialog(
+                        context = context,
+                        imageUrl = imgUrl,
+                        title = bulletin.title ?: "公告图片",
+                        courseId = courseId,
+                        courseName = cName
+                    ) {
+                        TronClassImageHelper.showFullScreenPreview(
+                            context = context,
+                            imageUrl = imgUrl,
+                            title = bulletin.title ?: "公告图片",
+                            courseId = courseId,
+                            courseName = cName
+                        )
+                    }
+                    return@setOnLongClickListener true
+                }
+            }
+            false
+        }
+
         dialogBinding.webViewContent.loadDataWithBaseURL("https://1906.usst.edu.cn", htmlData, "text/html", "utf-8", null)
 
         val cacheManager = TronClassCacheManager(context)
@@ -210,6 +255,30 @@ object TronClassBulletinDialogHelper {
 
             itemBinding.btnFileAction.setOnClickListener { doAction() }
             itemBinding.root.setOnClickListener { doAction() }
+
+            if (TronClassImageHelper.isImageUrl(upload.name)) {
+                itemBinding.root.setOnLongClickListener { v ->
+                    val existing = cacheManager.getExistingFile(upload.id, upload.name)
+                    val urlToUse = if (existing != null) "file://${existing.absolutePath}" else "https://1906.usst.edu.cn/api/uploads/${upload.id}"
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    TronClassImageHelper.showImageOptionsDialog(
+                        context,
+                        urlToUse,
+                        title = upload.name,
+                        courseId = courseId,
+                        courseName = courseName
+                    ) {
+                        TronClassImageHelper.showFullScreenPreview(
+                            context,
+                            urlToUse,
+                            title = upload.name,
+                            courseId = courseId,
+                            courseName = courseName
+                        )
+                    }
+                    true
+                }
+            }
 
             dialogBinding.llAttachmentsContainer.addView(itemBinding.root)
         }

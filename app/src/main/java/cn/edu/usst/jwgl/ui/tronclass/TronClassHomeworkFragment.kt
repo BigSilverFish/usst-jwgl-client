@@ -1476,43 +1476,32 @@ class TronClassHomeworkFragment : Fragment() {
             showFullScreenImagePreview(imgUrl)
         }
 
+        card.setOnLongClickListener {
+            it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            TronClassImageHelper.showImageOptionsDialog(
+                context,
+                imgUrl,
+                title = titleText.ifBlank { "作业附图" },
+                courseId = courseId,
+                courseName = courseNameText
+            ) {
+                showFullScreenImagePreview(imgUrl)
+            }
+            true
+        }
+
         return card
     }
 
     private fun showFullScreenImagePreview(imageUrl: String) {
         val context = context ?: return
-        val dialog = android.app.Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        val frame = android.widget.FrameLayout(context).apply {
-            setBackgroundColor(0xFF000000.toInt())
-        }
-
-        val iv = ImageView(context).apply {
-            layoutParams = android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-            )
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-
-        val closeBtn = android.widget.ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setBackgroundColor(0x66000000)
-            layoutParams = android.widget.FrameLayout.LayoutParams(dpToPx(48), dpToPx(48)).apply {
-                gravity = android.view.Gravity.TOP or android.view.Gravity.END
-                topMargin = dpToPx(36)
-                rightMargin = dpToPx(20)
-            }
-            setOnClickListener { dialog.dismiss() }
-        }
-
-        frame.addView(iv)
-        frame.addView(closeBtn)
-        dialog.setContentView(frame)
-
-        TronClassImageLoader.load(iv, imageUrl, context)
-
-        frame.setOnClickListener { dialog.dismiss() }
-        dialog.show()
+        TronClassImageHelper.showFullScreenPreview(
+            context,
+            imageUrl,
+            title = titleText.ifBlank { "作业附图" },
+            courseId = courseId,
+            courseName = courseNameText
+        )
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

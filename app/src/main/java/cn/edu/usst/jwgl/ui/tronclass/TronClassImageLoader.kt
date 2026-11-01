@@ -89,12 +89,24 @@ object TronClassImageLoader {
         val cached = memoryCache.get(url)
         if (cached != null) return@withContext cached
 
+        val bytes = getOrFetchImageBytes(context, url) ?: return@withContext null
+        val b = decodeSampledBitmapFromByteArray(bytes, targetWidth, targetHeight)
+        if (b != null) {
+            memoryCache.put(url, b)
+        }
+        return@withContext b
+    }
+
+    suspend fun getOrFetchImageBytes(
+        context: Context,
+        url: String
+    ): ByteArray? = withContext(Dispatchers.IO) {
         val diskFile = getDiskCacheFile(context, url)
         if (diskFile.exists() && diskFile.length() > 0) {
-            val b = decodeSampledBitmap(diskFile.absolutePath, targetWidth, targetHeight)
-            if (b != null) {
-                memoryCache.put(url, b)
-                return@withContext b
+            try {
+                return@withContext diskFile.readBytes()
+            } catch (e: Exception) {
+                // fall through to re-fetch
             }
         }
 
@@ -133,11 +145,7 @@ object TronClassImageLoader {
                 // Ignore cache write error
             }
 
-            val b = decodeSampledBitmapFromByteArray(bytes, targetWidth, targetHeight)
-            if (b != null) {
-                memoryCache.put(url, b)
-            }
-            return@withContext b
+            return@withContext bytes
         } catch (e: Exception) {
             null
         }
@@ -186,14 +194,14 @@ object TronClassImageLoader {
         return inSampleSize
     }
 
-    private fun getDiskCacheFile(context: Context, url: String): File {
+    fun getDiskCacheFile(context: Context, url: String): File {
         val cacheDir = File(context.cacheDir, "tronclass_images")
         if (!cacheDir.exists()) cacheDir.mkdirs()
         val hash = md5(url)
         return File(cacheDir, "$hash.img")
     }
 
-    private fun md5(str: String): String {
+    fun md5(str: String): String {
         val md = MessageDigest.getInstance("MD5")
         val digested = md.digest(str.toByteArray())
         return digested.joinToString("") { "%02x".format(it) }
