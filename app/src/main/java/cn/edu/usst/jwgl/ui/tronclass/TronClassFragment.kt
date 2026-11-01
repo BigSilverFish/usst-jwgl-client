@@ -31,6 +31,7 @@ import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
 import cn.edu.usst.jwgl.data.model.ChaoXingCourse
+import cn.edu.usst.jwgl.data.model.ChaoXingWork
 import cn.edu.usst.jwgl.data.model.LearningPlatform
 import cn.edu.usst.jwgl.data.model.TronClassBulletin
 import cn.edu.usst.jwgl.data.model.TronClassCourse
@@ -503,10 +504,21 @@ class TronClassFragment : Fragment() {
     private fun showChaoXingTodoDialog(todo: UnifiedTodo) {
         val ddlText = todo.getFormattedDeadline()
         val remainText = todo.getRemainingTimeText()
+        val cxWork = ChaoXingWork(
+            workId = todo.originalTodoId,
+            title = todo.cleanTitle,
+            courseName = todo.cleanCourseName,
+            statusText = "未完成",
+            deadline = todo.getFormattedDeadline(),
+            taskUrl = todo.detailUrl.orEmpty()
+        )
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(todo.cleanTitle)
-            .setMessage("【超星学习通课程】${todo.cleanCourseName}\n\n截止时间：$ddlText ($remainText)\n状态：未完成待提交\n\n点击「立即去完成」可免密直通超星移动端作业做题界面。")
-            .setPositiveButton("🚀 立即去完成") { _, _ ->
+            .setMessage("【超星学习通课程】${todo.cleanCourseName}\n\n截止时间：$ddlText ($remainText)\n状态：未完成待提交")
+            .setPositiveButton("查看作业详情") { _, _ ->
+                openChaoXingHomework(cxWork)
+            }
+            .setNeutralButton("🚀 网页直通作答") { _, _ ->
                 ChaoXingNavigator.openHomework(
                     context = requireContext(),
                     courseId = todo.originalCourseId,
@@ -1324,6 +1336,13 @@ class TronClassFragment : Fragment() {
 
     fun openHomework(activityId: Long, courseId: Long, title: String, courseName: String) {
         pushSecondaryFragment(TronClassHomeworkFragment.newInstance(activityId, courseId, title, courseName), "homework_$activityId")
+    }
+
+    fun openChaoXingHomework(work: ChaoXingWork, course: ChaoXingCourse? = null) {
+        pushSecondaryFragment(
+            TronClassHomeworkFragment.newInstanceForChaoXing(work, course),
+            "chaoxing_homework_${work.workId}"
+        )
     }
 
     fun openExam(examId: Long, courseId: Long, title: String, courseName: String) {

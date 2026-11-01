@@ -343,3 +343,44 @@ data class ChaoXingWork(
     fun withScore(newScore: String): ChaoXingWork = copy(score = newScore)
 }
 
+/**
+ * 超星作业原生详情模型
+ */
+data class ChaoXingHomeworkDetail(
+    val workId: String,
+    val title: String,
+    val courseName: String = "",
+    val statusText: String = "",
+    val deadline: String = "",
+    val score: String = "",
+    val questionsCountText: String = "",
+    val contentHtml: String = "",
+    val cleanContent: String = "",
+    val teacherAttachments: List<ChaoXingCourseAttachment> = emptyList(),
+    val myAnswerHtml: String = "",
+    val cleanMyAnswer: String = "",
+    val studentAttachments: List<ChaoXingCourseAttachment> = emptyList(),
+    val teacherComment: String = "",
+    val isSubmitted: Boolean = false,
+    val isGraded: Boolean = false,
+    val taskUrl: String = "",
+    val rawQuestions: List<ChaoXingQuestionItem> = emptyList()
+) : Serializable
+
+/**
+ * 超星作业单题条目
+ */
+data class ChaoXingQuestionItem(
+    val index: Int,
+    val typeName: String = "",
+    val scoreText: String = "",
+    val stemHtml: String = "",
+    val cleanStem: String = "",
+    val myAnswerHtml: String = "",
+    val cleanMyAnswer: String = "",
+    val teacherComment: String = "",
+    val studentAttachments: List<ChaoXingCourseAttachment> = emptyList(),
+    val teacherAttachments: List<ChaoXingCourseAttachment> = emptyList()
+) : Serializable
+
+
