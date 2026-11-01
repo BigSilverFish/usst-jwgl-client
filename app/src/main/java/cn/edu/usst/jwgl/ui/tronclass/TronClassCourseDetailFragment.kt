@@ -295,6 +295,23 @@ class TronClassCourseDetailFragment : Fragment() {
         loadCourseData(forceRefresh = false)
     }
 
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) {
+            // 从二级页面（如作业详情/测验详情）返回时触发，视图与Tab状态完全保持，仅轻量同步可能已更新的本地缓存
+            val ctx = context ?: return
+            val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
+            val cxCourse = rawChaoXingCourse
+            if (cxCourse != null) {
+                val works = cacheMgr.getCachedChaoXingHomeworks(cxCourse.courseId)
+                if (works.isNotEmpty()) {
+                    cachedCxWorks = works
+                    updateCombinedAssessmentsUI()
+                }
+            }
+        }
+    }
+
     private fun getCalculatedBottomPadding(navBarsBottom: Int): Int {
         val density = resources.displayMetrics.density
         val bHeight = MainActivity.bottomBarHeightPx
