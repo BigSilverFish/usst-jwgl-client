@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.content.res.Configuration
 import android.graphics.Color
 import androidx.core.view.ViewCompat
@@ -473,11 +474,6 @@ class MainActivity : AppCompatActivity() {
             handleIntentExtras(intent)
         }
 
-        // 异步预热全校课表本地缓存至内存（避免用户切换至全校课表或空教室自习查询时等待）
-        lifecycleScope.launch(Dispatchers.IO) {
-            cn.edu.usst.jwgl.data.network.LappClient.getFullSchoolScheduleCached(this@MainActivity, "2026-2027", "1")
-        }
-
         val authPrefs = AuthPreferences(this)
         if (!authPrefs.hasInitialSyncCompleted() && authPrefs.getStudentId().isNotEmpty() && !isGuestMode) {
             lifecycleScope.launch {
@@ -491,9 +487,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 空闲时异步预热成绩与一网畅学一级 Fragment（消除点击一级 Tab 时的初始化耗时与黑屏）
-        binding.root.post {
-            warmupCoreFragments()
+        // 课表首屏渲染完成后，在主线程真正空闲的间隙异步预热成绩与一网畅学一级 Fragment（消除点击一级 Tab 时的初始化耗时与黑屏）
+        Looper.myQueue().addIdleHandler {
+            if (!isFinishing && !isDestroyed) {
+                warmupCoreFragments()
+            }
+            false
         }
     }
 
@@ -1076,44 +1075,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun initWakeupSchedule() {
-        lifecycleScope.launch {
-            val initData = withContext(Dispatchers.IO) {
-                db.ensureLatestTimeTableAndDefaults()
-                val defaultT = db.tableDao.getDefaultTable()
+    private fun fastInitTimetableFromPref() {
+        val fastTableId = TimetableSettingHelper.getLastActiveTableId(this)
+        val fastTableName = TimetableSettingHelper.getLastActiveTableName(this)
+        val fastMaxWeek = TimetableSettingHelper.getLastActiveMaxWeek(this)
+        val fastStartDate = TimetableSettingHelper.getLastActiveStartDate(this)
 
-                // Seamless auto-import of pre-existing cached timetables into WakeUP database
-                val cachedList = cacheManager.getAllCachedTimetables()
-                if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
-                    val semConfig = RemoteConfigManager.getSemesterConfig()
-                    val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
-                    for (cached in cachedList) {
-                        WakeupScheduleImporter.importTimetableData(db, cached, startDate)
-                    }
-                }
-
-                // Clear legacy test exam items if any existed in cache
-                if (cacheManager.getAllCachedExams().any { it.courseCode == "1001001" || it.courseCode == "1002002" }) {
-                    cacheManager.clearExams()
-                }
-
-                // Auto determine active semester & week on startup
-                val allTables = db.tableDao.getAllTables()
-                val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
-                val targetTable = autoTarget?.table ?: db.tableDao.getDefaultTable()
-                val targetWeek = autoTarget?.week ?: 1
-
-                db.tableDao.setDefaultTable(targetTable.id)
-                Triple(targetTable, targetWeek, targetTable.maxWeek)
-            }
-
-            val (targetTable, targetWeek, maxWeek) = initData
-            currentTable = targetTable
-            val realCurrentWeek = CourseUtils.countWeek(targetTable.startDate)
-            val determinedWeek = if (targetWeek in 1..maxWeek) targetWeek else if (realCurrentWeek in 1..maxWeek) realCurrentWeek else 1
+        if (fastTableId > 0 && fastMaxWeek > 0 && fastStartDate.isNotBlank()) {
+            val calcWeek = CourseUtils.countWeek(fastStartDate)
+            val determinedWeek = calcWeek.coerceIn(1, fastMaxWeek)
             currentWeek = determinedWeek
+            isInitialWeekLocated = true
 
-            scheduleAdapter = SchedulePagerAdapter(this@MainActivity, maxWeek, targetTable.id)
+            binding.tvTimetableSemester.text = formatSemesterTitle(fastTableName)
+            updateWeekSelectionUI(determinedWeek)
+            updateWeekHeaderDates(determinedWeek)
+
+            scheduleAdapter = SchedulePagerAdapter(this@MainActivity, fastMaxWeek, fastTableId)
             binding.vpSchedule.adapter = scheduleAdapter
             binding.vpSchedule.offscreenPageLimit = 1
             binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
@@ -1130,8 +1108,95 @@ class MainActivity : AppCompatActivity() {
                     updateWeekHeaderDates(selectedWeek)
                 }
             })
+        }
+    }
 
-            reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
+    private fun initWakeupSchedule() {
+        fastInitTimetableFromPref()
+
+        lifecycleScope.launch {
+            val initData = withContext(Dispatchers.IO) {
+                db.ensureLatestTimeTableAndDefaults()
+                val defaultT = db.tableDao.getDefaultTable()
+
+                // Seamless auto-import of pre-existing cached timetables into WakeUP database (only once)
+                if (!TimetableSettingHelper.hasMigratedLegacyTimetables(this@MainActivity)) {
+                    val cachedList = cacheManager.getAllCachedTimetables()
+                    if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
+                        val semConfig = RemoteConfigManager.getSemesterConfig()
+                        val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
+                        for (cached in cachedList) {
+                            WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                        }
+                    }
+                    TimetableSettingHelper.setHasMigratedLegacyTimetables(this@MainActivity, true)
+                }
+
+                // Auto determine active semester & week on startup
+                val allTables = db.tableDao.getAllTables()
+                val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
+                val targetTable = autoTarget?.table ?: db.tableDao.getDefaultTable()
+                val targetWeek = autoTarget?.week ?: 1
+
+                db.tableDao.setDefaultTable(targetTable.id)
+
+                // 持久化当前课表配置供下次冷启动 0ms 秒级直出
+                TimetableSettingHelper.saveLastActiveTableInfo(
+                    this@MainActivity,
+                    targetTable.id,
+                    targetTable.tableName,
+                    targetTable.maxWeek,
+                    targetTable.startDate
+                )
+
+                Triple(targetTable, targetWeek, targetTable.maxWeek)
+            }
+
+            val (targetTable, targetWeek, maxWeek) = initData
+            val previousTableId = currentTable?.id ?: TimetableSettingHelper.getLastActiveTableId(this@MainActivity)
+            val previousMaxWeek = currentTable?.maxWeek ?: TimetableSettingHelper.getLastActiveMaxWeek(this@MainActivity)
+            currentTable = targetTable
+            val realCurrentWeek = CourseUtils.countWeek(targetTable.startDate)
+            val determinedWeek = if (targetWeek in 1..maxWeek) targetWeek else if (realCurrentWeek in 1..maxWeek) realCurrentWeek else 1
+            currentWeek = determinedWeek
+
+            val adapter = scheduleAdapter
+            if (adapter == null) {
+                scheduleAdapter = SchedulePagerAdapter(this@MainActivity, maxWeek, targetTable.id)
+                binding.vpSchedule.adapter = scheduleAdapter
+                binding.vpSchedule.offscreenPageLimit = 1
+                binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
+
+                binding.vpSchedule.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                    override fun onPageSelected(position: Int) {
+                        super.onPageSelected(position)
+                        if (!isInitialWeekLocated) {
+                            return
+                        }
+                        val selectedWeek = position + 1
+                        currentWeek = selectedWeek
+                        updateWeekSelectionUI(selectedWeek)
+                        updateWeekHeaderDates(selectedWeek)
+                    }
+                })
+
+                reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
+            } else {
+                if (targetTable.id != previousTableId || maxWeek != previousMaxWeek) {
+                    adapter.updateConfig(maxWeek, targetTable.id)
+                    binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
+                    reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
+                } else if (determinedWeek != binding.vpSchedule.currentItem + 1) {
+                    binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
+                    updateWeekSelectionUI(determinedWeek)
+                    updateWeekHeaderDates(determinedWeek)
+                } else {
+                    binding.tvTimetableSemester.text = formatSemesterTitle(targetTable.tableName)
+                    isUpdatingChipProgrammatically = true
+                    binding.chipFilterOnlyCurrentWeek.isChecked = !targetTable.showOtherWeekCourse
+                    isUpdatingChipProgrammatically = false
+                }
+            }
         }
     }
 
@@ -1155,6 +1220,13 @@ class MainActivity : AppCompatActivity() {
                 db.tableDao.getDefaultTable()
             }
             currentTable = table
+            TimetableSettingHelper.saveLastActiveTableInfo(
+                this@MainActivity,
+                table.id,
+                table.tableName,
+                table.maxWeek,
+                table.startDate
+            )
 
             binding.tvTimetableSemester.text = formatSemesterTitle(table.tableName)
             isUpdatingChipProgrammatically = true
