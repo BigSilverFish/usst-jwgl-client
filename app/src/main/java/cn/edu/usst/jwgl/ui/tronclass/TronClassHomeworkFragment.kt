@@ -762,8 +762,9 @@ class TronClassHomeworkFragment : Fragment() {
         binding.tvHomeworkTitle.text = work.title
         binding.tvCourseName.text = work.courseName.ifBlank { courseNameText }
 
-        if (work.deadline.isNotBlank()) {
-            val ddlMs = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(work.deadline)
+        val cleanDdl = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanDeadline(work.deadline)
+        if (cleanDdl.isNotBlank()) {
+            val ddlMs = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(cleanDdl)
             val remainStr = if (ddlMs != null) {
                 val diff = ddlMs - System.currentTimeMillis()
                 if (diff <= 0) "已截止" else {
@@ -772,7 +773,7 @@ class TronClassHomeworkFragment : Fragment() {
                     if (days > 0) "剩 $days 天 $hours 小时" else "剩 $hours 小时"
                 }
             } else if (work.expired) "已截止" else ""
-            binding.tvDeadline.text = "截止时间：${work.deadline} ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
+            binding.tvDeadline.text = "截止时间：$cleanDdl ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
         } else {
             binding.tvDeadline.text = "截止时间：未设定"
         }
@@ -785,12 +786,17 @@ class TronClassHomeworkFragment : Fragment() {
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
             }
+            work.statusText.contains("待批") || work.statusText.contains("待评") || work.statusText.contains("未批") -> {
+                binding.tvStatusBadge.text = "已提交 · 待批阅"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
             work.statusText.contains("已完成") || work.statusText.contains("已批") -> {
                 binding.tvStatusBadge.text = "已批阅"
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
             }
-            work.statusText.contains("已交") || work.statusText.contains("待批") || work.statusText.contains("待评") -> {
+            work.statusText.contains("已交") || work.statusText.contains("已提交") -> {
                 binding.tvStatusBadge.text = "已提交 · 待批阅"
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
@@ -811,8 +817,20 @@ class TronClassHomeworkFragment : Fragment() {
         // 1. Meta / Hero
         binding.tvHomeworkTitle.text = detail.title
         binding.tvCourseName.text = detail.courseName.ifBlank { courseNameText }
-        if (detail.deadline.isNotBlank()) {
-            binding.tvDeadline.text = "截止时间：" + detail.deadline
+        val cleanDetailDdl = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanDeadline(detail.deadline)
+        if (cleanDetailDdl.isNotBlank()) {
+            val ddlMs = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(cleanDetailDdl)
+            val remainStr = if (ddlMs != null) {
+                val diff = ddlMs - System.currentTimeMillis()
+                if (diff <= 0) "已截止" else {
+                    val days = diff / (1000 * 60 * 60 * 24)
+                    val hours = (diff / (1000 * 60 * 60)) % 24
+                    if (days > 0) "剩 $days 天 $hours 小时" else "剩 $hours 小时"
+                }
+            } else ""
+            binding.tvDeadline.text = "截止时间：$cleanDetailDdl ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
+        } else {
+            binding.tvDeadline.text = "截止时间：未设定"
         }
         if (detail.questionsCountText.isNotBlank()) {
             binding.tvScoreWeight.text = "题目概况：${detail.questionsCountText} · 来源：超星学习通"
@@ -822,6 +840,11 @@ class TronClassHomeworkFragment : Fragment() {
         when {
             detail.score.isNotBlank() -> {
                 binding.tvStatusBadge.text = "已批改 · ${detail.score}分"
+                binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
+                binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            }
+            detail.statusText.contains("待批") || detail.statusText.contains("待评") || detail.statusText.contains("未批") -> {
+                binding.tvStatusBadge.text = "已提交 · 待批阅"
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
             }
@@ -876,15 +899,20 @@ class TronClassHomeworkFragment : Fragment() {
             binding.tvTeacherAttachmentsHeader.visibility = View.GONE
         }
 
-        // 3. Feedback Card
-        if (detail.isGraded || detail.score.isNotBlank() || detail.teacherComment.isNotBlank()) {
+        // 3. Feedback Card (教师批改与成绩反馈)
+        val hasScore = detail.score.isNotBlank()
+        val cleanComment = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanTeacherCommentText(detail.teacherComment)
+        val hasComment = cleanComment.isNotBlank()
+        val isReallyGraded = (detail.isGraded || hasScore) && !detail.statusText.contains("待批") && !detail.statusText.contains("未批")
+
+        if (isReallyGraded && (hasScore || hasComment)) {
             binding.cardFeedback.visibility = View.VISIBLE
-            binding.tvTeacherScore.text = if (detail.score.isNotBlank()) "${detail.score} 分" else "已批阅"
-            binding.tvTeacherComment.text = if (detail.teacherComment.isNotBlank()) {
-                "教师评语：${detail.teacherComment}"
-            } else {
-                "教师未留下文字评语"
-            }
+            binding.tvTeacherScore.text = if (hasScore) "${detail.score} 分" else "已批阅"
+            binding.tvTeacherComment.text = if (hasComment) "教师评语：$cleanComment" else "教师未留下文字评语"
+        } else if (hasComment && !detail.statusText.contains("待批") && !detail.statusText.contains("未批")) {
+            binding.cardFeedback.visibility = View.VISIBLE
+            binding.tvTeacherScore.text = "待评分"
+            binding.tvTeacherComment.text = "教师评语：$cleanComment"
         } else {
             binding.cardFeedback.visibility = View.GONE
         }
