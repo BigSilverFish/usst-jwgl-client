@@ -733,18 +733,17 @@ class MainActivity : AppCompatActivity() {
         drawerView.translationX = 0f
         drawerView.translationY = 0f
         drawerView.alpha = 1f
-        // 关键：初始设为 GONE，在闭合抽屉时彻底不参与绘制与排版，从根源上杜绝漏出粉色胶囊或裁剪主内容
-        drawerView.visibility = View.GONE
-
-        val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
-
-        // 先设置 lockMode
-        if (isPhoneBottomBarMode()) {
+        val isBottomMode = isPhoneBottomBarMode()
+        if (isBottomMode) {
+            drawerView.visibility = View.GONE
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
         } else {
+            // 设置为 INVISIBLE 使 DrawerLayout 在初始测量与排版时计算其尺寸并将 left 放置在屏幕左侧外 (-drawerWidthPx)，排版后彻底不可见
+            drawerView.visibility = View.INVISIBLE
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
         }
 
+        val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
         val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
             drawerWidthPx,
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -760,6 +759,9 @@ class MainActivity : AppCompatActivity() {
         drawerView.post {
             if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
                 binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+                if (isBottomMode || !binding.drawerLayout.isDrawerVisible(GravityCompat.START)) {
+                    drawerView.visibility = View.GONE
+                }
             }
         }
 
@@ -2320,8 +2322,21 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         // Drawer visibility & slide state handling
         binding.drawerLayout.addDrawerListener(object : androidx.drawerlayout.widget.DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
+                if (!isTabletLandscapeMode && !isPhoneBottomBarMode()) {
+                    if (slideOffset > 0.001f) {
+                        if (drawerView.visibility != View.VISIBLE) {
+                            drawerView.visibility = View.VISIBLE
+                        }
+                    } else {
+                        if (drawerView.visibility != View.GONE) {
+                            drawerView.visibility = View.GONE
+                        }
+                    }
+                }
+            }
             override fun onDrawerStateChanged(newState: Int) {
-                if (newState != androidx.drawerlayout.widget.DrawerLayout.STATE_IDLE && !isTabletLandscapeMode) {
+                if (newState != androidx.drawerlayout.widget.DrawerLayout.STATE_IDLE && !isTabletLandscapeMode && !isPhoneBottomBarMode()) {
                     val dv = binding.layoutDrawer.root
                     if (dv.parent == binding.drawerLayout && dv.visibility != View.VISIBLE) {
                         dv.visibility = View.VISIBLE
