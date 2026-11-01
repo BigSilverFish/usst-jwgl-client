@@ -650,7 +650,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeNavDrawer() {
-        if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
+        if (!isTabletLandscapeMode && !isPhoneBottomBarMode() && binding.layoutDrawer.root.parent == binding.drawerLayout) {
             binding.drawerLayout.closeDrawer(GravityCompat.START, false)
         }
     }
@@ -730,6 +730,16 @@ class MainActivity : AppCompatActivity() {
         val drawerView = binding.layoutDrawer.root
         (drawerView.parent as? ViewGroup)?.removeView(drawerView)
 
+        val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
+        val screenHeight = resources.displayMetrics.heightPixels
+
+        // 强制重设 drawerView 测量尺寸与初始布局，将其完整置于屏幕左外侧 (-drawerWidthPx, 0, 0, height)
+        // 消除从 permanentSidebarContainer (265dp) 带出的残留尺寸 530px 与旧坐标
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(drawerWidthPx, View.MeasureSpec.EXACTLY)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(screenHeight, View.MeasureSpec.EXACTLY)
+        drawerView.measure(widthSpec, heightSpec)
+        drawerView.layout(-drawerWidthPx, 0, 0, screenHeight)
+
         drawerView.translationX = 0f
         drawerView.translationY = 0f
         drawerView.alpha = 1f
@@ -743,7 +753,6 @@ class MainActivity : AppCompatActivity() {
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
         }
 
-        val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
         val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
             drawerWidthPx,
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -753,14 +762,20 @@ class MainActivity : AppCompatActivity() {
         binding.permanentSidebarContainer.visibility = View.GONE
         binding.viewPermanentSidebarDivider.visibility = View.GONE
 
-        // 显式无动画闭合抽屉
-        binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+        if (!isBottomMode) {
+            // 仅在抽屉模式下调用 closeDrawer，避免 closeDrawer 将底栏模式下设为 GONE 的视图覆盖为 INVISIBLE
+            binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+        }
 
         drawerView.post {
             if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
-                binding.drawerLayout.closeDrawer(GravityCompat.START, false)
-                if (isBottomMode || !binding.drawerLayout.isDrawerVisible(GravityCompat.START)) {
+                if (isBottomMode) {
                     drawerView.visibility = View.GONE
+                } else {
+                    binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+                    if (!binding.drawerLayout.isDrawerVisible(GravityCompat.START)) {
+                        drawerView.visibility = View.GONE
+                    }
                 }
             }
         }
