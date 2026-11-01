@@ -667,16 +667,26 @@ class MainActivity : AppCompatActivity() {
         // 1. 常驻左侧导航栏 (Permanent Left Side Navigation)
         val drawerView = binding.layoutDrawer.root
         (drawerView.parent as? ViewGroup)?.removeView(drawerView)
-        binding.permanentSidebarContainer.addView(
-            drawerView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
+
+        // 彻底复位 DrawerLayout 残留的所有滑动偏移、平移与可见性状态，杜绝侧栏空白
+        drawerView.visibility = View.VISIBLE
+        drawerView.translationX = 0f
+        drawerView.translationY = 0f
+        drawerView.alpha = 1f
+
+        if (binding.permanentSidebarContainer.indexOfChild(drawerView) < 0) {
+            binding.permanentSidebarContainer.addView(
+                drawerView,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
             )
-        )
+        }
         binding.permanentSidebarContainer.visibility = View.VISIBLE
         binding.viewPermanentSidebarDivider.visibility = View.VISIBLE
         binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+        drawerView.requestLayout()
 
         // 隐藏各页面顶栏左上角汉堡包菜单图标
         binding.btnOpenDrawerTimetable.visibility = View.GONE
@@ -713,21 +723,46 @@ class MainActivity : AppCompatActivity() {
         // 1. 恢复侧边栏至抽屉
         val drawerView = binding.layoutDrawer.root
         (drawerView.parent as? ViewGroup)?.removeView(drawerView)
-        if (drawerView.parent == null) {
-            val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
-                (310 * resources.displayMetrics.density).toInt(),
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                GravityCompat.START
-            )
-            binding.drawerLayout.addView(drawerView, lp)
-        }
-        binding.permanentSidebarContainer.visibility = View.GONE
-        binding.viewPermanentSidebarDivider.visibility = View.GONE
-        binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+
+        drawerView.translationX = 0f
+        drawerView.translationY = 0f
+        drawerView.alpha = 1f
+        drawerView.visibility = View.INVISIBLE
+
+        val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
+        val heightPx = resources.displayMetrics.heightPixels
+
+        // 关键：在加入 DrawerLayout 之前，主动完成测量并调用 layout 将其坐标重置为闭合位置 [-drawerWidthPx, 0, 0, heightPx]
+        // 这样 getWidth() 准确返回 310dp (620px)，且初始物理位置已完全在屏幕外（left=-620, right=0）
+        drawerView.measure(
+            View.MeasureSpec.makeMeasureSpec(drawerWidthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY)
+        )
+        drawerView.layout(-drawerWidthPx, 0, 0, heightPx)
+
+        // 先设置 lockMode，此时 drawerView 还不在 drawerLayout 中，不会触发带有动画的 closeDrawer() 造成旧宽度计算残余
         if (isPhoneBottomBarMode()) {
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
         } else {
             binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
+        }
+
+        val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
+            drawerWidthPx,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            GravityCompat.START
+        )
+        binding.drawerLayout.addView(drawerView, lp)
+        binding.permanentSidebarContainer.visibility = View.GONE
+        binding.viewPermanentSidebarDivider.visibility = View.GONE
+
+        // 显式无动画闭合抽屉
+        binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+
+        drawerView.post {
+            if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
+                binding.drawerLayout.closeDrawer(GravityCompat.START, false)
+            }
         }
 
         /* 3. Restore two-pane to vertical */
@@ -749,6 +784,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
         val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this, newConfig)
         val modeChanged = isTabletLandscape != isTabletLandscapeMode
         if (modeChanged) {
@@ -758,8 +795,6 @@ class MainActivity : AppCompatActivity() {
                 restorePortraitLayout()
             }
         }
-
-        super.onConfigurationChanged(newConfig)
 
         applyPhoneNavigationMode()
         applyContentBottomPadding()
