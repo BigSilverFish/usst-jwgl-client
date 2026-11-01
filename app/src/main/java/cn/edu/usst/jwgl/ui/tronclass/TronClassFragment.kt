@@ -1311,16 +1311,20 @@ class TronClassFragment : Fragment() {
     private fun pushSecondaryFragment(fragment: Fragment, tag: String) {
         val b = _binding ?: return
         b.flTronClassSecondaryContainer.visibility = View.VISIBLE
-        childFragmentManager.beginTransaction()
+        val current = childFragmentManager.findFragmentById(R.id.flTronClassSecondaryContainer)
+        val tx = childFragmentManager.beginTransaction()
             .setCustomAnimations(
                 android.R.anim.fade_in,
                 android.R.anim.fade_out,
                 android.R.anim.fade_in,
                 android.R.anim.fade_out
             )
-            .replace(R.id.flTronClassSecondaryContainer, fragment, tag)
-            .addToBackStack(tag)
-            .commit()
+        if (current != null) {
+            tx.hide(current)
+        }
+        tx.add(R.id.flTronClassSecondaryContainer, fragment, tag)
+        tx.addToBackStack(tag)
+        tx.commit()
     }
 
     fun openCourseDetail(course: UnifiedCourse) {
