@@ -1,6 +1,7 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
 import android.content.res.Configuration
+import android.util.Log
 
 import android.Manifest
 import android.app.ProgressDialog
@@ -151,6 +152,7 @@ class TronClassHomeworkFragment : Fragment() {
     }
 
     companion object {
+        private const val TAG = "TronClassHomework"
         private const val ARG_ACTIVITY_ID = "arg_activity_id"
         private const val ARG_COURSE_ID = "arg_course_id"
         private const val ARG_TITLE = "arg_title"
@@ -158,6 +160,9 @@ class TronClassHomeworkFragment : Fragment() {
         private const val ARG_PLATFORM = "arg_platform"
         private const val ARG_CHAOXING_WORK = "arg_chaoxing_work"
         private const val ARG_CHAOXING_COURSE = "arg_chaoxing_course"
+
+        private const val ARG_CHAOXING_WORK_JSON = "arg_chaoxing_work_json"
+        private const val ARG_CHAOXING_COURSE_JSON = "arg_chaoxing_course_json"
 
         fun newInstance(activityId: Long, courseId: Long, title: String, courseName: String): TronClassHomeworkFragment {
             return TronClassHomeworkFragment().apply {
@@ -176,7 +181,11 @@ class TronClassHomeworkFragment : Fragment() {
                 arguments = Bundle().apply {
                     putString(ARG_PLATFORM, "CHAOXING")
                     putSerializable(ARG_CHAOXING_WORK, work)
-                    course?.let { putSerializable(ARG_CHAOXING_COURSE, it) }
+                    putString(ARG_CHAOXING_WORK_JSON, com.google.gson.Gson().toJson(work))
+                    course?.let {
+                        putSerializable(ARG_CHAOXING_COURSE, it)
+                        putString(ARG_CHAOXING_COURSE_JSON, com.google.gson.Gson().toJson(it))
+                    }
                     putString(ARG_TITLE, work.title)
                     putString(ARG_COURSE_NAME, course?.courseName ?: work.courseName)
                 }
@@ -192,17 +201,27 @@ class TronClassHomeworkFragment : Fragment() {
         courseId = args.getLong(ARG_COURSE_ID, 0L)
         titleText = args.getString(ARG_TITLE) ?: "作业详情"
         courseNameText = args.getString(ARG_COURSE_NAME) ?: ""
-        chaoXingWork = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            args.getSerializable(ARG_CHAOXING_WORK, ChaoXingWork::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            args.getSerializable(ARG_CHAOXING_WORK) as? ChaoXingWork
+
+        chaoXingWork = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                args.getSerializable(ARG_CHAOXING_WORK, ChaoXingWork::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                args.getSerializable(ARG_CHAOXING_WORK) as? ChaoXingWork
+            }
+        } catch (_: Exception) { null } ?: args.getString(ARG_CHAOXING_WORK_JSON)?.let {
+            try { com.google.gson.Gson().fromJson(it, ChaoXingWork::class.java) } catch (_: Exception) { null }
         }
-        chaoXingCourse = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            args.getSerializable(ARG_CHAOXING_COURSE, ChaoXingCourse::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse
+
+        chaoXingCourse = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                args.getSerializable(ARG_CHAOXING_COURSE, ChaoXingCourse::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse
+            }
+        } catch (_: Exception) { null } ?: args.getString(ARG_CHAOXING_COURSE_JSON)?.let {
+            try { com.google.gson.Gson().fromJson(it, ChaoXingCourse::class.java) } catch (_: Exception) { null }
         }
     }
 
@@ -519,7 +538,12 @@ class TronClassHomeworkFragment : Fragment() {
     }
 
     private fun loadChaoXingData(forceRefresh: Boolean) {
-        val cx = chaoXingWork ?: return
+        val cx = chaoXingWork
+        if (cx == null) {
+            Log.e(TAG, "loadChaoXingData: chaoXingWork is NULL! platform=$platform, argsKeys=${arguments?.keySet()}")
+            return
+        }
+        Log.w(TAG, "loadChaoXingData: workId=${cx.workId}, title=${cx.title}, forceRefresh=$forceRefresh")
         val cacheMgr = TronClassDataCacheManager.getInstance(requireContext())
 
         // 1. 本地缓存秒级直出 (0ms 离线可用)
@@ -829,6 +853,20 @@ class TronClassHomeworkFragment : Fragment() {
                 }
             } else ""
             binding.tvDeadline.text = "截止时间：$cleanDetailDdl ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
+        } else if (chaoXingWork?.deadline?.isNotBlank() == true) {
+            val workDdl = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanDeadline(chaoXingWork?.deadline)
+            val ddlMs = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(workDdl)
+            val remainStr = if (ddlMs != null) {
+                val diff = ddlMs - System.currentTimeMillis()
+                if (diff <= 0) "已截止" else {
+                    val days = diff / (1000 * 60 * 60 * 24)
+                    val hours = (diff / (1000 * 60 * 60)) % 24
+                    if (days > 0) "剩 $days 天 $hours 小时" else "剩 $hours 小时"
+                }
+            } else if (chaoXingWork?.expired == true) "已截止" else ""
+            binding.tvDeadline.text = "截止时间：$workDdl ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
+        } else if (chaoXingWork?.expired == true || detail.statusText.contains("已截止")) {
+            binding.tvDeadline.text = "截止时间：已截止"
         } else {
             binding.tvDeadline.text = "截止时间：未设定"
         }
@@ -903,13 +941,14 @@ class TronClassHomeworkFragment : Fragment() {
         val hasScore = detail.score.isNotBlank()
         val cleanComment = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanTeacherCommentText(detail.teacherComment)
         val hasComment = cleanComment.isNotBlank()
-        val isReallyGraded = (detail.isGraded || hasScore) && !detail.statusText.contains("待批") && !detail.statusText.contains("未批")
+        val isPending = detail.statusText.contains("待批") || detail.statusText.contains("未批") || detail.statusText.contains("待评")
+        val isReallyGraded = (detail.isGraded || hasScore) && !isPending
 
         if (isReallyGraded && (hasScore || hasComment)) {
             binding.cardFeedback.visibility = View.VISIBLE
             binding.tvTeacherScore.text = if (hasScore) "${detail.score} 分" else "已批阅"
             binding.tvTeacherComment.text = if (hasComment) "教师评语：$cleanComment" else "教师未留下文字评语"
-        } else if (hasComment && !detail.statusText.contains("待批") && !detail.statusText.contains("未批")) {
+        } else if (hasComment && !isPending) {
             binding.cardFeedback.visibility = View.VISIBLE
             binding.tvTeacherScore.text = "待评分"
             binding.tvTeacherComment.text = "教师评语：$cleanComment"
