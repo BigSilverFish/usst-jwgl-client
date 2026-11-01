@@ -1,5 +1,7 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
+import android.content.res.Configuration
+
 import android.app.ProgressDialog
 import android.content.Context
 import android.content.res.ColorStateList
@@ -1983,6 +1985,13 @@ class TronClassCourseDetailFragment : Fragment() {
             mainAct.openTronClassDownloads()
         } else {
             TronClassDownloadActivity.start(requireContext())
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        _binding?.let { b ->
+            ViewCompat.requestApplyInsets(b.root)
         }
     }
 

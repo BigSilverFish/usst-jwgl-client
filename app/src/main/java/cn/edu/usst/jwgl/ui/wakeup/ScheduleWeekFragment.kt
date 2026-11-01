@@ -141,7 +141,7 @@ class ScheduleWeekFragment : Fragment() {
         }
     }
 
-    private fun renderSchedule() {
+    internal fun renderSchedule() {
         val context = context ?: return
         val db = AppDatabase.getDatabase(context)
         val act = activity as? cn.edu.usst.jwgl.ui.MainActivity
