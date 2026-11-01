@@ -17,7 +17,7 @@ object TabletLayoutHelper {
     fun isTabletLandscape(context: Context, config: Configuration? = null): Boolean {
         val cfg = config ?: context.resources.configuration
         return cfg.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-                cfg.screenWidthDp >= 600
+                cfg.smallestScreenWidthDp >= 600
     }
 
     /**
@@ -29,7 +29,7 @@ object TabletLayoutHelper {
         val bottomSheetDialog = dialog as? BottomSheetDialog ?: return
         val bottomSheet = bottomSheetDialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet) ?: return
         val behavior = BottomSheetBehavior.from(bottomSheet)
-        val isLargeLand = isTabletLandscape(context) || context.resources.configuration.screenWidthDp >= 600
+        val isLargeLand = isTabletLandscape(context) || context.resources.configuration.smallestScreenWidthDp >= 600
 
         if (isLargeLand) {
             val maxWidthPx = dpToPx(context, 560f)
