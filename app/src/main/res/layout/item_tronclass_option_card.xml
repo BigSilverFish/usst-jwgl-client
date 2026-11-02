@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/cardOptionRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginVertical="4dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/border"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="10dp">
+
+        <!-- 1. 原生单选组件 (用于单选题与判断题) -->
+        <com.google.android.material.radiobutton.MaterialRadioButton
+            android:id="@+id/rbOption"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:clickable="false"
+            android:focusable="false"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:visibility="gone"
+            tools:checked="true"
+            tools:visibility="visible" />
+
+        <!-- 2. 原生多选组件 (用于多选题) -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/cbOption"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:clickable="false"
+            android:focusable="false"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:visibility="gone"
+            tools:visibility="gone" />
+
+        <!-- 3. 选项序号徽章 (A, B, C, D 或 ✓, ✕) -->
+        <TextView
+            android:id="@+id/tvOptionBadge"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/badge_bg"
+            android:gravity="center"
+            android:textColor="@color/primary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            tools:text="A" />
+
+        <!-- 4. 选项内容富文本 -->
+        <TextView
+            android:id="@+id/tvOptionContent"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            tools:text="选项描述内容..." />
+
+        <!-- 5. 评阅结果状态徽章 (标准答案 / 您的选择) -->
+        <TextView
+            android:id="@+id/tvOptionReviewTag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/badge_bg"
+            android:paddingHorizontal="7dp"
+            android:paddingVertical="2dp"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="✓ 标准答案"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

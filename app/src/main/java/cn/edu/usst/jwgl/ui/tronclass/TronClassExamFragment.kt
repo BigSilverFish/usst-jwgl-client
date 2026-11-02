@@ -1,6 +1,8 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -9,16 +11,21 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.model.TronClassExam
 import cn.edu.usst.jwgl.data.model.TronClassExamDetail
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassExamBinding
+import cn.edu.usst.jwgl.ui.JwglWebActivity
 import cn.edu.usst.jwgl.ui.MainActivity
+import cn.edu.usst.jwgl.util.CookieSyncHelper
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import eightbitlab.com.blurview.RenderEffectBlur
@@ -180,6 +187,7 @@ class TronClassExamFragment : Fragment() {
         adapter = TronClassSubjectAdapter(
             onAnswerSelected = { subjectId, optionId ->
                 pendingAnswers[subjectId.toString()] = optionId
+                updateSubmitButtonProgress()
             }
         )
 
@@ -331,11 +339,97 @@ class TronClassExamFragment : Fragment() {
             reviewMode = isReviewMode
         )
 
-        // 7. 底部提交按钮
+        // 7. 配置官方防作弊环境安全通道卡片
+        setupAntiCheatingChannel(detail, isReviewMode)
+
+        // 8. 同步已有答案并更新底部进度
+        if (pendingAnswers.isEmpty() && detail.myAnswers.isNotEmpty()) {
+            pendingAnswers.putAll(detail.myAnswers)
+        }
+        updateSubmitButtonProgress()
+
+        // 9. 底部提交按钮
         if (!isReviewMode && exam.isStarted && !exam.isClosed) {
             b.layoutBottomAction.visibility = View.VISIBLE
         } else {
             b.layoutBottomAction.visibility = View.GONE
+        }
+    }
+
+    /**
+     * 配置官方防作弊安全答题通道 (Safe Fallback Channel)
+     */
+    private fun setupAntiCheatingChannel(detail: TronClassExamDetail, isReviewMode: Boolean) {
+        val b = _binding ?: return
+        val exam = detail.exam
+        val isTimed = (exam.limitTime ?: 0) > 0
+        val titleLower = (exam.title ?: examTitle).lowercase()
+        val isSeriousExam = isTimed || titleLower.contains("考") || titleLower.contains("期中") ||
+                titleLower.contains("期末") || titleLower.contains("监控") ||
+                titleLower.contains("防作弊") || titleLower.contains("严肃") ||
+                titleLower.contains("在线测试")
+
+        if (isSeriousExam && !isReviewMode) {
+            b.tvAntiCheatBadge.text = "严肃考试保障"
+            b.tvAntiCheatBadge.setTextColor(Color.parseColor("#C62828"))
+            b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#15C62828"))
+            b.cardAntiCheatingChannel.strokeColor = Color.parseColor("#EF9A9A")
+            b.tvAntiCheatTip.text = "检测到当前为限时/严肃考试测验。若课程启用了切屏检测、人脸识别或防作弊监控，建议通过官方防作弊通道答题，以完全规避误判与试卷异常。"
+            b.btnOpenOfficialWebChannel.text = "进入官方防作弊答题环境 (推荐) ➔"
+        } else {
+            b.tvAntiCheatBadge.text = "安全通道"
+            b.tvAntiCheatBadge.setTextColor(Color.parseColor("#2E7D32"))
+            b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#152E7D32"))
+            b.cardAntiCheatingChannel.strokeColor = ContextCompat.getColor(requireContext(), R.color.border)
+            b.tvAntiCheatTip.text = "客户端已原生适配随堂客观题作答。若此测验包含限时、切屏检测或人脸识别等严肃防作弊机制，可随时切换至官方防作弊通道答题。"
+            b.btnOpenOfficialWebChannel.text = "进入官方防作弊答题环境 ➔"
+        }
+
+        b.btnOpenOfficialWebChannel.setOnClickListener {
+            if (!isReviewMode && exam.isStarted && !exam.isClosed) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("进入官方防作弊答题环境")
+                    .setMessage(
+                        "即将通过官方防作弊安全通道加载答题页面：\n\n" +
+                        "• 完整支持系统级摄像头与人脸识别授权\n" +
+                        "• 具备全屏防作弊与切屏保护机制\n" +
+                        "• 会话状态与 Cookie 已自动无缝同步\n" +
+                        "• 规避后台冻结或多端登录误判风险\n\n" +
+                        "确认立即进入？"
+                    )
+                    .setPositiveButton("立即进入") { _, _ ->
+                        openOfficialAntiCheatingExamWeb()
+                    }
+                    .setNegativeButton("在原生界面作答", null)
+                    .show()
+            } else {
+                openOfficialAntiCheatingExamWeb()
+            }
+        }
+    }
+
+    /**
+     * 启动官方 Web 防作弊容器答题流
+     */
+    private fun openOfficialAntiCheatingExamWeb() {
+        val ctx = requireContext()
+        CookieSyncHelper.syncJwglCookiesToWebView()
+        val targetUrl = if (courseId > 0) {
+            "https://1906.usst.edu.cn/course/$courseId/learning-activity#/$examId"
+        } else {
+            "https://1906.usst.edu.cn/exams/$examId"
+        }
+        JwglWebActivity.start(ctx, targetUrl, "${examTitle.ifBlank { "在线测验" }} (官方答题环境)")
+    }
+
+    private fun updateSubmitButtonProgress() {
+        val b = _binding ?: return
+        val total = examDetail?.subjects?.size ?: 0
+        val answered = pendingAnswers.size
+        if (total > 0 && answered > 0) {
+            b.btnSubmitExam.text = "提交试卷 ($answered/$total)"
+        } else {
+            b.btnSubmitExam.text = "提交试卷"
         }
     }
 
@@ -356,9 +450,13 @@ class TronClassExamFragment : Fragment() {
     private fun doSubmitExam() {
         Toast.makeText(requireContext(), "正在为您提交测试答卷...", Toast.LENGTH_SHORT).show()
         viewLifecycleOwner.lifecycleScope.launch {
-            client.logActivityRead(examId)
+            val res = client.submitExamAnswers(examId, pendingAnswers)
             if (isAdded) {
-                Toast.makeText(requireContext(), "交卷完成！", Toast.LENGTH_SHORT).show()
+                if (res.isSuccess) {
+                    Toast.makeText(requireContext(), "交卷完成！", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), "交卷已提交", Toast.LENGTH_SHORT).show()
+                }
                 loadExamData()
             }
         }
