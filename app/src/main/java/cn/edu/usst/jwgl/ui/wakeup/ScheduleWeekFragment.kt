@@ -490,9 +490,9 @@ class ScheduleWeekFragment : Fragment() {
 
                     if (isWeekActive) {
                         if (isDark) {
-                            // 深色模式下：文字强制纯白高亮，确保无论卡片底色为何均清晰易读
+                            // 深色模式下文字设为纯白高亮，确保在鲜艳卡片底色上文字清晰锐利
                             setTextColor(Color.WHITE)
-                            bgDrawable.setStroke(dpToPx(1f), 0x33FFFFFF)
+                            bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
                         } else {
                             setTextColor(table.courseTextColor)
                             bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
@@ -500,18 +500,8 @@ class ScheduleWeekFragment : Fragment() {
 
                         try {
                             val baseHex = course.color.removePrefix("#")
-                            if (isDark) {
-                                // 深色模式下：对背景色进行微调，压低亮度，增强饱和度与对比度，营造高级暗黑卡片质感
-                                val rawCol = Color.parseColor("#$baseHex")
-                                val hsv = FloatArray(3)
-                                Color.colorToHSV(rawCol, hsv)
-                                hsv[1] = hsv[1].coerceAtLeast(0.65f) // 色相纯正
-                                hsv[2] = hsv[2].coerceIn(0.28f, 0.46f) // 舒适暗调背景
-                                bgDrawable.setColor(Color.HSVToColor(hsv))
-                            } else {
-                                val colorWithAlpha = Color.parseColor("#$alphaHex$baseHex")
-                                bgDrawable.setColor(colorWithAlpha)
-                            }
+                            val colorWithAlpha = Color.parseColor("#$alphaHex$baseHex")
+                            bgDrawable.setColor(colorWithAlpha)
                         } catch (e: Exception) {
                             bgDrawable.setColor(Color.parseColor(course.color))
                         }
