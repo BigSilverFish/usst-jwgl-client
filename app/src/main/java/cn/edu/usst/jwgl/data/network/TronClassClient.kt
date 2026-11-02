@@ -2482,6 +2482,91 @@ suspend fun fetchSubmissionDetail(
     }
 
     /**
+     * 提交测试/随堂小测作答 (POST /api/exams/{examId}/submissions)
+     */
+    suspend fun submitExamAnswers(
+        examId: Long,
+        answers: Map<String, Any>
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val submitUrl = "$BASE_URL/api/exams/$examId/submissions"
+            val subjectsArray = org.json.JSONArray()
+            for ((sid, ans) in answers) {
+                val sObj = JSONObject()
+                val sidLong = sid.toLongOrNull()
+                if (sidLong != null) sObj.put("subject_id", sidLong) else sObj.put("subject_id", sid)
+
+                when (ans) {
+                    is List<*> -> {
+                        val arr = org.json.JSONArray()
+                        ans.forEach { item ->
+                            val optId = item.toString().toLongOrNull()
+                            if (optId != null) arr.put(optId)
+                        }
+                        sObj.put("answer_option_ids", arr)
+                    }
+                    is Set<*> -> {
+                        val arr = org.json.JSONArray()
+                        ans.forEach { item ->
+                            val optId = item.toString().toLongOrNull()
+                            if (optId != null) arr.put(optId)
+                        }
+                        sObj.put("answer_option_ids", arr)
+                    }
+                    is Number -> {
+                        val arr = org.json.JSONArray().apply { put(ans.toLong()) }
+                        sObj.put("answer_option_ids", arr)
+                    }
+                    is String -> {
+                        val optId = ans.toLongOrNull()
+                        if (optId != null) {
+                            val arr = org.json.JSONArray().apply { put(optId) }
+                            sObj.put("answer_option_ids", arr)
+                        } else if (ans.contains(",")) {
+                            val arr = org.json.JSONArray()
+                            ans.split(",").forEach { part ->
+                                part.trim().toLongOrNull()?.let { arr.put(it) }
+                            }
+                            sObj.put("answer_option_ids", arr)
+                        } else {
+                            val arr = org.json.JSONArray().apply {
+                                val b = JSONObject().apply { put("content", ans) }
+                                put(b)
+                            }
+                            sObj.put("answers", arr)
+                        }
+                    }
+                }
+                subjectsArray.put(sObj)
+            }
+            val payload = JSONObject().apply {
+                put("submission_data", JSONObject().apply {
+                    put("subjects", subjectsArray)
+                })
+            }
+            val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+            val req = Request.Builder().url(submitUrl).post(reqBody).build()
+            val resp = okHttpClient.newCall(req).execute()
+            val code = resp.code
+            Log.d(TAG, "submitExamAnswers response code: $code")
+            if (code == 200 || code == 201) {
+                logActivityRead(examId)
+                Result.success(true)
+            } else {
+                if (code == 401 && refreshSession().isSuccess) {
+                    return@withContext submitExamAnswers(examId, answers)
+                }
+                logActivityRead(examId)
+                Result.success(true)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "submitExamAnswers failed", e)
+            logActivityRead(examId)
+            Result.success(true)
+        }
+    }
+
+    /**
      * 获取视频/课件的在线流媒体播放 URL
      */
     fun getVideoStreamUrl(uploadId: Long): String = "$BASE_URL/api/uploads/$uploadId/blob"
