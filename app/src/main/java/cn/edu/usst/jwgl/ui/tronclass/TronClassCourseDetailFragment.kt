@@ -2040,10 +2040,37 @@ class TronClassCourseDetailFragment : Fragment() {
         tvSize.text = "状态: ${exam.status}$scoreText"
 
         val hasAnalysis = exam.analysisUrl.isNotBlank()
-        btnAction.text = if (hasAnalysis) "查看分析" else "进入测验"
+        val isDone = exam.status.contains("已完成") || exam.status.contains("已批") || exam.score.isNotBlank()
+        btnAction.text = if (isDone) "查看试卷 (原生)" else "进入测验 (原生)"
         btnAction.setIconResource(R.drawable.ic_chevron_right)
 
         btnAction.setOnClickListener {
+            dialog.dismiss()
+            val mainAct = activity as? MainActivity
+            if (mainAct != null) {
+                mainAct.openChaoXingExam(exam, rawChaoXingCourse)
+            } else {
+                TronClassExamActivity.startForChaoXing(ctx, exam, rawChaoXingCourse)
+            }
+        }
+
+        llAttachments.addView(card)
+
+        // 2. 官方防作弊安全通道卡片
+        val safeCard = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
+        val safeIcon = safeCard.findViewById<ImageView>(R.id.ivAttachmentIcon)
+        val safeName = safeCard.findViewById<TextView>(R.id.tvAttachmentName)
+        val safeSize = safeCard.findViewById<TextView>(R.id.tvAttachmentSize)
+        val safeBtnAction = safeCard.findViewById<MaterialButton>(R.id.btnAttachmentAction)
+
+        safeIcon.setImageResource(R.drawable.ic_camera)
+        safeIcon.setColorFilter(Color.parseColor("#0284C7"))
+        safeName.text = "官方防作弊环境通道"
+        safeSize.text = if (hasAnalysis) "提供超星智能答卷分析报告" else "支持摄像头、人脸识别与防切屏监控"
+        safeBtnAction.text = if (hasAnalysis) "智能分析" else "官方通道"
+        safeBtnAction.setIconResource(R.drawable.ic_chevron_right)
+
+        safeBtnAction.setOnClickListener {
             dialog.dismiss()
             val targetUrl = if (hasAnalysis) exam.analysisUrl else {
                 val cx = rawChaoXingCourse
@@ -2052,7 +2079,7 @@ class TronClassCourseDetailFragment : Fragment() {
             ChaoXingNavigator.openChaoXingWebPage(ctx, targetUrl, exam.title)
         }
 
-        llAttachments.addView(card)
+        llAttachments.addView(safeCard)
         dialog.show()
     }
 

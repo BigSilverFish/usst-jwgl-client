@@ -3,6 +3,7 @@ package cn.edu.usst.jwgl.data.network
 import android.content.Context
 import android.util.Log
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
+import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.model.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -151,10 +152,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                 val id = Regex("""viewExamAnswer\('(\d+)'""").find(body)?.groupValues?.get(1)
                     ?: Regex("""goTest\('[^']*',\s*(\d+)""").find(body)?.groupValues?.get(1)
+                    ?: Regex("""(?:examId|paperId|id)=(\d+)""").find(body)?.groupValues?.get(1)
                     ?: ""
 
                 val rawAnalysis = Regex("""href="(https://stat2-ans[^"]+)"""").find(body)?.groupValues?.get(1) ?: ""
                 val analysisUrl = rawAnalysis.replace("&amp;", "&")
+
+                val taskUrl = Regex("""(?:href=['"]|data=['"])(/[^'"]*(?:exam|test|preview|paper)[^'"]*)""").find(body)?.groupValues?.get(1)?.replace("&amp;", "&").orEmpty()
 
                 out.add(
                     ChaoXingExam(
@@ -163,7 +167,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         status = status,
                         remaining = remaining,
                         score = score,
-                        analysisUrl = analysisUrl
+                        analysisUrl = analysisUrl,
+                        taskUrl = taskUrl
                     )
                 )
             }
@@ -607,28 +612,64 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             if (html.isBlank()) return list
             try {
                 val doc = Jsoup.parse(html)
-                val qElements = doc.select(".singleQuesId, div[class*='singleQues'], .TiMu, .mark_item, .questionBlock, .questionLi")
+                // 1. 抓取所有可能代表题目的候选容器 (涵盖 PC 端 TiMu / Zy_TItle 以及移动端 singleQuesId / questionBlock 等)
+                val rawCandidates = doc.select(".TiMu, .singleQuesId, div[class*='singleQues'], .mark_item, .questionBlock, .questionLi, .padlr30")
+                // 关键防嵌套过滤：如果某个候选元素的祖先中已有其他候选元素，则该元素为嵌套的内部容器，应予过滤，只保留最外层完整题目容器
+                val rawSet = rawCandidates.toSet()
+                val topElements = rawCandidates.filter { el ->
+                    el.parents().none { it in rawSet }
+                }
 
-                for ((idx, qEl) in qElements.withIndex()) {
-                    val index = idx + 1
-                    val typeScoreEl = qEl.select(".stemGray, .question-type, .type, .colorDeep, .type_tit, .color888").firstOrNull()
+                val seenSignatures = mutableSetOf<String>()
+                var questionIndex = 1
+
+                for (qEl in topElements) {
+                    // 题型与分值提取 (支持 PC 端 newZy_TItle、Zy_TItle、colorDeep，以及移动端 stemGray 等)
+                    val typeScoreEl = qEl.select(".newZy_TItle, .stemGray, .question-type, .type, .colorDeep, .type_tit, .color888, .font14").firstOrNull()
                     val typeScoreText = typeScoreEl?.text()?.trim().orEmpty()
-                    val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText.ifBlank { qEl.text() })
+                    val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText)
+                        ?: Regex("""[(（\[【]\s*(\d+(?:\.\d+)?)\s*分\s*[)）\]】]""").find(qEl.text())
+                        ?: Regex("""(?:分值[:：\s]*|共\s*)(\d+(?:\.\d+)?)\s*分""").find(qEl.text())
                     val scoreText = scoreMatch?.groupValues?.get(1)?.let { "$it 分" } ?: ""
 
-                    // 1. 题干提取 (优先题干容器，并过滤题号和开头题型标签)
-                    val stemEl = qEl.select(".stemDiv .Picdiv, .Picdiv, .stemDiv, .qtContent, .workTextWrap, .font14, .stem_title, .title").firstOrNull()
+                    // 1. 题干提取 (支持 PC 端 Zy_TItle 与移动端 stemDiv / Picdiv)
+                    val stemEl = qEl.select(".Zy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .qtContent, .workTextWrap, .font14, .stem_title, .title, .sub-title").firstOrNull()
                     var stemHtml = stemEl?.html()?.trim().orEmpty()
                     var cleanStem = stemEl?.text()?.trim().orEmpty()
                     if (cleanStem.isBlank()) {
-                        cleanStem = qEl.select(".stemDiv, .title, .sub-title").text().trim()
+                        cleanStem = qEl.select(".Zy_TItle, .stemDiv, .title, .sub-title").text().trim()
                     }
                     // 清理题干开头的题号 ("1.", "1、", "1 ")
                     cleanStem = cleanStem.replace(Regex("""^\d+[.\u3001\s]+"""), "")
                     // 清理题干开头的题型与分值标注 ("(单选题, 2分)", "【单选题】", "[单选题]")
                     cleanStem = cleanStem.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
+                    // 清理题干末尾的分值标注 ("（2.0分）", "(2分)")
+                    cleanStem = cleanStem.replace(Regex("""[(（\[【]?\d+(?:\.\d+)?\s*分[)）\]】]?\s*$"""), "")
                     cleanStem = cleanStem.trim()
                     if (stemHtml.isBlank()) stemHtml = cleanStem
+
+                    // 8. 题目 ID 提取
+                    var qId = qEl.attr("data").trim()
+                    if (qId.isBlank()) {
+                        qId = Regex("""\d+""").find(qEl.attr("id"))?.value.orEmpty()
+                    }
+                    if (qId.isBlank()) {
+                        qId = qEl.select("[id^='qb']").firstOrNull()?.let { Regex("""\d+""").find(it.attr("id"))?.value }.orEmpty()
+                    }
+                    if (qId.isBlank()) {
+                        qId = qEl.attr("questionid").trim()
+                    }
+                    if (qId.isBlank()) {
+                        qId = qEl.select("input[name*='id'], input[id*='id'], [data-singlequesid]").firstOrNull()?.let {
+                            it.attr("data-singlequesid").ifBlank { it.attr("value") }
+                        }.orEmpty()
+                    }
+
+                    // 避免重复题目条目入库 (根据 ID 或 Stem 签名去重)
+                    val signature = if (qId.isNotBlank()) "id_$qId" else "stem_${cleanStem.take(60)}"
+                    if (cleanStem.isNotBlank() && !seenSignatures.add(signature)) {
+                        continue
+                    }
 
                     // 2. 提取题干中的教师附件或图片
                     val teacherAtts = mutableListOf<ChaoXingCourseAttachment>()
@@ -649,17 +690,29 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                     }
 
-                    // 3. 提取客观题选项列表 (Radio / CheckBox 候选条目)
+                    // 3. 提取客观题选项列表 (支持 Zy_ulTop, Cy_ulTop, Zy_ulTk, ulOption, stem_answer 等)
                     val options = parseOptionsFromQuestionElement(qEl)
 
-                    // 4. 学生作答提取
-                    val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer").firstOrNull()
-                    val ansHtml = ansEl?.html()?.trim().orEmpty()
-                    var cleanAns = if (ansEl != null) {
-                        ansEl.text().replace(Regex("""^(?:我的答案|我的作答|学生答案)[:：\s]*"""), "").trim()
-                    } else {
-                        val m = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())
-                        m?.groupValues?.get(1)?.trim().orEmpty()
+                    // 4. 学生作答提取 (支持 Py_answer, stuAnswerContent, stuAnswer 等)
+                    var cleanAns = ""
+                    var ansHtml = ""
+                    val pyAns = qEl.select(".Py_answer, .Py_tk").firstOrNull()
+                    if (pyAns != null) {
+                        val m = Regex("""(?:我的答案|学生答案)[:：\s]*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(pyAns.text())
+                        if (m != null) {
+                            cleanAns = m.groupValues[1].trim()
+                        }
+                        ansHtml = pyAns.html().trim()
+                    }
+                    if (cleanAns.isBlank()) {
+                        val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer").firstOrNull()
+                        ansHtml = ansEl?.html()?.trim().orEmpty()
+                        cleanAns = if (ansEl != null) {
+                            ansEl.text().replace(Regex("""^(?:我的答案|我的作答|学生答案)[:：\s]*"""), "").trim()
+                        } else {
+                            val m = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())
+                            m?.groupValues?.get(1)?.trim().orEmpty()
+                        }
                     }
                     if (cleanAns.isBlank() && options.isNotEmpty()) {
                         val chosenLetters = options.filter { it.isSelected }.map { it.letter }
@@ -668,13 +721,22 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                     }
 
-                    // 5. 标准答案提取
-                    val rightEl = qEl.select(".rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").firstOrNull()
-                    var correctAns = if (rightEl != null) {
-                        rightEl.text().replace(Regex("""^(?:正确答案|标准答案|参考答案)[:：\s]*"""), "").trim()
-                    } else {
-                        val m = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())
-                        m?.groupValues?.get(1)?.trim().orEmpty()
+                    // 5. 标准答案提取 (支持 Py_answer, true_answer, rightAnswer 等)
+                    var correctAns = ""
+                    if (pyAns != null) {
+                        val m = Regex("""(?:正确答案|标准答案|参考答案)[:：\s]*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:我的答案|学生答案|答案解析|解析|教师批阅|教师评语|$))""").find(pyAns.text())
+                        if (m != null) {
+                            correctAns = m.groupValues[1].trim()
+                        }
+                    }
+                    if (correctAns.isBlank()) {
+                        val rightEl = qEl.select(".true_answer, .rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").firstOrNull()
+                        correctAns = if (rightEl != null) {
+                            rightEl.text().replace(Regex("""^(?:正确答案|标准答案|参考答案)[:：\s]*"""), "").trim()
+                        } else {
+                            val m = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())
+                            m?.groupValues?.get(1)?.trim().orEmpty()
+                        }
                     }
                     if (correctAns.isBlank() && options.isNotEmpty()) {
                         val rightLetters = options.filter { it.isCorrect }.map { it.letter }
@@ -684,7 +746,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     }
 
                     // 6. 题目解析提取
-                    val expEl = qEl.select(".analysis, .myAnalysis, .analysisDiv, .explain, .fenxi").firstOrNull()
+                    val expEl = qEl.select(".analysis, .myAnalysis, .analysisDiv, .explain, .fenxi, .Py_tk").firstOrNull()
                     var explanation = if (expEl != null) {
                         expEl.text().replace(Regex("""^(?:答案解析|解析|题目分析)[:：\s]*"""), "").trim()
                     } else {
@@ -692,9 +754,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         m?.groupValues?.get(1)?.trim().orEmpty()
                     }
 
+                    // 提取学生作答附件
                     val studentAtts = mutableListOf<ChaoXingCourseAttachment>()
-                    if (ansEl != null) {
-                        for (iframe in ansEl.select("iframe.attach-iframe, iframe[objectid]")) {
+                    val searchAnsEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer, .Py_answer").firstOrNull()
+                    if (searchAnsEl != null) {
+                        for (iframe in searchAnsEl.select("iframe.attach-iframe, iframe[objectid]")) {
                             val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
                             val oid = iframe.attr("objectid")
                             val fsStr = iframe.attr("filesize")
@@ -714,24 +778,12 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     val commentEl = qEl.select(".grayDiv, .pingyu, .remark, .comment, .teach-comment").firstOrNull()
                     val commentText = cleanTeacherComment(commentEl)
 
-                    // 8. 题目 ID 提取
-                    var qId = qEl.attr("data").trim()
-                    if (qId.isBlank()) {
-                        qId = Regex("""\d+""").find(qEl.attr("id"))?.value.orEmpty()
-                    }
-                    if (qId.isBlank()) {
-                        qId = qEl.select("[id^='qb']").firstOrNull()?.let { Regex("""\d+""").find(it.attr("id"))?.value }.orEmpty()
-                    }
-                    if (qId.isBlank()) {
-                        qId = qEl.attr("questionid").trim()
-                    }
-
                     // 9. 精准解析题型 (结合属性、文本与选项结构智能判别，坚决杜绝把选择题误判为主观题)
                     val (typeCode, typeName) = resolveQuestionType(qEl, typeScoreText, options)
 
                     list.add(
                         ChaoXingQuestionItem(
-                            index = index,
+                            index = questionIndex++,
                             id = qId,
                             typeCode = typeCode,
                             typeName = typeName,
@@ -761,19 +813,34 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         fun parseOptionsFromQuestionElement(qEl: org.jsoup.nodes.Element): List<ChaoXingQuestionOption> {
             val options = mutableListOf<ChaoXingQuestionOption>()
 
+            val pyAnsText = qEl.select(".Py_answer, .Py_tk").text().trim()
             val myAnsText = qEl.select(".stuAnswer, .myAnswer, .my-answer, .stuAnswerContent").text().trim()
-            val rightAnsText = qEl.select(".rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").text().trim()
-            val myFallback = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
-            val rightFallback = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
-            val myLetters = extractChoiceLetters(myAnsText.ifBlank { myFallback })
-            val rightLetters = extractChoiceLetters(rightAnsText.ifBlank { rightFallback })
+            val rightAnsText = qEl.select(".true_answer, .rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").text().trim()
+            val myFallback = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
+            val rightFallback = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
 
-            // 1. 常见超星选项列表选择器
+            val myFullStr = "$pyAnsText $myAnsText $myFallback"
+            val rightFullStr = "$pyAnsText $rightAnsText $rightFallback"
+
+            val myLetters = extractChoiceLetters(myFullStr)
+            val rightLetters = extractChoiceLetters(rightFullStr)
+
+            // 1. 常见超星选项列表选择器 (涵盖 PC 端 Zy_ulTop, Cy_ulTop, Zy_ulTk, ulOption 及移动端 stem_answer, answerList 等)
             val optEls = qEl.select("""
+                ul.Zy_ulTop > li,
+                ul.Zy_ulTop li,
+                ul.Cy_ulTop > li,
+                ul.Cy_ulTop li,
+                ul.Zy_ulTk > li,
+                ul.Zy_ulTk li,
+                ul.ulOption > li,
+                ul.ulOption li,
                 .stem_answer li,
+                .stem_answer .clearfix,
                 .answerList .clearfix,
                 .answerList .answerList_item,
                 .answerList > div,
+                .answerList li,
                 .options li,
                 .optionList li,
                 .option_list li,
@@ -782,15 +849,23 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 .choiceList li,
                 div[class*='answerBg'],
                 ul[class*='answer'] li,
-                ul[class*='option'] li
+                ul[class*='option'] li,
+                ul[class*='ulTop'] li,
+                ul[class*='ulTk'] li
             """.trimIndent())
 
             val letterList = listOf("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
 
             if (optEls.isNotEmpty()) {
                 for ((idx, optEl) in optEls.withIndex()) {
-                    val badgeEl = optEl.select(".num_option, .num, i.fl, em.fl, .option_num, span.fl, .letter, i").firstOrNull()
-                    var letter = badgeEl?.text()?.replace(Regex("""[^A-Za-z✓✕对错正确错误]"""), "")?.trim()?.uppercase().orEmpty()
+                    val badgeEl = optEl.select(".num_option, .num, i.fl, em.fl, .option_num, span.fl, .letter, i, em").firstOrNull()
+                    var letter = badgeEl?.attr("data")?.trim().orEmpty()
+                    if (letter.isBlank()) {
+                        letter = optEl.attr("data").trim()
+                    }
+                    if (letter.isBlank()) {
+                        letter = badgeEl?.text()?.replace(Regex("""[^A-Za-z✓✕对错正确错误]"""), "")?.trim()?.uppercase().orEmpty()
+                    }
                     val rawText = optEl.text().trim()
 
                     if (letter.isBlank()) {
@@ -803,7 +878,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         letter = if (idx < letterList.size) letterList[idx] else "${idx + 1}"
                     }
 
-                    val contentEl = optEl.select(".answer_p, .option_content, .text, .fl:not(i):not(em):not(.num_option), p, div").firstOrNull()
+                    // 选项文本提取 (支持 a.after, .answer_p, .option_content, .text 等)
+                    val contentEl = optEl.select("a.after, .answer_p, .option_content, .text, .fl:not(i):not(em):not(.num_option), p, a, div, span:not(.num_option)").firstOrNull()
                     var content = contentEl?.text()?.trim() ?: rawText
                     content = content.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
                     if (content.isBlank() && rawText.isNotBlank()) {
@@ -832,7 +908,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 }
             } else {
                 // 2. 备选方案：检查题干或题干下内嵌段落中的 A. B. C. D. 选项行
-                val pElements = qEl.select(".stemDiv p, .Picdiv p, p")
+                val pElements = qEl.select(".Zy_TItle p, .stemDiv p, .Picdiv p, p")
                 val pOptions = mutableListOf<Pair<String, String>>()
                 for (p in pElements) {
                     val text = p.text().trim()
@@ -881,8 +957,14 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             options: List<ChaoXingQuestionOption>
         ): Pair<String, String> {
             val allText = qEl.text()
-            val typeTextCandidates = qEl.select(".stemGray, .question-type, .type, .colorDeep, .color888, .type_tit, .stem_type, .font14, .stemDiv, .title").text()
+            val typeTextCandidates = qEl.select(".newZy_TItle, .Zy_TItle, .stemGray, .question-type, .type, .colorDeep, .color888, .type_tit, .stem_type, .font14, .stemDiv, .title").text()
             val fullScan = "$typeScoreText $typeTextCandidates $allText"
+
+            val attrTypeId = qEl.attr("questiontypeid").ifBlank { qEl.attr("type") }.ifBlank {
+                qEl.select("input[name*='type'], input[id*='type'], [questiontypeid], [data-type]").firstOrNull()?.let {
+                    it.attr("questiontypeid").ifBlank { it.attr("data-type") }.ifBlank { it.attr("value") }
+                }.orEmpty()
+            }
 
             val typeName = when {
                 fullScan.contains("多选题") || fullScan.contains("多选") || allText.contains("【多选题】") || allText.contains("(多选题") || allText.contains("（多选题") -> "多选题"
@@ -893,13 +975,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 fullScan.contains("名词解释") -> "名词解释"
                 fullScan.contains("论述题") -> "论述题"
                 fullScan.contains("计算题") -> "计算题"
-                qEl.attr("questiontypeid") == "0" || qEl.attr("type") == "0" -> "单选题"
-                qEl.attr("questiontypeid") == "1" || qEl.attr("type") == "1" -> "多选题"
-                qEl.attr("questiontypeid") == "2" || qEl.attr("type") == "2" -> "填空题"
-                qEl.attr("questiontypeid") == "3" || qEl.attr("type") == "3" -> "判断题"
-                qEl.attr("questiontypeid") == "4" || qEl.attr("type") == "4" -> "简答题"
-                options.size == 2 && (allText.contains("正确") || allText.contains("错误") || allText.contains("对") || allText.contains("错")) -> "判断题"
-                options.isNotEmpty() && qEl.select("input[type='checkbox']").isNotEmpty() -> "多选题"
+                attrTypeId == "0" -> "单选题"
+                attrTypeId == "1" -> "多选题"
+                attrTypeId == "2" -> "填空题"
+                attrTypeId == "3" -> "判断题"
+                attrTypeId == "4" -> "简答题"
+                options.size == 2 && (allText.contains("正确") || allText.contains("错误") || allText.contains("对") || allText.contains("错") || options.any { it.letter in listOf("✓", "✕", "对", "错") }) -> "判断题"
+                options.isNotEmpty() && (qEl.select("input[type='checkbox']").isNotEmpty() || fullScan.contains("多选")) -> "多选题"
                 options.isNotEmpty() -> "单选题"
                 typeScoreText.isNotBlank() -> typeScoreText.replace(Regex("""[(（\[【\d.\s分)）\]】]"""), "").trim().ifBlank { "主观题" }
                 else -> "主观题"
@@ -1217,13 +1299,123 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 return@withContext Result.failure(Exception("获取测验考试列表失败 (${resp.code})"))
             }
 
-            val exams = parseExamsFromHtml(html)
+            val parsedExams = parseExamsFromHtml(html)
+            val exams = parsedExams.map {
+                it.copy(
+                    courseId = course.courseId,
+                    classId = course.classId,
+                    courseName = course.courseName
+                )
+            }
             Log.i(TAG, "Successfully fetched ${exams.size} exams for course ${course.courseName}")
             Result.success(exams)
         } catch (e: Exception) {
             Log.e(TAG, "fetchExams error", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * 4b. 获取超星在线测验/考试详细试卷与客观题原生作答结构
+     */
+    suspend fun fetchExamDetail(
+        exam: ChaoXingExam,
+        course: ChaoXingCourse? = null,
+        studentId: String? = null
+    ): Result<ChaoXingExamDetail> = withContext(Dispatchers.IO) {
+        val ensureRes = chaoXingClient.ensureSession(studentId)
+        if (ensureRes.isFailure) {
+            return@withContext Result.failure(ensureRes.exceptionOrNull() ?: Exception("超星登录失效"))
+        }
+
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+        val cpi = course?.let { getEffectiveCpi(it, studentId) } ?: prefs.getUid(studentId).orEmpty()
+
+        val cacheMgr = TronClassDataCacheManager.getInstance(context)
+        val cached = cacheMgr.getCachedChaoXingExamDetail(exam.id)
+
+        val targetCourseId = (course?.courseId ?: exam.courseId).trim()
+        val targetClassId = (course?.classId ?: exam.classId).trim()
+        val isDone = exam.status.contains("已完成") || exam.status.contains("已批") || exam.score.isNotBlank()
+
+        val candidateUrls = mutableListOf<String>()
+        if (exam.taskUrl.isNotBlank()) {
+            val fullTask = if (exam.taskUrl.startsWith("http")) exam.taskUrl else "https://mooc1.chaoxing.com" + exam.taskUrl
+            candidateUrls.add(fullTask)
+        }
+        if (isDone) {
+            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/re-paper?courseId=$targetCourseId&classId=$targetClassId&id=${exam.id}")
+            candidateUrls.add("https://mooc1-api.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
+        } else {
+            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/test?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
+            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/re-paper?courseId=$targetCourseId&classId=$targetClassId&id=${exam.id}")
+        }
+
+        var lastException: Exception? = null
+        for (rawUrl in candidateUrls) {
+            try {
+                val fullUrl = if (cpi.isNotBlank() && !rawUrl.contains("cpi=") && !rawUrl.contains("personid=")) {
+                    rawUrl + (if (rawUrl.contains("?")) "&cpi=$cpi&personid=$cpi" else "?cpi=$cpi&personid=$cpi")
+                } else rawUrl
+
+                val req = Request.Builder()
+                    .url(fullUrl)
+                    .header("Cookie", cookies)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .get()
+                    .build()
+
+                val resp = okHttpClient.newCall(req).execute()
+                val html = resp.body?.string().orEmpty()
+                val finalUrl = resp.request.url.toString()
+
+                if (html.isNotBlank()) {
+                    val questions = parseQuestionsFromHtml(html)
+                    if (questions.isNotEmpty() || html.contains("TiMu") || html.contains("singleQuesId") || html.contains("questionBlock")) {
+                        val scoreStr = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""得分[:：]\s*(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: exam.score
+
+                        val limitMatch = Regex("""(?:限时|考试时长|时长)[:：]?\s*(\d+)\s*分钟""").find(html)
+                        val limitTime = limitMatch?.groupValues?.get(1)?.toIntOrNull()
+
+                        val timeRange = extractDeadlineFromText(html, html)
+
+                        val examDetail = ChaoXingExamDetail(
+                            examId = exam.id,
+                            title = exam.title,
+                            courseName = course?.courseName ?: exam.courseName,
+                            statusText = exam.status.ifBlank { if (isDone) "已完成" else "待作答" },
+                            score = scoreStr,
+                            timeRange = timeRange.ifBlank { exam.remaining },
+                            limitTime = limitTime,
+                            scoreRule = if (html.contains("最高分")) "highest" else "latest",
+                            rawQuestions = questions,
+                            analysisUrl = exam.analysisUrl,
+                            taskUrl = finalUrl,
+                            isSubmitted = isDone,
+                            isGraded = scoreStr.isNotBlank() || isDone
+                        )
+
+                        cacheMgr.saveChaoXingExamDetail(exam.id, examDetail)
+                        Log.i(TAG, "Successfully fetched ChaoXing exam detail: ${exam.title} (${questions.size} questions)")
+                        return@withContext Result.success(examDetail)
+                    }
+                }
+            } catch (e: Exception) {
+                lastException = e
+            }
+        }
+
+        if (cached != null) {
+            Log.w(TAG, "Returning cached ChaoXingExamDetail for ${exam.id}")
+            return@withContext Result.success(cached)
+        }
+
+        Result.failure<ChaoXingExamDetail>(lastException ?: Exception("未拉取到超星测验试卷题目"))
     }
 
     fun parseExamsFromHtml(html: String): List<ChaoXingExam> =

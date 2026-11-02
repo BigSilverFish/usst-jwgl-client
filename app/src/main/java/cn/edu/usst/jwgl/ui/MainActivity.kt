@@ -2771,6 +2771,14 @@ class MainActivity : AppCompatActivity() {
         getTronClassFragment()?.openExam(examId, courseId, title, courseName)
     }
 
+    fun openChaoXingExam(exam: cn.edu.usst.jwgl.data.model.ChaoXingExam, course: cn.edu.usst.jwgl.data.model.ChaoXingCourse? = null) {
+        if (currentTab != MainTab.TRONCLASS) {
+            switchTab(MainTab.TRONCLASS)
+        }
+        supportFragmentManager.executePendingTransactions()
+        getTronClassFragment()?.openChaoXingExam(exam, course)
+    }
+
     fun openTronClassDownloads() {
         if (currentTab != MainTab.TRONCLASS) {
             switchTab(MainTab.TRONCLASS)

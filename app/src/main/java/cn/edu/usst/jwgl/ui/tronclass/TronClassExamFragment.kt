@@ -18,9 +18,12 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
+import cn.edu.usst.jwgl.data.model.ChaoXingExam
 import cn.edu.usst.jwgl.data.model.TronClassExam
 import cn.edu.usst.jwgl.data.model.TronClassExamDetail
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassExamBinding
 import cn.edu.usst.jwgl.ui.JwglWebActivity
@@ -36,29 +39,56 @@ class TronClassExamFragment : Fragment() {
     private var _binding: ActivityTronclassExamBinding? = null
     private val binding get() = _binding!!
     private lateinit var client: TronClassClient
+    private lateinit var chaoXingDetailClient: ChaoXingCourseDetailClient
     private lateinit var adapter: TronClassSubjectAdapter
 
+    private var platform: String = "TRONCLASS"
     private var examId: Long = 0
     private var courseId: Long = 0
     private var examTitle: String = ""
     private var courseName: String = ""
+    private var chaoXingExam: ChaoXingExam? = null
+    private var chaoXingCourse: ChaoXingCourse? = null
 
     private var examDetail: TronClassExamDetail? = null
     private val pendingAnswers = mutableMapOf<String, Any>()
 
     companion object {
+        const val EXTRA_PLATFORM = "extra_platform"
+        const val EXTRA_CHAOXING_EXAM = "extra_chaoxing_exam"
+        const val EXTRA_CHAOXING_COURSE = "extra_chaoxing_course"
+
+        private const val ARG_PLATFORM = "arg_platform"
         private const val ARG_EXAM_ID = "arg_exam_id"
         private const val ARG_COURSE_ID = "arg_course_id"
         private const val ARG_TITLE = "arg_title"
         private const val ARG_COURSE_NAME = "arg_course_name"
+        private const val ARG_CHAOXING_EXAM = "arg_chaoxing_exam"
+        private const val ARG_CHAOXING_COURSE = "arg_chaoxing_course"
 
         fun newInstance(examId: Long, courseId: Long, title: String, courseName: String): TronClassExamFragment {
             return TronClassExamFragment().apply {
                 arguments = Bundle().apply {
+                    putString(ARG_PLATFORM, "TRONCLASS")
                     putLong(ARG_EXAM_ID, examId)
                     putLong(ARG_COURSE_ID, courseId)
                     putString(ARG_TITLE, title)
                     putString(ARG_COURSE_NAME, courseName)
+                }
+            }
+        }
+
+        fun newInstanceForChaoXing(
+            exam: ChaoXingExam,
+            course: ChaoXingCourse? = null
+        ): TronClassExamFragment {
+            return TronClassExamFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_PLATFORM, "CHAOXING")
+                    putSerializable(ARG_CHAOXING_EXAM, exam)
+                    course?.let { putSerializable(ARG_CHAOXING_COURSE, it) }
+                    putString(ARG_TITLE, exam.title)
+                    putString(ARG_COURSE_NAME, course?.courseName ?: exam.courseName)
                 }
             }
         }
@@ -67,10 +97,28 @@ class TronClassExamFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val args = arguments ?: return
-        examId = args.getLong(ARG_EXAM_ID, 0L)
-        courseId = args.getLong(ARG_COURSE_ID, 0L)
-        examTitle = args.getString(ARG_TITLE) ?: "测验详情"
-        courseName = args.getString(ARG_COURSE_NAME) ?: ""
+        platform = args.getString(ARG_PLATFORM) ?: "TRONCLASS"
+        if (platform == "CHAOXING") {
+            chaoXingExam = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                args.getSerializable(ARG_CHAOXING_EXAM, ChaoXingExam::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                args.getSerializable(ARG_CHAOXING_EXAM) as? ChaoXingExam
+            }
+            chaoXingCourse = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                args.getSerializable(ARG_CHAOXING_COURSE, ChaoXingCourse::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                args.getSerializable(ARG_CHAOXING_COURSE) as? ChaoXingCourse
+            }
+            examTitle = chaoXingExam?.title?.ifBlank { args.getString(ARG_TITLE) } ?: "测验详情"
+            courseName = chaoXingCourse?.courseName ?: chaoXingExam?.courseName ?: args.getString(ARG_COURSE_NAME).orEmpty()
+        } else {
+            examId = args.getLong(ARG_EXAM_ID, 0L)
+            courseId = args.getLong(ARG_COURSE_ID, 0L)
+            examTitle = args.getString(ARG_TITLE) ?: "测验详情"
+            courseName = args.getString(ARG_COURSE_NAME) ?: ""
+        }
     }
 
     override fun onCreateView(
@@ -85,6 +133,7 @@ class TronClassExamFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         client = TronClassClient(requireContext())
+        chaoXingDetailClient = ChaoXingCourseDetailClient(requireContext())
 
         val density = resources.displayMetrics.density
         val mainAct = activity as? MainActivity
@@ -214,6 +263,39 @@ class TronClassExamFragment : Fragment() {
     }
 
     private fun loadExamData(targetSubmissionId: Long? = null) {
+        if (platform == "CHAOXING") {
+            val cxExam = chaoXingExam ?: return
+            val cacheMgr = TronClassDataCacheManager.getInstance(requireContext())
+            val cached = cacheMgr.getCachedChaoXingExamDetail(cxExam.id)
+            if (cached != null && examDetail == null) {
+                val tcDetail = cached.toTronClassExamDetail(chaoXingCourse)
+                examDetail = tcDetail
+                displayExamDetail(tcDetail)
+            }
+
+            _binding?.swipeRefresh?.isRefreshing = true
+            viewLifecycleOwner.lifecycleScope.launch {
+                val res = chaoXingDetailClient.fetchExamDetail(cxExam, chaoXingCourse)
+                val b = _binding ?: return@launch
+                b.swipeRefresh.isRefreshing = false
+
+                if (res.isSuccess) {
+                    val cxDetail = res.getOrNull()
+                    if (cxDetail != null) {
+                        val tcDetail = cxDetail.toTronClassExamDetail(chaoXingCourse)
+                        examDetail = tcDetail
+                        displayExamDetail(tcDetail)
+                    }
+                } else {
+                    val err = res.exceptionOrNull()?.message ?: "获取超星测验试卷失败"
+                    if (isAdded) {
+                        Toast.makeText(requireContext(), err, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            return
+        }
+
         // 0. 本地缓存秒级直出
         if (targetSubmissionId == null) {
             val cached = TronClassDataCacheManager.getInstance(requireContext()).getCachedExamDetail(examId)
@@ -362,6 +444,30 @@ class TronClassExamFragment : Fragment() {
     private fun setupAntiCheatingChannel(detail: TronClassExamDetail, isReviewMode: Boolean) {
         val b = _binding ?: return
         val exam = detail.exam
+
+        if (platform == "CHAOXING") {
+            val isDone = isReviewMode || chaoXingExam?.status?.contains("已完成") == true || chaoXingExam?.status?.contains("已批") == true
+            if (isDone) {
+                b.tvAntiCheatBadge.text = "答卷回顾"
+                b.tvAntiCheatBadge.setTextColor(Color.parseColor("#2E7D32"))
+                b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#152E7D32"))
+                b.cardAntiCheatingChannel.strokeColor = ContextCompat.getColor(requireContext(), R.color.border)
+                b.tvAntiCheatTip.text = "客户端已原生解析此超星测验的客观题作答、分值与标准答案。如需查看超星智能答卷分析报告或原始答卷，可直接进入官方页面查看。"
+                b.btnOpenOfficialWebChannel.text = if (chaoXingExam?.analysisUrl.isNullOrBlank()) "查看超星官方答卷 ➔" else "查看超星智能答卷分析 ➔"
+            } else {
+                b.tvAntiCheatBadge.text = "严肃考试保障"
+                b.tvAntiCheatBadge.setTextColor(Color.parseColor("#C62828"))
+                b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#15C62828"))
+                b.cardAntiCheatingChannel.strokeColor = Color.parseColor("#EF9A9A")
+                b.tvAntiCheatTip.text = "超星在线测验通常包含人脸识别验证、摄像头监控或切屏防作弊机制。为确保绝对规避防作弊误判或试卷异常，未提交的严肃测验强烈建议通过官方通道作答。"
+                b.btnOpenOfficialWebChannel.text = "进入超星官方防作弊答题环境 (推荐) ➔"
+            }
+            b.btnOpenOfficialWebChannel.setOnClickListener {
+                openOfficialAntiCheatingExamWeb()
+            }
+            return
+        }
+
         val isTimed = (exam.limitTime ?: 0) > 0
         val titleLower = (exam.title ?: examTitle).lowercase()
         val isSeriousExam = isTimed || titleLower.contains("考") || titleLower.contains("期中") ||
@@ -413,6 +519,14 @@ class TronClassExamFragment : Fragment() {
      */
     private fun openOfficialAntiCheatingExamWeb() {
         val ctx = requireContext()
+        if (platform == "CHAOXING") {
+            val exam = chaoXingExam
+            val targetUrl = exam?.analysisUrl?.ifBlank { exam?.taskUrl }
+                ?: "https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/exam-list?courseid=${chaoXingCourse?.courseId ?: exam?.courseId}&clazzid=${chaoXingCourse?.classId ?: exam?.classId}&personid=${chaoXingCourse?.cpi}"
+            ChaoXingNavigator.openChaoXingWebPage(ctx, targetUrl, "${examTitle.ifBlank { "在线测验" }} (官方答题环境)")
+            return
+        }
+
         CookieSyncHelper.syncJwglCookiesToWebView()
         val targetUrl = if (courseId > 0) {
             "https://1906.usst.edu.cn/course/$courseId/learning-activity#/$examId"
@@ -434,6 +548,18 @@ class TronClassExamFragment : Fragment() {
     }
 
     private fun confirmSubmitExam() {
+        if (platform == "CHAOXING") {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("超星测验提交提示")
+                .setMessage("当前测验来自超星学习通。超星测验提交通常需要官方防作弊环境验证，推荐在官方答题环境中交卷，以确保成绩有效记录！")
+                .setPositiveButton("进入官方答题环境交卷") { _, _ ->
+                    openOfficialAntiCheatingExamWeb()
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+
         val answeredCount = pendingAnswers.size
         val totalCount = examDetail?.subjects?.size ?: 0
 

@@ -493,6 +493,98 @@ class ChaoXingCourseDetailClientTest {
     }
 
     @Test
+    fun testParsePCStyleQuestionsWithZyUlTopAndPyAnswer() {
+        val html = """
+            <div class="TiMu" data="9901" id="q_9901">
+                <div class="Zy_TItle">
+                    <div class="clearfix">
+                        <span class="newZy_TItle">【单选题】</span>
+                        <span>民族管弦乐团的编制中，有一个重要声部是在西洋管弦乐团中无法匹配的是 （2.0分）</span>
+                    </div>
+                </div>
+                <ul class="Zy_ulTop">
+                    <li>
+                        <span class="num_option" data="A">A.</span>
+                        <a class="after">吹管乐器组</a>
+                    </li>
+                    <li class="check_answer">
+                        <span class="num_option" data="B">B.</span>
+                        <a class="after">弹拨乐器组</a>
+                    </li>
+                    <li>
+                        <span class="num_option" data="C">C.</span>
+                        <a class="after">拉弦乐器组</a>
+                    </li>
+                    <li>
+                        <span class="num_option" data="D">D.</span>
+                        <a class="after">打击乐器组</a>
+                    </li>
+                </ul>
+                <div class="Py_answer clearfix">
+                    <span>我的答案：</span><i class="colorGreen">B</i>
+                    <span>正确答案：</span><i class="colorGreen">B</i>
+                </div>
+                <div class="Py_tk">
+                    <span>答案解析：</span>弹拨乐器组（如琵琶、筝、阮、扬琴等）是华夏民族管弦乐独有之编制。
+                </div>
+            </div>
+        """.trimIndent()
+
+        val questions = ChaoXingCourseDetailClient.parseQuestionsFromHtml(html)
+        assertEquals(1, questions.size)
+
+        val q = questions[0]
+        assertEquals(1, q.index)
+        assertEquals("单选题", q.typeName)
+        assertEquals("2.0 分", q.scoreText)
+        assertTrue(q.cleanStem.contains("民族管弦乐团"))
+        assertFalse(q.cleanStem.contains("【单选题】"))
+        assertFalse(q.cleanStem.contains("2.0分"))
+        assertEquals(4, q.options.size)
+        assertEquals("A", q.options[0].letter)
+        assertEquals("吹管乐器组", q.options[0].content)
+        assertEquals("B", q.options[1].letter)
+        assertEquals("弹拨乐器组", q.options[1].content)
+        assertTrue(q.options[1].isSelected)
+        assertTrue(q.options[1].isCorrect)
+        assertEquals("B", q.cleanMyAnswer)
+        assertEquals("B", q.correctAnswer)
+        assertTrue(q.explanation.contains("弹拨乐器组"))
+    }
+
+    @Test
+    fun testNestedElementsDeduplication() {
+        val html = """
+            <div class="questionBlock" id="qb_1">
+                <div class="TiMu" data="888" id="timu_888">
+                    <div class="singleQuesId" id="single_888">
+                        <div class="padlr30 whiteBg">
+                            <div class="stemDiv">
+                                <span class="stemGray">(单选题, 5分)</span>
+                                <div class="Picdiv">民族管弦乐团的编制中，有一个重要声部是在西洋管弦乐团中无法匹配的是</div>
+                            </div>
+                            <ul class="Zy_ulTop">
+                                <li><span class="num_option" data="A">A.</span><a class="after">吹管乐器组</a></li>
+                                <li><span class="num_option" data="B">B.</span><a class="after">弹拨乐器组</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val questions = ChaoXingCourseDetailClient.parseQuestionsFromHtml(html)
+        // 严格杜绝由于嵌套容器导致的题目重复 3 次 Bug！必须去重为唯一的 1 道题！
+        assertEquals(1, questions.size)
+        val q = questions[0]
+        assertEquals(1, q.index)
+        assertEquals("单选题", q.typeName)
+        assertEquals(2, q.options.size)
+        assertEquals("吹管乐器组", q.options[0].content)
+        assertEquals("弹拨乐器组", q.options[1].content)
+    }
+
+    @Test
     fun testParseSizeStrToBytes() {
         assertEquals(1024L, ChaoXingCourseDetailClient.parseSizeStrToBytes("1K"))
         assertEquals(2048L, ChaoXingCourseDetailClient.parseSizeStrToBytes("2KB"))
@@ -534,5 +626,90 @@ class ChaoXingCourseDetailClientTest {
         assertTrue(decodedUrl.contains("\"name\":\"servlet-captcha-login.zip\""))
         assertTrue(decodedUrl.contains("\"type\":\"zip\""))
         assertTrue(decodedUrl.contains("\"size\":\"8.49K\""))
+    }
+
+    @Test
+    fun testChaoXingExamNativeConversion() {
+        val course = ChaoXingCourse(
+            courseId = "202501",
+            classId = "303001",
+            courseName = "中国当代音乐名家名作"
+        )
+
+        val q1 = ChaoXingQuestionItem(
+            index = 1,
+            id = "q_101",
+            typeCode = "0",
+            typeName = "单选题",
+            scoreText = "2 分",
+            cleanStem = "民族管弦乐团的编制中，有一个重要声部是在西洋管弦乐团中无法匹配的是",
+            options = listOf(
+                ChaoXingQuestionOption("A", "吹管乐器组", isSelected = false, isCorrect = false),
+                ChaoXingQuestionOption("B", "弹拨乐器组", isSelected = true, isCorrect = true),
+                ChaoXingQuestionOption("C", "拉弦乐器组", isSelected = false, isCorrect = false),
+                ChaoXingQuestionOption("D", "打击乐器组", isSelected = false, isCorrect = false)
+            ),
+            correctAnswer = "B",
+            cleanMyAnswer = "B",
+            explanation = "弹拨乐器组是中国民族管弦乐团独有的特色声部。"
+        )
+
+        val q2 = ChaoXingQuestionItem(
+            index = 2,
+            id = "q_102",
+            typeCode = "3",
+            typeName = "判断题",
+            scoreText = "1 分",
+            cleanStem = "《梁祝》小提琴协奏曲创作于1959年。",
+            options = listOf(
+                ChaoXingQuestionOption("✓", "正确", isSelected = true, isCorrect = true),
+                ChaoXingQuestionOption("✕", "错误", isSelected = false, isCorrect = false)
+            ),
+            correctAnswer = "✓",
+            cleanMyAnswer = "✓"
+        )
+
+        val examDetail = ChaoXingExamDetail(
+            examId = "998877",
+            title = "当代音乐期末随堂测验",
+            courseName = course.courseName,
+            statusText = "已完成",
+            score = "98",
+            timeRange = "2026-11-02 14:00 至 2026-11-02 15:30",
+            limitTime = 90,
+            rawQuestions = listOf(q1, q2),
+            analysisUrl = "https://stat2-ans.chaoxing.com/report?examId=998877",
+            isSubmitted = true,
+            isGraded = true
+        )
+
+        val tcDetail = examDetail.toTronClassExamDetail(course)
+
+        // 验证考试元数据
+        assertEquals("当代音乐期末随堂测验", tcDetail.exam.getCleanTitle())
+        assertEquals(98.0, tcDetail.finalScore)
+        assertEquals(98.0, tcDetail.currentScore)
+        assertEquals(90, tcDetail.exam.limitTime)
+        assertTrue(tcDetail.exam.isClosed)
+        assertEquals(2, tcDetail.subjects.size)
+
+        // 验证单选题转换
+        val s1 = tcDetail.subjects[0]
+        assertEquals("single_selection", s1.type)
+        assertEquals("民族管弦乐团的编制中，有一个重要声部是在西洋管弦乐团中无法匹配的是", s1.getCleanTitle())
+        assertEquals(4, s1.options.size)
+        assertEquals("B. 弹拨乐器组", s1.options[1].content)
+        assertTrue(s1.options[1].isAnswer)
+        assertEquals("B", tcDetail.myAnswers[s1.id.toString()])
+        assertEquals("B", tcDetail.correctAnswers[s1.id.toString()])
+        assertEquals(true, tcDetail.isCorrectMap[s1.id.toString()])
+
+        // 验证判断题转换
+        val s2 = tcDetail.subjects[1]
+        assertEquals("true_false", s2.type)
+        assertEquals(2, s2.options.size)
+        assertEquals("✓", tcDetail.myAnswers[s2.id.toString()])
+        assertEquals("✓", tcDetail.correctAnswers[s2.id.toString()])
+        assertEquals(true, tcDetail.isCorrectMap[s2.id.toString()])
     }
 }

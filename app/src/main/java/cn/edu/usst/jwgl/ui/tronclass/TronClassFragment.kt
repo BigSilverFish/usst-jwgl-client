@@ -1400,6 +1400,10 @@ class TronClassFragment : Fragment() {
         pushSecondaryFragment(TronClassExamFragment.newInstance(examId, courseId, title, courseName), "exam_$examId")
     }
 
+    fun openChaoXingExam(exam: cn.edu.usst.jwgl.data.model.ChaoXingExam, course: cn.edu.usst.jwgl.data.model.ChaoXingCourse? = null) {
+        pushSecondaryFragment(TronClassExamFragment.newInstanceForChaoXing(exam, course), "cx_exam_${exam.id}")
+    }
+
     fun openDownloads() {
         pushSecondaryFragment(TronClassDownloadFragment.newInstance(), "downloads")
     }
