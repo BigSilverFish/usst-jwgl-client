@@ -14,10 +14,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import org.jsoup.Jsoup
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -732,7 +736,7 @@ class ChaoXingClient(private val context: Context) {
 
     /**
      * 9. 提交超星课堂签到 (预签到 -> 正式签到两步安全执行)
-     * 支持：普通签到、二维码动态 enc 签到、位置经纬度签到
+     * 支持：普通签到、二维码动态 enc 签到、位置经纬度签到、手势九宫格签到 (signCode)、拍照上传签到 (objectId)
      */
     suspend fun submitSign(
         courseId: String,
@@ -740,6 +744,8 @@ class ChaoXingClient(private val context: Context) {
         activeId: Long,
         signType: String = "普通签到",
         enc: String? = null,
+        signCode: String? = null,
+        objectId: String? = null,
         latitude: Double? = null,
         longitude: Double? = null,
         address: String? = null,
@@ -763,9 +769,23 @@ class ChaoXingClient(private val context: Context) {
 
             // 第二步：正式提交签到 (Submit Ajax)
             val submitBuilder = java.lang.StringBuilder("$SUBMIT_SIGN_URL?activeId=$activeId&appType=15&ifTiJiao=1")
-            if (!enc.isNullOrBlank()) {
-                submitBuilder.append("&enc=").append(java.net.URLEncoder.encode(enc, "UTF-8"))
+            
+            // 签到口令 / 手势密码 / 二维码 enc 参数适配
+            val effectiveCode = signCode?.trim().takeIf { !it.isNullOrBlank() }
+                ?: enc?.trim().takeIf { !it.isNullOrBlank() }
+            if (!effectiveCode.isNullOrBlank()) {
+                val encodedCode = java.net.URLEncoder.encode(effectiveCode, "UTF-8")
+                submitBuilder.append("&signCode=").append(encodedCode)
+                submitBuilder.append("&enc=").append(encodedCode)
             }
+
+            // 拍照签到 objectId 参数适配
+            if (!objectId.isNullOrBlank()) {
+                submitBuilder.append("&objectId=").append(java.net.URLEncoder.encode(objectId.trim(), "UTF-8"))
+                submitBuilder.append("&ifPhoto=1")
+            }
+
+            // 位置经纬度参数适配
             if (latitude != null && longitude != null) {
                 submitBuilder.append("&latitude=").append(latitude)
                     .append("&longitude=").append(longitude)
@@ -803,6 +823,112 @@ class ChaoXingClient(private val context: Context) {
             )
         } catch (e: Exception) {
             Log.e(TAG, "submitSign failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 9.1 获取签到活动的详细配置（如教师端预设的 signCode 手势/数字口令）
+     * GET https://mobilelearn.chaoxing.com/v2/apis/active/getPPTActiveInfo?activeId={activeId}
+     */
+    suspend fun fetchPPTActiveInfo(
+        activeId: Long,
+        studentId: String? = null
+    ): Result<String?> = withContext(Dispatchers.IO) {
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+        try {
+            val url = "https://mobilelearn.chaoxing.com/v2/apis/active/getPPTActiveInfo?activeId=$activeId"
+            val req = Request.Builder()
+                .url(url)
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                .get()
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful || body.isBlank()) {
+                return@withContext Result.success(null)
+            }
+            val json = JSONObject(body)
+            val data = json.optJSONObject("data")
+            val code = data?.optString("signcode", data.optString("signCode", ""))?.trim()?.takeIf { it.isNotBlank() }
+            Result.success(code)
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchPPTActiveInfo failed: ${e.message}")
+            Result.success(null)
+        }
+    }
+
+    /**
+     * 9.2 上传拍照签到图片至超星云盘，换取全局资源标识 objectId
+     */
+    suspend fun uploadSignPhoto(
+        photoFile: File,
+        studentId: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+        val puid = prefs.getUid(studentId) ?: run {
+            Regex("""(?:^|;\s*)(?:UID|_uid)=(\d+)""").find(cookies)?.groupValues?.get(1).orEmpty()
+        }
+
+        try {
+            // 1. 获取上传 Token
+            val tokenReq = Request.Builder()
+                .url("https://pan-yz.chaoxing.com/api/token/uservalid")
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .get()
+                .build()
+
+            val tokenResp = okHttpClient.newCall(tokenReq).execute()
+            val tokenBody = tokenResp.body?.string().orEmpty()
+            val tokenJson = try { JSONObject(tokenBody) } catch (_: Exception) {
+                return@withContext Result.failure(Exception("获取超星网盘 Token 失败: $tokenBody"))
+            }
+
+            val token = tokenJson.optString("_token")
+            if (token.isBlank()) {
+                return@withContext Result.failure(Exception("超星网盘上传 Token 为空"))
+            }
+
+            // 2. 构造 Multipart 提交图片
+            val mediaType = "image/jpeg".toMediaTypeOrNull()
+            val reqBody = photoFile.asRequestBody(mediaType)
+            val multipartBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("puid", puid)
+                .addFormDataPart("_token", token)
+                .addFormDataPart("file", photoFile.name, reqBody)
+                .build()
+
+            val uploadReq = Request.Builder()
+                .url("https://pan-yz.chaoxing.com/upload")
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .post(multipartBody)
+                .build()
+
+            val uploadResp = okHttpClient.newCall(uploadReq).execute()
+            val uploadBody = uploadResp.body?.string().orEmpty()
+            val uploadJson = try { JSONObject(uploadBody) } catch (_: Exception) {
+                return@withContext Result.failure(Exception("上传响应非 JSON: $uploadBody"))
+            }
+
+            val objectId = if (uploadJson.optBoolean("result") || uploadJson.has("objectId")) {
+                uploadJson.optString("objectId").ifBlank {
+                    uploadJson.optJSONObject("data")?.optString("objectId").orEmpty()
+                }
+            } else ""
+
+            if (objectId.isNotBlank()) {
+                Log.i(TAG, "uploadSignPhoto success: objectId=$objectId")
+                Result.success(objectId)
+            } else {
+                val errMsg = uploadJson.optString("msg", "上传失败，未返回 objectId")
+                Result.failure(Exception(errMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "uploadSignPhoto error", e)
             Result.failure(e)
         }
     }
