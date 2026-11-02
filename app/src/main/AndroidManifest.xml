@@ -144,6 +144,17 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
+        <activity
+            android:name=".ui.pdf.PdfViewerActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity>
+
         <!-- 15-min Course Reminder Receiver -->
         <receiver
             android:name=".receiver.CourseReminderReceiver"

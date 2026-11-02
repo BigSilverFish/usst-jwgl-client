@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp">
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardPage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginHorizontal="8dp"
+        app:cardBackgroundColor="@android:color/white"
+        app:cardCornerRadius="4dp"
+        app:cardElevation="2dp"
+        app:strokeWidth="0dp">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <cn.edu.usst.jwgl.ui.common.ZoomableImageView
+                android:id="@+id/ivPdfPage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true" />
+
+            <ProgressBar
+                android:id="@+id/pbPageLoading"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+            <!-- Page Number Tag on bottom-right of page -->
+            <TextView
+                android:id="@+id/tvPageNumberBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="8dp"
+                android:background="@drawable/bg_pdf_page_pill"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="3dp"
+                android:textColor="@android:color/white"
+                android:textSize="10sp"
+                android:alpha="0.6"
+                android:visibility="gone" />
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+</FrameLayout>

@@ -230,7 +230,9 @@ class CourseSyllabusBottomSheet : BottomSheetDialogFragment() {
                     Toast.makeText(ctx, "大纲已成功保存至:\n${file.name}", Toast.LENGTH_LONG).show()
 
                     if (openAfterDownload) {
-                        try {
+                        if (file.name.endsWith(".pdf", ignoreCase = true)) {
+                            cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, file.absolutePath, file.name)
+                        } else try {
                             val uri: Uri = FileProvider.getUriForFile(
                                 ctx,
                                 "${ctx.packageName}.fileprovider",
