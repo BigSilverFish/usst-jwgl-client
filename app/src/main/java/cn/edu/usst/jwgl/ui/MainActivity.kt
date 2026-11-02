@@ -384,16 +384,6 @@ class MainActivity : AppCompatActivity() {
             binding.blurViewBottomNav.setupWith(rootView, RenderEffectBlur())
                 .setFrameClearDrawable(windowBackground)
                 .setBlurRadius(20f)
-
-
-            binding.pageMoreFeatures.blurViewMoreFeatures.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
-
-            binding.blurViewProfile.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(windowBackground)
-                .setBlurRadius(20f)
-
         }
 
         cacheManager = DataCacheManager(this)
@@ -487,29 +477,59 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 课表首屏渲染完成后，在主线程真正空闲的间隙异步预热成绩与一网畅学一级 Fragment（消除点击一级 Tab 时的初始化耗时与黑屏）
-        Looper.myQueue().addIdleHandler {
-            if (!isFinishing && !isDestroyed) {
-                warmupCoreFragments()
-            }
-            false
-        }
+        // 错峰分步预热：避开冷启动前 1.5 秒核心主线程调度窗口，待系统稳定后轻量分步预热
+        scheduleStaggeredWarmup()
     }
 
-    private fun warmupCoreFragments() {
-        if (isFinishing || isDestroyed) return
-        val fm = supportFragmentManager
-        var transaction: androidx.fragment.app.FragmentTransaction? = null
+    private var isMoreFeaturesBlurInitialized = false
+    private var isProfileBlurInitialized = false
 
-        if (fm.findFragmentByTag("GradesFragment") == null) {
-            if (transaction == null) transaction = fm.beginTransaction()
-            transaction.add(R.id.containerGrades, GradesFragment.newInstance(), "GradesFragment")
-        }
-        if (fm.findFragmentByTag("TronClassFragment") == null) {
-            if (transaction == null) transaction = fm.beginTransaction()
-            transaction.add(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
-        }
-        transaction?.commitAllowingStateLoss()
+    private fun ensureMoreFeaturesBlur() {
+        if (isMoreFeaturesBlurInitialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        try {
+            val decorView = window.decorView
+            val rootView = decorView.findViewById<ViewGroup>(android.R.id.content) ?: (decorView as? ViewGroup) ?: return
+            binding.pageMoreFeatures.blurViewMoreFeatures.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(decorView.background)
+                .setBlurRadius(20f)
+            isMoreFeaturesBlurInitialized = true
+        } catch (_: Exception) {}
+    }
+
+    private fun ensureProfileBlur() {
+        if (isProfileBlurInitialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        try {
+            val decorView = window.decorView
+            val rootView = decorView.findViewById<ViewGroup>(android.R.id.content) ?: (decorView as? ViewGroup) ?: return
+            binding.blurViewProfile.setupWith(rootView, RenderEffectBlur())
+                .setFrameClearDrawable(decorView.background)
+                .setBlurRadius(20f)
+            isProfileBlurInitialized = true
+        } catch (_: Exception) {}
+    }
+
+    private fun scheduleStaggeredWarmup() {
+        // 第一阶段错峰预热：启动 1.5 秒后（避开冷启动首屏后台 I/O 和用户刚进界面的黄金交互期）预热成绩页
+        binding.root.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            val fm = supportFragmentManager
+            if (fm.findFragmentByTag("GradesFragment") == null) {
+                fm.beginTransaction()
+                    .add(R.id.containerGrades, GradesFragment.newInstance(), "GradesFragment")
+                    .commitAllowingStateLoss()
+            }
+        }, 1500L)
+
+        // 第二阶段错峰预热：启动 3.0 秒后在单独帧预热一网畅学页
+        binding.root.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            val fm = supportFragmentManager
+            if (fm.findFragmentByTag("TronClassFragment") == null) {
+                fm.beginTransaction()
+                    .add(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
+                    .commitAllowingStateLoss()
+            }
+        }, 3000L)
     }
 
     private var lastNavBarBottomInsetPx: Int = 0
@@ -1369,6 +1389,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.MORE_FEATURES -> {
+                ensureMoreFeaturesBlur()
                 binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
                     updateMoreFeaturesHeaderSpacing(binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height)
                 }
@@ -1402,6 +1423,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.PROFILE -> {
+                ensureProfileBlur()
                 binding.llProfileHeaderContainer.post {
                     updateProfileHeaderSpacing(binding.llProfileHeaderContainer.height)
                 }
