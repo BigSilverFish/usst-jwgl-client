@@ -79,6 +79,7 @@ class TronClassFragment : Fragment() {
     private var allUnifiedCourses: List<UnifiedCourse> = emptyList()
     private var allUnifiedTodos: List<UnifiedTodo> = emptyList()
     private var allUnifiedBulletins: List<UnifiedBulletin> = emptyList()
+    private var isDualPlatformMode: Boolean = true
     private var currentPlatformFilter: LearningPlatform? = null
     private var currentSelectedSemester: String? = null
     private var tronClassCourseSearchQuery: String = ""
@@ -150,7 +151,12 @@ class TronClassFragment : Fragment() {
         setupBackStackListener()
         applyAdaptiveLayout()
 
-        // 🚀 0ms 秒开：预置本地持久化缓存
+        // 初始化双平台融合/纯畅课模式
+        isDualPlatformMode = TronClassPreferences.getInstance(requireContext()).isDualPlatformModeEnabled()
+        currentPlatformFilter = if (isDualPlatformMode) null else LearningPlatform.TRONCLASS
+        updatePlatformModeButtonState()
+
+        // 🚀 0ms 秒开：预置本地持久化缓存（异步线程加载）
         loadLocalCacheImmediately()
 
         // 检查用户一致性并开始刷新数据
@@ -695,7 +701,46 @@ class TronClassFragment : Fragment() {
             .show()
     }
 
+    private fun updatePlatformModeButtonState() {
+        val b = _binding ?: return
+        val ctx = context ?: return
+        val activeColor = ContextCompat.getColor(ctx, R.color.primary)
+        val inactiveColor = ContextCompat.getColor(ctx, R.color.text_secondary)
+        if (isDualPlatformMode) {
+            b.btnTogglePlatformMode.iconTint = android.content.res.ColorStateList.valueOf(activeColor)
+            b.btnTogglePlatformMode.contentDescription = "当前：双平台融合模式（点击切换纯畅课）"
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(b.btnTogglePlatformMode, "当前：双平台融合模式（点击切换纯畅课）")
+        } else {
+            b.btnTogglePlatformMode.iconTint = android.content.res.ColorStateList.valueOf(inactiveColor)
+            b.btnTogglePlatformMode.contentDescription = "当前：纯畅课模式（点击开启双平台融合）"
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(b.btnTogglePlatformMode, "当前：纯畅课模式（点击开启双平台融合）")
+        }
+    }
+
     private fun setupButtons() {
+        binding.btnTogglePlatformMode.setOnClickListener {
+            val nextMode = !isDualPlatformMode
+            if (nextMode && !chaoXingClient.isLoggedIn()) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("开启双平台融合模式")
+                    .setMessage("当前尚未绑定超星学习通账号。\n开启后可实时汇聚超星在修课程、待办作业与课堂签到。\n\n是否立即授权登录？")
+                    .setPositiveButton("立即登录") { _, _ ->
+                        promptChaoXingLogin()
+                    }
+                    .setNegativeButton("稍后处理", null)
+                    .show()
+                return@setOnClickListener
+            }
+
+            isDualPlatformMode = nextMode
+            context?.let { TronClassPreferences.getInstance(it).setDualPlatformModeEnabled(nextMode) }
+            currentPlatformFilter = if (nextMode) null else LearningPlatform.TRONCLASS
+            updatePlatformModeButtonState()
+            renderUnifiedData()
+            val modeName = if (nextMode) "双平台融合模式" else "纯畅课模式"
+            Toast.makeText(requireContext(), "已切换为$modeName", Toast.LENGTH_SHORT).show()
+        }
+
         binding.btnOpenDrawerTronClass.setOnClickListener {
             (activity as? MainActivity)?.openNavDrawer()
         }
@@ -748,88 +793,67 @@ class TronClassFragment : Fragment() {
         }
     }
 
+    private data class LocalCacheResult(
+        val todos: List<UnifiedTodo>,
+        val bulletins: List<UnifiedBulletin>,
+        val courses: List<UnifiedCourse>,
+        val tcCourses: List<TronClassCourse>,
+        val cxCourses: List<ChaoXingCourse>
+    )
+
     private fun loadLocalCacheImmediately() {
-        val context = context ?: return
-        val cacheMgr = TronClassDataCacheManager.getInstance(context)
-        val cxPrefs = ChaoXingPreferences(context)
-
-        val cachedTcTodos = cacheMgr.getCachedTodos()
-        val cachedCxTodos = cxPrefs.getCachedTodos()
-        val mergedTodos = mutableListOf<UnifiedTodo>()
-        mergedTodos.addAll(cachedTcTodos.map { UnifiedTodo.fromTronClass(it) })
-        mergedTodos.addAll(cachedCxTodos)
-        mergedTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
-        if (mergedTodos.isNotEmpty()) {
-            allUnifiedTodos = mergedTodos
-            tronClassTodoAdapter.updateUnifiedData(mergedTodos, multiPlatform = chaoXingClient.isLoggedIn())
-            updateTodoTabBadge(mergedTodos.size)
-        }
-
-        val cachedTcBulletins = cacheMgr.getCachedHomeBulletins()
-        val cachedCxNotices = cxPrefs.getCachedNotices()
-        val mergedBulletins = mutableListOf<UnifiedBulletin>()
-        mergedBulletins.addAll(cachedTcBulletins.map { UnifiedBulletin.fromTronClass(it) })
-        mergedBulletins.addAll(cachedCxNotices)
-        mergedBulletins.sortByDescending { it.publishMillis }
-        if (mergedBulletins.isNotEmpty()) {
-            allUnifiedBulletins = mergedBulletins
-            tronClassBulletinAdapter.updateUnifiedData(mergedBulletins, multiPlatform = chaoXingClient.isLoggedIn())
-            updateBulletinTabBadge(mergedBulletins.size)
-        }
-
-        val cachedTcCourses = cacheMgr.getCachedCourses()
-        val cachedCxCourses = cxPrefs.getCachedCourses()
-        if (cachedTcCourses.isNotEmpty() || cachedCxCourses.isNotEmpty()) {
-            allTronClassCourses = cachedTcCourses
-            cachedChaoXingCourses = cachedCxCourses
-            val latestTcSem = cachedTcCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
-            val mergedCourses = UnifiedCourse.fuseCourses(cachedTcCourses, cachedCxCourses, fallbackSemesterCode = latestTcSem)
-            allUnifiedCourses = mergedCourses
-            setupSemesterChips(mergedCourses)
+        // 若内存已有数据，先直接秒显，实现后续切换 0ms 瞬间显示
+        if (allUnifiedCourses.isNotEmpty() || allUnifiedTodos.isNotEmpty() || allUnifiedBulletins.isNotEmpty()) {
+            setupSemesterChips(allUnifiedCourses)
             renderUnifiedData()
+            updateTodoTabBadge(allUnifiedTodos.size)
+            updateBulletinTabBadge(allUnifiedBulletins.size)
+            updateCourseTabBadge(allUnifiedCourses.size)
+            return
         }
 
-        // 若内存尚未命中，异步在后台协程加载解密，避免卡顿首帧
-        if (cachedTcTodos.isEmpty() || cachedTcCourses.isEmpty() || cachedTcBulletins.isEmpty()) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                val (todos, courses, bulletins) = withContext(Dispatchers.IO) {
-                    Triple(cacheMgr.getCachedTodos(), cacheMgr.getCachedCourses(), cacheMgr.getCachedHomeBulletins())
-                }
-                if (_binding == null) return@launch
-                val cxAsyncCourses = cxPrefs.getCachedCourses()
-                val cxAsyncTodos = cxPrefs.getCachedTodos()
-                val cxAsyncNotices = cxPrefs.getCachedNotices()
+        val context = context ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val cacheMgr = TronClassDataCacheManager.getInstance(context)
+                val cxPrefs = ChaoXingPreferences(context)
 
-                val uTodos = mutableListOf<UnifiedTodo>()
-                uTodos.addAll(todos.map { UnifiedTodo.fromTronClass(it) })
-                uTodos.addAll(cxAsyncTodos)
-                uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
-                if (uTodos.isNotEmpty()) {
-                    allUnifiedTodos = uTodos
-                    tronClassTodoAdapter.updateUnifiedData(uTodos, multiPlatform = chaoXingClient.isLoggedIn())
-                    updateTodoTabBadge(uTodos.size)
-                }
+                val cachedTcTodos = cacheMgr.getCachedTodos()
+                val cachedTcCourses = cacheMgr.getCachedCourses()
+                val cachedTcBulletins = cacheMgr.getCachedHomeBulletins()
 
-                val uBulletins = mutableListOf<UnifiedBulletin>()
-                uBulletins.addAll(bulletins.map { UnifiedBulletin.fromTronClass(it) })
-                uBulletins.addAll(cxAsyncNotices)
-                uBulletins.sortByDescending { it.publishMillis }
-                if (uBulletins.isNotEmpty()) {
-                    allUnifiedBulletins = uBulletins
-                    tronClassBulletinAdapter.updateUnifiedData(uBulletins, multiPlatform = chaoXingClient.isLoggedIn())
-                    updateBulletinTabBadge(uBulletins.size)
-                }
+                val cachedCxTodos = cxPrefs.getCachedTodos()
+                val cachedCxCourses = cxPrefs.getCachedCourses()
+                val cachedCxNotices = cxPrefs.getCachedNotices()
 
-                if (courses.isNotEmpty() || cxAsyncCourses.isNotEmpty()) {
-                    allTronClassCourses = courses
-                    cachedChaoXingCourses = cxAsyncCourses
-                    val latestTcSem = courses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
-                    val uCourses = UnifiedCourse.fuseCourses(courses, cxAsyncCourses, fallbackSemesterCode = latestTcSem)
-                    allUnifiedCourses = uCourses
-                    setupSemesterChips(uCourses)
-                    renderUnifiedData()
-                }
+                val todos = mutableListOf<UnifiedTodo>()
+                todos.addAll(cachedTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                todos.addAll(cachedCxTodos)
+                todos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+
+                val bulletins = mutableListOf<UnifiedBulletin>()
+                bulletins.addAll(cachedTcBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                bulletins.addAll(cachedCxNotices)
+                bulletins.sortByDescending { it.publishMillis }
+
+                val latestTcSem = cachedTcCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+                val courses = UnifiedCourse.fuseCourses(cachedTcCourses, cachedCxCourses, fallbackSemesterCode = latestTcSem)
+
+                LocalCacheResult(todos, bulletins, courses, cachedTcCourses, cachedCxCourses)
             }
+            if (_binding == null) return@launch
+
+            allUnifiedTodos = result.todos
+            allUnifiedBulletins = result.bulletins
+            allTronClassCourses = result.tcCourses
+            cachedChaoXingCourses = result.cxCourses
+            allUnifiedCourses = result.courses
+
+            setupSemesterChips(result.courses)
+            renderUnifiedData()
+            updateTodoTabBadge(result.todos.size)
+            updateBulletinTabBadge(result.bulletins.size)
+            updateCourseTabBadge(result.courses.size)
         }
     }
 
@@ -995,17 +1019,10 @@ class TronClassFragment : Fragment() {
             if (todosRes.isSuccess) {
                 val todos = todosRes.getOrDefault(emptyList())
                 cacheMgr.saveTodos(todos)
-                tronClassTodoAdapter.updateData(todos)
                 TronClassDdlScheduler.scheduleFromPreferences(ctx)
-                updateTodoTabBadge(todos.size)
             } else {
                 val err = todosRes.exceptionOrNull()
                 Log.w(TAG, "Failed to refresh todos: ${err?.message}", err)
-                val cached = cacheMgr.getCachedTodos()
-                if (cached.isNotEmpty()) {
-                    tronClassTodoAdapter.updateData(cached)
-                    updateTodoTabBadge(cached.size)
-                }
             }
 
             // 2. 处理在读课程
@@ -1079,38 +1096,47 @@ class TronClassFragment : Fragment() {
                     allTronClassBulletins = aggregated
                     if (aggregated.isNotEmpty()) {
                         cacheMgr.saveHomeBulletins(aggregated)
-                        tronClassBulletinAdapter.updateData(aggregated)
-                        updateBulletinTabBadge(aggregated.size)
-                    } else {
-                        val cached = cacheMgr.getCachedHomeBulletins()
-                        if (cached.isNotEmpty()) {
-                            allTronClassBulletins = cached
-                            tronClassBulletinAdapter.updateData(cached)
-                            updateBulletinTabBadge(cached.size)
-                        } else {
-                            tronClassBulletinAdapter.updateData(emptyList())
-                            updateBulletinTabBadge(0)
-                        }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to refresh home bulletins: ${e.message}", e)
                     val cached = cacheMgr.getCachedHomeBulletins()
                     if (cached.isNotEmpty()) {
                         allTronClassBulletins = cached
-                        tronClassBulletinAdapter.updateData(cached)
-                        updateBulletinTabBadge(cached.size)
                     }
                 }
             } else {
                 val cached = cacheMgr.getCachedHomeBulletins()
                 if (cached.isNotEmpty()) {
                     allTronClassBulletins = cached
-                    tronClassBulletinAdapter.updateData(cached)
-                    updateBulletinTabBadge(cached.size)
-                } else {
-                    updateBulletinTabBadge(0)
                 }
             }
+
+            // 🚀 平滑增量融合：立即将最新畅课数据与现存超星数据融合展示，彻底杜绝回退到纯畅课状态的跳变闪烁
+            val currentCxTodos = ChaoXingPreferences(ctx).getCachedTodos()
+            val currentCxNotices = ChaoXingPreferences(ctx).getCachedNotices()
+            val currentCxCourses = cachedChaoXingCourses.ifEmpty { ChaoXingPreferences(ctx).getCachedCourses() }
+
+            val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+            val interTodos = mutableListOf<UnifiedTodo>()
+            interTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+            interTodos.addAll(currentCxTodos)
+            interTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+            allUnifiedTodos = interTodos
+
+            val interBulletins = mutableListOf<UnifiedBulletin>()
+            interBulletins.addAll(allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) })
+            interBulletins.addAll(currentCxNotices)
+            interBulletins.sortByDescending { it.publishMillis }
+            allUnifiedBulletins = interBulletins
+
+            val latestSemCode = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+            allUnifiedCourses = UnifiedCourse.fuseCourses(allTronClassCourses, currentCxCourses, fallbackSemesterCode = latestSemCode)
+
+            setupSemesterChips(allUnifiedCourses)
+            renderUnifiedData()
+            updateTodoTabBadge(allUnifiedTodos.size)
+            updateBulletinTabBadge(allUnifiedBulletins.size)
+            updateCourseTabBadge(allUnifiedCourses.size)
 
             // 5. 并发拉取超星学习通数据 (如果存在有效认证或可静默换票)
             try {
