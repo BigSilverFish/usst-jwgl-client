@@ -203,9 +203,9 @@ class JwglWebActivity : AppCompatActivity() {
         }
 
         @android.webkit.JavascriptInterface
-        fun onPptFrameCaptured(base64Data: String, status: String, message: String, isManual: Boolean) {
+        fun onPptFrameCaptured(jsonResult: String) {
             runOnUiThread {
-                handlePptFrame(base64Data, status, message, isManual)
+                handlePptFrame(jsonResult)
             }
         }
     }
@@ -316,50 +316,89 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     /**
-     * 处理捕获到的 PPT 采集卡视频帧并调用 ML Kit 识别二维码
+     * 处理捕获到的大屏视频帧并调用 ML Kit 识别二维码
      */
-    private fun handlePptFrame(base64Data: String, status: String, message: String, isManual: Boolean) {
-        if (status != "success" || base64Data.isBlank()) {
-            if (isManual) {
-                binding.cardRollcallBanner.visibility = View.GONE
-                Toast.makeText(this, "大屏抓帧失败: $message", Toast.LENGTH_SHORT).show()
-            }
-            return
-        }
-
+    private fun handlePptFrame(jsonResult: String) {
         try {
-            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+            val json = JSONObject(jsonResult)
+            val isManual = json.optBoolean("isManual", false)
+            val status = json.optString("status", "unknown")
+            val message = json.optString("message", "")
+            val framesArray = json.optJSONArray("frames")
 
-            val image = InputImage.fromBitmap(bitmap, 0)
+            if (status != "success" || framesArray == null || framesArray.length() == 0) {
+                if (isManual) {
+                    binding.cardRollcallBanner.visibility = View.GONE
+                    Toast.makeText(this, "大屏抓帧未能就绪: $message", Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+
             val scanner = BarcodeScanning.getClient(
                 BarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_DATA_MATRIX)
                     .build()
             )
 
-            scanner.process(image)
-                .addOnSuccessListener { barcodes ->
-                    if (barcodes.isNotEmpty()) {
-                        val firstQr = barcodes.firstOrNull()?.rawValue
-                        if (!firstQr.isNullOrBlank()) {
-                            processScannedQrCode(firstQr)
+            var qrFound = false
+            val totalFrames = framesArray.length()
+            var processedCount = 0
+
+            for (i in 0 until totalFrames) {
+                val fObj = framesArray.getJSONObject(i)
+                val base64 = fObj.optString("base64", "")
+                val label = fObj.optString("label", "视窗")
+
+                if (base64.isBlank()) {
+                    processedCount++
+                    continue
+                }
+
+                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap == null) {
+                    processedCount++
+                    continue
+                }
+
+                val image = InputImage.fromBitmap(bitmap, 0)
+                scanner.process(image)
+                    .addOnSuccessListener { barcodes ->
+                        processedCount++
+                        if (!qrFound && barcodes.isNotEmpty()) {
+                            val rawQr = barcodes.firstOrNull()?.rawValue
+                            if (!rawQr.isNullOrBlank()) {
+                                qrFound = true
+                                Log.i(TAG, "QR detected in $label: $rawQr")
+                                processScannedQrCode(rawQr)
+                            }
                         }
-                    } else if (isManual) {
-                        binding.cardRollcallBanner.visibility = View.GONE
-                        Toast.makeText(this, "未在大屏画面中发现二维码（请确认画面中有签到码）", Toast.LENGTH_SHORT).show()
+
+                        if (processedCount >= totalFrames) {
+                            scanner.close()
+                            if (!qrFound && isManual) {
+                                binding.cardRollcallBanner.visibility = View.GONE
+                                Toast.makeText(
+                                    this,
+                                    "已成功捕获 $totalFrames 个画面帧，但当前画面未出现签到二维码（请确认画面中有签到码）",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
                     }
-                    scanner.close()
-                }
-                .addOnFailureListener { e ->
-                    if (isManual) {
-                        binding.cardRollcallBanner.visibility = View.GONE
-                        Toast.makeText(this, "二维码扫描失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    .addOnFailureListener {
+                        processedCount++
+                        if (processedCount >= totalFrames) {
+                            scanner.close()
+                            if (!qrFound && isManual) {
+                                binding.cardRollcallBanner.visibility = View.GONE
+                                Toast.makeText(this, "二维码识别扫描失败", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
-                    scanner.close()
-                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error handling PPT frame", e)
+            Log.e(TAG, "Error handling PPT frame JSON: $jsonResult", e)
         }
     }
 
@@ -443,11 +482,18 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     /**
-     * 仅定向抓取 PPT 采集卡视角的视频帧（1280 宽超清画质）
+     * 定向抓取 PPT 采集卡与活动视窗的高清视频帧（1280 宽超清画质，支持直播与点播回放）
      */
     private fun injectPptFrameCaptureJs(isManual: Boolean) {
         val js = """
             (function() {
+                var payload = {
+                    isManual: $isManual,
+                    status: 'unknown',
+                    message: '',
+                    frames: []
+                };
+
                 try {
                     var videos = Array.from(document.querySelectorAll('video'));
                     var iframes = document.querySelectorAll('iframe');
@@ -461,12 +507,23 @@ class JwglWebActivity : AppCompatActivity() {
                     }
 
                     if (videos.length === 0) {
-                        AndroidLiveQrTest.onPptFrameCaptured('', 'no_video', '未检测到任何视频元素', $isManual);
+                        payload.status = 'no_video';
+                        payload.message = '页面中未找到任何 <video> 标签 (视频可能尚未初始化)';
+                        AndroidLiveQrTest.onPptFrameCaptured(JSON.stringify(payload));
                         return;
                     }
 
-                    // 1. 检查页面 Tab 是否处于 PPT 状态
-                    var tabs = Array.from(document.querySelectorAll('.van-tab, .tab, button, span, div'));
+                    // 收集所有具备实际像素宽度的视频（不管在 playing 还是 paused 状态）
+                    var validVideos = videos.filter(function(v) { return (v.videoWidth || 0) > 0; });
+                    if (validVideos.length === 0) {
+                        payload.status = 'not_ready';
+                        payload.message = '检测到 ' + videos.length + ' 个视频元素，但尚未解码出画面 (videoWidth=0，可能正在缓冲或未开始播放)';
+                        AndroidLiveQrTest.onPptFrameCaptured(JSON.stringify(payload));
+                        return;
+                    }
+
+                    // 检查页面 Tab 是否处于 PPT 状态
+                    var tabs = Array.from(document.querySelectorAll('.van-tab, .tab, button, span, div, a'));
                     var pptTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === 'PPT'; });
                     var isPptTabActive = pptTab && (
                         pptTab.classList.contains('van-tab--active') ||
@@ -474,55 +531,70 @@ class JwglWebActivity : AppCompatActivity() {
                         pptTab.getAttribute('aria-selected') === 'true'
                     );
 
-                    var activeVideos = videos.filter(function(v) { return (v.videoWidth || 0) > 0; });
-                    if (activeVideos.length === 0) activeVideos = videos;
+                    for (var i = 0; i < validVideos.length; i++) {
+                        var v = validVideos[i];
+                        var vWidth = v.videoWidth;
+                        var vHeight = v.videoHeight;
+                        var rect = v.getBoundingClientRect();
 
-                    var targetVideo = null;
-                    if (activeVideos.length === 1) {
-                        targetVideo = activeVideos[0];
-                    } else if (isPptTabActive) {
-                        // 如果用户已经切到 PPT Tab，主视窗（最大分辨率）即是 PPT
-                        activeVideos.sort(function(a, b) {
-                            return (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight);
-                        });
-                        targetVideo = activeVideos[0];
-                    } else {
-                        // 如果主视窗是教师视角，副视窗/画中画小窗即是 PPT 采集卡
-                        var pptAttr = activeVideos.find(function(v) {
-                            var s = (v.id + ' ' + v.className + ' ' + (v.src || '')).toLowerCase();
-                            return s.indexOf('ppt') !== -1 || s.indexOf('screen') !== -1;
-                        });
-                        if (pptAttr) {
-                            targetVideo = pptAttr;
-                        } else {
-                            // 优先选小画中画 (rect.width < 300) 或次级 1080P video
-                            var pipVideo = activeVideos.find(function(v) {
-                                var r = v.getBoundingClientRect();
-                                return r.width > 0 && r.width < 320;
-                            });
-                            targetVideo = pipVideo || (activeVideos.length >= 3 ? activeVideos[2] : (activeVideos.length >= 2 ? activeVideos[1] : activeVideos[0]));
+                        var isLikelyPpt = false;
+                        var label = '机位 ' + (i + 1);
+
+                        if (isPptTabActive && rect.width >= 250) {
+                            isLikelyPpt = true;
+                            label += ' (PPT主视窗)';
+                        } else if (rect.width > 0 && rect.width < 320) {
+                            isLikelyPpt = true;
+                            label += ' (画中画采集卡)';
+                        } else if (validVideos.length === 1) {
+                            isLikelyPpt = true;
+                            label += ' (回放主视窗)';
+                        }
+
+                        try {
+                            // 以 1280 宽高质量导出
+                            var scale = Math.min(1, 1280 / vWidth);
+                            var canvas = document.createElement('canvas');
+                            canvas.width = Math.round(vWidth * scale);
+                            canvas.height = Math.round(vHeight * scale);
+                            var ctx = canvas.getContext('2d');
+                            ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+
+                            var dataUrl = canvas.toDataURL('image/jpeg', 0.90);
+                            var base64 = dataUrl.split(',')[1] || '';
+
+                            if (base64.length > 500) {
+                                payload.frames.push({
+                                    label: label,
+                                    isLikelyPpt: isLikelyPpt,
+                                    width: canvas.width,
+                                    height: canvas.height,
+                                    base64: base64
+                                });
+                            }
+                        } catch(drawErr) {
+                            // 单个视窗受限不阻断其他视窗
                         }
                     }
 
-                    if (!targetVideo || targetVideo.videoWidth === 0) {
-                        AndroidLiveQrTest.onPptFrameCaptured('', 'not_ready', 'PPT 视频流尚未就绪或已暂停', $isManual);
-                        return;
+                    if (payload.frames.length > 0) {
+                        // 优先扫描最可能是 PPT/采集卡的画面
+                        payload.frames.sort(function(a, b) {
+                            return (b.isLikelyPpt ? 1 : 0) - (a.isLikelyPpt ? 1 : 0);
+                        });
+                        payload.status = 'success';
+                        payload.message = '成功抓取 ' + payload.frames.length + ' 个视窗画面';
+                    } else {
+                        payload.status = 'canvas_error';
+                        payload.message = 'Canvas 绘制视频画面失败';
                     }
 
-                    // 以 1280 宽高质量截取 PPT 画面，确保大屏二维码极度清晰
-                    var scale = Math.min(1, 1280 / targetVideo.videoWidth);
-                    var canvas = document.createElement('canvas');
-                    canvas.width = Math.round(targetVideo.videoWidth * scale);
-                    canvas.height = Math.round(targetVideo.videoHeight * scale);
-                    var ctx = canvas.getContext('2d');
-                    ctx.drawImage(targetVideo, 0, 0, canvas.width, canvas.height);
-
-                    var dataUrl = canvas.toDataURL('image/jpeg', 0.90);
-                    var base64 = dataUrl.split(',')[1] || '';
-                    AndroidLiveQrTest.onPptFrameCaptured(base64, 'success', 'PPT 帧抓取成功 (' + canvas.width + 'x' + canvas.height + ')', $isManual);
-                } catch(err) {
-                    AndroidLiveQrTest.onPptFrameCaptured('', 'error', err.name + ': ' + err.message, $isManual);
+                } catch(globalErr) {
+                    payload.status = 'error';
+                    payload.message = globalErr.name + ': ' + globalErr.message;
                 }
+
+                AndroidLiveQrTest.onPptFrameCaptured(JSON.stringify(payload));
             })();
         """.trimIndent()
 
