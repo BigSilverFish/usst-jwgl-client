@@ -846,7 +846,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putString(KEY_SAVED_TAB_NAME, currentTab.name)
+        outState.putString(KEY_SAVED_TAB_NAME, (currentTab ?: MainTab.TIMETABLE).name)
     }
 
     override fun onResume() {
@@ -1289,7 +1289,7 @@ class MainActivity : AppCompatActivity() {
         GRADE_REPORTS,
         PROFILE
     }
-    private var currentTab: MainTab = MainTab.TIMETABLE
+    private var currentTab: MainTab? = null
 
     fun switchTab(tab: MainTab, force: Boolean = false) {
         if (!force && currentTab == tab) {
