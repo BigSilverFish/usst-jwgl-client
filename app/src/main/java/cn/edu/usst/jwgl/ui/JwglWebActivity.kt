@@ -168,108 +168,196 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     /**
-     * 🧪 视频帧抓取测试桥 —— 验证能否通过 JS Canvas 从直播 <video> 元素截取帧画面
+     * 🧪 视频帧抓取测试桥 —— 验证能否通过 JS Canvas 从直播多机位 <video> 元素截取帧画面
      *
-     * 测试目标：
-     * 1. 检测 <video> 元素是否存在且正在播放
-     * 2. 验证 Canvas.drawImage() 是否被 CORS/DRM 阻止（tainted canvas）
-     * 3. 对截取的帧进行 ML Kit 二维码扫描
-     * 4. 汇报完整诊断结果
+     * 支持全机位多视频探测（教师摄像机视角 vs 电脑PPT/大屏采集卡视角）：
+     * 1. 扫描页面上所有的 <video> 元素（主屏、副屏、画中画、iframe）
+     * 2. 结合界面 DOM 标签（如 "PPT", "课件", "教师", "全景"）智能推断机位类型
+     * 3. 并行对每个机位抓帧、检测 CORS 与硬件加速黑屏
+     * 4. 优先并全量对各机位视频帧进行 Google ML Kit 二维码识别
+     * 5. 汇报清晰详尽的多机位诊断报告
      */
     inner class LiveQrTestBridge {
         @android.webkit.JavascriptInterface
         fun onTestResult(jsonResult: String) {
             runOnUiThread {
-                try {
-                    val json = JSONObject(jsonResult)
-                    val status = json.optString("status", "unknown")
-                    val message = json.optString("message", "")
-                    val videoWidth = json.optInt("videoWidth", 0)
-                    val videoHeight = json.optInt("videoHeight", 0)
-                    val canvasWidth = json.optInt("canvasWidth", 0)
-                    val canvasHeight = json.optInt("canvasHeight", 0)
-                    val base64Data = json.optString("frameData", "")
-                    val error = json.optString("error", "")
+                processTestResult(jsonResult)
+            }
+        }
+    }
 
-                    val report = StringBuilder()
-                    report.appendLine("━━━ 视频帧抓取测试报告 ━━━")
-                    report.appendLine()
-                    report.appendLine("状态: ${if (status == "success") "✅ 成功" else "❌ 失败"}")
-                    report.appendLine("消息: $message")
-                    if (error.isNotEmpty()) {
-                        report.appendLine("错误: $error")
+    private fun processTestResult(jsonResult: String) {
+        try {
+            val json = JSONObject(jsonResult)
+            val pageViewsInfo = json.optString("pageViewsInfo", "")
+            val targetsArray = json.optJSONArray("targets")
+
+            val report = StringBuilder()
+            report.appendLine("━━━ 直录播多机位帧抓取诊断报告 ━━━")
+            report.appendLine()
+            if (pageViewsInfo.isNotEmpty()) {
+                report.appendLine("📌 页面机位导航标识: $pageViewsInfo")
+                report.appendLine()
+            }
+
+            if (targetsArray == null || targetsArray.length() == 0) {
+                val errorMsg = json.optString("error", "页面中未找到任何正在播放的 <video> 元素")
+                report.appendLine("❌ 未检测到视频流: $errorMsg")
+                report.appendLine("请确认直录播视频已经开始播放，并选择清晰的课程画面后再试。")
+                showTestResultDialog(report.toString())
+                return
+            }
+
+            val totalVideos = targetsArray.length()
+            report.appendLine("🎬 检测到 $totalVideos 个视频流画面：")
+            report.appendLine()
+
+            // 存储待异步 ML Kit 扫描的任务
+            data class ScanTask(
+                val index: Int,
+                val label: String,
+                val isPptGuess: Boolean,
+                val videoRes: String,
+                val canvasRes: String,
+                val nonBlackPercent: Int,
+                val status: String,
+                val message: String,
+                val bitmap: Bitmap?
+            )
+
+            val tasks = mutableListOf<ScanTask>()
+
+            for (i in 0 until totalVideos) {
+                val item = targetsArray.getJSONObject(i)
+                val label = item.optString("label", "机位 ${i + 1}")
+                val isPptGuess = item.optBoolean("isPptGuess", false)
+                val status = item.optString("status", "unknown")
+                val message = item.optString("message", "")
+                val vWidth = item.optInt("videoWidth", 0)
+                val vHeight = item.optInt("videoHeight", 0)
+                val cWidth = item.optInt("canvasWidth", 0)
+                val cHeight = item.optInt("canvasHeight", 0)
+                val nonBlack = item.optInt("nonBlackPercent", 0)
+                val base64Data = item.optString("frameData", "")
+
+                var decodedBitmap: Bitmap? = null
+                if (status == "success" && base64Data.isNotEmpty()) {
+                    try {
+                        val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                        decodedBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Decode bitmap error for $label", e)
                     }
-                    report.appendLine()
-                    report.appendLine("📺 视频原始分辨率: ${videoWidth}×${videoHeight}")
-                    report.appendLine("🖼️ 截帧画布分辨率: ${canvasWidth}×${canvasHeight}")
+                }
 
-                    if (status == "success" && base64Data.isNotEmpty()) {
-                        report.appendLine()
-                        report.appendLine("⏳ 正在用 ML Kit 扫描二维码...")
+                tasks.add(
+                    ScanTask(
+                        index = i + 1,
+                        label = label,
+                        isPptGuess = isPptGuess,
+                        videoRes = "${vWidth}×${vHeight}",
+                        canvasRes = "${cWidth}×${cHeight}",
+                        nonBlackPercent = nonBlack,
+                        status = status,
+                        message = message,
+                        bitmap = decodedBitmap
+                    )
+                )
+            }
 
-                        // 解码 Base64 → Bitmap → ML Kit 二维码扫描
-                        try {
-                            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-                            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (bitmap != null) {
-                                report.appendLine("✅ 帧数据解码成功: ${bitmap.width}×${bitmap.height}, ${bytes.size / 1024}KB")
+            // 收集所有扫描结果
+            val scanResults = mutableMapOf<Int, List<String>>()
+            var pendingScans = tasks.count { it.bitmap != null }
 
-                                val image = InputImage.fromBitmap(bitmap, 0)
-                                val options = BarcodeScannerOptions.Builder()
-                                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_DATA_MATRIX)
-                                    .build()
-                                val scanner = BarcodeScanning.getClient(options)
-                                scanner.process(image)
-                                    .addOnSuccessListener { barcodes ->
-                                        val finalReport = StringBuilder(report)
-                                        finalReport.appendLine()
-                                        if (barcodes.isNotEmpty()) {
-                                            finalReport.appendLine("🎉 发现 ${barcodes.size} 个二维码！")
-                                            barcodes.forEachIndexed { idx, barcode ->
-                                                finalReport.appendLine("  [${idx + 1}] 格式: ${barcode.format}")
-                                                val rawValue = barcode.rawValue ?: "(null)"
-                                                finalReport.appendLine("  [${idx + 1}] 内容: ${rawValue.take(200)}")
-                                            }
-                                            finalReport.appendLine()
-                                            finalReport.appendLine("✅ 方案可行！Canvas 帧抓取 + ML Kit 识别链路完全打通。")
-                                        } else {
-                                            finalReport.appendLine("📭 未检测到二维码（当前帧中可能没有 QR 码）")
-                                            finalReport.appendLine()
-                                            finalReport.appendLine("✅ Canvas 帧抓取通道正常，可尝试在有签到二维码的直播画面中重新测试。")
-                                        }
-                                        showTestResultDialog(finalReport.toString())
-                                        scanner.close()
-                                    }
-                                    .addOnFailureListener { e ->
-                                        report.appendLine("❌ ML Kit 扫描失败: ${e.message}")
-                                        showTestResultDialog(report.toString())
-                                        scanner.close()
-                                    }
-                                return@runOnUiThread // ML Kit 异步处理，结果在回调中显示
-                            } else {
-                                report.appendLine("❌ Base64 → Bitmap 解码失败（空 Bitmap）")
+            fun finishAndShowDialog() {
+                val finalReport = StringBuilder(report)
+                var hasQrFoundTotal = false
+
+                tasks.forEach { task ->
+                    val pptTag = if (task.isPptGuess) " [🌟可能是PPT/电脑画面]" else ""
+                    finalReport.appendLine("▶ 【${task.label}$pptTag】")
+                    finalReport.appendLine("   • 原始分辨率: ${task.videoRes} | 画布: ${task.canvasRes}")
+                    finalReport.appendLine("   • 非黑像素率: ${task.nonBlackPercent}%")
+
+                    if (task.status == "success") {
+                        finalReport.appendLine("   • 抓帧结果: ✅ 成功 (${task.message})")
+                        val qrList = scanResults[task.index]
+                        if (!qrList.isNullOrEmpty()) {
+                            hasQrFoundTotal = true
+                            finalReport.appendLine("   • 二维码识别: 🎉 成功检测到 ${qrList.size} 个二维码！")
+                            qrList.forEachIndexed { qIdx, content ->
+                                finalReport.appendLine("     (${qIdx + 1}) $content")
                             }
-                        } catch (e: Exception) {
-                            report.appendLine("❌ 帧数据解码异常: ${e.message}")
+                        } else {
+                            finalReport.appendLine("   • 二维码识别: 📭 当前帧未识别到二维码")
                         }
-                    } else if (status == "cors_blocked") {
-                        report.appendLine()
-                        report.appendLine("⚠️ Canvas 被 CORS 污染保护阻止 (SecurityError)")
-                        report.appendLine("直播流与页面不同源，浏览器禁止 Canvas 读取视频像素。")
-                        report.appendLine()
-                        report.appendLine("💡 需要升级到 Level 2 方案：提取 video.src 交给 ExoPlayer 解码。")
-                    } else if (status == "no_video") {
-                        report.appendLine()
-                        report.appendLine("⚠️ 页面中未找到 <video> 元素或视频未在播放。")
-                        report.appendLine("请确保已打开直播/点播视频后再测试。")
+                    } else if (task.status == "cors_blocked") {
+                        finalReport.appendLine("   • 抓帧结果: ❌ CORS 跨域阻止 (Tainted Canvas)")
+                        finalReport.appendLine("     说明: 直播流不同源，浏览器阻止 Canvas 像素读取")
+                    } else {
+                        finalReport.appendLine("   • 抓帧结果: ❌ 失败 (${task.message})")
                     }
+                    finalReport.appendLine()
+                }
 
-                    showTestResultDialog(report.toString())
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse test result", e)
-                    Toast.makeText(this@JwglWebActivity, "测试结果解析失败: ${e.message}", Toast.LENGTH_LONG).show()
+                finalReport.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                if (hasQrFoundTotal) {
+                    finalReport.appendLine("💡 结论: 完美！已从视频流中直接解析到签到二维码！无需脱壳原生化即可自动签到！")
+                } else {
+                    val anySuccess = tasks.any { it.status == "success" && it.nonBlackPercent > 20 }
+                    if (anySuccess) {
+                        finalReport.appendLine("💡 结论: 视频帧抓取通道完全畅通！当前画面若无签到码，可切到老师展示签到二维码的片段再测。")
+                    } else {
+                        finalReport.appendLine("💡 建议: 若画面全黑或受 CORS 限制，需采用提取视频流原生解码方案。")
+                    }
+                }
+
+                showTestResultDialog(finalReport.toString())
+            }
+
+            if (pendingScans == 0) {
+                finishAndShowDialog()
+                return
+            }
+
+            // 逐个扫描各机位
+            val scanner = BarcodeScanning.getClient(
+                BarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_DATA_MATRIX)
+                    .build()
+            )
+
+            tasks.forEach { task ->
+                val bmp = task.bitmap
+                if (bmp != null) {
+                    val inputImage = InputImage.fromBitmap(bmp, 0)
+                    scanner.process(inputImage)
+                        .addOnSuccessListener { barcodes ->
+                            if (barcodes.isNotEmpty()) {
+                                scanResults[task.index] = barcodes.map { b ->
+                                    val raw = b.rawValue ?: "(null)"
+                                    if (raw.length > 120) raw.take(120) + "..." else raw
+                                }
+                            }
+                            pendingScans--
+                            if (pendingScans <= 0) {
+                                scanner.close()
+                                finishAndShowDialog()
+                            }
+                        }
+                        .addOnFailureListener {
+                            pendingScans--
+                            if (pendingScans <= 0) {
+                                scanner.close()
+                                finishAndShowDialog()
+                            }
+                        }
                 }
             }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse multi test result", e)
+            Toast.makeText(this, "多机位测试结果解析失败: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -291,107 +379,179 @@ class JwglWebActivity : AppCompatActivity() {
     private fun injectFrameGrabTestJs() {
         val js = """
             (function() {
-                var result = {
-                    status: 'unknown',
-                    message: '',
-                    videoWidth: 0,
-                    videoHeight: 0,
-                    canvasWidth: 0,
-                    canvasHeight: 0,
-                    frameData: '',
+                var payload = {
+                    pageViewsInfo: '',
+                    targets: [],
                     error: ''
                 };
 
                 try {
-                    // 1. 查找 <video> 元素
-                    var video = document.querySelector('video');
-                    if (!video) {
-                        // 尝试在 iframe 中查找
-                        var iframes = document.querySelectorAll('iframe');
-                        for (var i = 0; i < iframes.length; i++) {
-                            try {
-                                video = iframes[i].contentDocument.querySelector('video');
-                                if (video) break;
-                            } catch(e) { /* cross-origin iframe, skip */ }
+                    // 1. 扫描页面中的机位切换按钮或标识文字（如 "PPT", "课件", "教师", "教师1", "大屏"）
+                    var viewKeywords = ['PPT', 'ppt', '课件', '电脑', '大屏', '教师', '全景', '机位', '板书', '电影'];
+                    var foundViewLabels = [];
+                    var allElements = document.querySelectorAll('button, .van-tab, .tab, .btn, span, div, a');
+                    for (var e = 0; e < allElements.length; e++) {
+                        var el = allElements[e];
+                        if (el.children.length === 0 && el.innerText) {
+                            var t = el.innerText.trim();
+                            for (var k = 0; k < viewKeywords.length; k++) {
+                                if (t.indexOf(viewKeywords[k]) !== -1 && t.length <= 15) {
+                                    if (foundViewLabels.indexOf(t) === -1) {
+                                        var isCurrentActive = el.classList.contains('active') ||
+                                                              el.classList.contains('van-tab--active') ||
+                                                              el.getAttribute('aria-selected') === 'true';
+                                        foundViewLabels.push(t + (isCurrentActive ? '(当前选中)' : ''));
+                                    }
+                                    break;
+                                }
+                            }
                         }
                     }
+                    if (foundViewLabels.length > 0) {
+                        payload.pageViewsInfo = foundViewLabels.join(' | ');
+                    }
 
-                    if (!video) {
-                        result.status = 'no_video';
-                        result.message = '页面中未找到 <video> 元素';
-                        AndroidLiveQrTest.onTestResult(JSON.stringify(result));
+                    // 2. 收集所有的 <video> 元素（包括顶级页面与同源 iframe）
+                    var videoList = Array.from(document.querySelectorAll('video'));
+                    var iframes = document.querySelectorAll('iframe');
+                    for (var f = 0; f < iframes.length; f++) {
+                        try {
+                            var fVideos = iframes[f].contentDocument.querySelectorAll('video');
+                            for (var fv = 0; fv < fVideos.length; fv++) {
+                                videoList.push(fVideos[fv]);
+                            }
+                        } catch(err) { /* 跨域 iframe 忽略 */ }
+                    }
+
+                    if (videoList.length === 0) {
+                        payload.error = '页面中未找到任何 <video> 标签（可能尚未加载播放器或处于纯音频状态）';
+                        AndroidLiveQrTest.onTestResult(JSON.stringify(payload));
                         return;
                     }
 
-                    result.videoWidth = video.videoWidth || 0;
-                    result.videoHeight = video.videoHeight || 0;
+                    // 3. 针对每个 video 进行特征分析与帧抓取
+                    for (var i = 0; i < videoList.length; i++) {
+                        var v = videoList[i];
+                        var rect = v.getBoundingClientRect();
+                        var vWidth = v.videoWidth || 0;
+                        var vHeight = v.videoHeight || 0;
+                        var isPaused = v.paused;
+                        var readyState = v.readyState;
 
-                    // 2. 检查视频状态
-                    if (video.readyState < 2) {
-                        result.status = 'no_video';
-                        result.message = '视频元素存在但尚未加载足够数据 (readyState=' + video.readyState + ')';
-                        AndroidLiveQrTest.onTestResult(JSON.stringify(result));
-                        return;
-                    }
+                        // 智能推测机位标签
+                        var label = '机位 ' + (i + 1);
+                        var isPptGuess = false;
 
-                    if (video.videoWidth === 0 || video.videoHeight === 0) {
-                        result.status = 'no_video';
-                        result.message = '视频帧尺寸为 0（可能未开始播放）';
-                        AndroidLiveQrTest.onTestResult(JSON.stringify(result));
-                        return;
-                    }
+                        // 根据类名、父容器、附近文本推测
+                        var vAttrStr = (v.id + ' ' + v.className + ' ' + (v.src || '')).toLowerCase();
+                        var parentText = (v.parentElement ? v.parentElement.innerText || '' : '').toLowerCase();
 
-                    // 3. 创建 Canvas 并尝试绘制视频帧
-                    var canvas = document.createElement('canvas');
-                    var scale = Math.min(1, 640 / video.videoWidth);
-                    canvas.width = Math.round(video.videoWidth * scale);
-                    canvas.height = Math.round(video.videoHeight * scale);
-                    result.canvasWidth = canvas.width;
-                    result.canvasHeight = canvas.height;
-
-                    var ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                    // 4. 尝试 toDataURL —— 这是 CORS 检测的关键步骤
-                    var dataUrl = canvas.toDataURL('image/jpeg', 0.75);
-                    var base64 = dataUrl.split(',')[1] || '';
-
-                    // 5. 验证帧数据不是全黑
-                    var imageData = ctx.getImageData(0, 0, Math.min(canvas.width, 100), Math.min(canvas.height, 100));
-                    var pixels = imageData.data;
-                    var nonBlackPixels = 0;
-                    var totalSampled = 0;
-                    for (var p = 0; p < pixels.length; p += 16) { // 每 4 个像素采样一次
-                        totalSampled++;
-                        if (pixels[p] > 10 || pixels[p+1] > 10 || pixels[p+2] > 10) {
-                            nonBlackPixels++;
+                        if (vAttrStr.indexOf('ppt') !== -1 || vAttrStr.indexOf('screen') !== -1 ||
+                            vAttrStr.indexOf('vga') !== -1 || vAttrStr.indexOf('hdmi') !== -1 ||
+                            parentText.indexOf('ppt') !== -1 || parentText.indexOf('电脑') !== -1) {
+                            label += ' (PPT/电脑采集卡)';
+                            isPptGuess = true;
+                        } else if (vAttrStr.indexOf('teacher') !== -1 || parentText.indexOf('教师') !== -1) {
+                            label += ' (教师摄像机)';
+                        } else if (rect.width > 0 && rect.width < 250 && rect.height < 200) {
+                            label += ' (小画中画/副视窗)';
+                        } else if (rect.width >= 250) {
+                            label += ' (主视窗)';
                         }
-                    }
-                    var nonBlackRatio = totalSampled > 0 ? (nonBlackPixels / totalSampled) : 0;
 
-                    if (nonBlackRatio < 0.05) {
-                        result.status = 'success';
-                        result.message = '⚠️ Canvas 抓帧成功但画面几乎全黑 (' + Math.round(nonBlackRatio * 100) + '% 非黑像素)。可能是硬件加速 SurfaceView 导致。';
-                        result.frameData = base64;
-                    } else {
-                        result.status = 'success';
-                        result.message = 'Canvas 帧抓取成功！非黑像素占比 ' + Math.round(nonBlackRatio * 100) + '%，帧数据 ' + Math.round(base64.length / 1024) + 'KB';
-                        result.frameData = base64;
+                        // 如果页面选中的机位包含 PPT，且当前 video 为主窗口
+                        if (!isPptGuess && payload.pageViewsInfo.indexOf('PPT(当前选中)') !== -1 && rect.width >= 250) {
+                            label += ' [当前已切至PPT]';
+                            isPptGuess = true;
+                        }
+
+                        var item = {
+                            id: i + 1,
+                            label: label,
+                            isPptGuess: isPptGuess,
+                            videoWidth: vWidth,
+                            videoHeight: vHeight,
+                            canvasWidth: 0,
+                            canvasHeight: 0,
+                            nonBlackPercent: 0,
+                            status: 'unknown',
+                            message: '',
+                            frameData: ''
+                        };
+
+                        if (readyState < 2) {
+                            item.status = 'no_data';
+                            item.message = '视频流正在缓冲或未就绪 (readyState=' + readyState + ')';
+                            payload.targets.push(item);
+                            continue;
+                        }
+
+                        if (vWidth === 0 || vHeight === 0) {
+                            item.status = 'zero_dimension';
+                            item.message = '视频分辨率为 0 (尚未解码出首帧或暂停中)';
+                            payload.targets.push(item);
+                            continue;
+                        }
+
+                        try {
+                            // 创建 Canvas 并缩放截取（最大宽 720，保证二维码清晰度且数据量适中）
+                            var canvas = document.createElement('canvas');
+                            var scale = Math.min(1, 720 / vWidth);
+                            canvas.width = Math.round(vWidth * scale);
+                            canvas.height = Math.round(vHeight * scale);
+                            item.canvasWidth = canvas.width;
+                            item.canvasHeight = canvas.height;
+
+                            var ctx = canvas.getContext('2d');
+                            ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+
+                            // 导出为 JPEG Base64
+                            var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                            var base64 = dataUrl.split(',')[1] || '';
+                            item.frameData = base64;
+
+                            // 采样检验是否全黑
+                            var sampleW = Math.min(canvas.width, 100);
+                            var sampleH = Math.min(canvas.height, 100);
+                            var imgData = ctx.getImageData(0, 0, sampleW, sampleH);
+                            var d = imgData.data;
+                            var nonBlackCount = 0;
+                            var totalSamples = 0;
+                            for (var p = 0; p < d.length; p += 16) {
+                                totalSamples++;
+                                if (d[p] > 12 || d[p+1] > 12 || d[p+2] > 12) {
+                                    nonBlackCount++;
+                                }
+                            }
+                            var nonBlackRatio = totalSamples > 0 ? (nonBlackCount / totalSamples) : 0;
+                            item.nonBlackPercent = Math.round(nonBlackRatio * 100);
+
+                            if (nonBlackRatio < 0.05) {
+                                item.status = 'success';
+                                item.message = '抓帧成功但画面接近全黑 (' + item.nonBlackPercent + '%)，可能走硬件 SurfaceView 解码';
+                            } else {
+                                item.status = 'success';
+                                item.message = '抓帧成功 (' + Math.round(base64.length / 1024) + 'KB)';
+                            }
+
+                        } catch(err) {
+                            if (err.name === 'SecurityError') {
+                                item.status = 'cors_blocked';
+                                item.message = 'CORS 跨域阻止 (Tainted Canvas)';
+                            } else {
+                                item.status = 'error';
+                                item.message = err.name + ': ' + err.message;
+                            }
+                        }
+
+                        payload.targets.push(item);
                     }
 
-                } catch(e) {
-                    if (e.name === 'SecurityError') {
-                        result.status = 'cors_blocked';
-                        result.message = 'Canvas 被 CORS 安全策略阻止 (tainted canvas)';
-                        result.error = e.name + ': ' + e.message;
-                    } else {
-                        result.status = 'error';
-                        result.message = '未预期的错误';
-                        result.error = e.name + ': ' + e.message;
-                    }
+                } catch(globalErr) {
+                    payload.error = '全局异常: ' + globalErr.message;
                 }
 
-                AndroidLiveQrTest.onTestResult(JSON.stringify(result));
+                AndroidLiveQrTest.onTestResult(JSON.stringify(payload));
             })();
         """.trimIndent()
 
