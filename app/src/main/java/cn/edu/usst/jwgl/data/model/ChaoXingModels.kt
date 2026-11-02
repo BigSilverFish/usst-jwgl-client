@@ -368,6 +368,16 @@ data class ChaoXingHomeworkDetail(
 ) : Serializable
 
 /**
+ * 超星作业/测验选项条目
+ */
+data class ChaoXingQuestionOption(
+    val letter: String, // "A", "B", "C", "D" 或 "✓", "✕"
+    val content: String, // 选项内容文本
+    val isSelected: Boolean = false, // 是否为学生作答
+    val isCorrect: Boolean = false // 是否为标准答案
+) : Serializable
+
+/**
  * 超星作业单题条目
  */
 data class ChaoXingQuestionItem(
@@ -378,6 +388,9 @@ data class ChaoXingQuestionItem(
     val scoreText: String = "",
     val stemHtml: String = "",
     val cleanStem: String = "",
+    val options: List<ChaoXingQuestionOption> = emptyList(),
+    val correctAnswer: String = "",
+    val explanation: String = "",
     val myAnswerHtml: String = "",
     val cleanMyAnswer: String = "",
     val teacherComment: String = "",

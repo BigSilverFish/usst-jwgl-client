@@ -244,6 +244,15 @@
                                     android:textSize="14.5sp"
                                     tools:text="可采用清单式，也可采用图表式，建议3-4层，标注WBS每个工作包的编码" />
 
+                                <!-- ChaoXing Native Questions Container -->
+                                <LinearLayout
+                                    android:id="@+id/llChaoXingQuestions"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="10dp"
+                                    android:orientation="vertical"
+                                    android:visibility="gone" />
+
                                 <!-- Embedded Rich Images Container -->
                                 <LinearLayout
                                     android:id="@+id/llRequirementImages"

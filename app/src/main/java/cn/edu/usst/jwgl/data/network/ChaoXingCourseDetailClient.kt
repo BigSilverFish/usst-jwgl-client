@@ -599,26 +599,38 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         /**
          * 解析答卷或做题页面 HTML 中的全部题目结构
          */
+        /**
+         * 解析答卷或做题页面 HTML 中的全部题目结构与选项
+         */
         fun parseQuestionsFromHtml(html: String): List<ChaoXingQuestionItem> {
             val list = mutableListOf<ChaoXingQuestionItem>()
             if (html.isBlank()) return list
             try {
                 val doc = Jsoup.parse(html)
-                val qElements = doc.select(".singleQuesId, div[class*='singleQues'], .TiMu, .mark_item, .questionBlock")
+                val qElements = doc.select(".singleQuesId, div[class*='singleQues'], .TiMu, .mark_item, .questionBlock, .questionLi")
 
                 for ((idx, qEl) in qElements.withIndex()) {
                     val index = idx + 1
-                    val typeScoreEl = qEl.select(".stemGray, .question-type, .type").firstOrNull()
+                    val typeScoreEl = qEl.select(".stemGray, .question-type, .type, .colorDeep, .type_tit, .color888").firstOrNull()
                     val typeScoreText = typeScoreEl?.text()?.trim().orEmpty()
-                    val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText)
+                    val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText.ifBlank { qEl.text() })
                     val scoreText = scoreMatch?.groupValues?.get(1)?.let { "$it 分" } ?: ""
 
-                    // 题干提取
-                    val stemEl = qEl.select(".stemDiv .Picdiv, .Picdiv, .stemDiv, .qtContent, .workTextWrap, .font14").firstOrNull()
-                    val stemHtml = stemEl?.html()?.trim().orEmpty()
-                    val cleanStem = stemEl?.text()?.trim().orEmpty()
+                    // 1. 题干提取 (优先题干容器，并过滤题号和开头题型标签)
+                    val stemEl = qEl.select(".stemDiv .Picdiv, .Picdiv, .stemDiv, .qtContent, .workTextWrap, .font14, .stem_title, .title").firstOrNull()
+                    var stemHtml = stemEl?.html()?.trim().orEmpty()
+                    var cleanStem = stemEl?.text()?.trim().orEmpty()
+                    if (cleanStem.isBlank()) {
+                        cleanStem = qEl.select(".stemDiv, .title, .sub-title").text().trim()
+                    }
+                    // 清理题干开头的题号 ("1.", "1、", "1 ")
+                    cleanStem = cleanStem.replace(Regex("""^\d+[.\u3001\s]+"""), "")
+                    // 清理题干开头的题型与分值标注 ("(单选题, 2分)", "【单选题】", "[单选题]")
+                    cleanStem = cleanStem.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
+                    cleanStem = cleanStem.trim()
+                    if (stemHtml.isBlank()) stemHtml = cleanStem
 
-                    // 提取题干中的教师附件或图片
+                    // 2. 提取题干中的教师附件或图片
                     val teacherAtts = mutableListOf<ChaoXingCourseAttachment>()
                     if (stemEl != null) {
                         for (iframe in stemEl.select("iframe.attach-iframe, iframe[objectid]")) {
@@ -637,10 +649,48 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                     }
 
-                    // 学生作答提取
-                    val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer").firstOrNull()
+                    // 3. 提取客观题选项列表 (Radio / CheckBox 候选条目)
+                    val options = parseOptionsFromQuestionElement(qEl)
+
+                    // 4. 学生作答提取
+                    val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer").firstOrNull()
                     val ansHtml = ansEl?.html()?.trim().orEmpty()
-                    val cleanAns = ansEl?.text()?.trim().orEmpty()
+                    var cleanAns = if (ansEl != null) {
+                        ansEl.text().replace(Regex("""^(?:我的答案|我的作答|学生答案)[:：\s]*"""), "").trim()
+                    } else {
+                        val m = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())
+                        m?.groupValues?.get(1)?.trim().orEmpty()
+                    }
+                    if (cleanAns.isBlank() && options.isNotEmpty()) {
+                        val chosenLetters = options.filter { it.isSelected }.map { it.letter }
+                        if (chosenLetters.isNotEmpty()) {
+                            cleanAns = chosenLetters.joinToString(", ")
+                        }
+                    }
+
+                    // 5. 标准答案提取
+                    val rightEl = qEl.select(".rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").firstOrNull()
+                    var correctAns = if (rightEl != null) {
+                        rightEl.text().replace(Regex("""^(?:正确答案|标准答案|参考答案)[:：\s]*"""), "").trim()
+                    } else {
+                        val m = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())
+                        m?.groupValues?.get(1)?.trim().orEmpty()
+                    }
+                    if (correctAns.isBlank() && options.isNotEmpty()) {
+                        val rightLetters = options.filter { it.isCorrect }.map { it.letter }
+                        if (rightLetters.isNotEmpty()) {
+                            correctAns = rightLetters.joinToString(", ")
+                        }
+                    }
+
+                    // 6. 题目解析提取
+                    val expEl = qEl.select(".analysis, .myAnalysis, .analysisDiv, .explain, .fenxi").firstOrNull()
+                    var explanation = if (expEl != null) {
+                        expEl.text().replace(Regex("""^(?:答案解析|解析|题目分析)[:：\s]*"""), "").trim()
+                    } else {
+                        val m = Regex("""(?:答案解析|解析|题目分析)[:：]\s*([^\r\n]+)""").find(qEl.text())
+                        m?.groupValues?.get(1)?.trim().orEmpty()
+                    }
 
                     val studentAtts = mutableListOf<ChaoXingCourseAttachment>()
                     if (ansEl != null) {
@@ -660,11 +710,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                     }
 
-                    // 教师评语提取
+                    // 7. 教师评语提取
                     val commentEl = qEl.select(".grayDiv, .pingyu, .remark, .comment, .teach-comment").firstOrNull()
                     val commentText = cleanTeacherComment(commentEl)
 
-                    // 题目 ID 提取 (优先读取 data 属性，其次从 id 中提取纯数字，其次读取 questionid 属性)
+                    // 8. 题目 ID 提取
                     var qId = qEl.attr("data").trim()
                     if (qId.isBlank()) {
                         qId = Regex("""\d+""").find(qEl.attr("id"))?.value.orEmpty()
@@ -676,24 +726,21 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         qId = qEl.attr("questionid").trim()
                     }
 
-                    // 题目题型编码 (优先 questiontypeid，其次 .TiMu 的 data 属性，默认 "4" 主观题)
-                    var typeCode = qEl.attr("questiontypeid").trim()
-                    if (typeCode.isBlank()) {
-                        typeCode = qEl.select(".TiMu").attr("data").trim()
-                    }
-                    if (typeCode.isBlank()) {
-                        typeCode = "4"
-                    }
+                    // 9. 精准解析题型 (结合属性、文本与选项结构智能判别，坚决杜绝把选择题误判为主观题)
+                    val (typeCode, typeName) = resolveQuestionType(qEl, typeScoreText, options)
 
                     list.add(
                         ChaoXingQuestionItem(
                             index = index,
                             id = qId,
                             typeCode = typeCode,
-                            typeName = typeScoreText.ifBlank { "主观题" },
+                            typeName = typeName,
                             scoreText = scoreText,
                             stemHtml = stemHtml,
                             cleanStem = cleanStem,
+                            options = options,
+                            correctAnswer = correctAns,
+                            explanation = explanation,
                             myAnswerHtml = ansHtml,
                             cleanMyAnswer = cleanAns,
                             teacherComment = commentText,
@@ -706,6 +753,171 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 Log.w(TAG, "parseQuestionsFromHtml error: ${e.message}")
             }
             return list
+        }
+
+        /**
+         * 解析超星单道题目的全部选项卡片数据
+         */
+        fun parseOptionsFromQuestionElement(qEl: org.jsoup.nodes.Element): List<ChaoXingQuestionOption> {
+            val options = mutableListOf<ChaoXingQuestionOption>()
+
+            val myAnsText = qEl.select(".stuAnswer, .myAnswer, .my-answer, .stuAnswerContent").text().trim()
+            val rightAnsText = qEl.select(".rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").text().trim()
+            val myFallback = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
+            val rightFallback = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
+            val myLetters = extractChoiceLetters(myAnsText.ifBlank { myFallback })
+            val rightLetters = extractChoiceLetters(rightAnsText.ifBlank { rightFallback })
+
+            // 1. 常见超星选项列表选择器
+            val optEls = qEl.select("""
+                .stem_answer li,
+                .answerList .clearfix,
+                .answerList .answerList_item,
+                .answerList > div,
+                .options li,
+                .optionList li,
+                .option_list li,
+                ul.tiMu_ul li,
+                .choiceList .choice,
+                .choiceList li,
+                div[class*='answerBg'],
+                ul[class*='answer'] li,
+                ul[class*='option'] li
+            """.trimIndent())
+
+            val letterList = listOf("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
+
+            if (optEls.isNotEmpty()) {
+                for ((idx, optEl) in optEls.withIndex()) {
+                    val badgeEl = optEl.select(".num_option, .num, i.fl, em.fl, .option_num, span.fl, .letter, i").firstOrNull()
+                    var letter = badgeEl?.text()?.replace(Regex("""[^A-Za-z✓✕对错正确错误]"""), "")?.trim()?.uppercase().orEmpty()
+                    val rawText = optEl.text().trim()
+
+                    if (letter.isBlank()) {
+                        val match = Regex("""^([A-Z])[.\u3001\s]""").find(rawText)
+                        if (match != null) {
+                            letter = match.groupValues[1]
+                        }
+                    }
+                    if (letter.isBlank()) {
+                        letter = if (idx < letterList.size) letterList[idx] else "${idx + 1}"
+                    }
+
+                    val contentEl = optEl.select(".answer_p, .option_content, .text, .fl:not(i):not(em):not(.num_option), p, div").firstOrNull()
+                    var content = contentEl?.text()?.trim() ?: rawText
+                    content = content.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
+                    if (content.isBlank() && rawText.isNotBlank()) {
+                        content = rawText.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
+                    }
+
+                    val isSelected = myLetters.contains(letter) ||
+                            optEl.hasClass("check_answer") || optEl.hasClass("check") ||
+                            optEl.hasClass("cur") || optEl.hasClass("active") ||
+                            optEl.hasClass("selected") || optEl.select("input[checked]").isNotEmpty()
+
+                    val isCorrect = rightLetters.contains(letter) ||
+                            optEl.hasClass("rightAnswer") || optEl.hasClass("correct") ||
+                            optEl.select(".rightAnswer, .colorGreen").isNotEmpty()
+
+                    if (content.isNotBlank() || letter.isNotBlank()) {
+                        options.add(
+                            ChaoXingQuestionOption(
+                                letter = letter,
+                                content = content,
+                                isSelected = isSelected,
+                                isCorrect = isCorrect
+                            )
+                        )
+                    }
+                }
+            } else {
+                // 2. 备选方案：检查题干或题干下内嵌段落中的 A. B. C. D. 选项行
+                val pElements = qEl.select(".stemDiv p, .Picdiv p, p")
+                val pOptions = mutableListOf<Pair<String, String>>()
+                for (p in pElements) {
+                    val text = p.text().trim()
+                    val m = Regex("""^([A-J])[.\u3001\s]+(.*)$""").find(text)
+                    if (m != null) {
+                        pOptions.add(Pair(m.groupValues[1].uppercase(), m.groupValues[2].trim()))
+                    }
+                }
+                if (pOptions.size >= 2) {
+                    for ((l, c) in pOptions) {
+                        options.add(
+                            ChaoXingQuestionOption(
+                                letter = l,
+                                content = c,
+                                isSelected = myLetters.contains(l),
+                                isCorrect = rightLetters.contains(l)
+                            )
+                        )
+                    }
+                }
+            }
+
+            return options
+        }
+
+        private fun extractChoiceLetters(text: String): Set<String> {
+            if (text.isBlank()) return emptySet()
+            val clean = Regex("""(?:我的答案|正确答案|标准答案|参考答案|学生答案)[:：\s]*""").replace(text, "").trim()
+            val set = mutableSetOf<String>()
+            Regex("""[A-Za-z]""").findAll(clean).forEach {
+                set.add(it.value.uppercase())
+            }
+            if (set.isEmpty()) {
+                if (clean.contains("对") || clean.contains("正确") || clean.equals("true", ignoreCase = true)) set.add("✓")
+                if (clean.contains("错") || clean.contains("错误") || clean.equals("false", ignoreCase = true)) set.add("✕")
+            }
+            return set
+        }
+
+        /**
+         * 智能判定题目类型编码与题型名称
+         */
+        fun resolveQuestionType(
+            qEl: org.jsoup.nodes.Element,
+            typeScoreText: String,
+            options: List<ChaoXingQuestionOption>
+        ): Pair<String, String> {
+            val allText = qEl.text()
+            val typeTextCandidates = qEl.select(".stemGray, .question-type, .type, .colorDeep, .color888, .type_tit, .stem_type, .font14, .stemDiv, .title").text()
+            val fullScan = "$typeScoreText $typeTextCandidates $allText"
+
+            val typeName = when {
+                fullScan.contains("多选题") || fullScan.contains("多选") || allText.contains("【多选题】") || allText.contains("(多选题") || allText.contains("（多选题") -> "多选题"
+                fullScan.contains("单选题") || fullScan.contains("单选") || allText.contains("【单选题】") || allText.contains("(单选题") || allText.contains("（单选题") -> "单选题"
+                fullScan.contains("判断题") || fullScan.contains("判断") || allText.contains("【判断题】") || allText.contains("(判断题") || allText.contains("（判断题") -> "判断题"
+                fullScan.contains("填空题") || fullScan.contains("填空") || allText.contains("【填空题】") || allText.contains("(填空题") || allText.contains("（填空题") -> "填空题"
+                fullScan.contains("简答题") || fullScan.contains("简答") || allText.contains("【简答题】") || allText.contains("(简答题") || allText.contains("（简答题") -> "简答题"
+                fullScan.contains("名词解释") -> "名词解释"
+                fullScan.contains("论述题") -> "论述题"
+                fullScan.contains("计算题") -> "计算题"
+                qEl.attr("questiontypeid") == "0" || qEl.attr("type") == "0" -> "单选题"
+                qEl.attr("questiontypeid") == "1" || qEl.attr("type") == "1" -> "多选题"
+                qEl.attr("questiontypeid") == "2" || qEl.attr("type") == "2" -> "填空题"
+                qEl.attr("questiontypeid") == "3" || qEl.attr("type") == "3" -> "判断题"
+                qEl.attr("questiontypeid") == "4" || qEl.attr("type") == "4" -> "简答题"
+                options.size == 2 && (allText.contains("正确") || allText.contains("错误") || allText.contains("对") || allText.contains("错")) -> "判断题"
+                options.isNotEmpty() && qEl.select("input[type='checkbox']").isNotEmpty() -> "多选题"
+                options.isNotEmpty() -> "单选题"
+                typeScoreText.isNotBlank() -> typeScoreText.replace(Regex("""[(（\[【\d.\s分)）\]】]"""), "").trim().ifBlank { "主观题" }
+                else -> "主观题"
+            }
+
+            val typeCode = when (typeName) {
+                "单选题" -> "0"
+                "多选题" -> "1"
+                "填空题" -> "2"
+                "判断题" -> "3"
+                "简答题" -> "4"
+                "名词解释" -> "5"
+                "论述题" -> "6"
+                "计算题" -> "7"
+                else -> "4"
+            }
+
+            return Pair(typeCode, typeName)
         }
 
         /**
@@ -1383,10 +1595,36 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 }
                 val qHeader = "第${q.index}题 ${q.typeName} ${if (q.scoreText.isNotBlank()) "(${q.scoreText})" else ""}".trim()
                 contentHtmlBuilder.append("<b>").append(qHeader).append("</b><br/>")
-                contentHtmlBuilder.append(q.stemHtml)
+                contentHtmlBuilder.append(q.cleanStem.ifBlank { q.stemHtml })
+
+                // 如果包含客观题选项，将其按行格式化追加
+                if (q.options.isNotEmpty()) {
+                    contentHtmlBuilder.append("<br/>")
+                    for (opt in q.options) {
+                        contentHtmlBuilder.append("<br/>&nbsp;&nbsp;").append(opt.letter).append(". ").append(opt.content)
+                    }
+                }
 
                 cleanContentBuilder.append("【").append(qHeader).append("】\n")
                 cleanContentBuilder.append(q.cleanStem)
+                if (q.options.isNotEmpty()) {
+                    for (opt in q.options) {
+                        cleanContentBuilder.append("\n  ").append(opt.letter).append(". ").append(opt.content)
+                    }
+                }
+
+                if (q.cleanMyAnswer.isNotBlank()) {
+                    contentHtmlBuilder.append("<br/><br/><b>我的作答:</b> ").append(q.cleanMyAnswer)
+                    cleanContentBuilder.append("\n我的作答: ").append(q.cleanMyAnswer)
+                }
+                if (q.correctAnswer.isNotBlank()) {
+                    contentHtmlBuilder.append("<br/><font color='#2E7D32'><b>标准答案:</b> ").append(q.correctAnswer).append("</font>")
+                    cleanContentBuilder.append("\n标准答案: ").append(q.correctAnswer)
+                }
+                if (q.explanation.isNotBlank()) {
+                    contentHtmlBuilder.append("<br/><font color='#667085'><b>解析:</b> ").append(q.explanation).append("</font>")
+                    cleanContentBuilder.append("\n解析: ").append(q.explanation)
+                }
 
                 teacherAttachments.addAll(q.teacherAttachments)
                 studentAttachments.addAll(q.studentAttachments)
