@@ -354,7 +354,8 @@ data class ChaoXingExamDetail(
         val scDouble = score.toDoubleOrNull()
         val isDone = isSubmitted || isGraded || statusText.contains("已完成") || statusText.contains("已批") || scDouble != null
 
-        val subjectsList = rawQuestions.mapIndexed { idx, q ->
+        val safeRawQuestions = rawQuestions ?: emptyList()
+        val subjectsList = safeRawQuestions.mapIndexed { idx, q ->
             val subType = when (q.typeName) {
                 "多选题" -> "multiple_selection"
                 "判断题" -> "true_false"
@@ -363,7 +364,7 @@ data class ChaoXingExamDetail(
                 else -> "single_selection"
             }
 
-            val opts = q.options.mapIndexed { oIdx, opt ->
+            val opts = (q.options ?: emptyList()).mapIndexed { oIdx, opt ->
                 TronClassSubjectOption(
                     id = (oIdx + 1).toLong(),
                     content = "${opt.letter}. ${opt.content}",
@@ -392,7 +393,7 @@ data class ChaoXingExamDetail(
         val corrAnsMap = mutableMapOf<String, Any>()
         val isCorrMap = mutableMapOf<String, Boolean?>()
 
-        rawQuestions.forEachIndexed { idx, q ->
+        safeRawQuestions.forEachIndexed { idx, q ->
             val sId = (q.id.toLongOrNull() ?: (idx + 1).toLong()).toString()
             if (q.cleanMyAnswer.isNotBlank()) {
                 myAnsMap[sId] = q.cleanMyAnswer
@@ -411,7 +412,7 @@ data class ChaoXingExamDetail(
             isStarted = true,
             isClosed = isDone || statusText.contains("已截止") || statusText.contains("已结束"),
             limitTime = limitTime,
-            subjectsCount = rawQuestions.size,
+            subjectsCount = safeRawQuestions.size,
             submittedTimes = if (isDone) 1 else 0,
             score = scDouble,
             scoreRule = scoreRule.ifBlank { "highest" }
@@ -510,7 +511,9 @@ data class ChaoXingQuestionItem(
     val teacherComment: String = "",
     val studentAttachments: List<ChaoXingCourseAttachment> = emptyList(),
     val teacherAttachments: List<ChaoXingCourseAttachment> = emptyList()
-) : Serializable
+) : Serializable {
+    fun safeOptions(): List<ChaoXingQuestionOption> = options ?: emptyList()
+}
 
 /**
  * 超星作业提交/暂存结果包装

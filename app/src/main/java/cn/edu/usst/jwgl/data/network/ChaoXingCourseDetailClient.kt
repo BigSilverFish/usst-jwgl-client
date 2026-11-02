@@ -612,11 +612,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             if (html.isBlank()) return list
             try {
                 val doc = Jsoup.parse(html)
-                // 1. 抓取所有可能代表题目的候选容器 (涵盖 PC 端 TiMu / Zy_TItle 以及移动端 singleQuesId / questionBlock 等)
-                val rawCandidates = doc.select(".TiMu, .singleQuesId, div[class*='singleQues'], .mark_item, .questionBlock, .questionLi, .padlr30")
+                // 1. 抓取所有可能代表具体题目的候选容器 (涵盖移动端 singleQuesId, questionLi, questionBlock 及 PC 端 TiMu)
+                // 注意：.fanyaMarking 和 .mark_item 分别是全卷与题型大段祖先容器，必须排除，防止全卷或大题折叠为单题
+                val rawCandidates = doc.select(".singleQuesId, div[class*='singleQues'], .questionLi, .questionBlock, .TiMu:not(.fanyaMarking):not(.mark_item), .padlr30:not(.mark_item)")
+                val effectiveCandidates = if (rawCandidates.isNotEmpty()) rawCandidates else doc.select(".TiMu, .mark_item")
                 // 关键防嵌套过滤：如果某个候选元素的祖先中已有其他候选元素，则该元素为嵌套的内部容器，应予过滤，只保留最外层完整题目容器
-                val rawSet = rawCandidates.toSet()
-                val topElements = rawCandidates.filter { el ->
+                val rawSet = effectiveCandidates.toSet()
+                val topElements = effectiveCandidates.filter { el ->
                     el.parents().none { it in rawSet }
                 }
 
@@ -624,16 +626,18 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 var questionIndex = 1
 
                 for (qEl in topElements) {
-                    // 题型与分值提取 (支持 PC 端 newZy_TItle、Zy_TItle、colorDeep，以及移动端 stemGray 等)
-                    val typeScoreEl = qEl.select(".newZy_TItle, .stemGray, .question-type, .type, .colorDeep, .type_tit, .color888, .font14").firstOrNull()
+                    // 题型与分值提取 (支持移动端 colorShallow、totalScore，以及 PC 端 newZy_TItle、stemGray 等)
+                    val typeScoreEl = qEl.select(".colorShallow, .newZy_TItle, .stemGray, .question-type, .type, .colorDeep, .type_tit, .color888, .font14").firstOrNull()
                     val typeScoreText = typeScoreEl?.text()?.trim().orEmpty()
+                    val totalScoreEl = qEl.select(".totalScore, .score, .numspan").firstOrNull()
                     val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText)
+                        ?: Regex("""(\d+(?:\.\d+)?)\s*分""").find(totalScoreEl?.text().orEmpty())
                         ?: Regex("""[(（\[【]\s*(\d+(?:\.\d+)?)\s*分\s*[)）\]】]""").find(qEl.text())
                         ?: Regex("""(?:分值[:：\s]*|共\s*)(\d+(?:\.\d+)?)\s*分""").find(qEl.text())
                     val scoreText = scoreMatch?.groupValues?.get(1)?.let { "$it 分" } ?: ""
 
-                    // 1. 题干提取 (支持 PC 端 Zy_TItle 与移动端 stemDiv / Picdiv)
-                    val stemEl = qEl.select(".Zy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .qtContent, .workTextWrap, .font14, .stem_title, .title, .sub-title").firstOrNull()
+                    // 1. 题干提取 (支持移动端 qtContent 与 PC 端 Zy_TItle / stemDiv / Picdiv)
+                    val stemEl = qEl.select(".qtContent, .Zy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .workTextWrap, .font14, .stem_title, .title, .sub-title").firstOrNull()
                     var stemHtml = stemEl?.html()?.trim().orEmpty()
                     var cleanStem = stemEl?.text()?.trim().orEmpty()
                     if (cleanStem.isBlank()) {
@@ -730,7 +734,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                     }
                     if (correctAns.isBlank()) {
-                        val rightEl = qEl.select(".true_answer, .rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").firstOrNull()
+                        val rightEl = qEl.select(".true_answer, .rightAnswer, .rightAnswerContent, .standardAnswer, .correctAnswer, .trueAnswer").firstOrNull()
                         correctAns = if (rightEl != null) {
                             rightEl.text().replace(Regex("""^(?:正确答案|标准答案|参考答案)[:：\s]*"""), "").trim()
                         } else {
@@ -815,7 +819,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
             val pyAnsText = qEl.select(".Py_answer, .Py_tk").text().trim()
             val myAnsText = qEl.select(".stuAnswer, .myAnswer, .my-answer, .stuAnswerContent").text().trim()
-            val rightAnsText = qEl.select(".true_answer, .rightAnswer, .standardAnswer, .correctAnswer, .trueAnswer").text().trim()
+            val rightAnsText = qEl.select(".true_answer, .rightAnswer, .rightAnswerContent, .standardAnswer, .correctAnswer, .trueAnswer").text().trim()
             val myFallback = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
             val rightFallback = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
 
@@ -825,8 +829,14 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             val myLetters = extractChoiceLetters(myFullStr)
             val rightLetters = extractChoiceLetters(rightFullStr)
 
-            // 1. 常见超星选项列表选择器 (涵盖 PC 端 Zy_ulTop, Cy_ulTop, Zy_ulTk, ulOption 及移动端 stem_answer, answerList 等)
+            // 1. 常见超星选项列表选择器 (涵盖移动端 mark_letter, qtDetail 及 PC 端 Zy_ulTop, Cy_ulTop, Zy_ulTk, ulOption, stem_answer, answerList 等)
             val optEls = qEl.select("""
+                ul.mark_letter > li,
+                ul.mark_letter li,
+                ul.qtDetail > li,
+                ul.qtDetail li,
+                ul[class*='letter'] li,
+                ul[class*='qtDetail'] li,
                 ul.Zy_ulTop > li,
                 ul.Zy_ulTop li,
                 ul.Cy_ulTop > li,
@@ -1699,8 +1709,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                         hostBase + (if (subPath.startsWith("/")) subPath else "/$subPath")
                     }
-                    val detailSubUrl = if (detailSubUrlRaw.contains("selectWorkQuestion") && !detailSubUrlRaw.contains("isReport=false")) {
-                        detailSubUrlRaw + (if (detailSubUrlRaw.contains("?")) "&isReport=false" else "?isReport=false")
+                    // 保留超星原始参数（若为查看/报告模式切勿强行覆盖为 isReport=false，否则会导致超星后端截断为单题滑动模式）
+                    val detailSubUrl = if (detailSubUrlRaw.contains("isReport=false")) {
+                        detailSubUrlRaw.replace("isReport=false", "isReport=true")
+                    } else if (detailSubUrlRaw.contains("selectWorkQuestion") && !detailSubUrlRaw.contains("isReport=")) {
+                        detailSubUrlRaw + (if (detailSubUrlRaw.contains("?")) "&isReport=true" else "?isReport=true")
                     } else {
                         detailSubUrlRaw
                     }
@@ -1717,8 +1730,9 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         val html2 = resp2.body?.string() ?: ""
                         if (html2.isNotBlank()) {
                             questionsHtml = html2
-                            // 若返回的内容仍是答题卡概览，检查是否有带 isReport=false 的终态题目链接
-                            if (!html2.contains("singleQuesId") && html2.contains("selectWorkQuestion")) {
+                            // 若返回的内容仍无题目容器，且含有下一层 selectWorkQuestion 链接，才尝试第三级
+                            val hasQuestionsAlready = html2.contains("singleQuesId") || html2.contains("TiMu") || html2.contains("Zy_TItle") || html2.contains("questionBlock")
+                            if (!hasQuestionsAlready && html2.contains("selectWorkQuestion")) {
                                 val secondMatch = Regex("""(?:href=['"]|url\s*=\s*['"])(/work/phone/selectWorkQuestion[^'"]+)""").find(html2)
                                 val secondSub = secondMatch?.groupValues?.get(1)?.trim().orEmpty()
                                 if (secondSub.isNotBlank()) {
@@ -1726,9 +1740,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                                         val host = if (finalUrl1.contains("mooc1-api.chaoxing.com")) "https://mooc1-api.chaoxing.com/mooc-ans" else "https://mooc1.chaoxing.com/mooc-ans"
                                         host + (if (secondSub.startsWith("/")) secondSub else "/$secondSub")
                                     }).let {
-                                        if (it.contains("selectWorkQuestion") && !it.contains("isReport=false")) {
-                                            it + (if (it.contains("?")) "&isReport=false" else "?isReport=false")
-                                        } else it
+                                        if (it.contains("isReport=false")) it.replace("isReport=false", "isReport=true") else it
                                     }
                                     try {
                                         val req3 = Request.Builder()
@@ -1790,17 +1802,18 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 contentHtmlBuilder.append(q.cleanStem.ifBlank { q.stemHtml })
 
                 // 如果包含客观题选项，将其按行格式化追加
-                if (q.options.isNotEmpty()) {
+                val qOpts = q.options ?: emptyList()
+                if (qOpts.isNotEmpty()) {
                     contentHtmlBuilder.append("<br/>")
-                    for (opt in q.options) {
+                    for (opt in qOpts) {
                         contentHtmlBuilder.append("<br/>&nbsp;&nbsp;").append(opt.letter).append(". ").append(opt.content)
                     }
                 }
 
                 cleanContentBuilder.append("【").append(qHeader).append("】\n")
                 cleanContentBuilder.append(q.cleanStem)
-                if (q.options.isNotEmpty()) {
-                    for (opt in q.options) {
+                if (qOpts.isNotEmpty()) {
+                    for (opt in qOpts) {
                         cleanContentBuilder.append("\n  ").append(opt.letter).append(". ").append(opt.content)
                     }
                 }
