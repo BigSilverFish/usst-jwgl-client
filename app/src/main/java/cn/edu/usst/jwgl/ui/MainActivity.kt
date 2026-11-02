@@ -1291,23 +1291,62 @@ class MainActivity : AppCompatActivity() {
     }
     private var currentTab: MainTab = MainTab.TIMETABLE
 
-    fun switchTab(tab: MainTab) {
+    fun switchTab(tab: MainTab, force: Boolean = false) {
+        if (!force && currentTab == tab) {
+            // 已在当前Tab时拦截多余重绘；若点击课表Tab则平滑滚回当前实际学周
+            if (tab == MainTab.TIMETABLE) {
+                val effectiveWeek = getEffectiveCurrentWeek()
+                if (currentWeek != effectiveWeek && effectiveWeek in 1..(currentTable?.maxWeek ?: 25)) {
+                    binding.vpSchedule.setCurrentItem(effectiveWeek - 1, true)
+                }
+            }
+            return
+        }
+        val prevTab = currentTab
         currentTab = tab
-        updateDrawerActiveTab(tab)
+
+        if (!isPhoneBottomBarMode() || isNavDrawerOpen()) {
+            updateDrawerActiveTab(tab)
+        }
         updateBottomNavActiveTab(tab)
 
-        binding.layoutTimetable.visibility = if (tab == MainTab.TIMETABLE) View.VISIBLE else View.GONE
-        binding.containerGrades.visibility = if (tab == MainTab.GRADES) View.VISIBLE else View.GONE
-        binding.layoutProfile.visibility = if (tab == MainTab.PROFILE) View.VISIBLE else View.GONE
-        binding.pageMoreFeatures.layoutMoreFeatures.visibility = if (tab == MainTab.MORE_FEATURES) View.VISIBLE else View.GONE
-        binding.containerCourseSearch.visibility = if (tab == MainTab.COURSE_SEARCH) View.VISIBLE else View.GONE
-        binding.containerFreeClassroom.visibility = if (tab == MainTab.FREE_CLASSROOM) View.VISIBLE else View.GONE
-        binding.containerExamQuery.visibility = if (tab == MainTab.EXAM_QUERY) View.VISIBLE else View.GONE
-        binding.containerGradeReports.visibility = if (tab == MainTab.GRADE_REPORTS) View.VISIBLE else View.GONE
-        binding.containerTronclass.visibility = if (tab == MainTab.TRONCLASS) View.VISIBLE else View.GONE
+        val targetView = when (tab) {
+            MainTab.TIMETABLE -> binding.layoutTimetable
+            MainTab.GRADES -> binding.containerGrades
+            MainTab.PROFILE -> binding.layoutProfile
+            MainTab.MORE_FEATURES -> binding.pageMoreFeatures.layoutMoreFeatures
+            MainTab.COURSE_SEARCH -> binding.containerCourseSearch
+            MainTab.FREE_CLASSROOM -> binding.containerFreeClassroom
+            MainTab.EXAM_QUERY -> binding.containerExamQuery
+            MainTab.GRADE_REPORTS -> binding.containerGradeReports
+            MainTab.TRONCLASS -> binding.containerTronclass
+        }
+
+        val allContainers = listOf(
+            binding.layoutTimetable,
+            binding.containerGrades,
+            binding.layoutProfile,
+            binding.pageMoreFeatures.layoutMoreFeatures,
+            binding.containerCourseSearch,
+            binding.containerFreeClassroom,
+            binding.containerExamQuery,
+            binding.containerGradeReports,
+            binding.containerTronclass
+        )
+
+        // 仅对状态发生改变的视图执行 setVisibility，避免对整个视图树触发级联重排测量
+        allContainers.forEach { v ->
+            val shouldBeVisible = (v == targetView)
+            val isCurrentlyVisible = (v.visibility == View.VISIBLE)
+            if (shouldBeVisible != isCurrentlyVisible) {
+                v.visibility = if (shouldBeVisible) View.VISIBLE else View.GONE
+            }
+        }
 
         when (tab) {
-            MainTab.TIMETABLE -> reloadTimetableFromDb()
+            MainTab.TIMETABLE -> {
+                // 优化：视图直接秒显，不调用 reloadTimetableFromDb()，彻底消除重新查库与全量重绘 ViewPager Fragment 带来的卡顿
+            }
             MainTab.GRADES -> {
                 val gf = supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment
                 if (gf == null) {
@@ -1371,20 +1410,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateBottomNavActiveTab(tab: MainTab) {
+        val primaryCol = ContextCompat.getColor(this, R.color.primary)
+        val secondaryCol = ContextCompat.getColor(this, R.color.text_secondary)
+        val primaryTint = android.content.res.ColorStateList.valueOf(primaryCol)
+        val secondaryTint = android.content.res.ColorStateList.valueOf(secondaryCol)
+
         fun setBottomTabStyle(pill: FrameLayout, icon: ImageView, label: TextView, isActive: Boolean) {
+            val wasActive = pill.tag as? Boolean
+            if (wasActive == isActive) return // 状态未改变时直接跳过，杜绝多余的 requestLayout 和背景重置
+            pill.tag = isActive
+
             if (isActive) {
                 pill.setBackgroundResource(R.drawable.bg_bottom_nav_pill)
-                icon.imageTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.primary)
-                )
-                label.setTextColor(ContextCompat.getColor(this, R.color.primary))
+                icon.imageTintList = primaryTint
+                label.setTextColor(primaryCol)
                 label.typeface = android.graphics.Typeface.DEFAULT_BOLD
             } else {
                 pill.background = null
-                icon.imageTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.text_secondary)
-                )
-                label.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                icon.imageTintList = secondaryTint
+                label.setTextColor(secondaryCol)
                 label.typeface = android.graphics.Typeface.DEFAULT
             }
         }
@@ -1431,22 +1475,27 @@ class MainActivity : AppCompatActivity() {
         val typedValue = android.util.TypedValue()
         theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
         val defaultBg = typedValue.resourceId
+        val primaryCol = ContextCompat.getColor(this, R.color.primary)
+        val textPrimaryCol = ContextCompat.getColor(this, R.color.text_primary)
+        val textSecondaryCol = ContextCompat.getColor(this, R.color.text_secondary)
+        val primaryTint = android.content.res.ColorStateList.valueOf(primaryCol)
+        val secondaryTint = android.content.res.ColorStateList.valueOf(textSecondaryCol)
 
         fun setNavActive(layout: LinearLayout, icon: ImageView, text: TextView, isActive: Boolean) {
+            val wasActive = layout.tag as? Boolean
+            if (wasActive == isActive) return
+            layout.tag = isActive
+
             if (isActive) {
                 layout.setBackgroundResource(R.drawable.bg_drawer_active)
-                text.setTextColor(ContextCompat.getColor(this, R.color.primary))
+                text.setTextColor(primaryCol)
                 text.typeface = android.graphics.Typeface.DEFAULT_BOLD
-                icon.imageTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.primary)
-                )
+                icon.imageTintList = primaryTint
             } else {
                 layout.setBackgroundResource(defaultBg)
-                text.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+                text.setTextColor(textPrimaryCol)
                 text.typeface = android.graphics.Typeface.DEFAULT
-                icon.imageTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.text_secondary)
-                )
+                icon.imageTintList = secondaryTint
             }
         }
 
