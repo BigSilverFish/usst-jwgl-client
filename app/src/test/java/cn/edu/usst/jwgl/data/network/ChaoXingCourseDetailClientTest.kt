@@ -447,6 +447,52 @@ class ChaoXingCourseDetailClientTest {
     }
 
     @Test
+    fun testParseObjectiveQuestionsWithChoices() {
+        val html = """
+            <div class="singleQuesId" id="q_101" data="101" questiontypeid="0">
+                <div class="padlr30 whiteBg">
+                    <div class="stemDiv">
+                        1.<span class="stemGray">(单选题, 2分)</span>
+                        <div class="Picdiv workTextWrap qtContent">
+                            <p>民族管弦乐团的编制中，有一个重要声部是在西洋管弦乐团中无法匹配的是</p>
+                        </div>
+                    </div>
+                    <ul class="stem_answer">
+                        <li class="clearfix"><i class="fl">A. </i><div class="fl">吹管乐器组</div></li>
+                        <li class="clearfix"><i class="fl">B. </i><div class="fl">弹拨乐器组</div></li>
+                        <li class="clearfix"><i class="fl">C. </i><div class="fl">拉弦乐器组</div></li>
+                        <li class="clearfix"><i class="fl">D. </i><div class="fl">打击乐器组</div></li>
+                    </ul>
+                    <div class="stuAnswer">我的答案: B</div>
+                    <div class="rightAnswer">正确答案: B</div>
+                    <div class="myAnalysis">答案解析: 弹拨乐器组是中国民族管弦乐团独有的声部。</div>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val questions = ChaoXingCourseDetailClient.parseQuestionsFromHtml(html)
+        assertEquals(1, questions.size)
+
+        val q = questions[0]
+        assertEquals(1, q.index)
+        assertEquals("0", q.typeCode)
+        assertEquals("单选题", q.typeName)
+        assertEquals("2 分", q.scoreText)
+        assertTrue(q.cleanStem.contains("民族管弦乐团"))
+        assertFalse(q.cleanStem.startsWith("1."))
+        assertEquals(4, q.options.size)
+        assertEquals("A", q.options[0].letter)
+        assertEquals("吹管乐器组", q.options[0].content)
+        assertEquals("B", q.options[1].letter)
+        assertEquals("弹拨乐器组", q.options[1].content)
+        assertTrue(q.options[1].isSelected)
+        assertTrue(q.options[1].isCorrect)
+        assertEquals("B", q.cleanMyAnswer)
+        assertEquals("B", q.correctAnswer)
+        assertTrue(q.explanation.contains("弹拨乐器组"))
+    }
+
+    @Test
     fun testParseSizeStrToBytes() {
         assertEquals(1024L, ChaoXingCourseDetailClient.parseSizeStrToBytes("1K"))
         assertEquals(2048L, ChaoXingCourseDetailClient.parseSizeStrToBytes("2KB"))
