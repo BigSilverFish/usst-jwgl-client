@@ -555,13 +555,25 @@ class TronClassHomeworkFragment : Fragment() {
 
         // 1. 本地缓存秒级直出 (0ms 离线可用)
         if (!forceRefresh) {
-            val cached = cacheMgr.getCachedChaoXingHomeworkDetail(cx.workId)
+            val cached = try {
+                cacheMgr.getCachedChaoXingHomeworkDetail(cx.workId)
+            } catch (e: Exception) {
+                null
+            }
             if (cached != null) {
-                // 如果发现缓存为旧版本残缺缓存 (rawQuestions 为空且内容包含旧版 "第1题" 拼接文字)，不提前渲染残缺视图，直接走网络刷新
-                val isStaleLegacyCache = cached.rawQuestions.isEmpty() && (cached.contentHtml.contains("第1题") || cached.cleanContent.contains("第1题"))
-                if (!isStaleLegacyCache) {
-                    chaoXingHomeworkDetail = cached
-                    renderChaoXingDetailUi(cached)
+                val cachedQuestions = cached.rawQuestions ?: emptyList()
+                val isStaleLegacyCache = cachedQuestions.isEmpty() && (cached.contentHtml.orEmpty().contains("第1题") || cached.cleanContent.orEmpty().contains("第1题"))
+                val hasMissingOptions = cachedQuestions.isEmpty() || cachedQuestions.any {
+                    (it.typeName.orEmpty().contains("选") || it.typeName.orEmpty().contains("判断")) && it.safeOptions().isEmpty()
+                }
+                val isCorrupted = cached.contentHtml == null || cached.cleanContent == null || cached.rawQuestions == null
+                if (!isStaleLegacyCache && !hasMissingOptions && !isCorrupted) {
+                    try {
+                        chaoXingHomeworkDetail = cached
+                        renderChaoXingDetailUi(cached)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to render cached homework: ${e.message}", e)
+                    }
                 }
             }
         }
@@ -573,11 +585,13 @@ class TronClassHomeworkFragment : Fragment() {
 
             if (res.isSuccess) {
                 val detail = res.getOrNull()
+                Log.e(TAG, "fetchHomeworkDetail SUCCESS: ${detail?.title}, qCount=${detail?.rawQuestions?.size}")
                 if (detail != null) {
                     chaoXingHomeworkDetail = detail
                     renderChaoXingDetailUi(detail)
                 }
             } else {
+                Log.e(TAG, "fetchHomeworkDetail FAILED: ${res.exceptionOrNull()?.message}", res.exceptionOrNull())
                 if (chaoXingHomeworkDetail == null) {
                     binding.tvRequirementDesc.text = "（题目说明拉取超时或网络波动，可点击底部按钮直接在超星作答界面查看）"
                 }
@@ -850,9 +864,9 @@ class TronClassHomeworkFragment : Fragment() {
         val context = context ?: return
 
         // 1. Meta / Hero
-        binding.tvHomeworkTitle.text = detail.title
-        binding.tvCourseName.text = detail.courseName.ifBlank { courseNameText }
-        val cleanDetailDdl = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanDeadline(detail.deadline)
+        binding.tvHomeworkTitle.text = detail.title.orEmpty()
+        binding.tvCourseName.text = detail.courseName.orEmpty().ifBlank { courseNameText }
+        val cleanDetailDdl = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.cleanDeadline(detail.deadline.orEmpty())
         if (cleanDetailDdl.isNotBlank()) {
             val ddlMs = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(cleanDetailDdl)
             val remainStr = if (ddlMs != null) {
@@ -876,23 +890,24 @@ class TronClassHomeworkFragment : Fragment() {
                 }
             } else if (chaoXingWork?.expired == true) "已截止" else ""
             binding.tvDeadline.text = "截止时间：$workDdl ${if (remainStr.isNotBlank()) "($remainStr)" else ""}".trim()
-        } else if (chaoXingWork?.expired == true || detail.statusText.contains("已截止")) {
+        } else if (chaoXingWork?.expired == true || detail.statusText.orEmpty().contains("已截止")) {
             binding.tvDeadline.text = "截止时间：已截止"
         } else {
             binding.tvDeadline.text = "截止时间：未设定"
         }
-        if (detail.questionsCountText.isNotBlank()) {
+        if (detail.questionsCountText.orEmpty().isNotBlank()) {
             binding.tvScoreWeight.text = "题目概况：${detail.questionsCountText} · 来源：超星学习通"
         }
 
         // Status Badge
+        val statusText = detail.statusText.orEmpty()
         when {
-            detail.score.isNotBlank() -> {
+            detail.score.orEmpty().isNotBlank() -> {
                 binding.tvStatusBadge.text = "已批改 · ${detail.score}分"
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
             }
-            detail.statusText.contains("待批") || detail.statusText.contains("待评") || detail.statusText.contains("未批") -> {
+            statusText.contains("待批") || statusText.contains("待评") || statusText.contains("未批") -> {
                 binding.tvStatusBadge.text = "已提交 · 待批阅"
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary_container)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
@@ -908,16 +923,17 @@ class TronClassHomeworkFragment : Fragment() {
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
             }
             else -> {
-                binding.tvStatusBadge.text = detail.statusText.ifBlank { "未提交" }
+                binding.tvStatusBadge.text = statusText.ifBlank { "未提交" }
                 binding.tvStatusBadge.backgroundTintList = ContextCompat.getColorStateList(context, R.color.surface_variant)
                 binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
             }
         }
 
         // 2. Requirement Description & Attachments
-        val rawHtml = detail.contentHtml.ifBlank { detail.cleanContent }
-        val effectiveQuestions = if (detail.rawQuestions.isNotEmpty()) {
-            detail.rawQuestions
+        val rawHtml = detail.contentHtml.orEmpty().ifBlank { detail.cleanContent.orEmpty() }
+        val rawQuestions = detail.rawQuestions ?: emptyList()
+        val effectiveQuestions = if (rawQuestions.isNotEmpty()) {
+            rawQuestions
         } else if (rawHtml.contains("<div") || rawHtml.contains("<ul") || rawHtml.contains("singleQuesId") || rawHtml.contains("TiMu") || rawHtml.contains("Zy_TItle")) {
             chaoXingDetailClient.parseQuestionsFromHtml(rawHtml)
         } else {
@@ -1123,9 +1139,10 @@ class TronClassHomeworkFragment : Fragment() {
             })
 
             // 分值
-            if (q.scoreText.isNotBlank()) {
+            val scoreStr = q.scoreText.orEmpty().trim()
+            if (scoreStr.isNotBlank()) {
                 val pointTv = TextView(context).apply {
-                    text = q.scoreText
+                    text = scoreStr
                     textSize = 12f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(primaryColor)
@@ -1136,7 +1153,7 @@ class TronClassHomeworkFragment : Fragment() {
 
             // 2. 题干 Stem (富文本解析)
             val stemTv = TextView(context).apply {
-                val stemText = q.cleanStem.ifBlank { q.stemHtml }
+                val stemText = q.cleanStem.orEmpty().ifBlank { q.stemHtml.orEmpty() }
                 val spanned = try {
                     val imgGetter = TronClassHtmlImageGetter(this)
                     Html.fromHtml(stemText, Html.FROM_HTML_MODE_LEGACY, imgGetter, null).trimEnd()
@@ -1159,7 +1176,8 @@ class TronClassHomeworkFragment : Fragment() {
             qRoot.addView(stemTv)
 
             // 3. 选项卡片 (若为客观选择题)
-            if (q.options.isNotEmpty()) {
+            val qOptions = q.safeOptions()
+            if (qOptions.isNotEmpty()) {
                 val optionsContainer = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(
@@ -1171,10 +1189,10 @@ class TronClassHomeworkFragment : Fragment() {
                 }
 
                 val isMulti = q.typeCode == "1" || q.typeName == "多选题"
-                val myAnsClean = q.cleanMyAnswer.trim()
-                val rightAnsClean = q.correctAnswer.trim()
+                val myAnsClean = q.cleanMyAnswer.orEmpty().trim()
+                val rightAnsClean = q.correctAnswer.orEmpty().trim()
 
-                for (opt in q.options) {
+                for (opt in qOptions) {
                     val optBinding = ItemTronclassOptionCardBinding.inflate(
                         LayoutInflater.from(context),
                         optionsContainer,
@@ -1295,7 +1313,7 @@ class TronClassHomeworkFragment : Fragment() {
             }
 
             // 4. 底部作答与解析结果卡片 (若有作答或标准答案)
-            val hasAnswerInfo = q.cleanMyAnswer.isNotBlank() || q.correctAnswer.isNotBlank() || q.explanation.isNotBlank()
+            val hasAnswerInfo = q.cleanMyAnswer.orEmpty().isNotBlank() || q.correctAnswer.orEmpty().isNotBlank() || q.explanation.orEmpty().isNotBlank()
             if (hasAnswerInfo) {
                 val resultBox = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
@@ -1317,7 +1335,7 @@ class TronClassHomeworkFragment : Fragment() {
                     )
                 }
 
-                if (q.cleanMyAnswer.isNotBlank()) {
+                if (q.cleanMyAnswer.orEmpty().isNotBlank()) {
                     val myAnsTv = TextView(context).apply {
                         text = "我的作答: ${q.cleanMyAnswer}"
                         textSize = 13f
@@ -1328,7 +1346,7 @@ class TronClassHomeworkFragment : Fragment() {
                     rowAnswers.addView(myAnsTv)
                 }
 
-                if (q.correctAnswer.isNotBlank()) {
+                if (q.correctAnswer.orEmpty().isNotBlank()) {
                     val rightAnsTv = TextView(context).apply {
                         text = "标准答案: ${q.correctAnswer}"
                         textSize = 13f

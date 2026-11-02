@@ -712,4 +712,91 @@ class ChaoXingCourseDetailClientTest {
         assertEquals("✓", tcDetail.correctAnswers[s2.id.toString()])
         assertEquals(true, tcDetail.isCorrectMap[s2.id.toString()])
     }
+
+    @Test
+    fun testParseMooc2RealHomeworkMultiQuestionsWithOptions() {
+        val html = """
+            <div id="fanyaMarking" class="fanyaMarking TiMu">
+                <div class="mark_item">
+                    <h2 class="type_tit">一. 单选题（共2题，40分）</h2>
+                    <div class="marBom60 questionLi singleQuesId" data="404386340" id="question404386340">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep">
+                                    1. <span class="colorShallow">(单选题)</span>
+                                    <span class="qtContent workTextWrap"><p>西安交响乐团曾首创“云海音乐会”系列，在哪座山顶举办了户外实景音乐会</p></span>
+                                </h3>
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li class="workTextWrap">A. <p>北岳恒山</p></li>
+                                    <li class="workTextWrap">B. <p>西岳华山</p></li>
+                                    <li class="workTextWrap">C. <p>中岳嵩山</p></li>
+                                    <li class="workTextWrap">D. <p>东岳泰山</p></li>
+                                    <li class="workTextWrap">E. <p>南岳衡山</p></li>
+                                </ul>
+                                <div class="mark_answer">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep"><span class="stuAnswerContent">B</span></span>
+                                        <span class="colorGreen"><span class="rightAnswerContent workTextWrap">B</span></span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class="totalScore fr"><i class="custom-style">20</i>分</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="marBom60 questionLi singleQuesId" data="404386343" id="question404386343">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep">
+                                    2. <span class="colorShallow">(单选题)</span>
+                                    <span class="qtContent workTextWrap"><p>以下哪位著名演员，没有出现在西安交响乐团唐诗交响吟诵音乐会上担任朗诵嘉宾？</p></span>
+                                </h3>
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li class="workTextWrap">A. <p>张铁林</p></li>
+                                    <li class="workTextWrap">B. <p>陈道明</p></li>
+                                    <li class="workTextWrap">C. <p>郭达</p></li>
+                                    <li class="workTextWrap">D. <p>濮存昕</p></li>
+                                </ul>
+                                <div class="mark_answer">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep"><span class="stuAnswerContent">B</span></span>
+                                        <span class="colorGreen"><span class="rightAnswerContent workTextWrap">B</span></span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class="totalScore fr"><i class="custom-style">20</i>分</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val questions = ChaoXingCourseDetailClient.parseQuestionsFromHtml(html)
+        assertEquals(2, questions.size)
+
+        val q1 = questions[0]
+        assertEquals("单选题", q1.typeName)
+        assertEquals("20 分", q1.scoreText)
+        assertEquals("西安交响乐团曾首创“云海音乐会”系列，在哪座山顶举办了户外实景音乐会", q1.cleanStem)
+        assertEquals(5, q1.options.size)
+        assertEquals("A", q1.options[0].letter)
+        assertEquals("北岳恒山", q1.options[0].content)
+        assertEquals("B", q1.options[1].letter)
+        assertEquals("西岳华山", q1.options[1].content)
+        assertTrue(q1.options[1].isSelected)
+        assertTrue(q1.options[1].isCorrect)
+        assertEquals("B", q1.cleanMyAnswer)
+        assertEquals("B", q1.correctAnswer)
+
+        val q2 = questions[1]
+        assertEquals("单选题", q2.typeName)
+        assertEquals("20 分", q2.scoreText)
+        assertEquals("以下哪位著名演员，没有出现在西安交响乐团唐诗交响吟诵音乐会上担任朗诵嘉宾？", q2.cleanStem)
+        assertEquals(4, q2.options.size)
+        assertEquals("陈道明", q2.options[1].content)
+        assertTrue(q2.options[1].isSelected)
+    }
 }
