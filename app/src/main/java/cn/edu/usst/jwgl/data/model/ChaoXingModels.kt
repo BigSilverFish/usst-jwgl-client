@@ -324,8 +324,122 @@ data class ChaoXingExam(
     val status: String,
     val remaining: String = "",
     val score: String = "",
-    val analysisUrl: String = ""
+    val analysisUrl: String = "",
+    val taskUrl: String = "",
+    val courseId: String = "",
+    val classId: String = "",
+    val courseName: String = ""
 ) : Serializable
+
+/**
+ * 超星测验/考试详细试卷原生模型
+ */
+data class ChaoXingExamDetail(
+    val examId: String,
+    val title: String,
+    val courseName: String = "",
+    val statusText: String = "",
+    val score: String = "",
+    val timeRange: String = "",
+    val limitTime: Int? = null,
+    val scoreRule: String = "",
+    val rawQuestions: List<ChaoXingQuestionItem> = emptyList(),
+    val analysisUrl: String = "",
+    val taskUrl: String = "",
+    val isSubmitted: Boolean = false,
+    val isGraded: Boolean = false
+) : Serializable {
+
+    fun toTronClassExamDetail(course: ChaoXingCourse? = null): TronClassExamDetail {
+        val scDouble = score.toDoubleOrNull()
+        val isDone = isSubmitted || isGraded || statusText.contains("已完成") || statusText.contains("已批") || scDouble != null
+
+        val subjectsList = rawQuestions.mapIndexed { idx, q ->
+            val subType = when (q.typeName) {
+                "多选题" -> "multiple_selection"
+                "判断题" -> "true_false"
+                "填空题" -> "fill_in_blank"
+                "简答题", "名词解释", "论述题", "计算题" -> "short_answer"
+                else -> "single_selection"
+            }
+
+            val opts = q.options.mapIndexed { oIdx, opt ->
+                TronClassSubjectOption(
+                    id = (oIdx + 1).toLong(),
+                    content = "${opt.letter}. ${opt.content}",
+                    isAnswer = opt.isCorrect
+                )
+            }
+
+            val pMatch = Regex("""(\d+(?:\.\d+)?)""").find(q.scoreText)?.groupValues?.get(1)?.toDoubleOrNull()
+
+            TronClassSubject(
+                id = q.id.toLongOrNull() ?: (idx + 1).toLong(),
+                title = q.cleanStem.ifBlank { q.stemHtml },
+                type = subType,
+                point = pMatch,
+                options = opts,
+                myAnswer = q.cleanMyAnswer,
+                correctAnswer = q.correctAnswer,
+                score = if (q.cleanMyAnswer.isNotBlank() && q.correctAnswer.isNotBlank() && q.cleanMyAnswer.trim().equals(q.correctAnswer.trim(), ignoreCase = true)) pMatch else null,
+                explanation = q.explanation,
+                description = q.cleanStem.ifBlank { q.stemHtml },
+                teacherComment = q.teacherComment
+            )
+        }
+
+        val myAnsMap = mutableMapOf<String, Any>()
+        val corrAnsMap = mutableMapOf<String, Any>()
+        val isCorrMap = mutableMapOf<String, Boolean?>()
+
+        rawQuestions.forEachIndexed { idx, q ->
+            val sId = (q.id.toLongOrNull() ?: (idx + 1).toLong()).toString()
+            if (q.cleanMyAnswer.isNotBlank()) {
+                myAnsMap[sId] = q.cleanMyAnswer
+            }
+            if (q.correctAnswer.isNotBlank()) {
+                corrAnsMap[sId] = q.correctAnswer
+            }
+            if (q.cleanMyAnswer.isNotBlank() && q.correctAnswer.isNotBlank()) {
+                isCorrMap[sId] = q.cleanMyAnswer.trim().equals(q.correctAnswer.trim(), ignoreCase = true)
+            }
+        }
+
+        val tcExam = TronClassExam(
+            id = examId.toLongOrNull() ?: (examId.hashCode().toLong() and 0x7FFFFFFF),
+            title = title,
+            isStarted = true,
+            isClosed = isDone || statusText.contains("已截止") || statusText.contains("已结束"),
+            limitTime = limitTime,
+            subjectsCount = rawQuestions.size,
+            submittedTimes = if (isDone) 1 else 0,
+            score = scDouble,
+            scoreRule = scoreRule.ifBlank { "highest" }
+        )
+
+        return TronClassExamDetail(
+            exam = tcExam,
+            submissions = if (isDone) listOf(
+                TronClassExamSubmission(
+                    id = 1L,
+                    attemptIndex = 1,
+                    score = scDouble,
+                    scoreText = score,
+                    submittedAt = timeRange
+                )
+            ) else emptyList(),
+            selectedSubmissionId = if (isDone) 1L else null,
+            scoreRule = scoreRule,
+            finalScore = scDouble,
+            currentScore = scDouble,
+            subjects = subjectsList,
+            myAnswers = myAnsMap,
+            correctAnswers = corrAnsMap,
+            isCorrectMap = isCorrMap,
+            submissionId = if (isDone) 1L else null
+        )
+    }
+}
 
 /**
  * 超星作业实体

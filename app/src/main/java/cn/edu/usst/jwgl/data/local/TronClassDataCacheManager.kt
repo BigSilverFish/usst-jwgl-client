@@ -31,6 +31,7 @@ class TronClassDataCacheManager(private val context: Context) {
     private val memDiscussions = ConcurrentHashMap<Long, List<TronClassDiscussion>>()
     private val memHomeBulletins = ConcurrentHashMap<String, List<TronClassBulletin>>()
     private val memCxHwDetails = ConcurrentHashMap<String, ChaoXingHomeworkDetail>()
+    private val memCxExamDetails = ConcurrentHashMap<String, ChaoXingExamDetail>()
 
     companion object {
         private const val TAG = "TronClassDataCache"
@@ -590,6 +591,29 @@ class TronClassDataCacheManager(private val context: Context) {
         }
     }
 
+    fun saveChaoXingExamDetail(examId: String, detail: ChaoXingExamDetail) {
+        memCxExamDetails[examId] = detail
+        prefs.edit()
+            .putString("cx_cache_exam_detail_$examId", gson.toJson(detail))
+            .putLong("cx_cache_exam_detail_time_$examId", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getCachedChaoXingExamDetail(examId: String): ChaoXingExamDetail? {
+        memCxExamDetails[examId]?.let { return it }
+        val json = prefs.getString("cx_cache_exam_detail_$examId", null) ?: return null
+        return try {
+            val detail = gson.fromJson(json, ChaoXingExamDetail::class.java)
+            if (detail != null) {
+                memCxExamDetails[examId] = detail
+            }
+            detail
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached ChaoXingExamDetail for $examId", e)
+            null
+        }
+    }
+
     // --- 8. 统计与清理缓存 ---
     fun getDataCacheCount(): Int {
         return prefs.all.count { it.key.startsWith("tc_cache_") && !it.key.endsWith("_time") }
@@ -619,6 +643,7 @@ class TronClassDataCacheManager(private val context: Context) {
         memDiscussions.clear()
         memHomeBulletins.clear()
         memCxHwDetails.clear()
+        memCxExamDetails.clear()
         prefs.edit().clear().apply()
         return size
     }

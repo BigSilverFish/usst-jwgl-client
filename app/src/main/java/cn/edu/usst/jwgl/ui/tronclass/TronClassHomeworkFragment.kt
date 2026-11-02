@@ -557,8 +557,12 @@ class TronClassHomeworkFragment : Fragment() {
         if (!forceRefresh) {
             val cached = cacheMgr.getCachedChaoXingHomeworkDetail(cx.workId)
             if (cached != null) {
-                chaoXingHomeworkDetail = cached
-                renderChaoXingDetailUi(cached)
+                // 如果发现缓存为旧版本残缺缓存 (rawQuestions 为空且内容包含旧版 "第1题" 拼接文字)，不提前渲染残缺视图，直接走网络刷新
+                val isStaleLegacyCache = cached.rawQuestions.isEmpty() && (cached.contentHtml.contains("第1题") || cached.cleanContent.contains("第1题"))
+                if (!isStaleLegacyCache) {
+                    chaoXingHomeworkDetail = cached
+                    renderChaoXingDetailUi(cached)
+                }
             }
         }
 
@@ -912,8 +916,16 @@ class TronClassHomeworkFragment : Fragment() {
 
         // 2. Requirement Description & Attachments
         val rawHtml = detail.contentHtml.ifBlank { detail.cleanContent }
-        if (detail.rawQuestions.isNotEmpty()) {
-            renderChaoXingQuestions(detail.rawQuestions)
+        val effectiveQuestions = if (detail.rawQuestions.isNotEmpty()) {
+            detail.rawQuestions
+        } else if (rawHtml.contains("<div") || rawHtml.contains("<ul") || rawHtml.contains("singleQuesId") || rawHtml.contains("TiMu") || rawHtml.contains("Zy_TItle")) {
+            chaoXingDetailClient.parseQuestionsFromHtml(rawHtml)
+        } else {
+            emptyList()
+        }
+
+        if (effectiveQuestions.isNotEmpty()) {
+            renderChaoXingQuestions(effectiveQuestions)
         } else {
             binding.llChaoXingQuestions.visibility = View.GONE
             binding.tvRequirementDesc.visibility = View.VISIBLE
