@@ -576,26 +576,72 @@ class TronClassFragment : Fragment() {
         val ctx = context ?: return
         val signTypeName = (activeItem.nameTwo ?: "普通签到").replace("[", "").replace("]", "").trim()
 
-        if (signTypeName.contains("码") || signTypeName.contains("口令") || signTypeName.contains("数字")) {
-            val input = EditText(ctx).apply {
-                hint = "请输入签到码"
-                inputType = android.text.InputType.TYPE_CLASS_TEXT
-                setPadding(48, 36, 48, 36)
-            }
-            MaterialAlertDialogBuilder(ctx)
-                .setTitle("超星签到 · $signTypeName")
-                .setMessage("课程：${course.courseName}\n请输入教师给出的签到口令：")
-                .setView(input)
-                .setPositiveButton("提交签到") { _, _ ->
-                    val code = input.text.toString().trim()
-                    executeSubmitChaoXingSign(course, activeItem, enc = code)
+        when {
+            signTypeName.contains("手势") || activeItem.otherId == 3 -> {
+                val sheet = ChaoXingGestureSignBottomSheet.newInstance(
+                    courseId = course.courseId,
+                    classId = course.classId,
+                    activeId = activeItem.id,
+                    courseName = course.courseName,
+                    signTypeName = signTypeName
+                )
+                sheet.onSignSuccessListener = { msg ->
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("手势签到成功 🎉")
+                        .setMessage("课程：${course.courseName}\n反馈：$msg")
+                        .setPositiveButton("确定") { _, _ ->
+                            loadTronClassData(forceRefresh = true)
+                        }
+                        .show()
                 }
-                .setNegativeButton("取消", null)
-                .show()
-            return
-        }
+                sheet.show(childFragmentManager, "ChaoXingGestureSign")
+                return
+            }
 
-        executeSubmitChaoXingSign(course, activeItem)
+            signTypeName.contains("拍照") || signTypeName.contains("照片") || activeItem.otherId == 5 -> {
+                val sheet = ChaoXingPhotoSignBottomSheet.newInstance(
+                    courseId = course.courseId,
+                    classId = course.classId,
+                    activeId = activeItem.id,
+                    courseName = course.courseName,
+                    signTypeName = signTypeName
+                )
+                sheet.onSignSuccessListener = { msg ->
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("拍照签到成功 🎉")
+                        .setMessage("课程：${course.courseName}\n反馈：$msg")
+                        .setPositiveButton("确定") { _, _ ->
+                            loadTronClassData(forceRefresh = true)
+                        }
+                        .show()
+                }
+                sheet.show(childFragmentManager, "ChaoXingPhotoSign")
+                return
+            }
+
+            signTypeName.contains("码") || signTypeName.contains("口令") || signTypeName.contains("数字") || activeItem.otherId == 4 -> {
+                val input = EditText(ctx).apply {
+                    hint = "请输入签到码"
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT
+                    setPadding(48, 36, 48, 36)
+                }
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("超星签到 · $signTypeName")
+                    .setMessage("课程：${course.courseName}\n请输入教师给出的签到口令：")
+                    .setView(input)
+                    .setPositiveButton("提交签到") { _, _ ->
+                        val code = input.text.toString().trim()
+                        executeSubmitChaoXingSign(course, activeItem, enc = code)
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+                return
+            }
+
+            else -> {
+                executeSubmitChaoXingSign(course, activeItem)
+            }
+        }
     }
 
     private fun executeSubmitChaoXingSign(course: ChaoXingCourse, activeItem: ChaoXingActiveItem, enc: String? = null) {
