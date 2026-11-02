@@ -486,23 +486,47 @@ class ScheduleWeekFragment : Fragment() {
                     }
 
                     val alphaHex = String.format("%02X", (255 * (table.itemAlpha.coerceIn(0, 100) / 100f)).toInt())
+                    val isDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
                     if (isWeekActive) {
-                        setTextColor(table.courseTextColor)
+                        if (isDark) {
+                            // 深色模式下：文字强制纯白高亮，确保无论卡片底色为何均清晰易读
+                            setTextColor(Color.WHITE)
+                            bgDrawable.setStroke(dpToPx(1f), 0x33FFFFFF)
+                        } else {
+                            setTextColor(table.courseTextColor)
+                            bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
+                        }
+
                         try {
                             val baseHex = course.color.removePrefix("#")
-                            val colorWithAlpha = Color.parseColor("#$alphaHex$baseHex")
-                            bgDrawable.setColor(colorWithAlpha)
+                            if (isDark) {
+                                // 深色模式下：对背景色进行微调，压低亮度，增强饱和度与对比度，营造高级暗黑卡片质感
+                                val rawCol = Color.parseColor("#$baseHex")
+                                val hsv = FloatArray(3)
+                                Color.colorToHSV(rawCol, hsv)
+                                hsv[1] = hsv[1].coerceAtLeast(0.65f) // 色相纯正
+                                hsv[2] = hsv[2].coerceIn(0.28f, 0.46f) // 舒适暗调背景
+                                bgDrawable.setColor(Color.HSVToColor(hsv))
+                            } else {
+                                val colorWithAlpha = Color.parseColor("#$alphaHex$baseHex")
+                                bgDrawable.setColor(colorWithAlpha)
+                            }
                         } catch (e: Exception) {
                             bgDrawable.setColor(Color.parseColor(course.color))
                         }
                     } else {
                         // Non-current week
-                        setTextColor(0xFF555555.toInt())
+                        if (isDark) {
+                            setTextColor(0xFF94A3B8.toInt())
+                            bgDrawable.setColor(Color.parseColor("#$alphaHex" + "242730"))
+                            bgDrawable.setStroke(dpToPx(1f), 0x1AFFFFFF)
+                        } else {
+                            setTextColor(0xFF555555.toInt())
+                            bgDrawable.setColor(Color.parseColor("#$alphaHex" + "CCCCCC"))
+                            bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
+                        }
                         alpha = 0.65f
-                        val isDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-                        val inactiveHex = if (isDark) "252830" else "CCCCCC"
-                        bgDrawable.setColor(Color.parseColor("#$alphaHex$inactiveHex"))
                     }
                     background = bgDrawable
 
@@ -570,9 +594,15 @@ class ScheduleWeekFragment : Fragment() {
         }
 
         if (showDayParts) {
-            val primaryColor = ContextCompat.getColor(context, R.color.primary)
-            val dividerColor = (primaryColor and 0x00FFFFFF) or (0xB0 shl 24)
-            val dividerHeightPx = dpToPx(1.5f).coerceAtLeast(2)
+            val isDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val dividerColor = if (isDark) {
+                // 深色模式下：使用内敛柔和的深灰分界线，消除突兀刺眼的红线
+                Color.parseColor("#262933")
+            } else {
+                val primaryColor = ContextCompat.getColor(context, R.color.primary)
+                (primaryColor and 0x00FFFFFF) or (0x70 shl 24)
+            }
+            val dividerHeightPx = if (isDark) dpToPx(1f).coerceAtLeast(1) else dpToPx(1.5f).coerceAtLeast(2)
 
             // Noon Divider (between morning and afternoon)
             val noonY = morningEndNode * (itemHeightPx + marTopPx) + (marTopPx - dividerHeightPx) / 2
