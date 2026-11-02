@@ -475,4 +475,15 @@ class TronClassPreferences(private val context: Context) {
         newSet.add("$rollcallId:$now")
         prefs.edit().putStringSet(KEY_ROLLCALL_HANDLED_IDS, newSet).apply()
     }
+
+    /**
+     * 双平台融合模式开关（默认为 true）
+     */
+    fun isDualPlatformModeEnabled(): Boolean {
+        return prefs.getBoolean("tc_dual_platform_mode_enabled", true)
+    }
+
+    fun setDualPlatformModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("tc_dual_platform_mode_enabled", enabled).apply()
+    }
 }
