@@ -15,4 +15,8 @@
         android:id="@+id/action_open_external"
         android:title="在系统浏览器中打开"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_test_frame_grab"
+        android:title="🧪 测试视频帧抓取"
+        app:showAsAction="never" />
 </menu>

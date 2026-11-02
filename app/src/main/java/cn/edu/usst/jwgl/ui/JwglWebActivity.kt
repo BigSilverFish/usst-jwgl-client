@@ -30,6 +30,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import android.content.res.Configuration
+import android.util.Base64
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.updatePadding
 import cn.edu.usst.jwgl.BuildConfig
@@ -38,6 +41,10 @@ import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.ActivityWebViewBinding
 import cn.edu.usst.jwgl.util.CookieSyncHelper
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -160,6 +167,237 @@ class JwglWebActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 🧪 视频帧抓取测试桥 —— 验证能否通过 JS Canvas 从直播 <video> 元素截取帧画面
+     *
+     * 测试目标：
+     * 1. 检测 <video> 元素是否存在且正在播放
+     * 2. 验证 Canvas.drawImage() 是否被 CORS/DRM 阻止（tainted canvas）
+     * 3. 对截取的帧进行 ML Kit 二维码扫描
+     * 4. 汇报完整诊断结果
+     */
+    inner class LiveQrTestBridge {
+        @android.webkit.JavascriptInterface
+        fun onTestResult(jsonResult: String) {
+            runOnUiThread {
+                try {
+                    val json = JSONObject(jsonResult)
+                    val status = json.optString("status", "unknown")
+                    val message = json.optString("message", "")
+                    val videoWidth = json.optInt("videoWidth", 0)
+                    val videoHeight = json.optInt("videoHeight", 0)
+                    val canvasWidth = json.optInt("canvasWidth", 0)
+                    val canvasHeight = json.optInt("canvasHeight", 0)
+                    val base64Data = json.optString("frameData", "")
+                    val error = json.optString("error", "")
+
+                    val report = StringBuilder()
+                    report.appendLine("━━━ 视频帧抓取测试报告 ━━━")
+                    report.appendLine()
+                    report.appendLine("状态: ${if (status == "success") "✅ 成功" else "❌ 失败"}")
+                    report.appendLine("消息: $message")
+                    if (error.isNotEmpty()) {
+                        report.appendLine("错误: $error")
+                    }
+                    report.appendLine()
+                    report.appendLine("📺 视频原始分辨率: ${videoWidth}×${videoHeight}")
+                    report.appendLine("🖼️ 截帧画布分辨率: ${canvasWidth}×${canvasHeight}")
+
+                    if (status == "success" && base64Data.isNotEmpty()) {
+                        report.appendLine()
+                        report.appendLine("⏳ 正在用 ML Kit 扫描二维码...")
+
+                        // 解码 Base64 → Bitmap → ML Kit 二维码扫描
+                        try {
+                            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            if (bitmap != null) {
+                                report.appendLine("✅ 帧数据解码成功: ${bitmap.width}×${bitmap.height}, ${bytes.size / 1024}KB")
+
+                                val image = InputImage.fromBitmap(bitmap, 0)
+                                val options = BarcodeScannerOptions.Builder()
+                                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_DATA_MATRIX)
+                                    .build()
+                                val scanner = BarcodeScanning.getClient(options)
+                                scanner.process(image)
+                                    .addOnSuccessListener { barcodes ->
+                                        val finalReport = StringBuilder(report)
+                                        finalReport.appendLine()
+                                        if (barcodes.isNotEmpty()) {
+                                            finalReport.appendLine("🎉 发现 ${barcodes.size} 个二维码！")
+                                            barcodes.forEachIndexed { idx, barcode ->
+                                                finalReport.appendLine("  [${idx + 1}] 格式: ${barcode.format}")
+                                                val rawValue = barcode.rawValue ?: "(null)"
+                                                finalReport.appendLine("  [${idx + 1}] 内容: ${rawValue.take(200)}")
+                                            }
+                                            finalReport.appendLine()
+                                            finalReport.appendLine("✅ 方案可行！Canvas 帧抓取 + ML Kit 识别链路完全打通。")
+                                        } else {
+                                            finalReport.appendLine("📭 未检测到二维码（当前帧中可能没有 QR 码）")
+                                            finalReport.appendLine()
+                                            finalReport.appendLine("✅ Canvas 帧抓取通道正常，可尝试在有签到二维码的直播画面中重新测试。")
+                                        }
+                                        showTestResultDialog(finalReport.toString())
+                                        scanner.close()
+                                    }
+                                    .addOnFailureListener { e ->
+                                        report.appendLine("❌ ML Kit 扫描失败: ${e.message}")
+                                        showTestResultDialog(report.toString())
+                                        scanner.close()
+                                    }
+                                return@runOnUiThread // ML Kit 异步处理，结果在回调中显示
+                            } else {
+                                report.appendLine("❌ Base64 → Bitmap 解码失败（空 Bitmap）")
+                            }
+                        } catch (e: Exception) {
+                            report.appendLine("❌ 帧数据解码异常: ${e.message}")
+                        }
+                    } else if (status == "cors_blocked") {
+                        report.appendLine()
+                        report.appendLine("⚠️ Canvas 被 CORS 污染保护阻止 (SecurityError)")
+                        report.appendLine("直播流与页面不同源，浏览器禁止 Canvas 读取视频像素。")
+                        report.appendLine()
+                        report.appendLine("💡 需要升级到 Level 2 方案：提取 video.src 交给 ExoPlayer 解码。")
+                    } else if (status == "no_video") {
+                        report.appendLine()
+                        report.appendLine("⚠️ 页面中未找到 <video> 元素或视频未在播放。")
+                        report.appendLine("请确保已打开直播/点播视频后再测试。")
+                    }
+
+                    showTestResultDialog(report.toString())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse test result", e)
+                    Toast.makeText(this@JwglWebActivity, "测试结果解析失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun showTestResultDialog(report: String) {
+        val textView = TextView(this).apply {
+            text = report
+            setPadding(48, 32, 48, 32)
+            setTextIsSelectable(true)
+            textSize = 13f
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        AlertDialog.Builder(this)
+            .setTitle("🧪 视频帧抓取测试结果")
+            .setView(textView)
+            .setPositiveButton("确定", null)
+            .show()
+    }
+
+    private fun injectFrameGrabTestJs() {
+        val js = """
+            (function() {
+                var result = {
+                    status: 'unknown',
+                    message: '',
+                    videoWidth: 0,
+                    videoHeight: 0,
+                    canvasWidth: 0,
+                    canvasHeight: 0,
+                    frameData: '',
+                    error: ''
+                };
+
+                try {
+                    // 1. 查找 <video> 元素
+                    var video = document.querySelector('video');
+                    if (!video) {
+                        // 尝试在 iframe 中查找
+                        var iframes = document.querySelectorAll('iframe');
+                        for (var i = 0; i < iframes.length; i++) {
+                            try {
+                                video = iframes[i].contentDocument.querySelector('video');
+                                if (video) break;
+                            } catch(e) { /* cross-origin iframe, skip */ }
+                        }
+                    }
+
+                    if (!video) {
+                        result.status = 'no_video';
+                        result.message = '页面中未找到 <video> 元素';
+                        AndroidLiveQrTest.onTestResult(JSON.stringify(result));
+                        return;
+                    }
+
+                    result.videoWidth = video.videoWidth || 0;
+                    result.videoHeight = video.videoHeight || 0;
+
+                    // 2. 检查视频状态
+                    if (video.readyState < 2) {
+                        result.status = 'no_video';
+                        result.message = '视频元素存在但尚未加载足够数据 (readyState=' + video.readyState + ')';
+                        AndroidLiveQrTest.onTestResult(JSON.stringify(result));
+                        return;
+                    }
+
+                    if (video.videoWidth === 0 || video.videoHeight === 0) {
+                        result.status = 'no_video';
+                        result.message = '视频帧尺寸为 0（可能未开始播放）';
+                        AndroidLiveQrTest.onTestResult(JSON.stringify(result));
+                        return;
+                    }
+
+                    // 3. 创建 Canvas 并尝试绘制视频帧
+                    var canvas = document.createElement('canvas');
+                    var scale = Math.min(1, 640 / video.videoWidth);
+                    canvas.width = Math.round(video.videoWidth * scale);
+                    canvas.height = Math.round(video.videoHeight * scale);
+                    result.canvasWidth = canvas.width;
+                    result.canvasHeight = canvas.height;
+
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    // 4. 尝试 toDataURL —— 这是 CORS 检测的关键步骤
+                    var dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                    var base64 = dataUrl.split(',')[1] || '';
+
+                    // 5. 验证帧数据不是全黑
+                    var imageData = ctx.getImageData(0, 0, Math.min(canvas.width, 100), Math.min(canvas.height, 100));
+                    var pixels = imageData.data;
+                    var nonBlackPixels = 0;
+                    var totalSampled = 0;
+                    for (var p = 0; p < pixels.length; p += 16) { // 每 4 个像素采样一次
+                        totalSampled++;
+                        if (pixels[p] > 10 || pixels[p+1] > 10 || pixels[p+2] > 10) {
+                            nonBlackPixels++;
+                        }
+                    }
+                    var nonBlackRatio = totalSampled > 0 ? (nonBlackPixels / totalSampled) : 0;
+
+                    if (nonBlackRatio < 0.05) {
+                        result.status = 'success';
+                        result.message = '⚠️ Canvas 抓帧成功但画面几乎全黑 (' + Math.round(nonBlackRatio * 100) + '% 非黑像素)。可能是硬件加速 SurfaceView 导致。';
+                        result.frameData = base64;
+                    } else {
+                        result.status = 'success';
+                        result.message = 'Canvas 帧抓取成功！非黑像素占比 ' + Math.round(nonBlackRatio * 100) + '%，帧数据 ' + Math.round(base64.length / 1024) + 'KB';
+                        result.frameData = base64;
+                    }
+
+                } catch(e) {
+                    if (e.name === 'SecurityError') {
+                        result.status = 'cors_blocked';
+                        result.message = 'Canvas 被 CORS 安全策略阻止 (tainted canvas)';
+                        result.error = e.name + ': ' + e.message;
+                    } else {
+                        result.status = 'error';
+                        result.message = '未预期的错误';
+                        result.error = e.name + ': ' + e.message;
+                    }
+                }
+
+                AndroidLiveQrTest.onTestResult(JSON.stringify(result));
+            })();
+        """.trimIndent()
+
+        binding.webView.evaluateJavascript(js, null)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -273,6 +511,9 @@ class JwglWebActivity : AppCompatActivity() {
             it.setTint(textPrimaryColor)
         }
         updateDesktopMenuItemTitle()
+        // 帧抓取测试按钮仅在直录播平台页面显示
+        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible =
+            targetUrl.contains("live.usst.edu.cn")
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_refresh -> {
@@ -295,6 +536,11 @@ class JwglWebActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         Toast.makeText(this, "无法调用外部浏览器打开", Toast.LENGTH_SHORT).show()
                     }
+                    true
+                }
+                R.id.action_test_frame_grab -> {
+                    Toast.makeText(this, "正在抓取视频帧...", Toast.LENGTH_SHORT).show()
+                    injectFrameGrabTestJs()
                     true
                 }
                 else -> false
@@ -387,6 +633,7 @@ class JwglWebActivity : AppCompatActivity() {
         cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
+        binding.webView.addJavascriptInterface(LiveQrTestBridge(), "AndroidLiveQrTest")
 
         binding.webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest?) {
