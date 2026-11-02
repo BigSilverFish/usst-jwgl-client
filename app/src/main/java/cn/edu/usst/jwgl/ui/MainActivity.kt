@@ -1920,6 +1920,8 @@ class MainActivity : AppCompatActivity() {
         val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
 
         binding.tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
+        val isDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        binding.tvMonthHeader.setTextColor(if (isDark) Color.parseColor("#94A3B8") else androidx.core.content.ContextCompat.getColor(this, R.color.text_secondary))
 
         val daysArray = if (table.sundayFirst) {
             arrayOf("日", "周一", "周二", "周三", "周四", "周五", "周六")
@@ -1957,19 +1959,19 @@ class MainActivity : AppCompatActivity() {
             val dayNameTextSize = if (badge.isNotEmpty()) 10.5f else 12f
             val dayNameTypeface = if (isToday) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
             val dayNameColor = if (isToday) {
-                androidx.core.content.ContextCompat.getColor(this, R.color.primary)
+                if (isDark) Color.WHITE else androidx.core.content.ContextCompat.getColor(this, R.color.primary)
             } else if (resolved.isHolidayOff) {
                 0xFF4CAF50.toInt()
             } else {
-                androidx.core.content.ContextCompat.getColor(this, R.color.text_primary)
+                if (isDark) Color.parseColor("#CBD5E1") else androidx.core.content.ContextCompat.getColor(this, R.color.text_primary)
             }
 
             val dateStr = if (i + 1 < dateStrings.size) dateStrings[i + 1] else ""
             val dayDateText = "$dateStr 日"
             val dayDateColor = if (isToday) {
-                androidx.core.content.ContextCompat.getColor(this, R.color.primary)
+                if (isDark) Color.parseColor("#FFD8D6") else androidx.core.content.ContextCompat.getColor(this, R.color.primary)
             } else {
-                androidx.core.content.ContextCompat.getColor(this, R.color.text_secondary)
+                if (isDark) Color.parseColor("#64748B") else androidx.core.content.ContextCompat.getColor(this, R.color.text_secondary)
             }
 
             val existingDayView = binding.llDayHeaderContainer.getChildAt(childIndex) as? android.widget.LinearLayout
@@ -1989,7 +1991,24 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            dayView.background = if (isToday) androidx.core.content.ContextCompat.getDrawable(this, R.drawable.badge_bg) else null
+            if (isToday) {
+                val density = resources.displayMetrics.density
+                val shape = android.graphics.drawable.GradientDrawable().apply {
+                    if (isDark) {
+                        setColor(Color.parseColor("#661D24")) // 典雅的高对比暗红胶囊底色
+                        setStroke((1 * density).toInt().coerceAtLeast(1), Color.parseColor("#8C2B35"))
+                    } else {
+                        setColor(Color.parseColor("#FFDAD8"))
+                    }
+                    cornerRadius = 10 * density
+                }
+                dayView.background = shape
+                val vPad = (2 * density).toInt()
+                dayView.setPadding(0, vPad, 0, vPad)
+            } else {
+                dayView.background = null
+                dayView.setPadding(0, 0, 0, 0)
+            }
 
             val tvDayName = dayView.getChildAt(0) as android.widget.TextView
             tvDayName.text = dayNameText
