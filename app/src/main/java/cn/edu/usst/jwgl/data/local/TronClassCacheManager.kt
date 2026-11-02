@@ -81,6 +81,11 @@ class TronClassCacheManager(private val context: Context) {
             return
         }
 
+        if (file.extension.equals("pdf", ignoreCase = true)) {
+            cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(context, file.absolutePath, file.name)
+            return
+        }
+
         try {
             val authority = "${context.packageName}.fileprovider"
             val uri = FileProvider.getUriForFile(context, authority, file)

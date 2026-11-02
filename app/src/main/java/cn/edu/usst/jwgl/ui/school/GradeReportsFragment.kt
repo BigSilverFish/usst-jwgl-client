@@ -399,21 +399,7 @@ class GradeReportsFragment : Fragment() {
 
     private fun openPdfFile(file: File) {
         val context = context ?: return
-        try {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/pdf")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(Intent.createChooser(intent, "打开 PDF 文件"))
-        } catch (e: Exception) {
-            Toast.makeText(context, "打开 PDF 失败: ${e.message}，请安装支持 PDF 的阅读器应用", Toast.LENGTH_LONG).show()
-        }
+        cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(context, file.absolutePath, file.name)
     }
 
     private fun sharePdfFile(file: File) {

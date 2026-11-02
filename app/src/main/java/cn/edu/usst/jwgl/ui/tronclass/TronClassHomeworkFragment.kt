@@ -1068,7 +1068,11 @@ class TronClassHomeworkFragment : Fragment() {
                             .setTitle(attachment.name)
                             .setMessage("附件大小：${attachment.getFormattedSize()}\n\n该文件已成功转换为移动端格式，可选择在线预览或复制下载链接。")
                             .setPositiveButton("在线预览") { _, _ ->
-                                JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                                if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank()) {
+                                    cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
+                                } else {
+                                    JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                                }
                             }
                             .setNeutralButton("复制下载链接") { _, _ ->
                                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager

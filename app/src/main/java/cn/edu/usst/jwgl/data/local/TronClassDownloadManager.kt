@@ -132,6 +132,11 @@ object TronClassDownloadManager {
                 return
             }
 
+            if (item.getExtension().equals("pdf", ignoreCase = true) || file.extension.equals("pdf", ignoreCase = true)) {
+                cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(context, file.absolutePath, item.fileName)
+                return
+            }
+
             val ext = item.getExtension()
             var mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: item.mimeType
             if (mime.isBlank()) {
