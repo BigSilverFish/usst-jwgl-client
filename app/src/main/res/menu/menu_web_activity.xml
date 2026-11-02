@@ -16,7 +16,15 @@
         android:title="在系统浏览器中打开"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_toggle_screen_signin"
+        android:title="🎯 大屏自动签到 (已开启)"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_capture_screen_now"
+        android:title="⚡ 立即识别大屏二维码签到"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_test_frame_grab"
-        android:title="🧪 测试视频帧抓取"
+        android:title="🧪 诊断多机位视频流"
         app:showAsAction="never" />
 </menu>
