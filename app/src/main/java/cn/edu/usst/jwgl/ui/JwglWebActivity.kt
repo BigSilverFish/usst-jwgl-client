@@ -35,10 +35,16 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.updatePadding
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
+import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.JwglClient
+import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityWebViewBinding
 import cn.edu.usst.jwgl.util.CookieSyncHelper
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -46,6 +52,9 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -101,6 +110,16 @@ class JwglWebActivity : AppCompatActivity() {
     private var targetNode: Int = -1
     private var isDesktopMode = false
     private var filePathCallback: android.webkit.ValueCallback<Array<Uri>>? = null
+
+    // ==========================================
+    // 🎯 直录播大屏采集卡 (PPT) 视角自动签到联动状态
+    // ==========================================
+    private var isScreenAutoSignInEnabled = true
+    private var isPptScanningActive = false
+    private var pptScanJob: Job? = null
+    private var liveRollcallWatcherJob: Job? = null
+    private var lastHandledRollcallId: Long = -1L
+    private var activeRollcallForCapture: TronClassRollcall? = null
 
     private val fileChooserLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
@@ -170,12 +189,10 @@ class JwglWebActivity : AppCompatActivity() {
     /**
      * 🧪 视频帧抓取测试桥 —— 验证能否通过 JS Canvas 从直播多机位 <video> 元素截取帧画面
      *
-     * 支持全机位多视频探测（教师摄像机视角 vs 电脑PPT/大屏采集卡视角）：
+     * 支持全机位多视频探测与定向 PPT 采集卡抓取：
      * 1. 扫描页面上所有的 <video> 元素（主屏、副屏、画中画、iframe）
-     * 2. 结合界面 DOM 标签（如 "PPT", "课件", "教师", "全景"）智能推断机位类型
-     * 3. 并行对每个机位抓帧、检测 CORS 与硬件加速黑屏
-     * 4. 优先并全量对各机位视频帧进行 Google ML Kit 二维码识别
-     * 5. 汇报清晰详尽的多机位诊断报告
+     * 2. 定向捕获 PPT 采集卡视角的高清帧（1280 宽）
+     * 3. 驱动 ML Kit 识别二维码并自动完成 TronClass 签到闭环
      */
     inner class LiveQrTestBridge {
         @android.webkit.JavascriptInterface
@@ -184,6 +201,332 @@ class JwglWebActivity : AppCompatActivity() {
                 processTestResult(jsonResult)
             }
         }
+
+        @android.webkit.JavascriptInterface
+        fun onPptFrameCaptured(base64Data: String, status: String, message: String, isManual: Boolean) {
+            runOnUiThread {
+                handlePptFrame(base64Data, status, message, isManual)
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🎯 直录播大屏采集卡 (PPT) 视角事件驱动自动签到核心联动系统
+    // =========================================================================
+
+    /**
+     * 启动直录播签到协同监听器（每 12 秒探测一次是否有正在进行的课堂签到）
+     * 仅在检测到有签到活动时才唤醒高频抓帧，平时完全 0 额外功耗
+     */
+    private fun startLiveRollcallWatcher() {
+        liveRollcallWatcherJob?.cancel()
+        if (!isScreenAutoSignInEnabled) return
+
+        val authPrefs = AuthPreferences(this)
+        val studentId = authPrefs.getStudentId()
+        if (studentId.isBlank()) return
+
+        Log.d(TAG, "Starting Live Rollcall Watcher for student: $studentId")
+        liveRollcallWatcherJob = lifecycleScope.launch(Dispatchers.IO) {
+            val tcClient = TronClassClient(this@JwglWebActivity)
+            while (isActive && isScreenAutoSignInEnabled) {
+                try {
+                    val result = tcClient.fetchOngoingRollcalls()
+                    result.onSuccess { rollcalls ->
+                        // 寻找尚未处理过的活跃签到
+                        val active = rollcalls.firstOrNull { it.id != lastHandledRollcallId }
+                        if (active != null) {
+                            Log.i(TAG, "Active rollcall detected: id=${active.id}, course=${active.courseName}, type=${active.type}")
+                            withContext(Dispatchers.Main) {
+                                onRollcallTriggered(active)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error checking ongoing rollcalls", e)
+                }
+                delay(12_000L)
+            }
+        }
+    }
+
+    private fun stopLiveRollcallWatcher() {
+        liveRollcallWatcherJob?.cancel()
+        liveRollcallWatcherJob = null
+        stopPptScanningLoop()
+    }
+
+    /**
+     * 捕捉到了签到事件：展开悬浮感知横幅并唤醒定向抓帧引擎
+     */
+    private fun onRollcallTriggered(rollcall: TronClassRollcall) {
+        if (isPptScanningActive && activeRollcallForCapture?.id == rollcall.id) return
+
+        activeRollcallForCapture = rollcall
+        binding.cardRollcallBanner.visibility = View.VISIBLE
+        binding.pbRollcallScanning.visibility = View.VISIBLE
+        binding.ivRollcallStatusIcon.visibility = View.GONE
+        val courseTitle = rollcall.courseName?.takeIf { it.isNotBlank() } ?: "当前课堂"
+        binding.tvRollcallBannerTitle.text = "🔔 检测到【$courseTitle】开启签到，正在从大屏采集卡识别二维码..."
+
+        startPptScanningLoop(rollcall)
+    }
+
+    /**
+     * 开启高频抓帧循环（每 1.2 秒截取一次 PPT 视角画面，最长 90 秒超时保护）
+     */
+    private fun startPptScanningLoop(rollcall: TronClassRollcall?) {
+        pptScanJob?.cancel()
+        isPptScanningActive = true
+        activeRollcallForCapture = rollcall
+
+        pptScanJob = lifecycleScope.launch {
+            var attempts = 0
+            val maxAttempts = 75 // ~90 秒
+            while (isActive && isPptScanningActive && attempts < maxAttempts) {
+                attempts++
+                injectPptFrameCaptureJs(isManual = false)
+                delay(1200L)
+            }
+
+            if (isPptScanningActive) {
+                isPptScanningActive = false
+                binding.cardRollcallBanner.visibility = View.GONE
+                Toast.makeText(this@JwglWebActivity, "未能从大屏画面中识别到有效二维码，已恢复静默监控", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun stopPptScanningLoop() {
+        isPptScanningActive = false
+        pptScanJob?.cancel()
+        pptScanJob = null
+    }
+
+    /**
+     * 手动立刻捕捉大屏画面并识别签到（支持直播与点播回放）
+     */
+    private fun capturePptFrameNow() {
+        Toast.makeText(this, "正在从大屏采集卡画面识别二维码...", Toast.LENGTH_SHORT).show()
+        binding.cardRollcallBanner.visibility = View.VISIBLE
+        binding.pbRollcallScanning.visibility = View.VISIBLE
+        binding.ivRollcallStatusIcon.visibility = View.GONE
+        binding.tvRollcallBannerTitle.text = "⚡ 正在从大屏采集卡捕获二维码..."
+        injectPptFrameCaptureJs(isManual = true)
+    }
+
+    /**
+     * 处理捕获到的 PPT 采集卡视频帧并调用 ML Kit 识别二维码
+     */
+    private fun handlePptFrame(base64Data: String, status: String, message: String, isManual: Boolean) {
+        if (status != "success" || base64Data.isBlank()) {
+            if (isManual) {
+                binding.cardRollcallBanner.visibility = View.GONE
+                Toast.makeText(this, "大屏抓帧失败: $message", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        try {
+            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+
+            val image = InputImage.fromBitmap(bitmap, 0)
+            val scanner = BarcodeScanning.getClient(
+                BarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_DATA_MATRIX)
+                    .build()
+            )
+
+            scanner.process(image)
+                .addOnSuccessListener { barcodes ->
+                    if (barcodes.isNotEmpty()) {
+                        val firstQr = barcodes.firstOrNull()?.rawValue
+                        if (!firstQr.isNullOrBlank()) {
+                            processScannedQrCode(firstQr)
+                        }
+                    } else if (isManual) {
+                        binding.cardRollcallBanner.visibility = View.GONE
+                        Toast.makeText(this, "未在大屏画面中发现二维码（请确认画面中有签到码）", Toast.LENGTH_SHORT).show()
+                    }
+                    scanner.close()
+                }
+                .addOnFailureListener { e ->
+                    if (isManual) {
+                        binding.cardRollcallBanner.visibility = View.GONE
+                        Toast.makeText(this, "二维码扫描失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                    scanner.close()
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling PPT frame", e)
+        }
+    }
+
+    /**
+     * 解析二维码数据并自动提交 TronClass 签到
+     */
+    private fun processScannedQrCode(rawQr: String) {
+        val tcClient = TronClassClient(this)
+        val parsed = tcClient.parseRollcallQr(rawQr)
+        val rollcallId = parsed?.rollcallId ?: activeRollcallForCapture?.id
+
+        if (rollcallId == null || parsed == null) {
+            Log.w(TAG, "Unrecognized QR format from live screen: $rawQr")
+            return
+        }
+
+        // 已经处理过同一个签到，直接忽略防止重复提交
+        if (rollcallId == lastHandledRollcallId) {
+            stopPptScanningLoop()
+            binding.cardRollcallBanner.visibility = View.GONE
+            return
+        }
+
+        // 成功捕获有效二维码，立即停止抓帧！
+        stopPptScanningLoop()
+        lastHandledRollcallId = rollcallId
+
+        // 触觉反馈
+        vibratePhone()
+
+        // 界面更新为提交中
+        binding.pbRollcallScanning.visibility = View.VISIBLE
+        binding.ivRollcallStatusIcon.visibility = View.GONE
+        binding.tvRollcallBannerTitle.text = "🎯 已捕获大屏二维码，正在自动提交签到..."
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val results = tcClient.batchAnswerQRRollcall(rollcallId, parsed.qrData)
+            val anySuccess = results.any { it.success }
+            val firstMsg = results.firstOrNull()?.message ?: ""
+            withContext(Dispatchers.Main) {
+                if (anySuccess) {
+                    binding.pbRollcallScanning.visibility = View.GONE
+                    binding.ivRollcallStatusIcon.visibility = View.VISIBLE
+                    binding.tvRollcallBannerTitle.text = "🎉 签到成功！已通过大屏采集卡完成签到"
+                    Toast.makeText(this@JwglWebActivity, "🎉 大屏扫码签到成功！", Toast.LENGTH_LONG).show()
+
+                    // 5 秒后优雅隐藏横幅
+                    binding.cardRollcallBanner.postDelayed({
+                        binding.cardRollcallBanner.visibility = View.GONE
+                    }, 5000L)
+                } else {
+                    binding.pbRollcallScanning.visibility = View.GONE
+                    val errDetail = if (firstMsg.isNotBlank()) ": $firstMsg" else ""
+                    binding.tvRollcallBannerTitle.text = "⚠️ 签到提交未通过$errDetail"
+                    Toast.makeText(this@JwglWebActivity, "签到提交未通过$errDetail", Toast.LENGTH_LONG).show()
+
+                    binding.cardRollcallBanner.postDelayed({
+                        binding.cardRollcallBanner.visibility = View.GONE
+                    }, 4000L)
+                }
+            }
+        }
+    }
+
+    private fun vibratePhone() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(200)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * 仅定向抓取 PPT 采集卡视角的视频帧（1280 宽超清画质）
+     */
+    private fun injectPptFrameCaptureJs(isManual: Boolean) {
+        val js = """
+            (function() {
+                try {
+                    var videos = Array.from(document.querySelectorAll('video'));
+                    var iframes = document.querySelectorAll('iframe');
+                    for (var f = 0; f < iframes.length; f++) {
+                        try {
+                            var fVideos = iframes[f].contentDocument.querySelectorAll('video');
+                            for (var fv = 0; fv < fVideos.length; fv++) {
+                                videos.push(fVideos[fv]);
+                            }
+                        } catch(e) {}
+                    }
+
+                    if (videos.length === 0) {
+                        AndroidLiveQrTest.onPptFrameCaptured('', 'no_video', '未检测到任何视频元素', $isManual);
+                        return;
+                    }
+
+                    // 1. 检查页面 Tab 是否处于 PPT 状态
+                    var tabs = Array.from(document.querySelectorAll('.van-tab, .tab, button, span, div'));
+                    var pptTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === 'PPT'; });
+                    var isPptTabActive = pptTab && (
+                        pptTab.classList.contains('van-tab--active') ||
+                        pptTab.classList.contains('active') ||
+                        pptTab.getAttribute('aria-selected') === 'true'
+                    );
+
+                    var activeVideos = videos.filter(function(v) { return (v.videoWidth || 0) > 0; });
+                    if (activeVideos.length === 0) activeVideos = videos;
+
+                    var targetVideo = null;
+                    if (activeVideos.length === 1) {
+                        targetVideo = activeVideos[0];
+                    } else if (isPptTabActive) {
+                        // 如果用户已经切到 PPT Tab，主视窗（最大分辨率）即是 PPT
+                        activeVideos.sort(function(a, b) {
+                            return (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight);
+                        });
+                        targetVideo = activeVideos[0];
+                    } else {
+                        // 如果主视窗是教师视角，副视窗/画中画小窗即是 PPT 采集卡
+                        var pptAttr = activeVideos.find(function(v) {
+                            var s = (v.id + ' ' + v.className + ' ' + (v.src || '')).toLowerCase();
+                            return s.indexOf('ppt') !== -1 || s.indexOf('screen') !== -1;
+                        });
+                        if (pptAttr) {
+                            targetVideo = pptAttr;
+                        } else {
+                            // 优先选小画中画 (rect.width < 300) 或次级 1080P video
+                            var pipVideo = activeVideos.find(function(v) {
+                                var r = v.getBoundingClientRect();
+                                return r.width > 0 && r.width < 320;
+                            });
+                            targetVideo = pipVideo || (activeVideos.length >= 3 ? activeVideos[2] : (activeVideos.length >= 2 ? activeVideos[1] : activeVideos[0]));
+                        }
+                    }
+
+                    if (!targetVideo || targetVideo.videoWidth === 0) {
+                        AndroidLiveQrTest.onPptFrameCaptured('', 'not_ready', 'PPT 视频流尚未就绪或已暂停', $isManual);
+                        return;
+                    }
+
+                    // 以 1280 宽高质量截取 PPT 画面，确保大屏二维码极度清晰
+                    var scale = Math.min(1, 1280 / targetVideo.videoWidth);
+                    var canvas = document.createElement('canvas');
+                    canvas.width = Math.round(targetVideo.videoWidth * scale);
+                    canvas.height = Math.round(targetVideo.videoHeight * scale);
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(targetVideo, 0, 0, canvas.width, canvas.height);
+
+                    var dataUrl = canvas.toDataURL('image/jpeg', 0.90);
+                    var base64 = dataUrl.split(',')[1] || '';
+                    AndroidLiveQrTest.onPptFrameCaptured(base64, 'success', 'PPT 帧抓取成功 (' + canvas.width + 'x' + canvas.height + ')', $isManual);
+                } catch(err) {
+                    AndroidLiveQrTest.onPptFrameCaptured('', 'error', err.name + ': ' + err.message, $isManual);
+                }
+            })();
+        """.trimIndent()
+
+        binding.webView.evaluateJavascript(js, null)
     }
 
     private fun processTestResult(jsonResult: String) {
@@ -671,9 +1014,21 @@ class JwglWebActivity : AppCompatActivity() {
             it.setTint(textPrimaryColor)
         }
         updateDesktopMenuItemTitle()
-        // 帧抓取测试按钮仅在直录播平台页面显示
-        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible =
-            targetUrl.contains("live.usst.edu.cn")
+
+        val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
+        binding.toolbar.menu.findItem(R.id.action_toggle_screen_signin)?.apply {
+            isVisible = isLiveUrl
+            title = if (isScreenAutoSignInEnabled) "🎯 大屏自动签到 (已开启)" else "🎯 大屏自动签到 (已暂停)"
+        }
+        binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = isLiveUrl
+        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = isLiveUrl
+
+        // 悬浮横幅关闭按钮
+        binding.btnRollcallBannerClose.setOnClickListener {
+            stopPptScanningLoop()
+            binding.cardRollcallBanner.visibility = View.GONE
+        }
+
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_refresh -> {
@@ -696,6 +1051,23 @@ class JwglWebActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         Toast.makeText(this, "无法调用外部浏览器打开", Toast.LENGTH_SHORT).show()
                     }
+                    true
+                }
+                R.id.action_toggle_screen_signin -> {
+                    isScreenAutoSignInEnabled = !isScreenAutoSignInEnabled
+                    item.title = if (isScreenAutoSignInEnabled) "🎯 大屏自动签到 (已开启)" else "🎯 大屏自动签到 (已暂停)"
+                    if (isScreenAutoSignInEnabled) {
+                        startLiveRollcallWatcher()
+                        Toast.makeText(this, "已开启大屏签到感知：捕捉到老师发起签到时将自动从大屏扫码", Toast.LENGTH_SHORT).show()
+                    } else {
+                        stopLiveRollcallWatcher()
+                        binding.cardRollcallBanner.visibility = View.GONE
+                        Toast.makeText(this, "已暂停大屏签到感知", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+                R.id.action_capture_screen_now -> {
+                    capturePptFrameNow()
                     true
                 }
                 R.id.action_test_frame_grab -> {
@@ -1040,7 +1412,9 @@ class JwglWebActivity : AppCompatActivity() {
                 }
 
                 // If on the Live video platform and course/date was specified, auto-navigate to playback
-                if (url != null && url.contains("live.usst.edu.cn") && (!searchQuery.isNullOrBlank() || !targetDate.isNullOrBlank())) {
+                if (url != null && url.contains("live.usst.edu.cn")) {
+                    startLiveRollcallWatcher()
+                    if (!searchQuery.isNullOrBlank() || !targetDate.isNullOrBlank()) {
                     val quotedQuery = JSONObject.quote(searchQuery ?: "")
                     val quotedTargetDate = JSONObject.quote(targetDate ?: "")
                     val targetNodeVal = targetNode
@@ -1227,6 +1601,7 @@ class JwglWebActivity : AppCompatActivity() {
                     """.trimIndent()
                     view?.evaluateJavascript(jsSearch, null)
                 }
+            }
 
             }
 
@@ -1406,6 +1781,7 @@ class JwglWebActivity : AppCompatActivity() {
 
 
     override fun onDestroy() {
+        stopLiveRollcallWatcher()
         if (customVideoView != null) {
             binding.webView.webChromeClient?.onHideCustomView()
         }

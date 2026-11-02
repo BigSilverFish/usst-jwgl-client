@@ -50,6 +50,70 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
+            <!-- 悬浮大屏签到感知胶囊卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardRollcallBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:layout_margin="12dp"
+                android:visibility="gone"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="6dp"
+                app:strokeWidth="1dp"
+                app:strokeColor="@color/divider"
+                app:cardBackgroundColor="@color/surface">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="10dp">
+
+                    <ProgressBar
+                        android:id="@+id/pbRollcallScanning"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:indeterminateTint="@color/primary"
+                        android:layout_marginEnd="10dp" />
+
+                    <ImageView
+                        android:id="@+id/ivRollcallStatusIcon"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_check_circle"
+                        app:tint="@color/primary"
+                        android:visibility="gone"
+                        android:layout_marginEnd="10dp" />
+
+                    <TextView
+                        android:id="@+id/tvRollcallBannerTitle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="正在监控课堂签到..."
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRollcallBannerClose"
+                        style="@style/Widget.Material3.Button.IconButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:insetLeft="0dp"
+                        android:insetRight="0dp"
+                        android:padding="0dp"
+                        app:icon="@drawable/ic_close"
+                        app:iconSize="18dp"
+                        app:iconTint="@color/text_secondary" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <LinearLayout
                 android:id="@+id/layoutLoading"
                 android:layout_width="wrap_content"
