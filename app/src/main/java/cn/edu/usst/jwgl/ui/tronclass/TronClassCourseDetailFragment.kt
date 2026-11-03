@@ -1939,7 +1939,11 @@ class TronClassCourseDetailFragment : Fragment() {
                             .setTitle(attachment.name)
                             .setMessage("课件大小：${attachment.getFormattedSize()}\n\n该文档已成功转换为移动端格式，可选择直接在线预览或下载到本地。")
                             .setPositiveButton("在线预览") { _, _ ->
-                                JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                                if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank() || attachment.name.endsWith(".pdf", ignoreCase = true)) {
+                                    cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
+                                } else {
+                                    JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                                }
                             }
                             .setNeutralButton("复制下载链接") { _, _ ->
                                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
