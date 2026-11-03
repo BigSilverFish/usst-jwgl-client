@@ -146,6 +146,7 @@
 
         <activity
             android:name=".ui.pdf.PdfViewerActivity"
+            android:label="PDF 阅览"
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <intent-filter>

@@ -73,6 +73,35 @@ class PdfViewerActivity : AppCompatActivity() {
 
     private var isToolbarVisible = true
 
+    /**
+     * 规范化更新当前文档标题，同步至 Activity Title、SupportActionBar 及 Toolbar
+     */
+    private fun updateDocumentTitle(titleText: String) {
+        val clean = PdfViewerUtils.cleanFileName(titleText)
+        if (clean.isNotBlank()) {
+            documentTitle = clean
+            title = clean
+            supportActionBar?.title = clean
+            binding.toolbarPdf.title = clean
+        }
+    }
+
+    override fun onPostCreate(savedInstanceState: Bundle?) {
+        super.onPostCreate(savedInstanceState)
+        if (documentTitle.isNotBlank()) {
+            supportActionBar?.title = documentTitle
+            binding.toolbarPdf.title = documentTitle
+        }
+    }
+
+    override fun onTitleChanged(title: CharSequence?, color: Int) {
+        super.onTitleChanged(title, color)
+        if (documentTitle.isNotBlank()) {
+            supportActionBar?.title = documentTitle
+            binding.toolbarPdf.title = documentTitle
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPdfViewerBinding.inflate(layoutInflater)
@@ -88,11 +117,12 @@ class PdfViewerActivity : AppCompatActivity() {
             rawPath = dataUri.toString()
         }
 
-        documentTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank {
-            if (rawPath.contains("/")) rawPath.substringAfterLast("/") else "文档查看"
-        }
-
-        binding.toolbarPdf.title = documentTitle
+        // 初始标题解析
+        val initialTitle = PdfViewerUtils.resolveTitle(
+            explicitTitle = intent.getStringExtra(EXTRA_TITLE),
+            rawPath = rawPath
+        )
+        updateDocumentTitle(initialTitle)
         binding.toolbarPdf.subtitle = "正在加载..."
 
         if (rawPath.isBlank()) {
@@ -164,6 +194,21 @@ class PdfViewerActivity : AppCompatActivity() {
         binding.pbPdfLoading.visibility = View.VISIBLE
         binding.toolbarPdf.subtitle = "正在加载文档..."
 
+        // 尝试从 ContentResolver 查询真实文件名并及时更新标题
+        try {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        val displayName = cursor.getString(nameIndex)
+                        if (!displayName.isNullOrBlank() && PdfViewerUtils.isGenericTitle(documentTitle)) {
+                            updateDocumentTitle(displayName)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val tempDir = File(cacheDir, "pdf_preview").apply { if (!exists()) mkdirs() }
@@ -192,12 +237,6 @@ class PdfViewerActivity : AppCompatActivity() {
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val tempDir = File(cacheDir, "pdf_preview").apply { if (!exists()) mkdirs() }
-                val safeName = documentTitle.replace(Regex("""[\\/:*?"<>|]"""), "_").let {
-                    if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf"
-                }
-                val destFile = File(tempDir, "temp_${System.currentTimeMillis()}_$safeName")
-
                 val client = OkHttpClient.Builder().build()
                 val request = Request.Builder().url(url).build()
                 val response = client.newCall(request).execute()
@@ -205,6 +244,27 @@ class PdfViewerActivity : AppCompatActivity() {
                 if (!response.isSuccessful) {
                     throw Exception("网络请求失败 (HTTP ${response.code})")
                 }
+
+                // 优先从 HTTP Content-Disposition 响应头提取真实文件名
+                val disposition = response.header("Content-Disposition")
+                val serverName = PdfViewerUtils.parseContentDispositionFileName(disposition)
+                val resolvedTitle = if (!serverName.isNullOrBlank() && !PdfViewerUtils.isGenericTitle(serverName)) {
+                    serverName
+                } else if (PdfViewerUtils.isGenericTitle(documentTitle)) {
+                    PdfViewerUtils.cleanFileName(url)
+                } else {
+                    documentTitle
+                }
+
+                withContext(Dispatchers.Main) {
+                    updateDocumentTitle(resolvedTitle)
+                }
+
+                val tempDir = File(cacheDir, "pdf_preview").apply { if (!exists()) mkdirs() }
+                val safeName = documentTitle.replace(Regex("""[\\/:*?"<>|]"""), "_").let {
+                    if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf"
+                }
+                val destFile = File(tempDir, "temp_${System.currentTimeMillis()}_$safeName")
 
                 val body = response.body ?: throw Exception("响应正文为空")
                 body.byteStream().use { input ->
@@ -227,6 +287,9 @@ class PdfViewerActivity : AppCompatActivity() {
 
     private fun openLocalPdf(file: File) {
         localPdfFile = file
+        if (PdfViewerUtils.isGenericTitle(documentTitle) && file.name.isNotBlank()) {
+            updateDocumentTitle(file.name)
+        }
         binding.pbPdfLoading.visibility = View.VISIBLE
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -481,14 +544,15 @@ class PdfViewerActivity : AppCompatActivity() {
             renderJob = lifecycleScope.launch(Dispatchers.IO) {
                 val renderer = pdfRenderer ?: return@launch
                 // 超高清目标分辨率（以屏幕宽度 1.5 倍渲染，放大 2.5 倍依然字体锐利）
-                val renderWidth = (resources.displayMetrics.widthPixels * 1.5f).toInt().coerceIn(1080, 2400)
-                val renderHeight = (renderWidth * ratio).toInt()
-
-                val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bitmap)
-                canvas.drawColor(Color.WHITE) // PDF 默认透明背景需绘制纯白底色
+                val renderWidth = (resources.displayMetrics.widthPixels * 1.5f).toInt().coerceIn(720, 2400)
+                val safeRatio = if (ratio > 0.05f) ratio else 1.414f
+                val renderHeight = (renderWidth * safeRatio).toInt().coerceIn(100, 8000)
 
                 try {
+                    val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bitmap)
+                    canvas.drawColor(Color.WHITE) // PDF 默认透明背景需绘制纯白底色
+
                     synchronized(rendererLock) {
                         if (!isFinishing && !isDestroyed && pdfRenderer != null) {
                             val page = renderer.openPage(position)
@@ -510,6 +574,13 @@ class PdfViewerActivity : AppCompatActivity() {
                             if (adapterPosition == position) {
                                 itemBinding.pbPageLoading.visibility = View.GONE
                             }
+                        }
+                    }
+                } catch (oom: OutOfMemoryError) {
+                    bitmapCache.evictAll()
+                    withContext(Dispatchers.Main) {
+                        if (adapterPosition == position) {
+                            itemBinding.pbPageLoading.visibility = View.GONE
                         }
                     }
                 }
