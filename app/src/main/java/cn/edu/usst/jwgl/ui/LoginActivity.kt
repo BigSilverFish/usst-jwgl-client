@@ -19,7 +19,7 @@ import cn.edu.usst.jwgl.util.UpdateDialogHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-class LoginActivity : BaseActivity() {
+class LoginActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_FROM_LOGOUT = "extra_from_logout"
