@@ -644,14 +644,18 @@ data class UnifiedStudentRollcall(
             item: ChaoXingActiveItem,
             detail: ChaoXingSignDetail?
         ): UnifiedStudentRollcall {
-            val isAttended = detail?.isAlreadySigned == true
-            val isExpired = detail?.isExpired == true || !item.isActive()
+            // 超星 userStatus 权威判定: 1 为已签到出勤, 2 为迟到, 3 为请假/早退, 0 为未签到
+            val isAttended = item.isUserAttended() || detail?.isAlreadySigned == true
+            val isLate = item.isUserLate()
+            val isLeave = item.isUserLeaveOrEarly()
+            val isActive = item.isActive()
 
             val status = when {
                 isAttended -> RollcallStatus.ATTENDED
-                item.isActive() -> RollcallStatus.IN_PROGRESS
-                isExpired -> RollcallStatus.ABSENT
-                else -> RollcallStatus.UNKNOWN
+                isLate -> RollcallStatus.LATE
+                isLeave -> RollcallStatus.LEAVE
+                isActive -> RollcallStatus.IN_PROGRESS
+                else -> RollcallStatus.ABSENT // 已结束且 userStatus 为 0 即为缺勤未参与
             }
 
             val statusDisplayName = when (status) {
@@ -666,11 +670,14 @@ data class UnifiedStudentRollcall(
 
             val typeName = detail?.signTypeDisplayName ?: item.resolvedSignTypeName
 
-            val timeStr = if (item.createtime > 0) {
-                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(item.createtime))
-            } else ""
+            val effectiveMillis = if (item.startTime > 0L) item.startTime else item.createtime
+            val timeStr = if (effectiveMillis > 0L) {
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(effectiveMillis))
+            } else {
+                item.nameFour?.trim().orEmpty()
+            }
 
-            val title = item.nameOne?.trim().takeIf { !it.isNullOrBlank() } ?: "课堂签到"
+            val title = item.nameOne?.trim().takeIf { !it.isNullOrBlank() } ?: typeName
 
             return UnifiedStudentRollcall(
                 unifiedId = "cx_${item.id}",
@@ -678,7 +685,7 @@ data class UnifiedStudentRollcall(
                 title = title,
                 typeDisplayName = typeName,
                 timeText = timeStr,
-                timeMillis = item.createtime,
+                timeMillis = effectiveMillis,
                 status = status,
                 statusDisplayName = statusDisplayName,
                 rawChaoXingItem = item

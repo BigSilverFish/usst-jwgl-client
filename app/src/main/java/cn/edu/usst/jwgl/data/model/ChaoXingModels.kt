@@ -209,30 +209,62 @@ data class ChaoXingActiveItem(
     val activeType: Int = 0, // 2 表示签到
 
     @SerializedName("status")
-    val status: Int = 0, // 1 表示进行中
+    val status: Int = 0, // 1 表示进行中, 2 表示已结束
+
+    @SerializedName("userStatus")
+    val userStatus: Int = 0, // 0: 未参与/未签到, 1: 已签到/已出勤, 2: 迟到, 3: 请假/早退
 
     @SerializedName("nameOne")
-    val nameOne: String? = null, // "签到"
+    val nameOne: String? = null, // "二维码签到" / "签到"
 
     @SerializedName("nameTwo")
     val nameTwo: String? = null, // "[普通签到]" / "[手势签到]" / "[二维码签到]" / "[位置签到]"
 
     @SerializedName("nameFour")
-    val nameFour: String? = null, // "进行中"
+    val nameFour: String? = null, // "11-04 15:11" / "进行中"
+
+    @SerializedName("startTime")
+    val startTime: Long = 0L,
+
+    @SerializedName("endTime")
+    val endTime: Long = 0L,
 
     @SerializedName("createtime")
     private val rawCreatetime: com.google.gson.JsonElement? = null,
 
     @SerializedName("otherId")
-    val otherId: Int = 0
+    private val rawOtherId: com.google.gson.JsonElement? = null
 ) : Serializable {
+
+    val otherId: Int
+        get() = try {
+            rawOtherId?.let {
+                if (it.isJsonPrimitive) {
+                    val p = it.asJsonPrimitive
+                    if (p.isNumber) p.asInt else p.asString.trim().toIntOrNull() ?: 0
+                } else 0
+            } ?: 0
+        } catch (_: Exception) { 0 }
 
     @Transient
     var signDetail: ChaoXingSignDetail? = null
 
     val resolvedSignTypeName: String
-        get() = signDetail?.signTypeDisplayName
-            ?: (nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+        get() {
+            val d = signDetail?.signTypeDisplayName
+            if (!d.isNullOrBlank()) return d
+            val n1 = nameOne?.trim()
+            if (!n1.isNullOrBlank() && n1.contains("签到") && n1 != "签到") return n1
+            val n2 = nameTwo?.replace("[", "")?.replace("]", "")?.trim()
+            if (!n2.isNullOrBlank()) return n2
+            return when (otherId) {
+                2 -> "二维码签到"
+                3 -> "手势签到"
+                4 -> "位置签到"
+                5 -> "拍照签到"
+                else -> "普通签到"
+            }
+        }
 
     val id: Long
         get() = try {
@@ -241,6 +273,7 @@ data class ChaoXingActiveItem(
 
     val createtime: Long
         get() {
+            if (startTime > 0L) return startTime
             val el = rawCreatetime ?: return 0L
             if (el.isJsonNull) return 0L
             return try {
@@ -262,6 +295,12 @@ data class ChaoXingActiveItem(
     fun isSignActivity(): Boolean = activeType == 2
 
     fun isActive(): Boolean = status == 1
+
+    fun isUserAttended(): Boolean = userStatus == 1
+
+    fun isUserLate(): Boolean = userStatus == 2
+
+    fun isUserLeaveOrEarly(): Boolean = userStatus == 3
 }
 
 /**

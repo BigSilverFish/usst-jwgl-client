@@ -989,6 +989,7 @@ class ChaoXingClient(private val context: Context) {
                 .build()
             val resp = okHttpClient.newCall(req).execute()
             val body = resp.body?.string().orEmpty()
+            Log.e("CHAOXING_DEBUG", "fetchCourseSignHistory activelist: $body")
             if (!resp.isSuccessful || body.isBlank()) {
                 return@withContext Result.success(null)
             }
@@ -1137,12 +1138,14 @@ class ChaoXingClient(private val context: Context) {
                 return@withContext Result.success(emptyList())
             }
 
-            // 并发探测每个签到活动的学生考勤状态与配置详情
+            // 超星 activeList 内部已权威包含每项签到的 userStatus (1=已签到, 2=迟到, 3=请假, 0=未签到) 和 startTime
+            // 对于进行中活动 (status == 1)，按需异步补充探测详细配置；已结束活动直接秒级映射
             coroutineScope {
                 val rollcallList = allSignActivities.map { item ->
                     async {
-                        val detailRes = fetchSignDetail(courseId, classId, item.id, studentId)
-                        val detail = detailRes.getOrNull()
+                        val detail = if (item.isActive()) {
+                            fetchSignDetail(courseId, classId, item.id, studentId).getOrNull()
+                        } else null
                         UnifiedStudentRollcall.fromChaoXing(item, detail)
                     }
                 }.awaitAll()
