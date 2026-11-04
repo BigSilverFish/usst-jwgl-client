@@ -13,7 +13,7 @@ object ThemeManager {
 
     fun getThemeMode(context: Context): Int {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        return sp.getInt(KEY_THEME_MODE, MODE_SYSTEM)
+        return sp.getInt(KEY_THEME_MODE, MODE_LIGHT)
     }
 
     fun setThemeMode(context: Context, mode: Int) {
@@ -34,6 +34,24 @@ object ThemeManager {
             else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
         AppCompatDelegate.setDefaultNightMode(nightMode)
+    }
+
+    fun applyThemeToActivity(activity: androidx.appcompat.app.AppCompatActivity) {
+        val mode = getThemeMode(activity)
+        val nightMode = when (mode) {
+            MODE_LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
+            MODE_DARK -> AppCompatDelegate.MODE_NIGHT_YES
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        activity.delegate.localNightMode = nightMode
+    }
+
+    fun isNightMode(context: Context): Boolean {
+        return when (getThemeMode(context)) {
+            MODE_LIGHT -> false
+            MODE_DARK -> true
+            else -> (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
     }
 
     fun getThemeModeName(mode: Int): String {

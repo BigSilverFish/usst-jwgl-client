@@ -37,7 +37,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
 
-class SsoLoginActivity : AppCompatActivity() {
+class SsoLoginActivity : BaseActivity() {
 
     companion object {
         private const val TAG = "SsoLoginActivity"

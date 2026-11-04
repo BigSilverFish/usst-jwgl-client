@@ -2388,7 +2388,7 @@ class TronClassFragment : Fragment() {
         val b = _binding ?: return
         val ctx = context ?: return
         val active = allUnifiedActiveRollcalls.firstOrNull()
-        val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val isDark = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(ctx)
 
         // 确保顶部卡片中的姓名与学号始终保持纯白高对比度文字
         b.tvTronClassUserName.setTextColor(Color.WHITE)

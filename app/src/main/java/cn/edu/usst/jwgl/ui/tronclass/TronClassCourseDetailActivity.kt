@@ -9,9 +9,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.UnifiedCourse
+import cn.edu.usst.jwgl.ui.BaseActivity
 import cn.edu.usst.jwgl.ui.MainActivity
 
-class TronClassCourseDetailActivity : AppCompatActivity() {
+class TronClassCourseDetailActivity : BaseActivity() {
 
     companion object {
         const val EXTRA_UNIFIED_COURSE = "extra_unified_course"
@@ -79,7 +80,7 @@ class TronClassCourseDetailActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         window.statusBarColor = Color.TRANSPARENT
-        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val isDarkMode = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(this)
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.isAppearanceLightStatusBars = !isDarkMode
 

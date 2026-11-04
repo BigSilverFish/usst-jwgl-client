@@ -93,7 +93,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
@@ -264,6 +264,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeManager.applyThemeToActivity(this)
+        ThemeManager.applySavedTheme(this)
         super.onCreate(savedInstanceState)
 
         // Enable edge-to-edge immersive transparent system bars
@@ -278,20 +280,22 @@ class MainActivity : AppCompatActivity() {
         }
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-        insetsController.isAppearanceLightStatusBars = !isDarkMode
-        insetsController.isAppearanceLightNavigationBars = !isDarkMode
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        val isDarkMode = ThemeManager.isNightMode(this)
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
             or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            or (if (!isDarkMode) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0)
+            or (if (!isDarkMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)
         )
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = !isDarkMode
+        insetsController.isAppearanceLightNavigationBars = !isDarkMode
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
@@ -1976,7 +1980,7 @@ class MainActivity : AppCompatActivity() {
         val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
 
         binding.tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
-        val isDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val isDark = ThemeManager.isNightMode(this)
         binding.tvMonthHeader.setTextColor(if (isDark) Color.parseColor("#94A3B8") else androidx.core.content.ContextCompat.getColor(this, R.color.text_secondary))
 
         val daysArray = if (table.sundayFirst) {
@@ -2153,7 +2157,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDarkModeDialog() {
-        val options = arrayOf("跟随系统 (默认)", "浅色模式", "深色模式")
+        val options = arrayOf("跟随系统", "浅色模式 (默认)", "深色模式")
         val currentMode = ThemeManager.getThemeMode(this)
 
         MaterialAlertDialogBuilder(this)
@@ -2162,6 +2166,7 @@ class MainActivity : AppCompatActivity() {
                 ThemeManager.setThemeMode(this, which)
                 binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(which)
                 dialog.dismiss()
+                recreate()
             }
             .setNegativeButton("取消", null)
             .safeShow()

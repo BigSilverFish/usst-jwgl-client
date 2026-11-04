@@ -2,12 +2,29 @@ package cn.edu.usst.jwgl
 
 import android.app.Application
 import android.content.Context
+import android.content.res.Configuration
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.util.ThemeManager
 
 class UsstApplication : Application() {
     companion object {
         private const val TAG = "UsstApplication"
+    }
+
+    override fun attachBaseContext(base: Context) {
+        val mode = ThemeManager.getThemeMode(base)
+        val config = Configuration(base.resources.configuration)
+        when (mode) {
+            ThemeManager.MODE_LIGHT -> {
+                config.uiMode = (config.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or Configuration.UI_MODE_NIGHT_NO
+            }
+            ThemeManager.MODE_DARK -> {
+                config.uiMode = (config.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or Configuration.UI_MODE_NIGHT_YES
+            }
+            else -> {}
+        }
+        val context = base.createConfigurationContext(config)
+        super.attachBaseContext(context)
     }
 
     override fun onCreate() {

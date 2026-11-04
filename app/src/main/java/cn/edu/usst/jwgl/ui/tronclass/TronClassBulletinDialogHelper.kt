@@ -65,7 +65,7 @@ object TronClassBulletinDialogHelper {
 
         // 2. 适配深浅色模式，WebView 设置透明底色，加载主题适配的 HTML
         dialogBinding.webViewContent.setBackgroundColor(Color.TRANSPARENT)
-        val isDarkMode = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val isDarkMode = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
         val rawContent = bulletin.content ?: "<p>暂无公告内容</p>"
         val htmlData = TronClassHtmlHelper.buildThemedHtmlDocument(bulletin.title ?: "课程公告", rawContent, isDarkMode)
 

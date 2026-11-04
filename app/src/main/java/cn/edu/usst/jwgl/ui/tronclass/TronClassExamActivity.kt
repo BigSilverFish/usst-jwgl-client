@@ -64,7 +64,7 @@ class TronClassExamActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         window.statusBarColor = Color.TRANSPARENT
-        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val isDarkMode = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(this)
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.isAppearanceLightStatusBars = !isDarkMode
 
