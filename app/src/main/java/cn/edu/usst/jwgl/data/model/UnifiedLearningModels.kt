@@ -559,5 +559,6 @@ data class UnifiedActiveRollcall(
     val typeDisplayName: String,
     val effectiveId: Long,
     val rawTronClassRollcall: TronClassRollcall? = null,
-    val rawChaoXingSign: Pair<ChaoXingCourse, ChaoXingActiveItem>? = null
+    val rawChaoXingSign: Pair<ChaoXingCourse, ChaoXingActiveItem>? = null,
+    val chaoXingSignDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null
 ) : Serializable

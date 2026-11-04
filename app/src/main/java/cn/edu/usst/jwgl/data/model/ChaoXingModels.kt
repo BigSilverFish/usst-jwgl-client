@@ -227,6 +227,13 @@ data class ChaoXingActiveItem(
     val otherId: Int = 0
 ) : Serializable {
 
+    @Transient
+    var signDetail: ChaoXingSignDetail? = null
+
+    val resolvedSignTypeName: String
+        get() = signDetail?.signTypeDisplayName
+            ?: (nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+
     val id: Long
         get() = try {
             rawId?.let { if (it.isJsonPrimitive) it.asString.toLongOrNull() else null } ?: 0L
@@ -256,6 +263,23 @@ data class ChaoXingActiveItem(
 
     fun isActive(): Boolean = status == 1
 }
+
+/**
+ * 超星签到详细配置与深度探测结果
+ */
+data class ChaoXingSignDetail(
+    val activeId: Long,
+    val otherId: Int = 0,
+    val signTypeDisplayName: String = "普通签到",
+    val signCode: String? = null,
+    val ifPhoto: Boolean = false,
+    val locationText: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val isAlreadySigned: Boolean = false,
+    val isExpired: Boolean = false,
+    val rawJson: String? = null
+) : Serializable
 
 /**
  * 签到提交结果包装

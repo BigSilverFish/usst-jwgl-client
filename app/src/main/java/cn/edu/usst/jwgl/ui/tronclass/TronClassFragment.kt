@@ -577,7 +577,7 @@ class TronClassFragment : Fragment() {
             if (signs.isNotEmpty()) {
                 val signPair = signs.first()
                 val activeItem = signPair.second
-                val typeName = (activeItem.nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+                val typeName = activeItem.resolvedSignTypeName
                 MaterialAlertDialogBuilder(ctx)
                     .setTitle("发现正在进行中的签到！")
                     .setMessage("课程：${course.cleanName}\n类型：$typeName\n状态：进行中\n\n是否立即签到？")
@@ -594,78 +594,155 @@ class TronClassFragment : Fragment() {
 
     private fun performChaoXingSign(course: ChaoXingCourse, activeItem: ChaoXingActiveItem) {
         val ctx = context ?: return
-        val signTypeName = (activeItem.nameTwo ?: "普通签到").replace("[", "").replace("]", "").trim()
 
-        when {
-            signTypeName.contains("手势") || activeItem.otherId == 3 -> {
-                val sheet = ChaoXingGestureSignBottomSheet.newInstance(
-                    courseId = course.courseId,
-                    classId = course.classId,
-                    activeId = activeItem.id,
-                    courseName = course.courseName,
-                    signTypeName = signTypeName
-                )
-                sheet.onSignSuccessListener = { msg ->
-                    MaterialAlertDialogBuilder(ctx)
-                        .setTitle("手势签到成功 🎉")
-                        .setMessage("课程：${course.courseName}\n反馈：$msg")
-                        .setPositiveButton("确定") { _, _ ->
-                            loadTronClassData(forceRefresh = true)
-                        }
-                        .show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            // 若尚未探测签到详情，先进行深度探测
+            val signDetail = activeItem.signDetail ?: run {
+                val progress = ProgressDialog(ctx).apply {
+                    setMessage("正在解析签到类型与配置...")
+                    setCancelable(false)
+                    show()
                 }
-                sheet.show(childFragmentManager, "ChaoXingGestureSign")
-                return
+                val res = chaoXingClient.fetchSignDetail(course.courseId, course.classId, activeItem.id)
+                progress.dismiss()
+                val detail = res.getOrNull()
+                activeItem.signDetail = detail
+                detail
             }
 
-            signTypeName.contains("拍照") || signTypeName.contains("照片") || activeItem.otherId == 5 -> {
-                val sheet = ChaoXingPhotoSignBottomSheet.newInstance(
-                    courseId = course.courseId,
-                    classId = course.classId,
-                    activeId = activeItem.id,
-                    courseName = course.courseName,
-                    signTypeName = signTypeName
-                )
-                sheet.onSignSuccessListener = { msg ->
-                    MaterialAlertDialogBuilder(ctx)
-                        .setTitle("拍照签到成功 🎉")
-                        .setMessage("课程：${course.courseName}\n反馈：$msg")
-                        .setPositiveButton("确定") { _, _ ->
-                            loadTronClassData(forceRefresh = true)
-                        }
-                        .show()
-                }
-                sheet.show(childFragmentManager, "ChaoXingPhotoSign")
-                return
-            }
-
-            signTypeName.contains("码") || signTypeName.contains("口令") || signTypeName.contains("数字") || activeItem.otherId == 4 -> {
-                val input = EditText(ctx).apply {
-                    hint = "请输入签到码"
-                    inputType = android.text.InputType.TYPE_CLASS_TEXT
-                    setPadding(48, 36, 48, 36)
-                }
+            if (signDetail?.isAlreadySigned == true) {
                 MaterialAlertDialogBuilder(ctx)
-                    .setTitle("超星签到 · $signTypeName")
-                    .setMessage("课程：${course.courseName}\n请输入教师给出的签到口令：")
-                    .setView(input)
-                    .setPositiveButton("提交签到") { _, _ ->
-                        val code = input.text.toString().trim()
-                        executeSubmitChaoXingSign(course, activeItem, enc = code)
+                    .setTitle("签到提示")
+                    .setMessage("您已完成过《${course.courseName}》的本次签到，无需重复提交。")
+                    .setPositiveButton("确定") { _, _ ->
+                        loadTronClassData(forceRefresh = true)
                     }
-                    .setNegativeButton("取消", null)
                     .show()
-                return
+                return@launch
             }
 
-            else -> {
-                executeSubmitChaoXingSign(course, activeItem)
+            if (signDetail?.isExpired == true) {
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("签到提示")
+                    .setMessage("《${course.courseName}》的该签到活动已结束。")
+                    .setPositiveButton("确定") { _, _ ->
+                        loadTronClassData(forceRefresh = true)
+                    }
+                    .show()
+                return@launch
+            }
+
+            val signTypeName = signDetail?.signTypeDisplayName ?: activeItem.resolvedSignTypeName
+
+            when (signTypeName) {
+                "手势签到" -> {
+                    val sheet = ChaoXingGestureSignBottomSheet.newInstance(
+                        courseId = course.courseId,
+                        classId = course.classId,
+                        activeId = activeItem.id,
+                        courseName = course.courseName,
+                        signTypeName = signTypeName
+                    )
+                    sheet.onSignSuccessListener = { msg ->
+                        MaterialAlertDialogBuilder(ctx)
+                            .setTitle("手势签到成功 🎉")
+                            .setMessage("课程：${course.courseName}\n反馈：$msg")
+                            .setPositiveButton("确定") { _, _ ->
+                                loadTronClassData(forceRefresh = true)
+                            }
+                            .show()
+                    }
+                    sheet.show(childFragmentManager, "ChaoXingGestureSign")
+                }
+
+                "拍照签到" -> {
+                    val sheet = ChaoXingPhotoSignBottomSheet.newInstance(
+                        courseId = course.courseId,
+                        classId = course.classId,
+                        activeId = activeItem.id,
+                        courseName = course.courseName,
+                        signTypeName = signTypeName
+                    )
+                    sheet.onSignSuccessListener = { msg ->
+                        MaterialAlertDialogBuilder(ctx)
+                            .setTitle("拍照签到成功 🎉")
+                            .setMessage("课程：${course.courseName}\n反馈：$msg")
+                            .setPositiveButton("确定") { _, _ ->
+                                loadTronClassData(forceRefresh = true)
+                            }
+                            .show()
+                    }
+                    sheet.show(childFragmentManager, "ChaoXingPhotoSign")
+                }
+
+                "口令签到" -> {
+                    val detectedCode = signDetail?.signCode ?: ""
+                    val input = EditText(ctx).apply {
+                        hint = "请输入签到码/口令"
+                        if (detectedCode.isNotBlank()) {
+                            setText(detectedCode)
+                            setSelection(detectedCode.length)
+                        }
+                        inputType = android.text.InputType.TYPE_CLASS_TEXT
+                        setPadding(48, 36, 48, 36)
+                    }
+                    val msg = if (detectedCode.isNotBlank()) {
+                        "课程：${course.courseName}\n⚡ 系统已为您自动探测到签到口令：$detectedCode"
+                    } else {
+                        "课程：${course.courseName}\n请输入教师给出的签到口令："
+                    }
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("超星签到 · 口令签到")
+                        .setMessage(msg)
+                        .setView(input)
+                        .setPositiveButton("提交签到") { _, _ ->
+                            val code = input.text.toString().trim()
+                            executeSubmitChaoXingSign(course, activeItem, enc = code, signDetail = signDetail)
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+
+                "位置签到" -> {
+                    val locText = signDetail?.locationText ?: "上海理工大学"
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("超星签到 · 位置签到")
+                        .setMessage("课程：${course.courseName}\n签到要求位置：$locText\n\n是否立即以该位置提交签到？")
+                        .setPositiveButton("立即签到") { _, _ ->
+                            executeSubmitChaoXingSign(course, activeItem, signDetail = signDetail)
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+
+                "二维码签到" -> {
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("超星签到 · 二维码签到")
+                        .setMessage("课程：${course.courseName}\n此签到需要扫描教师屏幕出示的动态二维码。\n\n请准备好教师端二维码后点击开始扫码。")
+                        .setPositiveButton("扫码签到") { _, _ ->
+                            startTronClassQrScan()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+
+                else -> {
+                    // 普通签到
+                    executeSubmitChaoXingSign(course, activeItem, signDetail = signDetail)
+                }
             }
         }
     }
 
-    private fun executeSubmitChaoXingSign(course: ChaoXingCourse, activeItem: ChaoXingActiveItem, enc: String? = null) {
+    private fun executeSubmitChaoXingSign(
+        course: ChaoXingCourse,
+        activeItem: ChaoXingActiveItem,
+        enc: String? = null,
+        signDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null
+    ) {
         val ctx = context ?: return
+        val signType = signDetail?.signTypeDisplayName ?: activeItem.resolvedSignTypeName
+
         val progress = ProgressDialog(ctx).apply {
             setMessage("正在为「${course.courseName}」提交超星签到...")
             setCancelable(false)
@@ -673,16 +750,17 @@ class TronClassFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val signType = (activeItem.nameTwo ?: "普通签到").replace("[", "").replace("]", "").trim()
+            val effectiveEnc = enc ?: signDetail?.signCode
             val res = chaoXingClient.submitSign(
                 courseId = course.courseId,
                 classId = course.classId,
                 activeId = activeItem.id,
                 signType = signType,
-                enc = enc,
-                latitude = 31.2936,
-                longitude = 121.5543,
-                address = "上海理工大学"
+                enc = effectiveEnc,
+                signCode = effectiveEnc,
+                latitude = signDetail?.latitude ?: 31.2936,
+                longitude = signDetail?.longitude ?: 121.5543,
+                address = signDetail?.locationText ?: "上海理工大学"
             )
             progress.dismiss()
 
@@ -699,7 +777,7 @@ class TronClassFragment : Fragment() {
                     .setTitle("签到提交异常")
                     .setMessage("提交超星签到时发生异常：${err.message}\n请检查网络连接后重试。")
                     .setPositiveButton("重试") { _, _ ->
-                        executeSubmitChaoXingSign(course, activeItem, enc)
+                        executeSubmitChaoXingSign(course, activeItem, enc, signDetail)
                     }
                     .setNegativeButton("取消", null)
                     .show()
@@ -1268,7 +1346,7 @@ class TronClassFragment : Fragment() {
                     cxSigns.forEach { pair ->
                         val course = pair.first
                         val activeItem = pair.second
-                        val typeName = (activeItem.nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+                        val typeName = activeItem.resolvedSignTypeName
                         unifiedRollcalls.add(
                             UnifiedActiveRollcall(
                                 unifiedId = "cx_${activeItem.id}",
@@ -1276,7 +1354,8 @@ class TronClassFragment : Fragment() {
                                 courseName = course.courseName,
                                 typeDisplayName = typeName,
                                 effectiveId = activeItem.id,
-                                rawChaoXingSign = pair
+                                rawChaoXingSign = pair,
+                                chaoXingSignDetail = activeItem.signDetail
                             )
                         )
                     }
@@ -2133,7 +2212,7 @@ class TronClassFragment : Fragment() {
             cxSigns.forEach { pair ->
                 val course = pair.first
                 val activeItem = pair.second
-                val typeName = (activeItem.nameTwo ?: "[普通签到]").replace("[", "").replace("]", "").trim()
+                val typeName = activeItem.resolvedSignTypeName
                 unifiedRollcalls.add(
                     UnifiedActiveRollcall(
                         unifiedId = "cx_${activeItem.id}",
@@ -2141,7 +2220,8 @@ class TronClassFragment : Fragment() {
                         courseName = course.courseName,
                         typeDisplayName = typeName,
                         effectiveId = activeItem.id,
-                        rawChaoXingSign = pair
+                        rawChaoXingSign = pair,
+                        chaoXingSignDetail = activeItem.signDetail
                     )
                 )
             }
@@ -2326,9 +2406,34 @@ class TronClassFragment : Fragment() {
             b.btnTronClassSmartSign.iconTint = ColorStateList.valueOf(btnTextColor)
 
             if (active.platform.isChaoXing) {
-                b.btnTronClassSmartSign.text = "⚡ 立即签到"
-                b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
-                b.tvTronClassHeroRollcallCourse.text = "当前签到：【学习通】${active.courseName} · ${active.typeDisplayName}"
+                val typeName = active.typeDisplayName
+                when (typeName) {
+                    "手势签到" -> {
+                        b.btnTronClassSmartSign.text = "✍️ 手势签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_edit)
+                    }
+                    "拍照签到" -> {
+                        b.btnTronClassSmartSign.text = "📷 拍照签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
+                    }
+                    "口令签到" -> {
+                        b.btnTronClassSmartSign.text = "🔢 口令签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_format_size)
+                    }
+                    "二维码签到" -> {
+                        b.btnTronClassSmartSign.text = "📷 扫码签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
+                    }
+                    "位置签到" -> {
+                        b.btnTronClassSmartSign.text = "📍 位置签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
+                    }
+                    else -> {
+                        b.btnTronClassSmartSign.text = "⚡ 立即签到"
+                        b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
+                    }
+                }
+                b.tvTronClassHeroRollcallCourse.text = "当前签到：【学习通】${active.courseName} · $typeName"
             } else {
                 val tc = active.rawTronClassRollcall
                 when (tc?.getNormalizedType()) {
