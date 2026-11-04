@@ -162,15 +162,17 @@ class TronClassAssessmentAdapter(
                     binding.ivTypeIcon.setColorFilter(Color.parseColor("#EA580C"))
                     binding.tvTypeBadge.text = "学习通作业"
                     binding.tvTypeBadge.setTextColor(Color.parseColor("#EA580C"))
-                    binding.tvTitle.text = work.title
+                    binding.tvTitle.text = work.title.orEmpty()
 
-                    val isCompleted = work.statusText.contains("已完成") || work.statusText.contains("已批阅") || work.statusText.contains("已交")
-                    if (work.score.isNotBlank()) {
-                        binding.tvStatusBadge.text = "${work.statusText} · ${work.score}分"
+                    val wStatus = work.statusText.orEmpty()
+                    val wScore = work.score.orEmpty()
+                    val isCompleted = wStatus.contains("已完成") || wStatus.contains("已批阅") || wStatus.contains("已交")
+                    if (wScore.isNotBlank()) {
+                        binding.tvStatusBadge.text = "$wStatus · ${wScore}分"
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
                         binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
                     } else if (isCompleted) {
-                        binding.tvStatusBadge.text = work.statusText.ifBlank { "已提交" }
+                        binding.tvStatusBadge.text = wStatus.ifBlank { "已提交" }
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
                         binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
                     } else if (work.expired) {
@@ -178,13 +180,14 @@ class TronClassAssessmentAdapter(
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#EEEEEE"))
                         binding.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.text_tertiary))
                     } else {
-                        binding.tvStatusBadge.text = work.statusText.ifBlank { "未交" }
+                        binding.tvStatusBadge.text = wStatus.ifBlank { "未交" }
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#FFF3E0"))
                         binding.tvStatusBadge.setTextColor(Color.parseColor("#E65100"))
                     }
 
-                    if (work.deadline.isNotBlank()) {
-                        binding.tvSubInfo.text = "截止时间: ${work.deadline}"
+                    val wDeadline = work.deadline.orEmpty()
+                    if (wDeadline.isNotBlank()) {
+                        binding.tvSubInfo.text = "截止时间: $wDeadline"
                     } else {
                         binding.tvSubInfo.text = "超星课程作业"
                     }
@@ -196,25 +199,28 @@ class TronClassAssessmentAdapter(
                     binding.ivTypeIcon.setColorFilter(Color.parseColor("#EA580C"))
                     binding.tvTypeBadge.text = "学习通测验"
                     binding.tvTypeBadge.setTextColor(Color.parseColor("#EA580C"))
-                    binding.tvTitle.text = exam.title
+                    binding.tvTitle.text = exam.title.orEmpty()
 
-                    val isCompleted = exam.status.contains("已完成") || exam.status.contains("已批阅")
-                    if (exam.score.isNotBlank()) {
-                        binding.tvStatusBadge.text = "${exam.status} · ${exam.score}分"
+                    val eStatus = exam.status.orEmpty()
+                    val eScore = exam.score.orEmpty()
+                    val isCompleted = eStatus.contains("已完成") || eStatus.contains("已批阅")
+                    if (eScore.isNotBlank()) {
+                        binding.tvStatusBadge.text = "$eStatus · ${eScore}分"
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
                         binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
                     } else if (isCompleted) {
-                        binding.tvStatusBadge.text = exam.status.ifBlank { "已完成" }
+                        binding.tvStatusBadge.text = eStatus.ifBlank { "已完成" }
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
                         binding.tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
                     } else {
-                        binding.tvStatusBadge.text = exam.status.ifBlank { "未交" }
+                        binding.tvStatusBadge.text = eStatus.ifBlank { "未交" }
                         binding.tvStatusBadge.setBackgroundColor(Color.parseColor("#FFF3E0"))
                         binding.tvStatusBadge.setTextColor(Color.parseColor("#E65100"))
                     }
 
-                    if (exam.remaining.isNotBlank()) {
-                        binding.tvSubInfo.text = exam.remaining
+                    val eRemaining = exam.remaining.orEmpty()
+                    if (eRemaining.isNotBlank()) {
+                        binding.tvSubInfo.text = eRemaining
                     } else {
                         binding.tvSubInfo.text = "超星课程在线测验/考试"
                     }

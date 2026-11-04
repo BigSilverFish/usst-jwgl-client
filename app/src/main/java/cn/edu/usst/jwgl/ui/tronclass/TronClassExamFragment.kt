@@ -265,8 +265,9 @@ class TronClassExamFragment : Fragment() {
     private fun loadExamData(targetSubmissionId: Long? = null) {
         if (platform == "CHAOXING") {
             val cxExam = chaoXingExam ?: return
+            val examIdSafe = cxExam.id.orEmpty()
             val cacheMgr = TronClassDataCacheManager.getInstance(requireContext())
-            val cached = cacheMgr.getCachedChaoXingExamDetail(cxExam.id)
+            val cached = if (examIdSafe.isNotBlank()) cacheMgr.getCachedChaoXingExamDetail(examIdSafe) else null
             if (cached != null && examDetail == null) {
                 val tcDetail = cached.toTronClassExamDetail(chaoXingCourse)
                 examDetail = tcDetail

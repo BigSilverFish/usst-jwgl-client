@@ -418,12 +418,14 @@ data class ChaoXingExamDetail(
 ) : Serializable {
 
     fun toTronClassExamDetail(course: ChaoXingCourse? = null): TronClassExamDetail {
-        val scDouble = score.toDoubleOrNull()
-        val isDone = isSubmitted || isGraded || statusText.contains("已完成") || statusText.contains("已批") || scDouble != null
+        val sc = score.orEmpty()
+        val scDouble = sc.toDoubleOrNull()
+        val stText = statusText.orEmpty()
+        val isDone = isSubmitted || isGraded || stText.contains("已完成") || stText.contains("已批") || scDouble != null
 
         val safeRawQuestions = rawQuestions ?: emptyList()
         val subjectsList = safeRawQuestions.mapIndexed { idx, q ->
-            val subType = when (q.typeName) {
+            val subType = when (q.typeName.orEmpty()) {
                 "多选题" -> "multiple_selection"
                 "判断题" -> "true_false"
                 "填空题" -> "fill_in_blank"
@@ -431,33 +433,39 @@ data class ChaoXingExamDetail(
                 else -> "single_selection"
             }
 
-            val opts = (q.options ?: emptyList()).mapIndexed { oIdx, opt ->
+            val opts = (q.safeOptions()).mapIndexed { oIdx, opt ->
                 TronClassSubjectOption(
                     id = (oIdx + 1).toLong(),
-                    content = "${opt.letter}. ${opt.content}",
+                    content = "${opt.letter.orEmpty()}. ${opt.content.orEmpty()}",
                     isAnswer = opt.isCorrect
                 )
             }
 
-            val pMatch = Regex("""(\d+(?:\.\d+)?)""").find(q.scoreText)?.groupValues?.get(1)?.toDoubleOrNull()
-            val subjectTitle = if (q.stemHtml.contains("<img", ignoreCase = true) || q.cleanStem.isBlank()) {
-                q.stemHtml
+            val pMatch = Regex("""(\d+(?:\.\d+)?)""").find(q.scoreText.orEmpty())?.groupValues?.get(1)?.toDoubleOrNull()
+            val stemHtmlSafe = q.stemHtml.orEmpty()
+            val cleanStemSafe = q.cleanStem.orEmpty()
+            val subjectTitle = if (stemHtmlSafe.contains("<img", ignoreCase = true) || cleanStemSafe.isBlank()) {
+                stemHtmlSafe
             } else {
-                q.cleanStem
+                cleanStemSafe
             }
 
+            val myAnsSafe = if (q.myAnswerHtml.orEmpty().contains("<img", ignoreCase = true)) q.myAnswerHtml.orEmpty() else q.cleanMyAnswer.orEmpty()
+            val corrAnsSafe = q.correctAnswer.orEmpty()
+            val isMatch = myAnsSafe.isNotBlank() && corrAnsSafe.isNotBlank() && myAnsSafe.trim().equals(corrAnsSafe.trim(), ignoreCase = true)
+
             TronClassSubject(
-                id = q.id.toLongOrNull() ?: (idx + 1).toLong(),
+                id = q.id.orEmpty().toLongOrNull() ?: (idx + 1).toLong(),
                 title = subjectTitle,
                 type = subType,
                 point = pMatch,
                 options = opts,
-                myAnswer = if (q.myAnswerHtml.contains("<img", ignoreCase = true)) q.myAnswerHtml else q.cleanMyAnswer,
-                correctAnswer = q.correctAnswer,
-                score = if (q.cleanMyAnswer.isNotBlank() && q.correctAnswer.isNotBlank() && q.cleanMyAnswer.trim().equals(q.correctAnswer.trim(), ignoreCase = true)) pMatch else null,
-                explanation = q.explanation,
+                myAnswer = myAnsSafe,
+                correctAnswer = corrAnsSafe,
+                score = if (isMatch) pMatch else null,
+                explanation = q.explanation.orEmpty(),
                 description = subjectTitle,
-                teacherComment = q.teacherComment
+                teacherComment = q.teacherComment.orEmpty()
             )
         }
 
@@ -466,35 +474,36 @@ data class ChaoXingExamDetail(
         val isCorrMap = mutableMapOf<String, Boolean?>()
 
         safeRawQuestions.forEachIndexed { idx, q ->
-            val sId = (q.id.toLongOrNull() ?: (idx + 1).toLong()).toString()
-            val finalAns = if (q.myAnswerHtml.contains("<img", ignoreCase = true)) q.myAnswerHtml else q.cleanMyAnswer
+            val sId = (q.id.orEmpty().toLongOrNull() ?: (idx + 1).toLong()).toString()
+            val finalAns = if (q.myAnswerHtml.orEmpty().contains("<img", ignoreCase = true)) q.myAnswerHtml.orEmpty() else q.cleanMyAnswer.orEmpty()
             if (finalAns.isNotBlank()) {
                 myAnsMap[sId] = finalAns
             }
-            if (q.correctAnswer.isNotBlank()) {
-                corrAnsMap[sId] = q.correctAnswer
+            if (q.correctAnswer.orEmpty().isNotBlank()) {
+                corrAnsMap[sId] = q.correctAnswer.orEmpty()
             }
-            if (q.cleanMyAnswer.isNotBlank() && q.correctAnswer.isNotBlank()) {
-                isCorrMap[sId] = q.cleanMyAnswer.trim().equals(q.correctAnswer.trim(), ignoreCase = true)
+            if (q.cleanMyAnswer.orEmpty().isNotBlank() && q.correctAnswer.orEmpty().isNotBlank()) {
+                isCorrMap[sId] = q.cleanMyAnswer.orEmpty().trim().equals(q.correctAnswer.orEmpty().trim(), ignoreCase = true)
             }
         }
 
+        val tr = timeRange.orEmpty()
         val st = when {
-            timeRange.contains("至") -> timeRange.substringBefore("至").trim()
-            timeRange.contains("~") -> timeRange.substringBefore("~").trim()
+            tr.contains("至") -> tr.substringBefore("至").trim()
+            tr.contains("~") -> tr.substringBefore("~").trim()
             else -> null
         }
         val et = when {
-            timeRange.contains("至") -> timeRange.substringAfter("至").trim()
-            timeRange.contains("~") -> timeRange.substringAfter("~").trim()
-            else -> timeRange.ifBlank { null }
+            tr.contains("至") -> tr.substringAfter("至").trim()
+            tr.contains("~") -> tr.substringAfter("~").trim()
+            else -> tr.ifBlank { null }
         }
 
         val tcExam = TronClassExam(
-            id = examId.toLongOrNull() ?: (examId.hashCode().toLong() and 0x7FFFFFFF),
-            title = title,
+            id = examId.orEmpty().toLongOrNull() ?: (examId.orEmpty().hashCode().toLong() and 0x7FFFFFFF),
+            title = title.orEmpty(),
             isStarted = true,
-            isClosed = isDone || statusText.contains("已截止") || statusText.contains("已结束"),
+            isClosed = isDone || stText.contains("已截止") || stText.contains("已结束"),
             startTime = st,
             endTime = et,
             limitTime = limitTime,
