@@ -470,18 +470,19 @@ class TronClassFragment : Fragment() {
             LearningPlatform.DUAL -> allUnifiedCourses.filter { it.platform == LearningPlatform.DUAL }
         }
 
-        // (b) 学期筛选 (在未强制筛选超星时根据选中学期过滤；超星在修课程默认归属于当前在读学期)
+        // (b) 学期筛选 (纯畅课未指定学期的课程如先修课归入【其他课程】，不混入当前在读学期)
         val latestSemester = allUnifiedCourses.mapNotNull { it.semesterCode }
             .distinct().sortedDescending().firstOrNull() ?: ""
 
         if (filter != LearningPlatform.CHAOXING) {
             courses = when (selectedSem) {
                 null, "", "ALL" -> courses
-                "OTHER" -> courses.filter { it.semesterCode == null && !it.platform.isChaoXing }
+                "OTHER" -> courses.filter { it.semesterCode == null }
                 else -> courses.filter { c ->
                     if (c.semesterCode == selectedSem) {
                         true
-                    } else if (selectedSem == latestSemester && (c.semesterCode == null || c.semesterCode == latestSemester)) {
+                    } else if (selectedSem == latestSemester && c.platform.isChaoXing && c.semesterCode == null) {
+                        // 仅对未指定学期的纯超星课程在最新学期兜底展示以防漏课；纯畅课无学期课程绝不混入本学期
                         true
                     } else {
                         false
@@ -854,6 +855,8 @@ class TronClassFragment : Fragment() {
                 }
                 bulletins.sortByDescending { it.publishMillis }
 
+                val tcPrefs = TronClassPreferences.getInstance(context)
+                val tcCustomMap = tcPrefs.getAllCustomSemesters()
                 val courses = if (isDualPlatformMode && cachedCxCourses.isNotEmpty()) {
                     val latestTcSem = cachedTcCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
                     val customSemMap = cxPrefs.getAllCustomSemesters()
@@ -861,10 +864,13 @@ class TronClassFragment : Fragment() {
                         cachedTcCourses,
                         cachedCxCourses,
                         fallbackSemesterCode = latestTcSem,
-                        customSemesterMap = customSemMap
+                        customSemesterMap = customSemMap,
+                        tcCustomSemesterMap = tcCustomMap
                     )
                 } else {
-                    cachedTcCourses.map { UnifiedCourse.fromTronClass(it) }
+                    cachedTcCourses.map { 
+                        UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+                    }
                 }
 
                 LocalCacheResult(todos, bulletins, courses, cachedTcCourses, if (isDualPlatformMode) cachedCxCourses else emptyList())
@@ -1168,18 +1174,23 @@ class TronClassFragment : Fragment() {
 
                 val latestSemCode = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
                 val customSemMap = ChaoXingPreferences(ctx).getAllCustomSemesters()
+                val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
                 allUnifiedCourses = UnifiedCourse.fuseCourses(
                     allTronClassCourses,
                     currentCxCourses,
                     fallbackSemesterCode = latestSemCode,
-                    customSemesterMap = customSemMap
+                    customSemesterMap = customSemMap,
+                    tcCustomSemesterMap = tcCustomMap
                 )
             } else {
                 // 纯畅课模式：完全剔除任何超星数据，百分之百纯净畅课
                 val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
                 allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
                 allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
-                allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
+                allUnifiedCourses = allTronClassCourses.map { 
+                    UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+                }
             }
 
             setupSemesterChips(allUnifiedCourses)
@@ -1257,11 +1268,13 @@ class TronClassFragment : Fragment() {
                     // 智能融合双平台课程 (自动归并同名课程为 DUAL 课程，消灭两个入口)
                     val latestSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
                     val customSemMap = ChaoXingPreferences(ctx).getAllCustomSemesters()
+                    val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
                     val uCourses = UnifiedCourse.fuseCourses(
                         allTronClassCourses,
                         cxCourses,
                         fallbackSemesterCode = latestSem,
-                        customSemesterMap = customSemMap
+                        customSemesterMap = customSemMap,
+                        tcCustomSemesterMap = tcCustomMap
                     )
                     allUnifiedCourses = uCourses
 
@@ -1412,7 +1425,7 @@ class TronClassFragment : Fragment() {
         }
         chipGroup.addView(allChip)
 
-        val otherCount = courses.count { it.semesterCode == null && !it.platform.isChaoXing }
+        val otherCount = courses.count { it.semesterCode == null }
         if (otherCount > 0) {
             val otherChip = com.google.android.material.chip.Chip(requireContext()).apply {
                 isCheckable = true
@@ -1477,11 +1490,35 @@ class TronClassFragment : Fragment() {
 
         when (course.platform) {
             LearningPlatform.TRONCLASS -> {
-                com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
-                    .setTitle(course.cleanName)
-                    .setMessage("当前课程来源于一网畅学，学期【${course.formattedSemesterName ?: course.semesterCode ?: "未指定"}】由学校教务系统同步，无需手动修改。")
-                    .setPositiveButton("我知道了", null)
-                    .show()
+                val originalSem = course.rawTronClassCourse?.extractSemesterCode()
+                val tcPrefs = TronClassPreferences.getInstance(requireContext())
+                val customSem = tcPrefs.getCustomSemester(course.originalCourseId)
+
+                if (originalSem == null) {
+                    // 没有教务学期归属的纯畅课课程（如《大学物理先修课》《高等数学先修课》等）
+                    showSetSemesterDialogForTronClass(course)
+                } else {
+                    // 原本已有教务同步学期的课程，也允许查看与自定义调整
+                    val opts = if (customSem != null) {
+                        arrayOf("修改学期归属", "恢复教务同步 ($originalSem)")
+                    } else {
+                        arrayOf("修改学期归属")
+                    }
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("畅课课程学期管理")
+                        .setMessage("《${course.cleanName}》教务同步学期为【${course.formattedSemesterName ?: originalSem}】${if (customSem != null) "，当前已自定义为【$customSem】" else ""}。")
+                        .setItems(opts) { _, which ->
+                            if (which == 0) {
+                                showSetSemesterDialogForTronClass(course)
+                            } else {
+                                tcPrefs.setCustomSemester(course.originalCourseId, null)
+                                android.widget.Toast.makeText(requireContext(), "已恢复教务学期同步", android.widget.Toast.LENGTH_SHORT).show()
+                                refreshCoursesAfterSemesterChange()
+                            }
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
             }
             LearningPlatform.DUAL -> {
                 com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
@@ -1494,6 +1531,103 @@ class TronClassFragment : Fragment() {
                 showSetSemesterDialog(course)
             }
         }
+    }
+
+    private fun showSetSemesterDialogForTronClass(course: UnifiedCourse) {
+        val tcPrefs = TronClassPreferences.getInstance(requireContext())
+        val customSem = tcPrefs.getCustomSemester(course.originalCourseId)
+        val currentSemCode = course.semesterCode ?: "未指定(归入【其他课程】)"
+
+        val semesters = allTronClassCourses.mapNotNull { it.extractSemesterCode() }
+            .distinct()
+            .sortedDescending()
+            .toMutableList()
+
+        val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        for (y in (currentYear + 1) downTo (currentYear - 3)) {
+            val s2 = "$y-${y + 1}-2"
+            val s1 = "$y-${y + 1}-1"
+            if (!semesters.contains(s2)) semesters.add(s2)
+            if (!semesters.contains(s1)) semesters.add(s1)
+        }
+        semesters.sortDescending()
+
+        val itemLabels = mutableListOf<String>()
+        val itemValues = mutableListOf<String>()
+
+        for (sem in semesters) {
+            val parts = sem.split("-")
+            val name = if (parts.size >= 3) "${parts[0]}-${parts[1]} 第${parts[2]}学期" else sem
+            val isCurrent = course.semesterCode == sem
+            val mark = if (isCurrent) "  ✓ (当前)" else ""
+            itemLabels.add("$name ($sem)$mark")
+            itemValues.add(sem)
+        }
+
+        itemLabels.add("✏️ 手动输入其他学期代码...")
+        itemValues.add("__INPUT__")
+
+        if (!customSem.isNullOrBlank()) {
+            itemLabels.add("🔄 恢复默认 (清除自定义，归入【其他课程】)")
+            itemValues.add("__RESET__")
+        }
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+            .setTitle("设置畅课所属学期")
+            .setMessage("课程：${course.cleanName}\n当前所属学期：$currentSemCode")
+            .setItems(itemLabels.toTypedArray()) { _, which ->
+                val chosen = itemValues[which]
+                when (chosen) {
+                    "__INPUT__" -> showCustomSemesterInputDialogForTronClass(course)
+                    "__RESET__" -> {
+                        tcPrefs.setCustomSemester(course.originalCourseId, null)
+                        android.widget.Toast.makeText(requireContext(), "已恢复《${course.cleanName}》默认设置", android.widget.Toast.LENGTH_SHORT).show()
+                        refreshCoursesAfterSemesterChange()
+                    }
+                    else -> {
+                        tcPrefs.setCustomSemester(course.originalCourseId, chosen)
+                        android.widget.Toast.makeText(requireContext(), "已将《${course.cleanName}》归入 $chosen", android.widget.Toast.LENGTH_SHORT).show()
+                        refreshCoursesAfterSemesterChange()
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showCustomSemesterInputDialogForTronClass(course: UnifiedCourse) {
+        val tcPrefs = TronClassPreferences.getInstance(requireContext())
+        val density = resources.displayMetrics.density
+        val input = android.widget.EditText(requireContext()).apply {
+            hint = "例如 2024-2025-1"
+            setText(course.semesterCode ?: "")
+            setSingleLine(true)
+            val pad = (14 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            background = ContextCompat.getDrawable(context, R.drawable.bg_search_input)
+        }
+
+        val container = android.widget.FrameLayout(requireContext()).apply {
+            val marginH = (20 * density).toInt()
+            val marginV = (10 * density).toInt()
+            setPadding(marginH, marginV, marginH, marginV)
+            addView(input)
+        }
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+            .setTitle("输入学期代码")
+            .setMessage("为《${course.cleanName}》输入所属学期代码（格式如 2024-2025-1 或 2024-2025-2）：")
+            .setView(container)
+            .setPositiveButton("确定") { _, _ ->
+                val sem = input.text.toString().trim()
+                if (sem.isNotBlank()) {
+                    tcPrefs.setCustomSemester(course.originalCourseId, sem)
+                    android.widget.Toast.makeText(requireContext(), "已保存学期代码：$sem", android.widget.Toast.LENGTH_SHORT).show()
+                    refreshCoursesAfterSemesterChange()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun showSetSemesterDialog(course: UnifiedCourse) {
@@ -1598,7 +1732,9 @@ class TronClassFragment : Fragment() {
     private fun refreshCoursesAfterSemesterChange() {
         val ctx = context ?: return
         val cxPrefs = ChaoXingPreferences(ctx)
+        val tcPrefs = TronClassPreferences.getInstance(ctx)
         val customMap = cxPrefs.getAllCustomSemesters()
+        val tcCustomMap = tcPrefs.getAllCustomSemesters()
         val latestTcSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
         val cxList = cachedChaoXingCourses.ifEmpty { cxPrefs.getCachedCourses() }
 
@@ -1607,10 +1743,13 @@ class TronClassFragment : Fragment() {
                 allTronClassCourses,
                 cxList,
                 fallbackSemesterCode = latestTcSem,
-                customSemesterMap = customMap
+                customSemesterMap = customMap,
+                tcCustomSemesterMap = tcCustomMap
             )
         } else {
-            allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
+            allUnifiedCourses = allTronClassCourses.map { 
+                UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+            }
         }
 
         setupSemesterChips(allUnifiedCourses)

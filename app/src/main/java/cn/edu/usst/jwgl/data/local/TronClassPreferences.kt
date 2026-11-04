@@ -82,6 +82,7 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
         private const val KEY_ROLLCALL_MONITOR_ENABLED = "tc_rollcall_monitor_enabled"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
+        private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
 
@@ -485,5 +486,46 @@ class TronClassPreferences(private val context: Context) {
 
     fun setDualPlatformModeEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("tc_dual_platform_mode_enabled", enabled).apply()
+    }
+
+    /**
+     * 获取指定畅课课程的手动设置学期
+     */
+    fun getCustomSemester(courseId: String, studentId: String? = null): String? {
+        return getAllCustomSemesters(studentId)[courseId]
+    }
+
+    /**
+     * 手动为畅课课程设置归属学期 (传 null 或空表示恢复默认)
+     */
+    fun setCustomSemester(courseId: String, semesterCode: String?, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        val all = getAllCustomSemesters(studentId).toMutableMap()
+        if (semesterCode.isNullOrBlank()) {
+            all.remove(courseId)
+        } else {
+            all[courseId] = semesterCode.trim()
+        }
+        try {
+            val json = gson.toJson(all)
+            prefs.edit().putString(prefix + KEY_CUSTOM_SEMESTERS, json).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "setCustomSemester error", e)
+        }
+    }
+
+    /**
+     * 获取所有手动设置学期的畅课课程字典 (courseId -> semesterCode)
+     */
+    fun getAllCustomSemesters(studentId: String? = null): Map<String, String> {
+        val prefix = getAccountPrefix(studentId)
+        val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null) ?: return emptyMap()
+        return try {
+            val type = object : TypeToken<Map<String, String>>() {}.type
+            gson.fromJson(json, type) ?: emptyMap()
+        } catch (e: Exception) {
+            Log.e(TAG, "getAllCustomSemesters error", e)
+            emptyMap()
+        }
     }
 }
