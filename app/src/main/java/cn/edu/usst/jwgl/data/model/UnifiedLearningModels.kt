@@ -131,11 +131,25 @@ data class UnifiedCourse(
             customSemesterCode: String? = null
         ): UnifiedCourse {
             val rawName = course.courseName.trim()
-            val regex = Regex("""^(.*?)\([0-9]{4}-[0-9]{4}-[0-9]+\)""")
-            val clean = regex.find(rawName)?.groupValues?.get(1)?.trim() ?: rawName
-            val semCode = customSemesterCode?.ifBlank { null }
-                ?: Regex("""\(?([0-9]{4}-[0-9]{4}-[0-9]+)\)?""").find(rawName)?.groupValues?.get(1)
-                ?: fallbackSemesterCode
+            val semFullMatch = Regex("""\(?([0-9]{4}-[0-9]{4}-[0-9]+)\)?""").find(rawName)
+            val semShortMatch = Regex("""[\(（]([0-9]{2})-([0-9]{2})-([0-9]+)[\)）]""").find(rawName)
+            val extractedSem = when {
+                semFullMatch != null -> semFullMatch.groupValues[1]
+                semShortMatch != null -> {
+                    val y1 = semShortMatch.groupValues[1]
+                    val y2 = semShortMatch.groupValues[2]
+                    val term = semShortMatch.groupValues[3]
+                    "20$y1-20$y2-$term"
+                }
+                else -> null
+            }
+
+            val clean = rawName
+                .replace(Regex("""[\(（][0-9]{4}-[0-9]{4}-[0-9]+[\)）]"""), "")
+                .replace(Regex("""[\(（][0-9]{2}-[0-9]{2}-[0-9]+[\)）]"""), "")
+                .trim()
+
+            val semCode = customSemesterCode?.ifBlank { null } ?: extractedSem ?: fallbackSemesterCode
 
             return UnifiedCourse(
                 unifiedId = "cx_${course.courseId}_${course.classId}",
@@ -169,9 +183,11 @@ data class UnifiedCourse(
                 val customSem = tcCustomSemesterMap[it.id.toString()]
                 fromTronClass(it, customSemesterCode = customSem)
             }
+            // 关键：在跨平台配对阶段，超星课程不预设 fallbackSemesterCode（保持未知学期），
+            // 允许其与全量畅课课程中不同学期的同名课程配对，融合后继承畅课的准确教务学期！
             val uCxList = cxCourses.map { cx ->
                 val customSem = customSemesterMap["${cx.courseId}_${cx.classId}"] ?: customSemesterMap[cx.courseId]
-                fromChaoXing(cx, fallbackSemesterCode = fallbackSemesterCode, customSemesterCode = customSem)
+                fromChaoXing(cx, fallbackSemesterCode = null, customSemesterCode = customSem)
             }
 
             val result = mutableListOf<UnifiedCourse>()
@@ -202,8 +218,9 @@ data class UnifiedCourse(
                     .replace('【', '[').replace('】', ']')
                     .replace('Ⅰ', '1').replace('Ⅱ', '2').replace('Ⅲ', '3').replace('Ⅳ', '4')
 
-                // 1. 剥离学年学期格式，如 (2024-2025-1)
+                // 1. 剥离学年学期格式，如 (2024-2025-1) 或 (25-26-1)
                 s = s.replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+                s = s.replace(Regex("""\(?[0-9]{2}-[0-9]{2}-[0-9]+\)?"""), "")
 
                 // 2. 保护关键序数: (1), (2), (A), (B), (一), (二), (I), (II)
                 s = s.replace(Regex("""\(([0-9]+|[a-zA-Z]|一|二|三|四|[ivxIVX]+)\)""")) { match ->
@@ -229,7 +246,7 @@ data class UnifiedCourse(
                     .trim()
             }
 
-            // 课程兼容性强校验 (实验课互斥、序数互斥、跨学期互斥)
+            // 课程兼容性强校验 (实验课互斥、序数互斥、明确学期冲突互斥)
             fun areCoursesCompatible(tc: UnifiedCourse, cx: UnifiedCourse): Boolean {
                 val isTcLab = tc.name.contains("实验") || tc.cleanName.contains("实验")
                 val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
@@ -242,7 +259,7 @@ data class UnifiedCourse(
                     return false
                 }
 
-                // 明确学期冲突互斥: 若两个平台都明确标注了不同学期代码，坚决不跨学期配对
+                // 仅在两者均有明确已知的不同学期代码时才互斥；若超星学期未知，允许配对并继承畅课权威学期
                 if (!tc.semesterCode.isNullOrBlank() && !cx.semesterCode.isNullOrBlank()) {
                     if (tc.semesterCode != cx.semesterCode) {
                         return false
@@ -286,6 +303,8 @@ data class UnifiedCourse(
 
                 if (matchedCx != null) {
                     matchedCxIds.add(matchedCx.unifiedId)
+                    // 融合课程优先继承畅课精准权威的教务学期，确保历史课程准确归位对应学期！
+                    val inheritedSemester = tc.semesterCode ?: matchedCx.semesterCode
                     result.add(
                         UnifiedCourse(
                             unifiedId = "dual_${tc.originalCourseId}_${matchedCx.originalCourseId}",
@@ -298,8 +317,8 @@ data class UnifiedCourse(
                             coverUrl = tc.coverUrl ?: matchedCx.coverUrl,
                             courseCode = tc.courseCode ?: matchedCx.courseCode,
                             department = tc.department ?: matchedCx.department,
-                            semesterCode = tc.semesterCode ?: matchedCx.semesterCode,
-                            formattedSemesterName = tc.formattedSemesterName ?: matchedCx.formattedSemesterName,
+                            semesterCode = inheritedSemester,
+                            formattedSemesterName = inheritedSemester?.let { formatSemesterName(it) } ?: tc.formattedSemesterName,
                             uncompletedTodoCount = tc.uncompletedTodoCount + matchedCx.uncompletedTodoCount,
                             rawTronClassCourse = tc.rawTronClassCourse,
                             rawChaoXingCourse = matchedCx.rawChaoXingCourse
@@ -310,9 +329,18 @@ data class UnifiedCourse(
                 }
             }
 
+            // 对畅课中完全没有同名对应课程的落单超星课，才赋予 fallbackSemesterCode
             for (cx in uCxList) {
                 if (!matchedCxIds.contains(cx.unifiedId)) {
-                    result.add(cx)
+                    val finalSem = cx.semesterCode ?: fallbackSemesterCode
+                    result.add(
+                        if (finalSem != cx.semesterCode) {
+                            cx.copy(
+                                semesterCode = finalSem,
+                                formattedSemesterName = finalSem?.let { formatSemesterName(it) }
+                            )
+                        } else cx
+                    )
                 }
             }
 
