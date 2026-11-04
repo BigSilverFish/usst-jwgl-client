@@ -316,7 +316,10 @@ data class ChaoXingSignDetail(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isAlreadySigned: Boolean = false,
+    val isLate: Boolean = false,
+    val isLeave: Boolean = false,
     val isExpired: Boolean = false,
+    val statusText: String? = null,
     val rawJson: String? = null
 ) : Serializable
 

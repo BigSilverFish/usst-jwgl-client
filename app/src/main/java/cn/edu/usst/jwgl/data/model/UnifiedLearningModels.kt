@@ -644,10 +644,15 @@ data class UnifiedStudentRollcall(
             item: ChaoXingActiveItem,
             detail: ChaoXingSignDetail?
         ): UnifiedStudentRollcall {
-            // 超星 userStatus 权威判定: 1 为已签到出勤, 2 为迟到, 3 为请假/早退, 0 为未签到
-            val isAttended = item.isUserAttended() || detail?.isAlreadySigned == true
-            val isLate = item.isUserLate()
-            val isLeave = item.isUserLeaveOrEarly()
+            // 超星出勤状态权威判据 (通过 preSign 落地页精确识别):
+            // 1. isAlreadySigned: 页面包含 zsign_success / 签到成功 / 教师代签
+            // 2. isLate: 包含迟到
+            // 3. isLeave: 包含请假 / 早退
+            // 4. 若活动仍在进行中 -> IN_PROGRESS
+            // 5. 若已结束且未出勤 -> ABSENT (缺勤 / 未参与)
+            val isAttended = detail?.isAlreadySigned == true
+            val isLate = detail?.isLate == true
+            val isLeave = detail?.isLeave == true
             val isActive = item.isActive()
 
             val status = when {
@@ -655,13 +660,13 @@ data class UnifiedStudentRollcall(
                 isLate -> RollcallStatus.LATE
                 isLeave -> RollcallStatus.LEAVE
                 isActive -> RollcallStatus.IN_PROGRESS
-                else -> RollcallStatus.ABSENT // 已结束且 userStatus 为 0 即为缺勤未参与
+                else -> RollcallStatus.ABSENT // 已结束且未出勤，权威判定为缺勤
             }
 
             val statusDisplayName = when (status) {
                 RollcallStatus.ATTENDED -> "已出勤"
                 RollcallStatus.IN_PROGRESS -> "进行中"
-                RollcallStatus.ABSENT -> "未参与"
+                RollcallStatus.ABSENT -> detail?.statusText?.takeIf { it.isNotBlank() } ?: "未参与"
                 RollcallStatus.LATE -> "迟到"
                 RollcallStatus.LEAVE_EARLY -> "早退"
                 RollcallStatus.LEAVE -> "请假"
