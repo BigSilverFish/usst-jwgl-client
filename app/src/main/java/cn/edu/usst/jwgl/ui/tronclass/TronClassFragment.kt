@@ -479,14 +479,7 @@ class TronClassFragment : Fragment() {
                 null, "", "ALL" -> courses
                 "OTHER" -> courses.filter { it.semesterCode == null }
                 else -> courses.filter { c ->
-                    if (c.semesterCode == selectedSem) {
-                        true
-                    } else if (selectedSem == latestSemester && c.platform.isChaoXing && c.semesterCode == null) {
-                        // 仅对未指定学期的纯超星课程在最新学期兜底展示以防漏课；纯畅课无学期课程绝不混入本学期
-                        true
-                    } else {
-                        false
-                    }
+                    c.semesterCode == selectedSem
                 }
             }
         }
@@ -905,7 +898,6 @@ class TronClassFragment : Fragment() {
             renderUnifiedData()
             updateTodoTabBadge(allUnifiedTodos.size)
             updateBulletinTabBadge(allUnifiedBulletins.size)
-            updateCourseTabBadge(allUnifiedCourses.size)
             return
         }
 
@@ -973,7 +965,6 @@ class TronClassFragment : Fragment() {
             renderUnifiedData()
             updateTodoTabBadge(result.todos.size)
             updateBulletinTabBadge(result.bulletins.size)
-            updateCourseTabBadge(result.courses.size)
         }
     }
 
@@ -1288,7 +1279,6 @@ class TronClassFragment : Fragment() {
             renderUnifiedData()
             updateTodoTabBadge(allUnifiedTodos.size)
             updateBulletinTabBadge(allUnifiedBulletins.size)
-            updateCourseTabBadge(allUnifiedCourses.size)
 
             if (!isDualPlatformMode) {
                 // 纯畅课模式：不请求任何超星接口，直接完成刷新
@@ -2049,7 +2039,6 @@ class TronClassFragment : Fragment() {
 
         setupSemesterChips(allUnifiedCourses)
         renderUnifiedData()
-        updateCourseTabBadge(allUnifiedCourses.size)
     }
 
     fun openHomework(activityId: Long, courseId: Long, title: String, courseName: String) {
