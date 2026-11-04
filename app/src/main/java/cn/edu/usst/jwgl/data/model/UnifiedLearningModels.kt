@@ -85,13 +85,19 @@ data class UnifiedCourse(
     }
 
     companion object {
-        fun fromTronClass(course: TronClassCourse, uncompletedCount: Int = 0): UnifiedCourse {
+        fun fromTronClass(
+            course: TronClassCourse,
+            uncompletedCount: Int = 0,
+            customSemesterCode: String? = null
+        ): UnifiedCourse {
             val clean = course.getCleanName()
             val teachers = if (course.instructors.isNotEmpty()) {
                 course.instructors.joinToString(", ")
             } else {
                 course.teacher ?: ""
             }
+            val originalSem = course.extractSemesterCode()
+            val effectiveSem = customSemesterCode?.ifBlank { null } ?: originalSem
             return UnifiedCourse(
                 unifiedId = "tc_${course.id}",
                 platform = LearningPlatform.TRONCLASS,
@@ -102,8 +108,8 @@ data class UnifiedCourse(
                 coverUrl = course.cover,
                 courseCode = course.courseCode,
                 department = course.department?.name,
-                semesterCode = course.extractSemesterCode(),
-                formattedSemesterName = course.getFormattedSemesterName(),
+                semesterCode = effectiveSem,
+                formattedSemesterName = effectiveSem?.let { formatSemesterName(it) } ?: course.getFormattedSemesterName(),
                 uncompletedTodoCount = uncompletedCount,
                 rawTronClassCourse = course
             )
@@ -156,9 +162,13 @@ data class UnifiedCourse(
             tcCourses: List<TronClassCourse>,
             cxCourses: List<ChaoXingCourse>,
             fallbackSemesterCode: String? = null,
-            customSemesterMap: Map<String, String> = emptyMap()
+            customSemesterMap: Map<String, String> = emptyMap(),
+            tcCustomSemesterMap: Map<String, String> = emptyMap()
         ): List<UnifiedCourse> {
-            val uTcList = tcCourses.map { fromTronClass(it) }
+            val uTcList = tcCourses.map { 
+                val customSem = tcCustomSemesterMap[it.id.toString()]
+                fromTronClass(it, customSemesterCode = customSem)
+            }
             val uCxList = cxCourses.map { cx ->
                 val customSem = customSemesterMap["${cx.courseId}_${cx.classId}"] ?: customSemesterMap[cx.courseId]
                 fromChaoXing(cx, fallbackSemesterCode = fallbackSemesterCode, customSemesterCode = customSem)
