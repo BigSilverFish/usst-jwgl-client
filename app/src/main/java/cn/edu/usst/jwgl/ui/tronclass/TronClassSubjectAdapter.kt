@@ -376,9 +376,10 @@ class TronClassSubjectAdapter(
                 }
 
                 // 选项富文本 HTML 解析，并挂载图片加载器
-                val imageGetter = TronClassHtmlImageGetter(optBinding.tvOptionContent)
+                val optHtml = opt.content ?: ""
+                val imageGetter = TronClassHtmlImageGetter(optBinding.tvOptionContent, optHtml)
                 val optSpanned: CharSequence = try {
-                    Html.fromHtml(opt.content ?: "", Html.FROM_HTML_MODE_LEGACY, imageGetter, null).trimEnd()
+                    Html.fromHtml(optHtml, Html.FROM_HTML_MODE_LEGACY, imageGetter, null).trimEnd()
                 } catch (_: Exception) {
                     opt.getCleanContent()
                 }
@@ -450,11 +451,12 @@ class TronClassSubjectAdapter(
 
                 if (!subject.explanation.isNullOrBlank()) {
                     binding.tvExplanation.visibility = View.VISIBLE
+                    val expHtml = subject.explanation
                     val cleanExp = try {
-                        val expGetter = TronClassHtmlImageGetter(binding.tvExplanation)
-                        Html.fromHtml(subject.explanation, Html.FROM_HTML_MODE_LEGACY, expGetter, null).trimEnd()
+                        val expGetter = TronClassHtmlImageGetter(binding.tvExplanation, expHtml)
+                        Html.fromHtml(expHtml, Html.FROM_HTML_MODE_LEGACY, expGetter, null).trimEnd()
                     } catch (_: Exception) {
-                        subject.explanation.trim()
+                        expHtml.trim()
                     }
                     binding.tvExplanation.text = "解析: $cleanExp"
                 }
@@ -500,10 +502,12 @@ class TronClassSubjectAdapter(
 
                 if (!subject.explanation.isNullOrBlank()) {
                     binding.tvExplanation.visibility = View.VISIBLE
+                    val expHtml = subject.explanation
                     val cleanExp = try {
-                        Html.fromHtml(subject.explanation, Html.FROM_HTML_MODE_LEGACY).trimEnd()
+                        val expGetter = TronClassHtmlImageGetter(binding.tvExplanation, expHtml)
+                        Html.fromHtml(expHtml, Html.FROM_HTML_MODE_LEGACY, expGetter, null).trimEnd()
                     } catch (_: Exception) {
-                        subject.explanation.trim()
+                        expHtml.trim()
                     }
                     binding.tvExplanation.text = "解析: $cleanExp"
                 }
@@ -530,28 +534,29 @@ class TronClassSubjectAdapter(
                 binding.layoutAnswerResult.visibility = View.VISIBLE
                 binding.tvDetailedAnswer.visibility = View.VISIBLE
 
+                val detailGetter = TronClassHtmlImageGetter(binding.tvDetailedAnswer)
                 val sb = SpannableStringBuilder()
                 sb.append("我的作答:\n")
                 if (userAnsText.isBlank()) {
                     sb.append("  (未作答)\n")
                 } else {
                     val cleanAns = try {
-                        Html.fromHtml(userAnsText, Html.FROM_HTML_MODE_LEGACY).trimEnd()
+                        Html.fromHtml(userAnsText, Html.FROM_HTML_MODE_LEGACY, detailGetter, null).trimEnd()
                     } catch (_: Exception) {
                         userAnsText
                     }
-                    sb.append("  $cleanAns\n")
+                    sb.append("  ").append(cleanAns).append("\n")
                 }
 
                 val refText = if (correctAnsText.isNotBlank()) correctAnsText else subject.explanation
                 if (!refText.isNullOrBlank()) {
                     sb.append("\n参考答案 / 答题要点:\n")
                     val cleanRef = try {
-                        Html.fromHtml(refText, Html.FROM_HTML_MODE_LEGACY).trimEnd()
+                        Html.fromHtml(refText, Html.FROM_HTML_MODE_LEGACY, detailGetter, null).trimEnd()
                     } catch (_: Exception) {
                         refText.trim()
                     }
-                    sb.append("  $cleanRef\n")
+                    sb.append("  ").append(cleanRef).append("\n")
                 }
 
                 binding.tvDetailedAnswer.text = sb.toString().trimEnd()
@@ -563,10 +568,12 @@ class TronClassSubjectAdapter(
 
                 if (!subject.explanation.isNullOrBlank() && correctAnsText.isNotBlank()) {
                     binding.tvExplanation.visibility = View.VISIBLE
+                    val expHtml = subject.explanation
                     val cleanExp = try {
-                        Html.fromHtml(subject.explanation, Html.FROM_HTML_MODE_LEGACY).trimEnd()
+                        val expGetter = TronClassHtmlImageGetter(binding.tvExplanation, expHtml)
+                        Html.fromHtml(expHtml, Html.FROM_HTML_MODE_LEGACY, expGetter, null).trimEnd()
                     } catch (_: Exception) {
-                        subject.explanation.trim()
+                        expHtml.trim()
                     }
                     binding.tvExplanation.text = "解析: $cleanExp"
                 }

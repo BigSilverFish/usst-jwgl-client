@@ -1151,11 +1151,15 @@ class TronClassHomeworkFragment : Fragment() {
             }
             qRoot.addView(headerLayout)
 
-            // 2. 题干 Stem (富文本解析)
+            // 2. 题干 Stem (富文本解析，完整支持图片与公式渲染)
             val stemTv = TextView(context).apply {
-                val stemText = q.cleanStem.orEmpty().ifBlank { q.stemHtml.orEmpty() }
+                val stemText = if (q.stemHtml.contains("<img", ignoreCase = true) || q.cleanStem.isNullOrBlank()) {
+                    q.stemHtml.orEmpty()
+                } else {
+                    q.cleanStem.orEmpty()
+                }
                 val spanned = try {
-                    val imgGetter = TronClassHtmlImageGetter(this)
+                    val imgGetter = TronClassHtmlImageGetter(this, stemText)
                     Html.fromHtml(stemText, Html.FROM_HTML_MODE_LEGACY, imgGetter, null).trimEnd()
                 } catch (_: Exception) {
                     stemText
@@ -1200,11 +1204,12 @@ class TronClassHomeworkFragment : Fragment() {
                     )
 
                     optBinding.tvOptionBadge.text = opt.letter
+                    val optHtml = opt.content ?: ""
                     val optSpanned = try {
-                        val imgGetter = TronClassHtmlImageGetter(optBinding.tvOptionContent)
-                        Html.fromHtml(opt.content, Html.FROM_HTML_MODE_LEGACY, imgGetter, null).trimEnd()
+                        val imgGetter = TronClassHtmlImageGetter(optBinding.tvOptionContent, optHtml)
+                        Html.fromHtml(optHtml, Html.FROM_HTML_MODE_LEGACY, imgGetter, null).trimEnd()
                     } catch (_: Exception) {
-                        opt.content
+                        optHtml
                     }
                     optBinding.tvOptionContent.text = optSpanned
 
@@ -1335,26 +1340,60 @@ class TronClassHomeworkFragment : Fragment() {
                     )
                 }
 
-                if (q.cleanMyAnswer.orEmpty().isNotBlank()) {
+                val rawMyAns = if (q.myAnswerHtml.contains("<img", ignoreCase = true)) q.myAnswerHtml else q.cleanMyAnswer.orEmpty()
+                if (rawMyAns.isNotBlank()) {
                     val myAnsTv = TextView(context).apply {
-                        text = "我的作答: ${q.cleanMyAnswer}"
+                        val getter = TronClassHtmlImageGetter(this, rawMyAns)
+                        val spanned = try {
+                            Html.fromHtml("<b>我的作答:</b> $rawMyAns", Html.FROM_HTML_MODE_LEGACY, getter, null).trimEnd()
+                        } catch (_: Exception) {
+                            "我的作答: $rawMyAns"
+                        }
+                        text = spanned
                         textSize = 13f
                         setTextColor(textPrimaryColor)
                         setTextIsSelectable(true)
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        layoutParams = LinearLayout.LayoutParams(
+                            if (rawMyAns.contains("<img") || rawMyAns.length > 30) LinearLayout.LayoutParams.MATCH_PARENT else 0,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            if (rawMyAns.contains("<img") || rawMyAns.length > 30) 0f else 1f
+                        )
                     }
-                    rowAnswers.addView(myAnsTv)
+                    if (rawMyAns.contains("<img") || rawMyAns.length > 30) {
+                        resultBox.addView(myAnsTv)
+                    } else {
+                        rowAnswers.addView(myAnsTv)
+                    }
                 }
 
-                if (q.correctAnswer.orEmpty().isNotBlank()) {
+                val rawRightAns = q.correctAnswer.orEmpty()
+                if (rawRightAns.isNotBlank()) {
                     val rightAnsTv = TextView(context).apply {
-                        text = "标准答案: ${q.correctAnswer}"
+                        val getter = TronClassHtmlImageGetter(this, rawRightAns)
+                        val spanned = try {
+                            Html.fromHtml("<b>标准答案:</b> $rawRightAns", Html.FROM_HTML_MODE_LEGACY, getter, null).trimEnd()
+                        } catch (_: Exception) {
+                            "标准答案: $rawRightAns"
+                        }
+                        text = spanned
                         textSize = 13f
                         setTypeface(null, Typeface.BOLD)
                         setTextColor(Color.parseColor("#2E7D32"))
                         setTextIsSelectable(true)
+                        if (rawRightAns.contains("<img") || rawRightAns.length > 30) {
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            ).apply {
+                                topMargin = (4 * density).toInt()
+                            }
+                        }
                     }
-                    rowAnswers.addView(rightAnsTv)
+                    if (rawRightAns.contains("<img") || rawRightAns.length > 30) {
+                        resultBox.addView(rightAnsTv)
+                    } else {
+                        rowAnswers.addView(rightAnsTv)
+                    }
                 }
 
                 if (rowAnswers.childCount > 0) {
@@ -1363,7 +1402,13 @@ class TronClassHomeworkFragment : Fragment() {
 
                 if (q.explanation.isNotBlank()) {
                     val expTv = TextView(context).apply {
-                        text = "解析: ${q.explanation}"
+                        val getter = TronClassHtmlImageGetter(this, q.explanation)
+                        val spanned = try {
+                            Html.fromHtml("<b>解析:</b> ${q.explanation}", Html.FROM_HTML_MODE_LEGACY, getter, null).trimEnd()
+                        } catch (_: Exception) {
+                            "解析: ${q.explanation}"
+                        }
+                        text = spanned
                         textSize = 12f
                         setTextColor(textSecondaryColor)
                         setTextIsSelectable(true)

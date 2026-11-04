@@ -330,13 +330,22 @@ class TronClassExamFragment : Fragment() {
         val exam = detail.exam
         b.tvExamTitle.text = exam.getCleanTitle()
 
+        val currentSc = detail.currentScore ?: detail.score
+        val finalSc = detail.finalScore ?: exam.score
+
         // 1. 起止时间与时长
-        val timeRange = exam.getFormattedTimeRange()
-        val limitTimeText = exam.getFormattedLimitTime()
-        val scheduleText = when {
-            timeRange.isNotBlank() -> "$timeRange · $limitTimeText"
-            else -> limitTimeText
+        val rawTime = exam.getFormattedTimeRange().ifBlank {
+            chaoXingExam?.remaining?.ifBlank { null }
         }
+        val isDone = detail.submissionId != null || detail.submissions.isNotEmpty() || (finalSc != null && !finalSc.isNaN()) || exam.isClosed || chaoXingExam?.status?.contains("已") == true
+
+        val timeText = when {
+            !rawTime.isNullOrBlank() -> rawTime
+            isDone -> "测验已截止"
+            else -> "时间未公开"
+        }
+        val limitTimeText = exam.getFormattedLimitTime()
+        val scheduleText = "$timeText · $limitTimeText"
         b.tvExamTimeRangeDetail.text = scheduleText
 
         // 2. 计分规则标签
@@ -354,24 +363,31 @@ class TronClassExamFragment : Fragment() {
             b.tvScoreRuleBadge.visibility = View.GONE
         }
 
-        // 3. 得分展示 (防止 NaN)
-        val currentSc = detail.currentScore ?: detail.score
-        val finalSc = detail.finalScore ?: exam.score
+        // 3. 得分展示 (防止 NaN，支持明确标明教师未公布得分)
+        val rawSubScoreText = detail.submissions.firstOrNull()?.scoreText?.trim().orEmpty()
 
         if (currentSc != null && !currentSc.isNaN()) {
             val scText = if (currentSc % 1.0 == 0.0) "${currentSc.toInt()} 分" else "$currentSc 分"
             b.tvScoreValue.text = scText
+            b.tvScoreValue.textSize = 20f
             val tipPrefix = if (detail.submissions.size > 1) "当前查看作答得分" else "已完成测验"
             b.tvExamStatusTip.text = "$tipPrefix，以下为您作答的试卷分析与标准答案"
         } else if (finalSc != null && !finalSc.isNaN()) {
             val scText = if (finalSc % 1.0 == 0.0) "${finalSc.toInt()} 分" else "$finalSc 分"
             b.tvScoreValue.text = scText
+            b.tvScoreValue.textSize = 20f
             b.tvExamStatusTip.text = "已完成测验，试卷已评阅"
-        } else if (detail.submissionId != null || detail.submissions.isNotEmpty()) {
-            b.tvScoreValue.text = "已提交"
-            b.tvExamStatusTip.text = "试卷已成功提交，等待教师评阅打分"
+        } else if (rawSubScoreText.isNotBlank() && !rawSubScoreText.matches(Regex("""^\d+(?:\.\d+)?$"""))) {
+            b.tvScoreValue.text = rawSubScoreText
+            b.tvScoreValue.textSize = 14f
+            b.tvExamStatusTip.text = if (rawSubScoreText.contains("未公布")) "教师未设置公布测试得分与试卷" else "试卷已成功提交，等待教师评阅打分"
+        } else if (detail.submissionId != null || detail.submissions.isNotEmpty() || isDone) {
+            b.tvScoreValue.text = "教师未公布得分"
+            b.tvScoreValue.textSize = 14f
+            b.tvExamStatusTip.text = "已完成测验，教师未对外公布得分与试卷"
         } else {
-            b.tvScoreValue.text = "未作答"
+            b.tvScoreValue.text = if (exam.isClosed) "未作答" else "待作答"
+            b.tvScoreValue.textSize = 20f
             b.tvExamStatusTip.text = if (exam.isClosed) "该测验已截止" else "请仔细审题并在规定时限内作答"
         }
 
@@ -383,7 +399,7 @@ class TronClassExamFragment : Fragment() {
         }
 
         val count = if (detail.subjects.isNotEmpty()) detail.subjects.size else (exam.subjectsCount ?: 0)
-        b.tvQuestionsCount.text = "$count 题"
+        b.tvQuestionsCount.text = if (count > 0) "$count 题" else "未公开"
 
         // 5. 多次作答记录轮次切换器
         if (detail.submissions.size > 1) {
@@ -452,7 +468,11 @@ class TronClassExamFragment : Fragment() {
                 b.tvAntiCheatBadge.setTextColor(Color.parseColor("#2E7D32"))
                 b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#152E7D32"))
                 b.cardAntiCheatingChannel.strokeColor = ContextCompat.getColor(requireContext(), R.color.border)
-                b.tvAntiCheatTip.text = "客户端已原生解析此超星测验的客观题作答、分值与标准答案。如需查看超星智能答卷分析报告或原始答卷，可直接进入官方页面查看。"
+                if (detail.subjects.isEmpty()) {
+                    b.tvAntiCheatTip.text = "教师未开放移动端查看试卷题目或成绩未公布。如需查看超星智能答卷分析报告或原始试卷作答，可直接进入官方通道查看。"
+                } else {
+                    b.tvAntiCheatTip.text = "客户端已原生解析此超星测验的客观题作答、分值与标准答案。如需查看超星智能答卷分析报告或原始答卷，可直接进入官方页面查看。"
+                }
                 b.btnOpenOfficialWebChannel.text = if (chaoXingExam?.analysisUrl.isNullOrBlank()) "查看超星官方答卷 ➔" else "查看超星智能答卷分析 ➔"
             } else {
                 b.tvAntiCheatBadge.text = "严肃考试保障"

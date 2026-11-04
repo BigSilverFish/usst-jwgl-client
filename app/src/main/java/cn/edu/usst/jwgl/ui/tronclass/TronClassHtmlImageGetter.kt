@@ -11,26 +11,36 @@ import android.text.Html
 import android.util.Log
 import android.util.LruCache
 import android.widget.TextView
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 /**
- * 专用于 TronClass 富文本 HTML 题干与选项中 <img> 标签的异步图片加载器。
- * 内置多级缓存（LruCache 内存缓存 + 本地磁盘缓存），支持自适应大屏缩放，
- * 彻底消除 Android 原生 Html.fromHtml 无法加载图片导致的未知图标方块。
+ * 专用于 TronClass 和超星学习通富文本 HTML 题干与选项中 <img> 标签的异步图片加载器。
+ * 内置多级缓存（LruCache 内存缓存 + 本地磁盘缓存），支持自适应大屏缩放与超星防盗链鉴权，
+ * 彻底消除 Android 原生 Html.fromHtml 无法加载图片导致的未知图标方块或 403 异常。
  */
 class TronClassHtmlImageGetter(
     private val textView: TextView,
+    private val rawHtmlSource: String? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 ) : Html.ImageGetter {
+
+    init {
+        if (!rawHtmlSource.isNullOrBlank() && textView.tag == null) {
+            textView.tag = rawHtmlSource
+        }
+    }
 
     companion object {
         private const val TAG = "TronClassImageGetter"
@@ -81,12 +91,23 @@ class TronClassHtmlImageGetter(
 
         scope.launch(Dispatchers.IO) {
             try {
+                val isCx = fullUrl.contains("chaoxing.com") || fullUrl.contains("ananas")
                 val client = TronClassClient(context).getOkHttpClient()
-                val req = Request.Builder()
-                    .url(fullUrl)
-                    .header("User-Agent", "Mozilla/5.0 USST-TronClass-Android")
-                    .build()
+                val reqBuilder = Request.Builder().url(fullUrl)
 
+                if (isCx) {
+                    reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    reqBuilder.header("Referer", "https://mooc1.chaoxing.com/")
+                    val cxPrefs = ChaoXingPreferences(context)
+                    val cookies = cxPrefs.getCookies()
+                    if (!cookies.isNullOrBlank()) {
+                        reqBuilder.header("Cookie", cookies)
+                    }
+                } else {
+                    reqBuilder.header("User-Agent", "Mozilla/5.0 USST-TronClass-Android")
+                }
+
+                val req = reqBuilder.build()
                 val resp = client.newCall(req).execute()
                 if (resp.isSuccessful) {
                     val body = resp.body ?: return@launch
@@ -102,8 +123,8 @@ class TronClassHtmlImageGetter(
 
                             withContext(Dispatchers.Main) {
                                 // 检查当前 TextView 是否仍然绑定该内容 (防 RecyclerView 复用错位)
-                                val currentTag = textView.tag as? String
-                                if (currentTag != null) {
+                                val currentTag = (textView.tag as? String)?.ifBlank { null } ?: rawHtmlSource
+                                if (!currentTag.isNullOrBlank()) {
                                     val newSpanned = Html.fromHtml(
                                         currentTag,
                                         Html.FROM_HTML_MODE_LEGACY,
@@ -127,11 +148,17 @@ class TronClassHtmlImageGetter(
     }
 
     private fun resolveFullUrl(source: String): String {
+        val s = source.trim()
         return when {
-            source.startsWith("http://") -> "https://" + source.substring(7)
-            source.startsWith("https://") -> source
-            source.startsWith("/") -> "${TronClassClient.BASE_URL}$source"
-            else -> "${TronClassClient.BASE_URL}/$source"
+            s.startsWith("//") -> "https:$s"
+            s.startsWith("http://") -> "https://" + s.substring(7)
+            s.startsWith("https://") -> s
+            s.startsWith("/ananas/") || s.startsWith("/star3/") -> "https://p.ananas.chaoxing.com$s"
+            s.contains("chaoxing.com") || s.contains("ananas") -> {
+                if (s.startsWith("/")) "https://mooc1.chaoxing.com$s" else "https://mooc1.chaoxing.com/$s"
+            }
+            s.startsWith("/") -> "${TronClassClient.BASE_URL}$s"
+            else -> "${TronClassClient.BASE_URL}/$s"
         }
     }
 
