@@ -189,25 +189,63 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     }
                 }
 
-                val id = Regex("""viewExamAnswer\('(\d+)'""").find(body)?.groupValues?.get(1)
-                    ?: Regex("""goTest\('[^']*',\s*(\d+)""").find(body)?.groupValues?.get(1)
-                    ?: Regex("""(?:examId|paperId|id)=(\d+)""").find(body)?.groupValues?.get(1)
-                    ?: ""
+                // 提取 examAnswerId (答卷作答 ID) 与 examId (测验发布 ID)
+                var examId = ""
+                var examAnswerId = ""
+
+                // 1. 匹配 viewExamAnswer('9634389', '169191524')，超星原生参数规范：(examId, examAnswerId)
+                val viewAnswerMatch = Regex("""viewExam(?:Answer)?\s*\(\s*['"]?(\d+)['"]?(?:\s*,\s*['"]?(\d+)['"]?)?""").find(body)
+                if (viewAnswerMatch != null) {
+                    val p1 = viewAnswerMatch.groupValues[1]
+                    val p2 = viewAnswerMatch.groupValues.getOrNull(2).orEmpty()
+                    if (p2.isNotBlank()) {
+                        examId = p1
+                        examAnswerId = p2
+                    } else {
+                        examId = p1
+                        examAnswerId = p1
+                    }
+                }
+
+                // 2. 匹配 goTest('...', 9634389)
+                if (examId.isBlank()) {
+                    examId = Regex("""goTest\('[^']*',\s*['"]?(\d+)['"]?""").find(body)?.groupValues?.get(1).orEmpty()
+                }
+
+                // 3. 从各类 URL 或属性中提取
+                if (examId.isBlank()) {
+                    examId = Regex("""(?:examId|paperId|testId)[=:]\s*['"]?(\d+)['"]?""").find(body)?.groupValues?.get(1).orEmpty()
+                }
+                if (examAnswerId.isBlank()) {
+                    examAnswerId = Regex("""(?:examAnswerId|answerId)[=:]\s*['"]?(\d+)['"]?""").find(body)?.groupValues?.get(1).orEmpty()
+                }
+
+                // 4. 兜底提取 id=(\d+)
+                if (examId.isBlank()) {
+                    examId = Regex("""\bid=(\d+)""").find(body)?.groupValues?.get(1).orEmpty()
+                }
+                if (examId.isBlank() && examAnswerId.isNotBlank()) {
+                    examId = examAnswerId
+                }
 
                 val rawAnalysis = Regex("""href="(https://stat2-ans[^"]+)"""").find(body)?.groupValues?.get(1) ?: ""
                 val analysisUrl = rawAnalysis.replace("&amp;", "&")
 
-                val taskUrl = Regex("""(?:href=['"]|data=['"])(/[^'"]*(?:exam|test|preview|paper)[^'"]*)""").find(body)?.groupValues?.get(1)?.replace("&amp;", "&").orEmpty()
+                var taskUrl = Regex("""(?:href=['"]|data=['"]|window\.open\(['"]|location\.href\s*=\s*['"])(/[^'"]*(?:exam|test|preview|paper|look)[^'"]*)""").find(body)?.groupValues?.get(1)?.replace("&amp;", "&").orEmpty()
+                if (taskUrl.isBlank() && examAnswerId.isNotBlank() && examId.isNotBlank()) {
+                    taskUrl = "/exam-ans/exam/test/look?examId=$examId&examAnswerId=$examAnswerId"
+                }
 
                 out.add(
                     ChaoXingExam(
-                        id = id,
+                        id = examId,
                         title = title,
                         status = status,
                         remaining = remaining,
                         score = score,
                         analysisUrl = analysisUrl,
-                        taskUrl = taskUrl
+                        taskUrl = taskUrl,
+                        examAnswerId = examAnswerId
                     )
                 )
             }
@@ -1412,21 +1450,50 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
         val targetCourseId = (course?.courseId ?: exam.courseId).trim()
         val targetClassId = (course?.classId ?: exam.classId).trim()
-        val isDone = exam.status.contains("已完成") || exam.status.contains("已批") || exam.score.isNotBlank()
+        val targetExamId = exam.id.trim()
+        val targetAnswerId = exam.examAnswerId.trim()
+        val isDone = exam.status.contains("已完成") || exam.status.contains("已批") || exam.score.isNotBlank() || targetAnswerId.isNotBlank()
 
         val candidateUrls = mutableListOf<String>()
+
+        // 1. 超星查卷权威路径 /exam-ans/exam/test/look (首选标准 examId 与 examAnswerId)
+        if (targetAnswerId.isNotBlank() && targetExamId.isNotBlank()) {
+            candidateUrls.add("https://mooc1.chaoxing.com/exam-ans/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examId=$targetExamId&examAnswerId=$targetAnswerId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examId=$targetExamId&examAnswerId=$targetAnswerId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam-ans/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examId=$targetAnswerId&examAnswerId=$targetExamId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examId=$targetAnswerId&examAnswerId=$targetExamId")
+            candidateUrls.add("https://mooc1-api.chaoxing.com/exam-ans/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examId=$targetExamId&examAnswerId=$targetAnswerId")
+        }
+
+        // 2. 如果 taskUrl 不为空，补齐参数作为候选
         if (exam.taskUrl.isNotBlank()) {
             val fullTask = if (exam.taskUrl.startsWith("http")) exam.taskUrl else "https://mooc1.chaoxing.com" + exam.taskUrl
-            candidateUrls.add(fullTask)
+            var patchedUrl = fullTask
+            if (!patchedUrl.contains("courseId=") && !patchedUrl.contains("courseid=") && targetCourseId.isNotBlank()) {
+                patchedUrl += (if (patchedUrl.contains("?")) "&" else "?") + "courseId=$targetCourseId"
+            }
+            if (!patchedUrl.contains("classId=") && !patchedUrl.contains("clazzid=") && targetClassId.isNotBlank()) {
+                patchedUrl += (if (patchedUrl.contains("?")) "&" else "?") + "classId=$targetClassId"
+            }
+            candidateUrls.add(patchedUrl)
         }
+
+        // 若 targetAnswerId 为空但 targetExamId 存在，分别把 targetExamId 作为 examAnswerId 或 examId 探测
+        if (targetAnswerId.isBlank() && targetExamId.isNotBlank()) {
+            candidateUrls.add("https://mooc1.chaoxing.com/exam-ans/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examId=$targetExamId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam-ans/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examAnswerId=$targetExamId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/look?courseId=$targetCourseId&classId=$targetClassId&examAnswerId=$targetExamId")
+        }
+
+        // 3. 兼容移动端预览与重考路径
         if (isDone) {
-            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
-            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/re-paper?courseId=$targetCourseId&classId=$targetClassId&id=${exam.id}")
-            candidateUrls.add("https://mooc1-api.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
+            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=$targetExamId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/re-paper?courseId=$targetCourseId&classId=$targetClassId&id=$targetExamId")
+            candidateUrls.add("https://mooc1-api.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=$targetExamId")
         } else {
-            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/test?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
-            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=${exam.id}")
-            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/re-paper?courseId=$targetCourseId&classId=$targetClassId&id=${exam.id}")
+            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/test?courseid=$targetCourseId&clazzid=$targetClassId&examId=$targetExamId")
+            candidateUrls.add("https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/preview?courseid=$targetCourseId&clazzid=$targetClassId&examId=$targetExamId")
+            candidateUrls.add("https://mooc1.chaoxing.com/exam/test/re-paper?courseId=$targetCourseId&classId=$targetClassId&id=$targetExamId")
         }
 
         var lastException: Exception? = null
@@ -1450,27 +1517,67 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 val finalUrl = resp.request.url.toString()
 
                 if (html.isNotBlank()) {
+                    val doc = org.jsoup.Jsoup.parse(html)
                     val questions = parseQuestionsFromHtml(html)
                     val hasQuestions = questions.isNotEmpty() || html.contains("TiMu") || html.contains("singleQuesId") || html.contains("questionBlock")
 
                     // 1. 得分提取与未公布状态研判
-                    var scoreStr = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
-                        ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
-                        ?: Regex("""得分[:：]\s*(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
-                        ?: exam.score
+                    var extractedScore: String? = null
 
-                    val isNotPub = html.contains("成绩未公布") || html.contains("未公布") || html.contains("不公布") ||
-                            html.contains("教师未设置允许查看") || html.contains("未开启查看") || html.contains("未发布")
+                    // a. 从专用得分节点提取 (result_number b, font45, font15, mark_score, totalScore, score_num, score, numspan 等)
+                    val scoreNodes = doc.select(".result_number b, .last_number b, .font45, .font15, .result_number, .last_number, .mark_score, .totalScore, .score_num, .score, .numspan, .p_score, .grade, .test_score, .colGreen, .colorDeep, .stuScore")
+                    for (node in scoreNodes) {
+                        val text = node.ownText().ifBlank { node.text() }.trim()
+                        val m = Regex("""^(\d+(?:\.\d+)?)$""").find(text)
+                            ?: Regex("""(?:本次成绩|最终成绩|考试成绩|成绩|得分|总分)[:：\s]*(\d+(?:\.\d+)?)""").find(text)
+                        if (m != null) {
+                            extractedScore = m.groupValues[1]
+                            break
+                        }
+                    }
+
+                    // b. 全文正则匹配
+                    if (extractedScore.isNullOrBlank()) {
+                        extractedScore = Regex("""(?:本次成绩|最终成绩|考试成绩|总得分|本次得分|测验得分|我的得分|最终成绩|试卷得分|得分|成绩)[:：\s]*(?:<[^>]+>)*\s*(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""class="[^"]*(?:font45|font15|result_number)[^"]*"[^>]*>[\s\S]*?(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""class="mark_score"[^>]*>[\s\S]*?(\d+(?:\.\d+)?)[\s\S]*?</div>""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""class="score_num"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                            ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                    }
+
+                    // c. 客观题累计得分兜底 (若页面未直接打印总分，但每题客观题作答及得分已经批出)
+                    if (extractedScore.isNullOrBlank() && questions.isNotEmpty()) {
+                        var hasScoredQuestion = false
+                        var totalEarned = 0.0
+                        for (q in questions) {
+                            val p = Regex("""(\d+(?:\.\d+)?)""").find(q.scoreText)?.groupValues?.get(1)?.toDoubleOrNull()
+                            if (p != null && q.cleanMyAnswer.isNotBlank() && q.correctAnswer.isNotBlank()) {
+                                if (q.cleanMyAnswer.trim().equals(q.correctAnswer.trim(), ignoreCase = true)) {
+                                    totalEarned += p
+                                }
+                                hasScoredQuestion = true
+                            }
+                        }
+                        if (hasScoredQuestion) {
+                            extractedScore = if (totalEarned % 1.0 == 0.0) totalEarned.toInt().toString() else String.format(java.util.Locale.CHINA, "%.1f", totalEarned)
+                        }
+                    }
+
+                    var scoreStr = extractedScore?.ifBlank { null } ?: exam.score
+
+                    val isExplicitlyNotPub = html.contains("成绩未公布") || html.contains("教师未设置允许查看") || html.contains("未开启查看") || html.contains("成绩不公布") || html.contains("未公布成绩")
                     if (scoreStr.isBlank() || scoreStr == "--") {
                         scoreStr = when {
                             html.contains("待批") || html.contains("批阅中") || html.contains("待评阅") -> "待批改"
-                            isNotPub || isDone -> "教师未公布得分"
+                            isExplicitlyNotPub -> "教师未公布得分"
+                            isDone && questions.isEmpty() -> "教师未公布得分"
                             else -> ""
                         }
                     }
 
                     // 2. 作答时限与时长
-                    val limitMatch = Regex("""(?:限时|考试时长|时长)[:：]?\s*(\d+)\s*分钟""").find(html)
+                    val limitMatch = Regex("""(?:限时|考试时长|时长|用时|答题时间)[:：]?\s*(\d+)\s*分钟""").find(html)
                     val limitTime = limitMatch?.groupValues?.get(1)?.toIntOrNull()
 
                     // 3. 起止时间提取
@@ -1482,9 +1589,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         timeRange = if (isDone) "测验已截止" else "时间未公开"
                     }
 
-                    // 只要成功解析出题目，或者包含测验核心结构，或者属于已提交回顾，均成功构造试卷详情
-                    val isRecognized = hasQuestions || html.contains("exam") || html.contains("test") || html.contains("测验") || html.contains("考试") || isDone
-                    if (isRecognized) {
+                    val hasRealQuestions = questions.isNotEmpty()
+                    val hasScore = scoreStr.isNotBlank() && scoreStr != "教师未公布得分" && scoreStr != "--"
+
+                    // 只要成功解析出题目，或者提取到了真实测验得分，即视为成功命中真实试卷页
+                    if (hasRealQuestions || hasScore) {
                         val examDetail = ChaoXingExamDetail(
                             examId = exam.id,
                             title = exam.title,

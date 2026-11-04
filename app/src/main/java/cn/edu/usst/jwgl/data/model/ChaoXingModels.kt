@@ -394,7 +394,8 @@ data class ChaoXingExam(
     val taskUrl: String = "",
     val courseId: String = "",
     val classId: String = "",
-    val courseName: String = ""
+    val courseName: String = "",
+    val examAnswerId: String = ""
 ) : Serializable
 
 /**
