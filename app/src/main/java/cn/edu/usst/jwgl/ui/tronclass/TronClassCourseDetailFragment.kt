@@ -2035,9 +2035,12 @@ class TronClassCourseDetailFragment : Fragment() {
         llAttachments.visibility = View.VISIBLE
         llAttachments.removeAllViews()
 
-        tvTitle.text = exam.title
-        val scoreText = if (exam.score.isNotBlank()) " · 得分: ${exam.score}分" else ""
-        tvSub.text = "${exam.status}$scoreText"
+        tvTitle.text = exam.title.orEmpty()
+        val examScore = exam.score.orEmpty()
+        val examStatus = exam.status.orEmpty()
+        val examRemaining = exam.remaining.orEmpty()
+        val scoreText = if (examScore.isNotBlank()) " · 得分: ${examScore}分" else ""
+        tvSub.text = "$examStatus$scoreText"
 
         val card = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
         val ivIcon = card.findViewById<ImageView>(R.id.ivAttachmentIcon)
@@ -2047,11 +2050,11 @@ class TronClassCourseDetailFragment : Fragment() {
 
         ivIcon.setImageResource(R.drawable.ic_exam)
         ivIcon.setColorFilter(Color.parseColor("#EA580C"))
-        tvName.text = if (exam.remaining.isNotBlank()) exam.remaining else "在线测试"
-        tvSize.text = "状态: ${exam.status}$scoreText"
+        tvName.text = if (examRemaining.isNotBlank()) examRemaining else "在线测试"
+        tvSize.text = "状态: $examStatus$scoreText"
 
-        val hasAnalysis = exam.analysisUrl.isNotBlank()
-        val isDone = exam.status.contains("已完成") || exam.status.contains("已批") || exam.score.isNotBlank()
+        val hasAnalysis = exam.analysisUrl.orEmpty().isNotBlank()
+        val isDone = examStatus.contains("已完成") || examStatus.contains("已批") || examScore.isNotBlank()
         btnAction.text = if (isDone) "查看试卷 (原生)" else "进入测验 (原生)"
         btnAction.setIconResource(R.drawable.ic_chevron_right)
 

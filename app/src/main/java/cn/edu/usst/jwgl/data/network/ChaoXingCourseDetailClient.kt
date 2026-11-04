@@ -1483,14 +1483,24 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
         val cpi = course?.let { getEffectiveCpi(it, studentId) } ?: prefs.getUid(studentId).orEmpty()
 
-        val cacheMgr = TronClassDataCacheManager.getInstance(context)
-        val cached = cacheMgr.getCachedChaoXingExamDetail(exam.id)
+        val targetExamId = exam.id.orEmpty().trim()
+        val targetAnswerId = exam.examAnswerId.orEmpty().trim()
+        val examStatus = exam.status.orEmpty()
+        val examScore = exam.score.orEmpty()
+        val examTitle = exam.title.orEmpty()
+        val examRemaining = exam.remaining.orEmpty()
+        val examTaskUrl = exam.taskUrl.orEmpty()
+        val examAnalysisUrl = exam.analysisUrl.orEmpty()
+        val examCourseName = exam.courseName.orEmpty()
+        val examCourseId = exam.courseId.orEmpty()
+        val examClassId = exam.classId.orEmpty()
 
-        val targetCourseId = (course?.courseId ?: exam.courseId).trim()
-        val targetClassId = (course?.classId ?: exam.classId).trim()
-        val targetExamId = exam.id.trim()
-        val targetAnswerId = exam.examAnswerId.trim()
-        val isDone = exam.status.contains("已完成") || exam.status.contains("已批") || exam.score.isNotBlank() || targetAnswerId.isNotBlank()
+        val cacheMgr = TronClassDataCacheManager.getInstance(context)
+        val cached = if (targetExamId.isNotBlank()) cacheMgr.getCachedChaoXingExamDetail(targetExamId) else null
+
+        val targetCourseId = (course?.courseId?.ifBlank { null } ?: examCourseId).trim()
+        val targetClassId = (course?.classId?.ifBlank { null } ?: examClassId).trim()
+        val isDone = examStatus.contains("已完成") || examStatus.contains("已批") || examScore.isNotBlank() || targetAnswerId.isNotBlank()
 
         val candidateUrls = mutableListOf<String>()
 
@@ -1504,8 +1514,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         }
 
         // 2. 如果 taskUrl 不为空，补齐参数作为候选
-        if (exam.taskUrl.isNotBlank()) {
-            val fullTask = if (exam.taskUrl.startsWith("http")) exam.taskUrl else "https://mooc1.chaoxing.com" + exam.taskUrl
+        if (examTaskUrl.isNotBlank()) {
+            val fullTask = if (examTaskUrl.startsWith("http")) examTaskUrl else "https://mooc1.chaoxing.com" + examTaskUrl
             var patchedUrl = fullTask
             if (!patchedUrl.contains("courseId=") && !patchedUrl.contains("courseid=") && targetCourseId.isNotBlank()) {
                 patchedUrl += (if (patchedUrl.contains("?")) "&" else "?") + "courseId=$targetCourseId"
@@ -1602,7 +1612,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         }
                     }
 
-                    var scoreStr = extractedScore?.ifBlank { null } ?: exam.score
+                    var scoreStr = extractedScore?.ifBlank { null } ?: examScore
 
                     val isExplicitlyNotPub = html.contains("成绩未公布") || html.contains("教师未设置允许查看") || html.contains("未开启查看") || html.contains("成绩不公布") || html.contains("未公布成绩")
                     if (scoreStr.isBlank() || scoreStr == "--") {
@@ -1621,7 +1631,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     // 3. 起止时间提取
                     var timeRange = extractDeadlineFromText(html, html)
                     if (timeRange.isBlank()) {
-                        timeRange = exam.remaining
+                        timeRange = examRemaining
                     }
                     if (timeRange.isBlank()) {
                         timeRange = if (isDone) "测验已截止" else "时间未公开"
@@ -1633,23 +1643,23 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     // 只要成功解析出题目，或者提取到了真实测验得分，即视为成功命中真实试卷页
                     if (hasRealQuestions || hasScore) {
                         val examDetail = ChaoXingExamDetail(
-                            examId = exam.id,
-                            title = exam.title,
-                            courseName = course?.courseName ?: exam.courseName,
-                            statusText = exam.status.ifBlank { if (isDone) "已完成" else "待作答" },
+                            examId = targetExamId,
+                            title = examTitle,
+                            courseName = course?.courseName ?: examCourseName,
+                            statusText = examStatus.ifBlank { if (isDone) "已完成" else "待作答" },
                             score = scoreStr,
                             timeRange = timeRange,
                             limitTime = limitTime,
                             scoreRule = if (html.contains("最高分")) "highest" else "latest",
                             rawQuestions = questions,
-                            analysisUrl = exam.analysisUrl,
+                            analysisUrl = examAnalysisUrl,
                             taskUrl = finalUrl,
                             isSubmitted = isDone,
                             isGraded = scoreStr.isNotBlank() && scoreStr != "教师未公布得分"
                         )
 
-                        cacheMgr.saveChaoXingExamDetail(exam.id, examDetail)
-                        Log.i(TAG, "Successfully fetched ChaoXing exam detail: ${exam.title} (${questions.size} questions, score=$scoreStr, time=$timeRange)")
+                        cacheMgr.saveChaoXingExamDetail(targetExamId, examDetail)
+                        Log.i(TAG, "Successfully fetched ChaoXing exam detail: $examTitle (${questions.size} questions, score=$scoreStr, time=$timeRange)")
                         return@withContext Result.success(examDetail)
                     }
                 }
@@ -1659,33 +1669,33 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         }
 
         if (cached != null) {
-            Log.w(TAG, "Returning cached ChaoXingExamDetail for ${exam.id}")
+            Log.w(TAG, "Returning cached ChaoXingExamDetail for $targetExamId")
             return@withContext Result.success(cached)
         }
 
         // 兜底优雅降级：构造带有明确测验元数据的详情，杜绝出现界面生硬 "--" 与死锁的 "进行中"
         val fallbackScore = when {
-            exam.score.isNotBlank() -> exam.score
+            examScore.isNotBlank() -> examScore
             isDone -> "教师未公布得分"
             else -> ""
         }
         val fallbackTime = when {
-            exam.remaining.isNotBlank() -> exam.remaining
+            examRemaining.isNotBlank() -> examRemaining
             isDone -> "测验已截止"
             else -> "时间未公开"
         }
         val fallbackDetail = ChaoXingExamDetail(
-            examId = exam.id,
-            title = exam.title,
-            courseName = course?.courseName ?: exam.courseName,
-            statusText = exam.status.ifBlank { if (isDone) "已完成" else "待作答" },
+            examId = targetExamId,
+            title = examTitle,
+            courseName = course?.courseName ?: examCourseName,
+            statusText = examStatus.ifBlank { if (isDone) "已完成" else "待作答" },
             score = fallbackScore,
             timeRange = fallbackTime,
             limitTime = null,
             scoreRule = "highest",
             rawQuestions = emptyList(),
-            analysisUrl = exam.analysisUrl,
-            taskUrl = if (exam.taskUrl.isNotBlank()) exam.taskUrl else candidateUrls.firstOrNull().orEmpty(),
+            analysisUrl = examAnalysisUrl,
+            taskUrl = if (examTaskUrl.isNotBlank()) examTaskUrl else candidateUrls.firstOrNull().orEmpty(),
             isSubmitted = isDone,
             isGraded = fallbackScore.isNotBlank() && fallbackScore != "教师未公布得分"
         )
@@ -1907,15 +1917,23 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
         val cpi = course?.let { getEffectiveCpi(it, studentId) } ?: prefs.getUid(studentId).orEmpty()
 
+        val workIdSafe = work.workId.orEmpty()
+        val workTitleSafe = work.title.orEmpty()
+        val workTaskUrlSafe = work.taskUrl.orEmpty()
+        val workCourseNameSafe = work.courseName.orEmpty()
+        val workStatusTextSafe = work.statusText.orEmpty()
+        val workDeadlineSafe = work.deadline.orEmpty()
+        val workScoreSafe = work.score.orEmpty()
+
         // 优先检查本地离线缓存
         val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
-        val cached = cacheMgr.getCachedChaoXingHomeworkDetail(work.workId)
+        val cached = if (workIdSafe.isNotBlank()) cacheMgr.getCachedChaoXingHomeworkDetail(workIdSafe) else null
 
         // 构造起始 URL
-        var initialUrl = if (work.taskUrl.isNotBlank()) {
-            if (work.taskUrl.startsWith("http")) work.taskUrl else "https://mooc1.chaoxing.com" + work.taskUrl
+        var initialUrl = if (workTaskUrlSafe.isNotBlank()) {
+            if (workTaskUrlSafe.startsWith("http")) workTaskUrlSafe else "https://mooc1.chaoxing.com" + workTaskUrlSafe
         } else {
-            "https://mooc1.chaoxing.com/work/phone/work?courseId=${course?.courseId ?: ""}&classId=${course?.classId ?: ""}&workId=${work.workId}"
+            "https://mooc1.chaoxing.com/work/phone/work?courseId=${course?.courseId ?: ""}&classId=${course?.classId ?: ""}&workId=$workIdSafe"
         }
 
         if (cpi.isNotBlank() && !initialUrl.contains("cpi=")) {
@@ -2045,7 +2063,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             var score = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(questionsHtml)?.groupValues?.get(1)
                 ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(questionsHtml)?.groupValues?.get(1)
                 ?: Regex("""得分[:：]\s*(\d+(?:\.\d+)?)""").find(questionsHtml)?.groupValues?.get(1)
-                ?: work.score
+                ?: workScoreSafe
 
             // 汇总题目说明 (HTML 及纯文本)
             val contentHtmlBuilder = StringBuilder()
@@ -2133,7 +2151,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
             val finalStatus = when {
                 statusTextFromPage.isNotBlank() -> statusTextFromPage
-                work.statusText.isNotBlank() -> work.statusText
+                workStatusTextSafe.isNotBlank() -> workStatusTextSafe
                 studentAnswerBuilder.isNotEmpty() || studentAttachments.isNotEmpty() -> "已提交"
                 else -> "未提交"
             }
@@ -2144,12 +2162,12 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             val isGrd = (score.isNotBlank() || finalStatus.contains("已完成") || (finalStatus.contains("已批") && !finalStatus.contains("待批") && !finalStatus.contains("未批"))) &&
                     !finalStatus.contains("待批") && !finalStatus.contains("未批")
 
-            val finalDeadline = deadlineFromPage.ifBlank { cleanDeadline(work.deadline) }
+            val finalDeadline = deadlineFromPage.ifBlank { cleanDeadline(workDeadlineSafe) }
 
             val detail = ChaoXingHomeworkDetail(
-                workId = work.workId,
-                title = work.title,
-                courseName = course?.courseName ?: work.courseName,
+                workId = workIdSafe,
+                title = workTitleSafe,
+                courseName = course?.courseName ?: workCourseNameSafe,
                 statusText = finalStatus,
                 deadline = finalDeadline,
                 score = score,
@@ -2168,8 +2186,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             )
 
             // 存入本地二级缓存
-            cacheMgr.saveChaoXingHomeworkDetail(work.workId, detail)
-            Log.i(TAG, "Successfully fetched and cached ChaoXing homework detail: ${work.title} (${parsedQuestions.size} questions)")
+            cacheMgr.saveChaoXingHomeworkDetail(workIdSafe, detail)
+            Log.i(TAG, "Successfully fetched and cached ChaoXing homework detail: $workTitleSafe (${parsedQuestions.size} questions)")
             Result.success(detail)
         } catch (e: Exception) {
             Log.e(TAG, "fetchHomeworkDetail error", e)
