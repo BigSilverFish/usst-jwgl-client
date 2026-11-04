@@ -378,18 +378,10 @@ data class UnifiedCourse(
                 }
             }
 
-            // 对畅课中完全没有同名对应课程的落单超星课，才赋予 fallbackSemesterCode
+            // 对畅课中未匹配的落单超星课，保持其自身识别或手动配置的学期（若未知则为 null 归入【其他课程】，绝不污染本学期）
             for (cx in uCxList) {
                 if (!matchedCxIds.contains(cx.unifiedId)) {
-                    val finalSem = cx.semesterCode ?: fallbackSemesterCode
-                    result.add(
-                        if (finalSem != cx.semesterCode) {
-                            cx.copy(
-                                semesterCode = finalSem,
-                                formattedSemesterName = finalSem?.let { formatSemesterName(it) }
-                            )
-                        } else cx
-                    )
+                    result.add(cx)
                 }
             }
 
