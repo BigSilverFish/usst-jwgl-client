@@ -157,18 +157,17 @@ class ChaoXingPreferences(private val context: Context) {
             remove(prefix + KEY_IS_LOGGED_IN)
             remove(prefix + KEY_LAST_LOGIN_TIME)
         }.apply()
-        prefs.edit().apply {
-            remove(prefix + KEY_CACHED_COURSES)
-            remove(prefix + KEY_CACHED_TODOS)
-            remove(prefix + KEY_CACHED_NOTICES)
-        }.apply()
     }
 
     fun saveCachedCourses(courses: List<ChaoXingCourse>, studentId: String? = null) {
+        if (courses.isEmpty()) return
         val prefix = getAccountPrefix(studentId)
         try {
             val json = Gson().toJson(courses)
-            prefs.edit().putString(prefix + KEY_CACHED_COURSES, json).apply()
+            prefs.edit()
+                .putString(prefix + KEY_CACHED_COURSES, json)
+                .putString(KEY_CACHED_COURSES, json)
+                .apply()
         } catch (e: Exception) {
             Log.e(TAG, "saveCachedCourses error", e)
         }
@@ -176,7 +175,9 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun getCachedCourses(studentId: String? = null): List<ChaoXingCourse> {
         val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CACHED_COURSES, null) ?: return emptyList()
+        val json = prefs.getString(prefix + KEY_CACHED_COURSES, null)
+            ?: prefs.getString(KEY_CACHED_COURSES, null)
+            ?: return emptyList()
         return try {
             val type = object : TypeToken<List<ChaoXingCourse>>() {}.type
             Gson().fromJson(json, type) ?: emptyList()
@@ -224,7 +225,9 @@ class ChaoXingPreferences(private val context: Context) {
      */
     fun getAllCustomSemesters(studentId: String? = null): Map<String, String> {
         val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null) ?: return emptyMap()
+        val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null)
+            ?: prefs.getString(KEY_CUSTOM_SEMESTERS, null)
+            ?: return emptyMap()
         return try {
             val type = object : TypeToken<Map<String, String>>() {}.type
             Gson().fromJson(json, type) ?: emptyMap()
@@ -235,10 +238,14 @@ class ChaoXingPreferences(private val context: Context) {
     }
 
     fun saveCachedTodos(todos: List<UnifiedTodo>, studentId: String? = null) {
+        if (todos.isEmpty()) return
         val prefix = getAccountPrefix(studentId)
         try {
             val json = Gson().toJson(todos)
-            prefs.edit().putString(prefix + KEY_CACHED_TODOS, json).apply()
+            prefs.edit()
+                .putString(prefix + KEY_CACHED_TODOS, json)
+                .putString(KEY_CACHED_TODOS, json)
+                .apply()
         } catch (e: Exception) {
             Log.e(TAG, "saveCachedTodos error", e)
         }
@@ -246,7 +253,9 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun getCachedTodos(studentId: String? = null): List<UnifiedTodo> {
         val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CACHED_TODOS, null) ?: return emptyList()
+        val json = prefs.getString(prefix + KEY_CACHED_TODOS, null)
+            ?: prefs.getString(KEY_CACHED_TODOS, null)
+            ?: return emptyList()
         return try {
             val type = object : TypeToken<List<UnifiedTodo>>() {}.type
             Gson().fromJson(json, type) ?: emptyList()
@@ -257,10 +266,14 @@ class ChaoXingPreferences(private val context: Context) {
     }
 
     fun saveCachedNotices(notices: List<UnifiedBulletin>, studentId: String? = null) {
+        if (notices.isEmpty()) return
         val prefix = getAccountPrefix(studentId)
         try {
             val json = Gson().toJson(notices)
-            prefs.edit().putString(prefix + KEY_CACHED_NOTICES, json).apply()
+            prefs.edit()
+                .putString(prefix + KEY_CACHED_NOTICES, json)
+                .putString(KEY_CACHED_NOTICES, json)
+                .apply()
         } catch (e: Exception) {
             Log.e(TAG, "saveCachedNotices error", e)
         }
@@ -268,7 +281,9 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun getCachedNotices(studentId: String? = null): List<UnifiedBulletin> {
         val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CACHED_NOTICES, null) ?: return emptyList()
+        val json = prefs.getString(prefix + KEY_CACHED_NOTICES, null)
+            ?: prefs.getString(KEY_CACHED_NOTICES, null)
+            ?: return emptyList()
         return try {
             val type = object : TypeToken<List<UnifiedBulletin>>() {}.type
             Gson().fromJson(json, type) ?: emptyList()
