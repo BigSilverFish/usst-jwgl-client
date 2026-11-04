@@ -35,7 +35,7 @@ object LearningPlatformBadgeHelper {
         badgeView.text = platform.shortName // "畅课" 或 "学习通"
 
         val context = badgeView.context
-        val isDarkMode = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
+        val isDarkMode = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
         // 浅色 / 深色主题精调微徽标配色
         val (bgColor, textColor) = if (isDarkMode) {

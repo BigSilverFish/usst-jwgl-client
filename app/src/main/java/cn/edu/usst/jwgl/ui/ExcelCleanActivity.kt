@@ -16,7 +16,6 @@ import cn.edu.usst.jwgl.data.local.LabReservationFileImporter
 import cn.edu.usst.jwgl.data.local.XlsxCleaner
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.databinding.ActivityExcelCleanBinding
-import cn.edu.usst.jwgl.util.ThemeManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,8 +57,8 @@ class ExcelCleanActivity : AppCompatActivity() {
             insets
         }
         WindowCompat.getInsetsController(window, binding.root).apply {
-            val light = !ThemeManager.isNightMode(this@ExcelCleanActivity)
-
+            val light = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK !=
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
             isAppearanceLightStatusBars = light
             isAppearanceLightNavigationBars = light
         }

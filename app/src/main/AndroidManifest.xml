@@ -55,12 +55,6 @@
         <meta-data
             android:name="notch.config"
             android:value="portrait|landscape" />
-        <meta-data
-            android:name="miui_force_dark_supported"
-            android:value="false" />
-        <meta-data
-            android:name="miui.forceDarkAllowed"
-            android:value="false" />
         
         <activity
             android:name=".ui.LoginActivity"

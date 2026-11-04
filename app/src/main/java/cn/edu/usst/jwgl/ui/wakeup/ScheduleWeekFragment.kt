@@ -59,6 +59,9 @@ class ScheduleWeekFragment : Fragment() {
         llSidebarNodes = view.findViewById(R.id.llSidebarNodes)
         llWeekColumnsContainer = view.findViewById(R.id.llWeekColumnsContainer)
         flScheduleContent = view.findViewById(R.id.flScheduleContent)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            flScheduleContent.isForceDarkAllowed = false
+        }
         setupEmptySpaceDoubleTap()
         applyContentPadding()
         return view
@@ -461,6 +464,9 @@ class ScheduleWeekFragment : Fragment() {
                 }
 
                 val courseCard = TextView(context).apply {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        isForceDarkAllowed = false
+                    }
                     layoutParams = FrameLayout.LayoutParams(
                         initialWidth,
                         cardHeight
@@ -486,17 +492,13 @@ class ScheduleWeekFragment : Fragment() {
                     }
 
                     val alphaHex = String.format("%02X", (255 * (table.itemAlpha.coerceIn(0, 100) / 100f)).toInt())
-                    val isDark = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
+                    val isSysDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    val isDark = isSysDark || cn.edu.usst.jwgl.util.ThemeManager.getThemeMode(context) == cn.edu.usst.jwgl.util.ThemeManager.MODE_DARK
 
                     if (isWeekActive) {
-                        if (isDark) {
-                            // 深色模式下文字设为纯白高亮，确保在鲜艳卡片底色上文字清晰锐利
-                            setTextColor(Color.WHITE)
-                            bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
-                        } else {
-                            setTextColor(table.courseTextColor)
-                            bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
-                        }
+                        // 深色模式下文字强制纯白高亮；即使在浅色环境下，无论卡片底色深浅，统一采用高对比纯白，彻底杜绝黑底黑字
+                        setTextColor(Color.WHITE)
+                        bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
 
                         try {
                             val baseHex = course.color.removePrefix("#")
@@ -584,15 +586,16 @@ class ScheduleWeekFragment : Fragment() {
         }
 
         if (showDayParts) {
-            val isDark = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
+            val isSysDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val isDark = isSysDark || cn.edu.usst.jwgl.util.ThemeManager.getThemeMode(context) == cn.edu.usst.jwgl.util.ThemeManager.MODE_DARK
             val dividerColor = if (isDark) {
                 // 深色模式下：使用内敛柔和的深灰分界线，消除突兀刺眼的红线
                 Color.parseColor("#262933")
             } else {
-                val primaryColor = ContextCompat.getColor(context, R.color.primary)
-                (primaryColor and 0x00FFFFFF) or (0x70 shl 24)
+                // 浅色模式下：使用细腻半透明灰线，消除突兀刺眼的红线
+                Color.parseColor("#1A000000")
             }
-            val dividerHeightPx = if (isDark) dpToPx(1f).coerceAtLeast(1) else dpToPx(1.5f).coerceAtLeast(2)
+            val dividerHeightPx = if (isDark) dpToPx(1f).coerceAtLeast(1) else dpToPx(1f).coerceAtLeast(1)
 
             // Noon Divider (between morning and afternoon)
             val noonY = morningEndNode * (itemHeightPx + marTopPx) + (marTopPx - dividerHeightPx) / 2
