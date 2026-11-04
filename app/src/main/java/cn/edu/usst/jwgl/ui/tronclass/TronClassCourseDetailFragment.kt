@@ -363,8 +363,15 @@ class TronClassCourseDetailFragment : Fragment() {
         }
 
         binding.btnRollcallHistory.setOnClickListener {
-            val dialog = TronClassRollcallHistoryBottomSheetDialog.newInstance(courseId, courseName)
-            dialog.show(parentFragmentManager, "rollcall_history_$courseId")
+            val cxCourse = rawChaoXingCourse
+            val dialog = TronClassRollcallHistoryBottomSheetDialog.newInstance(
+                courseId = courseId,
+                courseName = courseName,
+                cxCourseId = cxCourse?.courseId,
+                cxClassId = cxCourse?.classId,
+                platform = platform
+            )
+            dialog.show(parentFragmentManager, "rollcall_history_${courseId}_${cxCourse?.courseId ?: ""}")
         }
 
         binding.btnCacheManager.setOnClickListener {

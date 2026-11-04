@@ -562,3 +562,127 @@ data class UnifiedActiveRollcall(
     val rawChaoXingSign: Pair<ChaoXingCourse, ChaoXingActiveItem>? = null,
     val chaoXingSignDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null
 ) : Serializable
+
+/**
+ * 双平台统一历史考勤记录模型
+ */
+data class UnifiedStudentRollcall(
+    val unifiedId: String,
+    val platform: LearningPlatform,
+    val title: String,
+    val typeDisplayName: String,
+    val timeText: String,
+    val timeMillis: Long = 0L,
+    val status: RollcallStatus = RollcallStatus.UNKNOWN,
+    val statusDisplayName: String = "未知",
+    val rawTronClassRollcall: TronClassStudentRollcall? = null,
+    val rawChaoXingItem: ChaoXingActiveItem? = null
+) : Serializable {
+
+    enum class RollcallStatus {
+        ATTENDED,    // 已出勤 / 已到
+        LATE,        // 迟到
+        LEAVE_EARLY, // 早退
+        ABSENT,      // 缺勤 / 未参与
+        LEAVE,       // 请假
+        IN_PROGRESS, // 进行中
+        UNKNOWN      // 未知
+    }
+
+    fun isAttended(): Boolean = status == RollcallStatus.ATTENDED
+
+    fun isLateOrEarly(): Boolean = status == RollcallStatus.LATE || status == RollcallStatus.LEAVE_EARLY
+
+    fun isAbsent(): Boolean = status == RollcallStatus.ABSENT
+
+    fun isLeave(): Boolean = status == RollcallStatus.LEAVE
+
+    fun isInProgress(): Boolean = status == RollcallStatus.IN_PROGRESS
+
+    companion object {
+        fun fromTronClass(item: TronClassStudentRollcall): UnifiedStudentRollcall {
+            val status = when {
+                item.isAttended() -> RollcallStatus.ATTENDED
+                item.isLateOrEarly() -> RollcallStatus.LATE
+                item.isAbsent() -> RollcallStatus.ABSENT
+                item.isLeave() -> RollcallStatus.LEAVE
+                item.getEffectiveStatus() == "in_progress" -> RollcallStatus.IN_PROGRESS
+                else -> RollcallStatus.UNKNOWN
+            }
+
+            var millis = 0L
+            val rawTime = item.rollcallTime ?: item.createdAt
+            if (!rawTime.isNullOrBlank()) {
+                try {
+                    if (rawTime.contains("T") || rawTime.endsWith("Z")) {
+                        val clean = rawTime.substringBefore(".")
+                        val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault()).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        }
+                        millis = parser.parse(clean)?.time ?: 0L
+                    } else {
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.CHINA)
+                        millis = sdf.parse(rawTime)?.time ?: 0L
+                    }
+                } catch (_: Exception) {}
+            }
+
+            return UnifiedStudentRollcall(
+                unifiedId = "tc_${item.getEffectiveId()}",
+                platform = LearningPlatform.TRONCLASS,
+                title = item.getDisplayTitle(),
+                typeDisplayName = item.getTypeDisplayName(),
+                timeText = item.getFormattedTime(),
+                timeMillis = millis,
+                status = status,
+                statusDisplayName = item.getStatusDisplayName(),
+                rawTronClassRollcall = item
+            )
+        }
+
+        fun fromChaoXing(
+            item: ChaoXingActiveItem,
+            detail: ChaoXingSignDetail?
+        ): UnifiedStudentRollcall {
+            val isAttended = detail?.isAlreadySigned == true
+            val isExpired = detail?.isExpired == true || !item.isActive()
+
+            val status = when {
+                isAttended -> RollcallStatus.ATTENDED
+                item.isActive() -> RollcallStatus.IN_PROGRESS
+                isExpired -> RollcallStatus.ABSENT
+                else -> RollcallStatus.UNKNOWN
+            }
+
+            val statusDisplayName = when (status) {
+                RollcallStatus.ATTENDED -> "已出勤"
+                RollcallStatus.IN_PROGRESS -> "进行中"
+                RollcallStatus.ABSENT -> "未参与"
+                RollcallStatus.LATE -> "迟到"
+                RollcallStatus.LEAVE_EARLY -> "早退"
+                RollcallStatus.LEAVE -> "请假"
+                RollcallStatus.UNKNOWN -> "未知"
+            }
+
+            val typeName = detail?.signTypeDisplayName ?: item.resolvedSignTypeName
+
+            val timeStr = if (item.createtime > 0) {
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(item.createtime))
+            } else ""
+
+            val title = item.nameOne?.trim().takeIf { !it.isNullOrBlank() } ?: "课堂签到"
+
+            return UnifiedStudentRollcall(
+                unifiedId = "cx_${item.id}",
+                platform = LearningPlatform.CHAOXING,
+                title = title,
+                typeDisplayName = typeName,
+                timeText = timeStr,
+                timeMillis = item.createtime,
+                status = status,
+                statusDisplayName = statusDisplayName,
+                rawChaoXingItem = item
+            )
+        }
+    }
+}

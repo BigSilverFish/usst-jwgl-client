@@ -1106,6 +1106,58 @@ class ChaoXingClient(private val context: Context) {
     }
 
     /**
+     * 10. 拉取超星指定课程的历史签到记录 (包含学生考勤状态探测)
+     */
+    suspend fun fetchCourseSignHistory(
+        courseId: String,
+        classId: String,
+        studentId: String? = null
+    ): Result<List<UnifiedStudentRollcall>> = withContext(Dispatchers.IO) {
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+
+        try {
+            val url = "$ACTIVE_LIST_URL?courseId=$courseId&classId=$classId&fid=0&showNotStartedActive=0&_=${System.currentTimeMillis()}"
+            val req = Request.Builder()
+                .url(url)
+                .header("Cookie", cookies)
+                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                .get()
+                .build()
+
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful || body.isBlank()) {
+                return@withContext Result.failure(Exception("拉取超星活动列表失败 (${resp.code})"))
+            }
+
+            val parsed = gson.fromJson(body, ChaoXingActiveListResponse::class.java)
+            val allSignActivities = parsed.data?.activeList?.filter { it.isSignActivity() } ?: emptyList()
+
+            if (allSignActivities.isEmpty()) {
+                return@withContext Result.success(emptyList())
+            }
+
+            // 并发探测每个签到活动的学生考勤状态与配置详情
+            coroutineScope {
+                val rollcallList = allSignActivities.map { item ->
+                    async {
+                        val detailRes = fetchSignDetail(courseId, classId, item.id, studentId)
+                        val detail = detailRes.getOrNull()
+                        UnifiedStudentRollcall.fromChaoXing(item, detail)
+                    }
+                }.awaitAll()
+
+                // 按签到发起时间倒序排列
+                val sorted = rollcallList.sortedByDescending { it.timeMillis }
+                Result.success(sorted)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCourseSignHistory error for course $courseId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 清理当前账号的超星登录态
      */
     fun logout(studentId: String? = null) {

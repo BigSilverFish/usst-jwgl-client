@@ -7,10 +7,14 @@ import android.view.ViewGroup
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import cn.edu.usst.jwgl.data.model.TronClassStudentRollcall
+import cn.edu.usst.jwgl.data.model.LearningPlatform
+import cn.edu.usst.jwgl.data.model.UnifiedStudentRollcall
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.DialogTronclassRollcallHistoryBinding
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 class TronClassRollcallHistoryBottomSheetDialog : BottomSheetDialogFragment() {
@@ -25,19 +29,35 @@ class TronClassRollcallHistoryBottomSheetDialog : BottomSheetDialogFragment() {
 
     private var courseId: Long = 0L
     private var courseName: String = ""
+    private var cxCourseId: String? = null
+    private var cxClassId: String? = null
+    private var platform: LearningPlatform = LearningPlatform.TRONCLASS
 
-    private lateinit var client: TronClassClient
+    private lateinit var tcClient: TronClassClient
+    private lateinit var cxClient: ChaoXingClient
     private lateinit var adapter: TronClassRollcallHistoryAdapter
 
     companion object {
         private const val ARG_COURSE_ID = "arg_course_id"
         private const val ARG_COURSE_NAME = "arg_course_name"
+        private const val ARG_CX_COURSE_ID = "arg_cx_course_id"
+        private const val ARG_CX_CLASS_ID = "arg_cx_class_id"
+        private const val ARG_PLATFORM = "arg_platform"
 
-        fun newInstance(courseId: Long, courseName: String): TronClassRollcallHistoryBottomSheetDialog {
+        fun newInstance(
+            courseId: Long = 0L,
+            courseName: String = "",
+            cxCourseId: String? = null,
+            cxClassId: String? = null,
+            platform: LearningPlatform = LearningPlatform.TRONCLASS
+        ): TronClassRollcallHistoryBottomSheetDialog {
             return TronClassRollcallHistoryBottomSheetDialog().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_COURSE_ID, courseId)
                     putString(ARG_COURSE_NAME, courseName)
+                    putString(ARG_CX_COURSE_ID, cxCourseId)
+                    putString(ARG_CX_CLASS_ID, cxClassId)
+                    putSerializable(ARG_PLATFORM, platform)
                 }
             }
         }
@@ -48,6 +68,9 @@ class TronClassRollcallHistoryBottomSheetDialog : BottomSheetDialogFragment() {
         arguments?.let {
             courseId = it.getLong(ARG_COURSE_ID, 0L)
             courseName = it.getString(ARG_COURSE_NAME, "")
+            cxCourseId = it.getString(ARG_CX_COURSE_ID)
+            cxClassId = it.getString(ARG_CX_CLASS_ID)
+            platform = (it.getSerializable(ARG_PLATFORM) as? LearningPlatform) ?: LearningPlatform.TRONCLASS
         }
     }
 
@@ -62,7 +85,9 @@ class TronClassRollcallHistoryBottomSheetDialog : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        client = TronClassClient(requireContext())
+        val context = requireContext()
+        tcClient = TronClassClient(context)
+        cxClient = ChaoXingClient(context)
 
         setupViews()
         setupListeners()
@@ -70,8 +95,13 @@ class TronClassRollcallHistoryBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun setupViews() {
+        val platformSuffix = when (platform) {
+            LearningPlatform.DUAL -> " · 畅课+学习通"
+            LearningPlatform.CHAOXING -> " · 学习通"
+            else -> " · 畅课"
+        }
         binding.tvCourseSubtitle.text = if (courseName.isNotBlank()) {
-            "$courseName · 课堂考勤记录"
+            "$courseName$platformSuffix · 课堂考勤记录"
         } else {
             "课堂考勤记录"
         }
@@ -102,34 +132,66 @@ class TronClassRollcallHistoryBottomSheetDialog : BottomSheetDialogFragment() {
         binding.layoutError.visibility = View.GONE
         binding.cardStats.visibility = View.GONE
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            val res = client.fetchCourseStudentRollcalls(courseId)
-            val b = _binding ?: return@launch
-            b.layoutLoading.visibility = View.GONE
+        val hasTc = courseId > 0L
+        val hasCx = !cxCourseId.isNullOrBlank() && !cxClassId.isNullOrBlank()
 
-            res.onSuccess { list ->
-                if (list.isEmpty()) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val mergedList = coroutineScope {
+                    val tcDeferred = async {
+                        if (hasTc) {
+                            try {
+                                tcClient.fetchCourseStudentRollcalls(courseId).getOrNull()?.map {
+                                    UnifiedStudentRollcall.fromTronClass(it)
+                                } ?: emptyList()
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } else emptyList()
+                    }
+
+                    val cxDeferred = async {
+                        if (hasCx) {
+                            try {
+                                cxClient.fetchCourseSignHistory(cxCourseId!!, cxClassId!!).getOrNull() ?: emptyList()
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        } else emptyList()
+                    }
+
+                    val tcList = tcDeferred.await()
+                    val cxList = cxDeferred.await()
+                    (tcList + cxList).sortedByDescending { it.timeMillis }
+                }
+
+                val b = _binding ?: return@launch
+                b.layoutLoading.visibility = View.GONE
+
+                if (mergedList.isEmpty()) {
                     b.layoutEmpty.visibility = View.VISIBLE
                     b.rvRollcallHistory.visibility = View.GONE
                     b.cardStats.visibility = View.GONE
                 } else {
                     b.layoutEmpty.visibility = View.GONE
                     b.rvRollcallHistory.visibility = View.VISIBLE
-                    adapter.submitList(list)
+                    adapter.submitList(mergedList)
 
-                    // 计算考勤统计
-                    bindStats(list)
+                    // 统一计算考勤统计
+                    bindStats(mergedList)
                 }
-            }.onFailure { err ->
+            } catch (err: Exception) {
+                val b = _binding ?: return@launch
+                b.layoutLoading.visibility = View.GONE
                 b.layoutError.visibility = View.VISIBLE
-                b.tvErrorMessage.text = err.message ?: "获取历史签到记录失败"
+                b.tvErrorMessage.text = err.message ?: "获取历史考勤记录失败"
                 b.rvRollcallHistory.visibility = View.GONE
                 b.cardStats.visibility = View.GONE
             }
         }
     }
 
-    private fun bindStats(list: List<TronClassStudentRollcall>) {
+    private fun bindStats(list: List<UnifiedStudentRollcall>) {
         val b = _binding ?: return
         val total = list.size
         val attended = list.count { it.isAttended() }
