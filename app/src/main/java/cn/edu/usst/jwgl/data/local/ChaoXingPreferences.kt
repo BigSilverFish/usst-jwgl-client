@@ -36,6 +36,7 @@ class ChaoXingPreferences(private val context: Context) {
         private const val KEY_CACHED_COURSES = "cx_cached_courses"
         private const val KEY_CACHED_TODOS = "cx_cached_todos"
         private const val KEY_CACHED_NOTICES = "cx_cached_notices"
+        private const val KEY_CUSTOM_SEMESTERS = "cx_custom_semesters"
 
         @Volatile
         private var memoryFallbackInstance: SharedPreferences? = null
@@ -182,6 +183,54 @@ class ChaoXingPreferences(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "getCachedCourses error", e)
             emptyList()
+        }
+    }
+
+    /**
+     * 获取指定超星课程的手动设置学期
+     */
+    fun getCustomSemester(courseId: String, classId: String? = null, studentId: String? = null): String? {
+        val all = getAllCustomSemesters(studentId)
+        if (!classId.isNullOrBlank()) {
+            all["${courseId}_${classId}"]?.let { return it }
+        }
+        return all[courseId]
+    }
+
+    /**
+     * 手动为超星课程设置归属学期 (传 null 或空字符串表示恢复自动推断)
+     */
+    fun setCustomSemester(courseId: String, classId: String? = null, semesterCode: String?, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        val all = getAllCustomSemesters(studentId).toMutableMap()
+        val keyWithClass = if (!classId.isNullOrBlank()) "${courseId}_${classId}" else null
+        if (semesterCode.isNullOrBlank()) {
+            if (keyWithClass != null) all.remove(keyWithClass)
+            all.remove(courseId)
+        } else {
+            if (keyWithClass != null) all[keyWithClass] = semesterCode.trim()
+            all[courseId] = semesterCode.trim()
+        }
+        try {
+            val json = Gson().toJson(all)
+            prefs.edit().putString(prefix + KEY_CUSTOM_SEMESTERS, json).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "setCustomSemester error", e)
+        }
+    }
+
+    /**
+     * 获取当前账号所有手动设置的超星课程学期字典 (courseId/key -> semesterCode)
+     */
+    fun getAllCustomSemesters(studentId: String? = null): Map<String, String> {
+        val prefix = getAccountPrefix(studentId)
+        val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null) ?: return emptyMap()
+        return try {
+            val type = object : TypeToken<Map<String, String>>() {}.type
+            Gson().fromJson(json, type) ?: emptyMap()
+        } catch (e: Exception) {
+            Log.e(TAG, "getAllCustomSemesters error", e)
+            emptyMap()
         }
     }
 
