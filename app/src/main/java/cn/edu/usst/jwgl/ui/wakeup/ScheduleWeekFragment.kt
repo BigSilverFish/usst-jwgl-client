@@ -486,7 +486,7 @@ class ScheduleWeekFragment : Fragment() {
                     }
 
                     val alphaHex = String.format("%02X", (255 * (table.itemAlpha.coerceIn(0, 100) / 100f)).toInt())
-                    val isDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    val isDark = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
 
                     if (isWeekActive) {
                         if (isDark) {
@@ -584,7 +584,7 @@ class ScheduleWeekFragment : Fragment() {
         }
 
         if (showDayParts) {
-            val isDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val isDark = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
             val dividerColor = if (isDark) {
                 // 深色模式下：使用内敛柔和的深灰分界线，消除突兀刺眼的红线
                 Color.parseColor("#262933")

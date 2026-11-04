@@ -20,6 +20,7 @@
 
         <!-- Default Card View Style -->
         <item name="materialCardViewStyle">@style/Widget.Material3.CardView.Outlined</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
 
     <style name="Widget.Usst.BottomNavigationView" parent="Widget.Material3.BottomNavigationView">

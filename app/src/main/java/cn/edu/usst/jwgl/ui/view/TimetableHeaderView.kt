@@ -28,7 +28,7 @@ class TimetableHeaderView @JvmOverloads constructor(
     private var selectedWeek: Int = 1
 
     private val isNightMode: Boolean
-        get() = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        get() = cn.edu.usst.jwgl.util.ThemeManager.isNightMode(context)
 
     init {
         orientation = HORIZONTAL
