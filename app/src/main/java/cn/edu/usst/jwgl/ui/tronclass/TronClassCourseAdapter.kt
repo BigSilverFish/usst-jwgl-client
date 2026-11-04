@@ -22,6 +22,7 @@ class TronClassCourseAdapter(
     var isMultiPlatformMode: Boolean = false
     var onChaoXingClickListener: ((UnifiedCourse) -> Unit)? = null
     var onUnifiedClickListener: ((UnifiedCourse) -> Unit)? = null
+    var onCourseLongClickListener: ((UnifiedCourse) -> Boolean)? = null
 
     fun updateData(newItems: List<TronClassCourse>) {
         this.items = newItems.map { UnifiedCourse.fromTronClass(it) }
@@ -127,6 +128,11 @@ class TronClassCourseAdapter(
                         }
                     }
                 }
+            }
+
+            // 5. 长按事件 (支持纯超星课程手动设置学期等管理操作)
+            binding.root.setOnLongClickListener {
+                onCourseLongClickListener?.invoke(course) ?: false
             }
         }
     }

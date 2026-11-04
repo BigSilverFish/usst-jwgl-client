@@ -109,15 +109,26 @@ data class UnifiedCourse(
             )
         }
 
+        fun formatSemesterName(code: String): String {
+            val parts = code.split("-")
+            return if (parts.size >= 3) {
+                "${parts[0]}-${parts[1]} 第${parts[2]}学期"
+            } else {
+                code
+            }
+        }
+
         fun fromChaoXing(
             course: ChaoXingCourse,
             uncompletedCount: Int = 0,
-            fallbackSemesterCode: String? = null
+            fallbackSemesterCode: String? = null,
+            customSemesterCode: String? = null
         ): UnifiedCourse {
             val rawName = course.courseName.trim()
             val regex = Regex("""^(.*?)\([0-9]{4}-[0-9]{4}-[0-9]+\)""")
             val clean = regex.find(rawName)?.groupValues?.get(1)?.trim() ?: rawName
-            val semCode = Regex("""\(?([0-9]{4}-[0-9]{4}-[0-9]+)\)?""").find(rawName)?.groupValues?.get(1)
+            val semCode = customSemesterCode?.ifBlank { null }
+                ?: Regex("""\(?([0-9]{4}-[0-9]{4}-[0-9]+)\)?""").find(rawName)?.groupValues?.get(1)
                 ?: fallbackSemesterCode
 
             return UnifiedCourse(
@@ -132,7 +143,7 @@ data class UnifiedCourse(
                 courseCode = course.courseCode.ifBlank { course.classId },
                 department = course.schoolName,
                 semesterCode = semCode,
-                formattedSemesterName = semCode?.let { "学期 $it" },
+                formattedSemesterName = semCode?.let { formatSemesterName(it) },
                 uncompletedTodoCount = uncompletedCount,
                 rawChaoXingCourse = course
             )
@@ -144,43 +155,110 @@ data class UnifiedCourse(
         fun fuseCourses(
             tcCourses: List<TronClassCourse>,
             cxCourses: List<ChaoXingCourse>,
-            fallbackSemesterCode: String? = null
+            fallbackSemesterCode: String? = null,
+            customSemesterMap: Map<String, String> = emptyMap()
         ): List<UnifiedCourse> {
             val uTcList = tcCourses.map { fromTronClass(it) }
-            val uCxList = cxCourses.map { fromChaoXing(it, fallbackSemesterCode = fallbackSemesterCode) }
+            val uCxList = cxCourses.map { cx ->
+                val customSem = customSemesterMap["${cx.courseId}_${cx.classId}"] ?: customSemesterMap[cx.courseId]
+                fromChaoXing(cx, fallbackSemesterCode = fallbackSemesterCode, customSemesterCode = customSem)
+            }
 
             val result = mutableListOf<UnifiedCourse>()
             val matchedCxIds = mutableSetOf<String>()
 
+            // 提取关键课程序数代号: (1), (2), (一), (二), (I), (II), (A), (B) 等
+            fun extractOrdinalKey(name: String): String? {
+                val s = name.replace('（', '(').replace('）', ')')
+                val match = Regex("""\(([0-9]+|[一二三四五六七八九十]|[ivxIVX]+|[a-zA-Z])\)|(?<=\p{L})([0-9]+|[ivxIVX]+)$""").find(s)
+                if (match != null) {
+                    val raw = (match.groupValues[1].ifEmpty { match.groupValues[2] }).lowercase()
+                    return when (raw) {
+                        "一", "i" -> "1"
+                        "二", "ii" -> "2"
+                        "三", "iii" -> "3"
+                        "四", "iv" -> "4"
+                        "五", "v" -> "5"
+                        else -> raw
+                    }
+                }
+                return null
+            }
+
+            // 课程名称规范化: 保护数字/字母序数，剔除冗余学年学期与无用中括号班级代号
             fun normalize(name: String): String {
-                return name
-                    .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
-                    .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
-                    .replace(Regex("""\s+"""), "")
+                var s = name.trim()
+                    .replace('（', '(').replace('）', ')')
+                    .replace('【', '[').replace('】', ']')
+                    .replace('Ⅰ', '1').replace('Ⅱ', '2').replace('Ⅲ', '3').replace('Ⅳ', '4')
+
+                // 1. 剥离学年学期格式，如 (2024-2025-1)
+                s = s.replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
+
+                // 2. 保护关键序数: (1), (2), (A), (B), (一), (二), (I), (II)
+                s = s.replace(Regex("""\(([0-9]+|[a-zA-Z]|一|二|三|四|[ivxIVX]+)\)""")) { match ->
+                    val v = match.groupValues[1].lowercase()
+                    val num = when (v) {
+                        "i", "一" -> "1"
+                        "ii", "二" -> "2"
+                        "iii", "三" -> "3"
+                        "iv", "四" -> "4"
+                        else -> v
+                    }
+                    "__ord_${num}__"
+                }
+
+                // 3. 清除其他长备注括号内容: 如 [必修], (重修), (班级代号)
+                s = s.replace(Regex("""\[.*?\]|\(.*?\)|【.*?】"""), "")
+
+                // 4. 还原序数字缀并清洗
+                s = s.replace("__ord_", "").replace("__", "")
+
+                return s.replace(Regex("""[^\p{L}\p{N}]"""), "")
                     .lowercase()
                     .trim()
             }
 
+            // 课程兼容性强校验 (实验课互斥、序数互斥、跨学期互斥)
+            fun areCoursesCompatible(tc: UnifiedCourse, cx: UnifiedCourse): Boolean {
+                val isTcLab = tc.name.contains("实验") || tc.cleanName.contains("实验")
+                val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
+                if (isTcLab != isCxLab) return false
+
+                // 序数互斥: 例如《大学英语(1)》与《大学英语(2)》序数不同，坚决不匹配！
+                val tcOrd = extractOrdinalKey(tc.cleanName) ?: extractOrdinalKey(tc.name)
+                val cxOrd = extractOrdinalKey(cx.cleanName) ?: extractOrdinalKey(cx.name)
+                if (tcOrd != null && cxOrd != null && tcOrd != cxOrd) {
+                    return false
+                }
+
+                // 明确学期冲突互斥: 若两个平台都明确标注了不同学期代码，坚决不跨学期配对
+                if (!tc.semesterCode.isNullOrBlank() && !cx.semesterCode.isNullOrBlank()) {
+                    if (tc.semesterCode != cx.semesterCode) {
+                        return false
+                    }
+                }
+
+                return true
+            }
+
             for (tc in uTcList) {
                 val tcNorm = normalize(tc.cleanName)
-                val isTcLab = tc.name.contains("实验") || tc.cleanName.contains("实验")
 
-                // Pass 1: 优先精确全称匹配 (完全杜绝理论课与实验课被包含算法混淆)
+                // Pass 1: 优先精确全称规范化匹配 (完全杜绝理论课与实验课、不同序数课被混淆)
                 var matchedCx = uCxList.firstOrNull { cx ->
                     if (matchedCxIds.contains(cx.unifiedId)) return@firstOrNull false
-                    val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
-                    if (isTcLab != isCxLab) return@firstOrNull false
+                    if (!areCoursesCompatible(tc, cx)) return@firstOrNull false
                     val cxNorm = normalize(cx.cleanName)
                     if (tcNorm.isEmpty() || cxNorm.isEmpty()) return@firstOrNull false
                     tcNorm == cxNorm || tc.cleanName.trim().equals(cx.cleanName.trim(), ignoreCase = true)
                 }
 
-                // Pass 2: 仅在未精确匹配时，进行同类型下的模糊包含匹配 (严格保持实验课与非实验课互斥)
+                // Pass 2: 仅在未精确匹配时，进行同类型下的模糊包含匹配 (严格保持实验课、序数与学期互斥)
                 if (matchedCx == null) {
                     matchedCx = uCxList.firstOrNull { cx ->
                         if (matchedCxIds.contains(cx.unifiedId)) return@firstOrNull false
-                        val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
-                        if (isTcLab != isCxLab) return@firstOrNull false
+                        if (!areCoursesCompatible(tc, cx)) return@firstOrNull false
                         val cxNorm = normalize(cx.cleanName)
                         if (tcNorm.isEmpty() || cxNorm.isEmpty()) return@firstOrNull false
 
