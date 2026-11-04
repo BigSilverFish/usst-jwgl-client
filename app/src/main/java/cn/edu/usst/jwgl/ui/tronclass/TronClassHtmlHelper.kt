@@ -64,6 +64,39 @@ object TronClassHtmlHelper {
     }
 
     /**
+     * 清理 HTML 并在深色主题下正确展示，同时保留 <img> 标签以供 ImageGetter 加载：
+     * 1. 清除内联的黑色/深灰色文字颜色（如 color: black, color: #000000），使文字颜色自动继承 TextView 的浅色；
+     * 2. 清除背景色与内联字体；
+     * 3. 完整保留 <img> 标签与公式图片。
+     */
+    fun cleanHtmlStylesPreservingImages(rawHtml: String?): String {
+        if (rawHtml.isNullOrBlank()) return ""
+        return try {
+            val doc = Jsoup.parse(rawHtml)
+            doc.select("[style]").forEach { el ->
+                var style = el.attr("style")
+                style = style.replace(Regex("""(?i)color\s*:\s*[^;]+;?"""), "")
+                style = style.replace(Regex("""(?i)background(-color)?\s*:\s*[^;]+;?"""), "")
+                style = style.replace(Regex("""(?i)font-family\s*:\s*[^;]+;?"""), "")
+                if (style.isBlank()) {
+                    el.removeAttr("style")
+                } else {
+                    el.attr("style", style.trim())
+                }
+            }
+            doc.select("font[color]").forEach { el ->
+                val colorVal = el.attr("color").lowercase()
+                if (colorVal in listOf("#000", "#000000", "black", "#333", "#333333", "#111", "#222", "#444", "#444444")) {
+                    el.removeAttr("color")
+                }
+            }
+            doc.body().html()
+        } catch (_: Exception) {
+            rawHtml
+        }
+    }
+
+    /**
      * 清理 HTML 获得纯文本别名
      */
     fun htmlToPlainText(html: String?): String = getCleanText(html)

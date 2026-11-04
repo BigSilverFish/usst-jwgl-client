@@ -699,6 +699,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     el.parents().none { it in rawSet }
                 }
 
+                Log.d(TAG, "parseQuestionsFromHtml: topElements size=${topElements.size}")
+
                 val seenSignatures = mutableSetOf<String>()
                 var questionIndex = 1
 
@@ -706,35 +708,70 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     // 题型与分值提取 (支持移动端 colorShallow、totalScore，以及 PC 端 newZy_TItle、stemGray 等)
                     val typeScoreEl = qEl.select(".colorShallow, .newZy_TItle, .stemGray, .question-type, .type, .colorDeep, .type_tit, .color888, .font14").firstOrNull()
                     val typeScoreText = typeScoreEl?.text()?.trim().orEmpty()
-                    val totalScoreEl = qEl.select(".totalScore, .score, .numspan").firstOrNull()
+                    val totalScoreEl = qEl.select(".totalScore, .score, .numspan, .mark_score").firstOrNull()
                     val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText)
                         ?: Regex("""(\d+(?:\.\d+)?)\s*分""").find(totalScoreEl?.text().orEmpty())
                         ?: Regex("""[(（\[【]\s*(\d+(?:\.\d+)?)\s*分\s*[)）\]】]""").find(qEl.text())
                         ?: Regex("""(?:分值[:：\s]*|共\s*)(\d+(?:\.\d+)?)\s*分""").find(qEl.text())
                     val scoreText = scoreMatch?.groupValues?.get(1)?.let { "$it 分" } ?: ""
 
-                    // 1. 题干提取 (支持移动端 qtContent 与 PC 端 Zy_TItle / stemDiv / Picdiv)
-                    val stemEl = qEl.select(".qtContent, .Zy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .workTextWrap, .font14, .stem_title, .title, .sub-title").firstOrNull()
+                    // 1. 题干提取 (支持移动端 mark_name/qtContent 与 PC 端 Zy_TItle / stemDiv / Picdiv 等)
+                    val stemEl = qEl.select(".qtContent, .mark_name, .mark_title, .Zy_TItle, .newZy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .workTextWrap, .font14, .stem_title, .title, .sub-title, .questionContent, .subject_title, .stem, .textWrap").firstOrNull()
+                    var cleanStem = ""
+                    var stemHtml = ""
+
                     if (stemEl != null) {
-                        for (img in stemEl.select("img")) {
+                        val stemClone = stemEl.clone()
+                        // 移除题型徽章与分值等标头标记，防止污染题干正文
+                        stemClone.select(".colorShallow, .totalScore, .score, .numspan, .type, .question-type, .color888, .stemGray, .mark_score").remove()
+                        for (img in stemClone.select("img")) {
                             val src = img.attr("src").ifBlank { img.attr("data-src") }.ifBlank { img.attr("data-original") }
                             if (src.isNotBlank()) {
                                 img.attr("src", normalizeChaoXingImageUrl(src))
                             }
                         }
+                        cleanStem = stemClone.text().trim()
+                        cleanStem = cleanStem.replace(Regex("""^\d+[.\u3001\s]+"""), "")
+                        cleanStem = cleanStem.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
+                        cleanStem = cleanStem.replace(Regex("""[(（\[【]?\d+(?:\.\d+)?\s*分[)）\]】]?\s*$"""), "").trim()
+
+                        var sHtml = stemClone.html().trim()
+                        sHtml = sHtml.replaceFirst(Regex("""^\s*\d+[.\u3001\s]+"""), "")
+                        sHtml = sHtml.replaceFirst(Regex("""^\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
+                        sHtml = sHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*\d+[.\u3001\s]+"""), "$1")
+                        sHtml = sHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "$1")
+                        stemHtml = sHtml.trim()
                     }
-                    var stemHtml = stemEl?.html()?.trim().orEmpty()
-                    var cleanStem = stemEl?.text()?.trim().orEmpty()
+
+                    // 容器兜底提取：若未找到题干，剥离选项、作答框与评语，提取剩余内容
                     if (cleanStem.isBlank()) {
-                        cleanStem = qEl.select(".Zy_TItle, .stemDiv, .title, .sub-title").text().trim()
+                        val fallbackEl = qEl.clone()
+                        fallbackEl.select(
+                            "script, style, .mark_letter, .Zy_ulTop, .Cy_ulTop, .Zy_ulTk, .ulOption, .stem_answer, " +
+                            ".Py_answer, .Py_tk, .stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer, " +
+                            ".true_answer, .rightAnswer, .rightAnswerContent, .standardAnswer, .correctAnswer, .trueAnswer, " +
+                            ".analysis, .myAnalysis, .analysisDiv, .explain, .fenxi, .grayDiv, .pingyu, .remark, .comment, .teach-comment, " +
+                            ".colorShallow, .totalScore, .score, .numspan, .mark_score, textarea, input, button"
+                        ).remove()
+                        for (img in fallbackEl.select("img")) {
+                            val src = img.attr("src").ifBlank { img.attr("data-src") }.ifBlank { img.attr("data-original") }
+                            if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
+                        }
+                        var fbText = fallbackEl.text().trim()
+                        fbText = fbText.replace(Regex("""^\d+[.\u3001\s]+"""), "")
+                        fbText = fbText.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
+                        fbText = fbText.replace(Regex("""[(（\[【]?\d+(?:\.\d+)?\s*分[)）\]】]?\s*$"""), "").trim()
+                        if (fbText.isNotBlank()) {
+                            cleanStem = fbText
+                            var fbHtml = fallbackEl.html().trim()
+                            fbHtml = fbHtml.replaceFirst(Regex("""^\s*\d+[.\u3001\s]+"""), "")
+                            fbHtml = fbHtml.replaceFirst(Regex("""^\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
+                            fbHtml = fbHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*\d+[.\u3001\s]+"""), "$1")
+                            fbHtml = fbHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "$1")
+                            stemHtml = fbHtml.trim()
+                        }
                     }
-                    // 清理题干开头的题号 ("1.", "1、", "1 ")
-                    cleanStem = cleanStem.replace(Regex("""^\d+[.\u3001\s]+"""), "")
-                    // 清理题干开头的题型与分值标注 ("(单选题, 2分)", "【单选题】", "[单选题]")
-                    cleanStem = cleanStem.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
-                    // 清理题干末尾的分值标注 ("（2.0分）", "(2分)")
-                    cleanStem = cleanStem.replace(Regex("""[(（\[【]?\d+(?:\.\d+)?\s*分[)）\]】]?\s*$"""), "")
-                    cleanStem = cleanStem.trim()
+
                     if (stemHtml.isBlank()) stemHtml = cleanStem
 
                     // 8. 题目 ID 提取
@@ -760,22 +797,23 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         continue
                     }
 
-                    // 2. 提取题干中的教师附件或图片
+                    // 2. 提取题干中的教师附件或图片 (同时检索 stemEl 与 qEl)
                     val teacherAtts = mutableListOf<ChaoXingCourseAttachment>()
-                    if (stemEl != null) {
-                        for (iframe in stemEl.select("iframe.attach-iframe, iframe[objectid]")) {
-                            val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
-                            val oid = iframe.attr("objectid")
-                            val fsStr = iframe.attr("filesize")
-                            if (oid.isNotBlank() && fn.isNotBlank()) {
-                                teacherAtts.add(
-                                    ChaoXingCourseAttachment(
-                                        objectId = oid,
-                                        name = fn,
-                                        size = parseSizeStrToBytes(fsStr)
-                                    )
+                    val attIframes = mutableListOf<org.jsoup.nodes.Element>()
+                    stemEl?.let { attIframes.addAll(it.select("iframe.attach-iframe, iframe[objectid]")) }
+                    attIframes.addAll(qEl.select("iframe.attach-iframe, iframe[objectid]").filter { it !in attIframes })
+                    for (iframe in attIframes) {
+                        val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
+                        val oid = iframe.attr("objectid")
+                        val fsStr = iframe.attr("filesize")
+                        if (oid.isNotBlank() && fn.isNotBlank()) {
+                            teacherAtts.add(
+                                ChaoXingCourseAttachment(
+                                    objectId = oid,
+                                    name = fn,
+                                    size = parseSizeStrToBytes(fsStr)
                                 )
-                            }
+                            )
                         }
                     }
 
@@ -2025,7 +2063,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 }
                 val qHeader = "第${q.index}题 ${q.typeName} ${if (q.scoreText.isNotBlank()) "(${q.scoreText})" else ""}".trim()
                 contentHtmlBuilder.append("<b>").append(qHeader).append("</b><br/>")
-                contentHtmlBuilder.append(q.cleanStem.ifBlank { q.stemHtml })
+                val stemForHtml = if (q.stemHtml.isNotBlank()) q.stemHtml else q.cleanStem
+                contentHtmlBuilder.append(stemForHtml)
 
                 // 如果包含客观题选项，将其按行格式化追加
                 val qOpts = q.options ?: emptyList()
