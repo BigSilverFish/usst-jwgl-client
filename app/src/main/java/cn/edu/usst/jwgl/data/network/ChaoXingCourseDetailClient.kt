@@ -129,26 +129,65 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             return -1
         }
 
+        fun normalizeChaoXingImageUrl(src: String): String {
+            val s = src.trim()
+            return when {
+                s.startsWith("//") -> "https:$s"
+                s.startsWith("http://") -> "https://" + s.substring(7)
+                s.startsWith("https://") -> s
+                s.startsWith("/ananas/") || s.startsWith("/star3/") -> "https://p.ananas.chaoxing.com$s"
+                s.startsWith("/") -> "https://mooc1.chaoxing.com$s"
+                else -> s
+            }
+        }
+
         fun parseExamsFromHtml(html: String): List<ChaoXingExam> {
             val out = mutableListOf<ChaoXingExam>()
             val blocks = Regex("""<li>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL).findAll(html)
             for (block in blocks) {
                 val body = block.groupValues[1]
-                if (!body.contains("overHidden2")) continue
+                if (!body.contains("overHidden2") && !body.contains("status")) continue
 
                 val rawTitle = Regex("""<p class="overHidden2[^"]*"[^>]*>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
                     .find(body)?.groupValues?.get(1) ?: ""
-                val title = stripHtml(rawTitle)
+                val title = stripHtml(rawTitle).ifBlank {
+                    stripHtml(Regex("""<h[1-6][^>]*>(.*?)</h[1-6]>""").find(body)?.groupValues?.get(1).orEmpty())
+                }
                 if (title.isBlank()) continue
 
                 val rawStatus = Regex("""<p class="status[^"]*"[^>]*>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
                     .find(body)?.groupValues?.get(1) ?: ""
-                val status = stripHtml(rawStatus)
+                var status = stripHtml(rawStatus)
 
-                val remaining = Regex("""剩余[^<]*""").find(body)?.value?.trim() ?: ""
+                // 提取起止时间 / 剩余时间 / 截止时间
+                var remaining = Regex("""(?:起止时间|有效时间|测验时间|截止时间|时间)[:：\s]*([^<]+)""").find(body)?.groupValues?.get(1)?.trim().orEmpty()
+                if (remaining.isBlank()) {
+                    remaining = Regex("""\d{4}[-/.]\d{1,2}[-/.]\d{1,2}[^<]*""").find(body)?.value?.trim().orEmpty()
+                }
+                if (remaining.isBlank()) {
+                    remaining = Regex("""剩余[^<]*""").find(body)?.value?.trim().orEmpty()
+                }
+                if (remaining.isBlank()) {
+                    val timeDoc = org.jsoup.Jsoup.parseBodyFragment(body)
+                    remaining = timeDoc.select(".time, .c_999, .date, .time_box, .end-time, .status-time").text().trim()
+                }
+
                 val scoreBlock = Regex("""class="numspan"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
                     .find(body)?.groupValues?.get(1) ?: ""
-                val score = Regex("""\d+(?:\.\d+)?""").find(scoreBlock)?.value ?: ""
+                var score = Regex("""\d+(?:\.\d+)?""").find(scoreBlock)?.value ?: ""
+                if (score.isBlank()) {
+                    score = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(body)?.groupValues?.get(1)
+                        ?: Regex("""(?:得分|成绩)[:：\s]*(\d+(?:\.\d+)?)""").find(body)?.groupValues?.get(1)
+                        ?: ""
+                }
+
+                if (score.isBlank()) {
+                    if (body.contains("未公布") || body.contains("不公布") || body.contains("成绩未公布") || status.contains("未公布")) {
+                        score = "教师未公布得分"
+                    } else if (body.contains("待批") || body.contains("待评阅") || status.contains("待批") || status.contains("待评阅")) {
+                        score = "待批改"
+                    }
+                }
 
                 val id = Regex("""viewExamAnswer\('(\d+)'""").find(body)?.groupValues?.get(1)
                     ?: Regex("""goTest\('[^']*',\s*(\d+)""").find(body)?.groupValues?.get(1)
@@ -638,6 +677,14 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                     // 1. 题干提取 (支持移动端 qtContent 与 PC 端 Zy_TItle / stemDiv / Picdiv)
                     val stemEl = qEl.select(".qtContent, .Zy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .workTextWrap, .font14, .stem_title, .title, .sub-title").firstOrNull()
+                    if (stemEl != null) {
+                        for (img in stemEl.select("img")) {
+                            val src = img.attr("src").ifBlank { img.attr("data-src") }.ifBlank { img.attr("data-original") }
+                            if (src.isNotBlank()) {
+                                img.attr("src", normalizeChaoXingImageUrl(src))
+                            }
+                        }
+                    }
                     var stemHtml = stemEl?.html()?.trim().orEmpty()
                     var cleanStem = stemEl?.text()?.trim().orEmpty()
                     if (cleanStem.isBlank()) {
@@ -702,6 +749,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     var ansHtml = ""
                     val pyAns = qEl.select(".Py_answer, .Py_tk").firstOrNull()
                     if (pyAns != null) {
+                        for (img in pyAns.select("img")) {
+                            val src = img.attr("src").ifBlank { img.attr("data-src") }
+                            if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
+                        }
                         val m = Regex("""(?:我的答案|学生答案)[:：\s]*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(pyAns.text())
                         if (m != null) {
                             cleanAns = m.groupValues[1].trim()
@@ -710,6 +761,12 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     }
                     if (cleanAns.isBlank()) {
                         val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer").firstOrNull()
+                        if (ansEl != null) {
+                            for (img in ansEl.select("img")) {
+                                val src = img.attr("src").ifBlank { img.attr("data-src") }
+                                if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
+                            }
+                        }
                         ansHtml = ansEl?.html()?.trim().orEmpty()
                         cleanAns = if (ansEl != null) {
                             ansEl.text().replace(Regex("""^(?:我的答案|我的作答|学生答案)[:：\s]*"""), "").trim()
@@ -888,12 +945,21 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         letter = if (idx < letterList.size) letterList[idx] else "${idx + 1}"
                     }
 
-                    // 选项文本提取 (支持 a.after, .answer_p, .option_content, .text 等)
+                    // 选项文本提取 (支持 a.after, .answer_p, .option_content, .text 等，完整保留图片)
                     val contentEl = optEl.select("a.after, .answer_p, .option_content, .text, .fl:not(i):not(em):not(.num_option), p, a, div, span:not(.num_option)").firstOrNull()
-                    var content = contentEl?.text()?.trim() ?: rawText
-                    content = content.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
-                    if (content.isBlank() && rawText.isNotBlank()) {
-                        content = rawText.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
+                    var content: String
+                    if (contentEl != null && contentEl.select("img").isNotEmpty()) {
+                        for (img in contentEl.select("img")) {
+                            val src = img.attr("src").ifBlank { img.attr("data-src") }
+                            if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
+                        }
+                        content = contentEl.html().trim()
+                    } else {
+                        content = contentEl?.text()?.trim() ?: rawText
+                        content = content.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
+                        if (content.isBlank() && rawText.isNotBlank()) {
+                            content = rawText.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
+                        }
                     }
 
                     val isSelected = myLetters.contains(letter) ||
@@ -1373,6 +1439,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 val req = Request.Builder()
                     .url(fullUrl)
                     .header("Cookie", cookies)
+                    .header("Referer", "https://mooc1.chaoxing.com/visit/interaction?courseid=$targetCourseId&clazzid=$targetClassId&personid=$cpi")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .get()
                     .build()
@@ -1383,35 +1451,58 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                 if (html.isNotBlank()) {
                     val questions = parseQuestionsFromHtml(html)
-                    if (questions.isNotEmpty() || html.contains("TiMu") || html.contains("singleQuesId") || html.contains("questionBlock")) {
-                        val scoreStr = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
-                            ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
-                            ?: Regex("""得分[:：]\s*(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
-                            ?: exam.score
+                    val hasQuestions = questions.isNotEmpty() || html.contains("TiMu") || html.contains("singleQuesId") || html.contains("questionBlock")
 
-                        val limitMatch = Regex("""(?:限时|考试时长|时长)[:：]?\s*(\d+)\s*分钟""").find(html)
-                        val limitTime = limitMatch?.groupValues?.get(1)?.toIntOrNull()
+                    // 1. 得分提取与未公布状态研判
+                    var scoreStr = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                        ?: Regex("""class="numspan"[^>]*>(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                        ?: Regex("""得分[:：]\s*(\d+(?:\.\d+)?)""").find(html)?.groupValues?.get(1)
+                        ?: exam.score
 
-                        val timeRange = extractDeadlineFromText(html, html)
+                    val isNotPub = html.contains("成绩未公布") || html.contains("未公布") || html.contains("不公布") ||
+                            html.contains("教师未设置允许查看") || html.contains("未开启查看") || html.contains("未发布")
+                    if (scoreStr.isBlank() || scoreStr == "--") {
+                        scoreStr = when {
+                            html.contains("待批") || html.contains("批阅中") || html.contains("待评阅") -> "待批改"
+                            isNotPub || isDone -> "教师未公布得分"
+                            else -> ""
+                        }
+                    }
 
+                    // 2. 作答时限与时长
+                    val limitMatch = Regex("""(?:限时|考试时长|时长)[:：]?\s*(\d+)\s*分钟""").find(html)
+                    val limitTime = limitMatch?.groupValues?.get(1)?.toIntOrNull()
+
+                    // 3. 起止时间提取
+                    var timeRange = extractDeadlineFromText(html, html)
+                    if (timeRange.isBlank()) {
+                        timeRange = exam.remaining
+                    }
+                    if (timeRange.isBlank()) {
+                        timeRange = if (isDone) "测验已截止" else "时间未公开"
+                    }
+
+                    // 只要成功解析出题目，或者包含测验核心结构，或者属于已提交回顾，均成功构造试卷详情
+                    val isRecognized = hasQuestions || html.contains("exam") || html.contains("test") || html.contains("测验") || html.contains("考试") || isDone
+                    if (isRecognized) {
                         val examDetail = ChaoXingExamDetail(
                             examId = exam.id,
                             title = exam.title,
                             courseName = course?.courseName ?: exam.courseName,
                             statusText = exam.status.ifBlank { if (isDone) "已完成" else "待作答" },
                             score = scoreStr,
-                            timeRange = timeRange.ifBlank { exam.remaining },
+                            timeRange = timeRange,
                             limitTime = limitTime,
                             scoreRule = if (html.contains("最高分")) "highest" else "latest",
                             rawQuestions = questions,
                             analysisUrl = exam.analysisUrl,
                             taskUrl = finalUrl,
                             isSubmitted = isDone,
-                            isGraded = scoreStr.isNotBlank() || isDone
+                            isGraded = scoreStr.isNotBlank() && scoreStr != "教师未公布得分"
                         )
 
                         cacheMgr.saveChaoXingExamDetail(exam.id, examDetail)
-                        Log.i(TAG, "Successfully fetched ChaoXing exam detail: ${exam.title} (${questions.size} questions)")
+                        Log.i(TAG, "Successfully fetched ChaoXing exam detail: ${exam.title} (${questions.size} questions, score=$scoreStr, time=$timeRange)")
                         return@withContext Result.success(examDetail)
                     }
                 }
@@ -1425,7 +1516,33 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             return@withContext Result.success(cached)
         }
 
-        Result.failure<ChaoXingExamDetail>(lastException ?: Exception("未拉取到超星测验试卷题目"))
+        // 兜底优雅降级：构造带有明确测验元数据的详情，杜绝出现界面生硬 "--" 与死锁的 "进行中"
+        val fallbackScore = when {
+            exam.score.isNotBlank() -> exam.score
+            isDone -> "教师未公布得分"
+            else -> ""
+        }
+        val fallbackTime = when {
+            exam.remaining.isNotBlank() -> exam.remaining
+            isDone -> "测验已截止"
+            else -> "时间未公开"
+        }
+        val fallbackDetail = ChaoXingExamDetail(
+            examId = exam.id,
+            title = exam.title,
+            courseName = course?.courseName ?: exam.courseName,
+            statusText = exam.status.ifBlank { if (isDone) "已完成" else "待作答" },
+            score = fallbackScore,
+            timeRange = fallbackTime,
+            limitTime = null,
+            scoreRule = "highest",
+            rawQuestions = emptyList(),
+            analysisUrl = exam.analysisUrl,
+            taskUrl = if (exam.taskUrl.isNotBlank()) exam.taskUrl else candidateUrls.firstOrNull().orEmpty(),
+            isSubmitted = isDone,
+            isGraded = fallbackScore.isNotBlank() && fallbackScore != "教师未公布得分"
+        )
+        Result.success(fallbackDetail)
     }
 
     fun parseExamsFromHtml(html: String): List<ChaoXingExam> =

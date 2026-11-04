@@ -439,18 +439,23 @@ data class ChaoXingExamDetail(
             }
 
             val pMatch = Regex("""(\d+(?:\.\d+)?)""").find(q.scoreText)?.groupValues?.get(1)?.toDoubleOrNull()
+            val subjectTitle = if (q.stemHtml.contains("<img", ignoreCase = true) || q.cleanStem.isBlank()) {
+                q.stemHtml
+            } else {
+                q.cleanStem
+            }
 
             TronClassSubject(
                 id = q.id.toLongOrNull() ?: (idx + 1).toLong(),
-                title = q.cleanStem.ifBlank { q.stemHtml },
+                title = subjectTitle,
                 type = subType,
                 point = pMatch,
                 options = opts,
-                myAnswer = q.cleanMyAnswer,
+                myAnswer = if (q.myAnswerHtml.contains("<img", ignoreCase = true)) q.myAnswerHtml else q.cleanMyAnswer,
                 correctAnswer = q.correctAnswer,
                 score = if (q.cleanMyAnswer.isNotBlank() && q.correctAnswer.isNotBlank() && q.cleanMyAnswer.trim().equals(q.correctAnswer.trim(), ignoreCase = true)) pMatch else null,
                 explanation = q.explanation,
-                description = q.cleanStem.ifBlank { q.stemHtml },
+                description = subjectTitle,
                 teacherComment = q.teacherComment
             )
         }
@@ -461,8 +466,9 @@ data class ChaoXingExamDetail(
 
         safeRawQuestions.forEachIndexed { idx, q ->
             val sId = (q.id.toLongOrNull() ?: (idx + 1).toLong()).toString()
-            if (q.cleanMyAnswer.isNotBlank()) {
-                myAnsMap[sId] = q.cleanMyAnswer
+            val finalAns = if (q.myAnswerHtml.contains("<img", ignoreCase = true)) q.myAnswerHtml else q.cleanMyAnswer
+            if (finalAns.isNotBlank()) {
+                myAnsMap[sId] = finalAns
             }
             if (q.correctAnswer.isNotBlank()) {
                 corrAnsMap[sId] = q.correctAnswer
@@ -472,17 +478,32 @@ data class ChaoXingExamDetail(
             }
         }
 
+        val st = when {
+            timeRange.contains("至") -> timeRange.substringBefore("至").trim()
+            timeRange.contains("~") -> timeRange.substringBefore("~").trim()
+            else -> null
+        }
+        val et = when {
+            timeRange.contains("至") -> timeRange.substringAfter("至").trim()
+            timeRange.contains("~") -> timeRange.substringAfter("~").trim()
+            else -> timeRange.ifBlank { null }
+        }
+
         val tcExam = TronClassExam(
             id = examId.toLongOrNull() ?: (examId.hashCode().toLong() and 0x7FFFFFFF),
             title = title,
             isStarted = true,
             isClosed = isDone || statusText.contains("已截止") || statusText.contains("已结束"),
+            startTime = st,
+            endTime = et,
             limitTime = limitTime,
             subjectsCount = safeRawQuestions.size,
             submittedTimes = if (isDone) 1 else 0,
             score = scDouble,
             scoreRule = scoreRule.ifBlank { "highest" }
         )
+
+        val finalScoreText = score.ifBlank { if (isDone) "教师未公布得分" else "" }
 
         return TronClassExamDetail(
             exam = tcExam,
@@ -491,7 +512,7 @@ data class ChaoXingExamDetail(
                     id = 1L,
                     attemptIndex = 1,
                     score = scDouble,
-                    scoreText = score,
+                    scoreText = finalScoreText,
                     submittedAt = timeRange
                 )
             ) else emptyList(),
