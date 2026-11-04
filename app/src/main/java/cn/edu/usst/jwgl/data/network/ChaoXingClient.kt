@@ -736,10 +736,143 @@ class ChaoXingClient(private val context: Context) {
                     }
                 }.awaitAll().flatten()
 
-                Result.success(results)
+                // 对探测到的签到活动进行深度配置探测与精准类型解析
+                val enrichedResults = results.map { pair ->
+                    async {
+                        val course = pair.first
+                        val item = pair.second
+                        val detailRes = fetchSignDetail(course.courseId, course.classId, item.id, studentId)
+                        if (detailRes.isSuccess) {
+                            item.signDetail = detailRes.getOrNull()
+                        }
+                        pair
+                    }
+                }.awaitAll()
+
+                Result.success(enrichedResults)
             }
         } catch (e: Exception) {
             Log.e(TAG, "fetchActiveSignsForCourses error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 8.1 深度探测超星签到活动配置与真实签到类型
+     * 双通道聚合 getPPTActiveInfo 与 preSign 判定：
+     * 3 -> 手势签到 (自动获取手势密码 signcode)
+     * 5 / ifPhoto -> 拍照签到
+     * 带有 signcode / 签到码 -> 口令签到
+     * 4 / 位置配置 -> 位置签到
+     * 2 -> 二维码签到
+     * 普通签到
+     */
+    suspend fun fetchSignDetail(
+        courseId: String,
+        classId: String,
+        activeId: Long,
+        studentId: String? = null
+    ): Result<cn.edu.usst.jwgl.data.model.ChaoXingSignDetail> = withContext(Dispatchers.IO) {
+        val cookies = prefs.getCookies(studentId) ?: return@withContext Result.failure(Exception("Cookie 为空"))
+        val uid = prefs.getUid(studentId) ?: ""
+
+        try {
+            var signCode: String? = null
+            var otherId = -1
+            var ifPhoto = false
+            var locationText: String? = null
+            var lat: Double? = null
+            var lng: Double? = null
+            var rawJson: String? = null
+
+            // 1. 请求 getPPTActiveInfo 接口获取配置
+            try {
+                val infoUrl = "https://mobilelearn.chaoxing.com/v2/apis/active/getPPTActiveInfo?activeId=$activeId"
+                val infoReq = Request.Builder()
+                    .url(infoUrl)
+                    .header("Cookie", cookies)
+                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                    .get()
+                    .build()
+                val infoResp = okHttpClient.newCall(infoReq).execute()
+                val infoBody = infoResp.body?.string().orEmpty()
+                if (infoResp.isSuccessful && infoBody.isNotBlank()) {
+                    rawJson = infoBody
+                    val json = org.json.JSONObject(infoBody)
+                    val data = json.optJSONObject("data")
+                    if (data != null) {
+                        signCode = data.optString("signcode", data.optString("signCode", "")).trim().takeIf { it.isNotBlank() }
+                        otherId = data.optInt("otherId", -1).let {
+                            if (it == -1) data.optString("otherId").toIntOrNull() ?: -1 else it
+                        }
+                        ifPhoto = data.optInt("ifPhoto", 0) == 1 || data.optString("ifPhoto") == "1"
+                        locationText = data.optString("locationText", "").trim().takeIf { it.isNotBlank() }
+                        val latVal = data.optDouble("locationLatitude", Double.NaN)
+                        if (!latVal.isNaN()) lat = latVal
+                        val lngVal = data.optDouble("locationLongitude", Double.NaN)
+                        if (!lngVal.isNaN()) lng = lngVal
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "getPPTActiveInfo failed: ${e.message}")
+            }
+
+            // 2. 请求 preSign 预签到接口进行状态与落地页分析
+            var isAlreadySigned = false
+            var isExpired = false
+            var preHtml = ""
+            var finalUrl = ""
+
+            try {
+                val preUrl = "$PRE_SIGN_URL?courseId=$courseId&classId=$classId&activePrimaryId=$activeId&uid=$uid&general=1&sys=1&ls=1&appType=15&ut=s"
+                val preReq = Request.Builder()
+                    .url(preUrl)
+                    .header("Cookie", cookies)
+                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
+                    .get()
+                    .build()
+                val preResp = okHttpClient.newCall(preReq).execute()
+                finalUrl = preResp.request.url.toString()
+                preHtml = preResp.body?.string().orEmpty()
+
+                if (preHtml.contains("您已签到过了") || preHtml.contains("已签到") || finalUrl.contains("success")) {
+                    isAlreadySigned = true
+                }
+                if (preHtml.contains("活动已结束") || preHtml.contains("签到已结束")) {
+                    isExpired = true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "preSign probe failed: ${e.message}")
+            }
+
+            // 3. 综合多维度精确判定签到类型
+            val typeDisplayName = when {
+                otherId == 3 || preHtml.contains("手势") || finalUrl.contains("gesture") -> "手势签到"
+                otherId == 5 || ifPhoto || preHtml.contains("拍照") || preHtml.contains("照片") || finalUrl.contains("photo") -> "拍照签到"
+                !signCode.isNullOrBlank() || preHtml.contains("签到码") || preHtml.contains("口令") || finalUrl.contains("pcForCode") -> "口令签到"
+                otherId == 2 || preHtml.contains("二维码") || finalUrl.contains("qr") -> "二维码签到"
+                otherId == 4 || !locationText.isNullOrBlank() || lat != null || preHtml.contains("位置") || finalUrl.contains("location") -> "位置签到"
+                else -> "普通签到"
+            }
+
+            val detail = cn.edu.usst.jwgl.data.model.ChaoXingSignDetail(
+                activeId = activeId,
+                otherId = if (otherId >= 0) otherId else 0,
+                signTypeDisplayName = typeDisplayName,
+                signCode = signCode,
+                ifPhoto = ifPhoto,
+                locationText = locationText,
+                latitude = lat,
+                longitude = lng,
+                isAlreadySigned = isAlreadySigned,
+                isExpired = isExpired,
+                rawJson = rawJson
+            )
+
+            Log.i(TAG, "fetchSignDetail activeId=$activeId -> type: $typeDisplayName, signCode: $signCode, isAlreadySigned: $isAlreadySigned")
+            Result.success(detail)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchSignDetail unexpected error", e)
             Result.failure(e)
         }
     }
