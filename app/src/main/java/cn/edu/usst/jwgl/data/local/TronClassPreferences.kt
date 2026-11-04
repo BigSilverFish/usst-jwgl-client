@@ -83,6 +83,8 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_ROLLCALL_MONITOR_ENABLED = "tc_rollcall_monitor_enabled"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
+        private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
+        private const val KEY_UNBOUND_COURSE_PAIRS = "tc_unbound_course_pairs"
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
 
@@ -519,7 +521,9 @@ class TronClassPreferences(private val context: Context) {
      */
     fun getAllCustomSemesters(studentId: String? = null): Map<String, String> {
         val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null) ?: return emptyMap()
+        val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null)
+            ?: prefs.getString(KEY_CUSTOM_SEMESTERS, null)
+            ?: return emptyMap()
         return try {
             val type = object : TypeToken<Map<String, String>>() {}.type
             gson.fromJson(json, type) ?: emptyMap()
@@ -527,5 +531,91 @@ class TronClassPreferences(private val context: Context) {
             Log.e(TAG, "getAllCustomSemesters error", e)
             emptyMap()
         }
+    }
+
+    /**
+     * 手动绑定畅课与超星课程 (tcCourseId -> cxCourseId/key)
+     */
+    fun bindCourses(tcCourseId: String, cxCourseId: String, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        val bindings = getAllManualBindings(studentId).toMutableMap()
+        bindings[tcCourseId] = cxCourseId
+
+        // 同时解除可能的黑名单屏蔽
+        val unbounds = getUnboundPairs(studentId).toMutableSet()
+        unbounds.remove("${tcCourseId}_${cxCourseId}")
+        unbounds.remove(tcCourseId)
+        unbounds.removeAll { it.startsWith("${tcCourseId}_") }
+
+        try {
+            val json = gson.toJson(bindings)
+            prefs.edit()
+                .putString(prefix + KEY_MANUAL_COURSE_BINDINGS, json)
+                .putString(KEY_MANUAL_COURSE_BINDINGS, json)
+                .putStringSet(prefix + KEY_UNBOUND_COURSE_PAIRS, unbounds)
+                .putStringSet(KEY_UNBOUND_COURSE_PAIRS, unbounds)
+                .apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "bindCourses error", e)
+        }
+    }
+
+    /**
+     * 手动解除两门课程的融合关联 (并记录黑名单，防止再次被算法自动融合)
+     */
+    fun unbindCourses(tcCourseId: String, cxCourseId: String? = null, cxClassId: String? = null, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        val bindings = getAllManualBindings(studentId).toMutableMap()
+        val targetCx = cxCourseId?.ifBlank { null } ?: bindings[tcCourseId]
+        bindings.remove(tcCourseId)
+
+        val unbounds = getUnboundPairs(studentId).toMutableSet()
+        if (!targetCx.isNullOrBlank()) {
+            unbounds.add("${tcCourseId}_${targetCx}")
+            if (!cxClassId.isNullOrBlank()) {
+                unbounds.add("${tcCourseId}_${targetCx}_${cxClassId}")
+            }
+        } else {
+            unbounds.add(tcCourseId)
+        }
+
+        try {
+            val json = gson.toJson(bindings)
+            prefs.edit()
+                .putString(prefix + KEY_MANUAL_COURSE_BINDINGS, json)
+                .putString(KEY_MANUAL_COURSE_BINDINGS, json)
+                .putStringSet(prefix + KEY_UNBOUND_COURSE_PAIRS, unbounds)
+                .putStringSet(KEY_UNBOUND_COURSE_PAIRS, unbounds)
+                .apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "unbindCourses error", e)
+        }
+    }
+
+    /**
+     * 获取所有手动配对字典 (tcCourseId -> cxCourseId/key)
+     */
+    fun getAllManualBindings(studentId: String? = null): Map<String, String> {
+        val prefix = getAccountPrefix(studentId)
+        val json = prefs.getString(prefix + KEY_MANUAL_COURSE_BINDINGS, null)
+            ?: prefs.getString(KEY_MANUAL_COURSE_BINDINGS, null)
+            ?: return emptyMap()
+        return try {
+            val type = object : TypeToken<Map<String, String>>() {}.type
+            gson.fromJson(json, type) ?: emptyMap()
+        } catch (e: Exception) {
+            Log.e(TAG, "getAllManualBindings error", e)
+            emptyMap()
+        }
+    }
+
+    /**
+     * 获取用户手动拆散的黑名单集合 ("${tcCourseId}_${cxCourseId}")
+     */
+    fun getUnboundPairs(studentId: String? = null): Set<String> {
+        val prefix = getAccountPrefix(studentId)
+        return prefs.getStringSet(prefix + KEY_UNBOUND_COURSE_PAIRS, emptySet())
+            ?: prefs.getStringSet(KEY_UNBOUND_COURSE_PAIRS, emptySet())
+            ?: emptySet()
     }
 }

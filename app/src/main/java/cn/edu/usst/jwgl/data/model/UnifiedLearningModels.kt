@@ -177,7 +177,9 @@ data class UnifiedCourse(
             cxCourses: List<ChaoXingCourse>,
             fallbackSemesterCode: String? = null,
             customSemesterMap: Map<String, String> = emptyMap(),
-            tcCustomSemesterMap: Map<String, String> = emptyMap()
+            tcCustomSemesterMap: Map<String, String> = emptyMap(),
+            manualBindings: Map<String, String> = emptyMap(),
+            unboundPairs: Set<String> = emptySet()
         ): List<UnifiedCourse> {
             val uTcList = tcCourses.map { 
                 val customSem = tcCustomSemesterMap[it.id.toString()]
@@ -192,6 +194,42 @@ data class UnifiedCourse(
 
             val result = mutableListOf<UnifiedCourse>()
             val matchedCxIds = mutableSetOf<String>()
+            val matchedTcIds = mutableSetOf<String>()
+
+            // Pass 0: 用户手动强制绑定 (最高优先级，绝对优先配对)
+            for (tc in uTcList) {
+                val boundCxId = manualBindings[tc.originalCourseId]
+                if (!boundCxId.isNullOrBlank()) {
+                    val matchedCx = uCxList.firstOrNull { cx ->
+                        !matchedCxIds.contains(cx.unifiedId) &&
+                        (cx.originalCourseId == boundCxId || "${cx.originalCourseId}_${cx.originalClassId}" == boundCxId || cx.unifiedId == boundCxId)
+                    }
+                    if (matchedCx != null) {
+                        matchedCxIds.add(matchedCx.unifiedId)
+                        matchedTcIds.add(tc.unifiedId)
+                        val inheritedSemester = tc.semesterCode ?: matchedCx.semesterCode
+                        result.add(
+                            UnifiedCourse(
+                                unifiedId = "dual_${tc.originalCourseId}_${matchedCx.originalCourseId}",
+                                platform = LearningPlatform.DUAL,
+                                originalCourseId = tc.originalCourseId,
+                                originalClassId = matchedCx.originalClassId,
+                                name = tc.name,
+                                cleanName = tc.cleanName,
+                                teacherName = if (tc.teacherName.isNotBlank()) tc.teacherName else matchedCx.teacherName,
+                                coverUrl = tc.coverUrl ?: matchedCx.coverUrl,
+                                courseCode = tc.courseCode ?: matchedCx.courseCode,
+                                department = tc.department ?: matchedCx.department,
+                                semesterCode = inheritedSemester,
+                                formattedSemesterName = inheritedSemester?.let { formatSemesterName(it) } ?: tc.formattedSemesterName,
+                                uncompletedTodoCount = tc.uncompletedTodoCount + matchedCx.uncompletedTodoCount,
+                                rawTronClassCourse = tc.rawTronClassCourse,
+                                rawChaoXingCourse = matchedCx.rawChaoXingCourse
+                            )
+                        )
+                    }
+                }
+            }
 
             // 提取关键课程序数代号: (1), (2), (一), (二), (I), (II), (A), (B) 等
             fun extractOrdinalKey(name: String): String? {
@@ -246,8 +284,16 @@ data class UnifiedCourse(
                     .trim()
             }
 
-            // 课程兼容性强校验 (实验课互斥、序数互斥、明确学期冲突互斥)
+            // 课程兼容性强校验 (实验课互斥、序数互斥、明确学期冲突互斥、手动解除黑名单拦截)
             fun areCoursesCompatible(tc: UnifiedCourse, cx: UnifiedCourse): Boolean {
+                // 黑名单检查：如果用户曾手动拆散过这门配对，坚决不自动融合
+                if (unboundPairs.contains("${tc.originalCourseId}_${cx.originalCourseId}") ||
+                    unboundPairs.contains("${tc.originalCourseId}_${cx.originalCourseId}_${cx.originalClassId}") ||
+                    unboundPairs.contains(tc.originalCourseId)
+                ) {
+                    return false
+                }
+
                 val isTcLab = tc.name.contains("实验") || tc.cleanName.contains("实验")
                 val isCxLab = cx.name.contains("实验") || cx.cleanName.contains("实验")
                 if (isTcLab != isCxLab) return false
@@ -270,6 +316,8 @@ data class UnifiedCourse(
             }
 
             for (tc in uTcList) {
+                if (matchedTcIds.contains(tc.unifiedId)) continue
+
                 val tcNorm = normalize(tc.cleanName)
 
                 // Pass 1: 优先精确全称规范化匹配 (完全杜绝理论课与实验课、不同序数课被混淆)
@@ -303,6 +351,7 @@ data class UnifiedCourse(
 
                 if (matchedCx != null) {
                     matchedCxIds.add(matchedCx.unifiedId)
+                    matchedTcIds.add(tc.unifiedId)
                     // 融合课程优先继承畅课精准权威的教务学期，确保历史课程准确归位对应学期！
                     val inheritedSemester = tc.semesterCode ?: matchedCx.semesterCode
                     result.add(
