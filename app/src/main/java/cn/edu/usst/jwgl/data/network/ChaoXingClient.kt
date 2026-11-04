@@ -445,10 +445,20 @@ class ChaoXingClient(private val context: Context) {
             return@withContext Result.success(true)
         }
 
-        // 3. 静默登录也失败，彻底清理失效标记以触发前台提示
-        Log.w(TAG, "ChaoXing authentication failed. Clearing invalid session state for $sid.")
-        prefs.clearSession(sid)
-        Result.failure(silentRes.exceptionOrNull() ?: Exception("超星学习通未登录"))
+        // 3. 静默登录失败处理：区分临时网络抖动与凭证失效
+        val ex = silentRes.exceptionOrNull()
+        val isNetworkError = ex is java.io.IOException || ex?.message?.contains("connection closed", ignoreCase = true) == true
+        if (isNetworkError && prefs.isLoggedIn(sid)) {
+            Log.w(TAG, "ChaoXing silent login encountered network issue, retaining existing session and cached data.")
+            return@withContext Result.success(true)
+        }
+
+        // 仅在明确凭证失效且非网络中断时清理 Session
+        if (!isNetworkError) {
+            Log.w(TAG, "ChaoXing credentials rejected. Clearing session state for $sid.")
+            prefs.clearSession(sid)
+        }
+        Result.failure(ex ?: Exception("超星学习通未登录"))
     }
 
     /**

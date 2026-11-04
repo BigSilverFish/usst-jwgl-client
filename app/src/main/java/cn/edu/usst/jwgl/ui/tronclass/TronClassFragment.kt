@@ -752,6 +752,10 @@ class TronClassFragment : Fragment() {
             updatePlatformModeButtonState()
             updateTronClassUserHeader()
             loadLocalCacheImmediately(force = true)
+            if (nextMode) {
+                // 开启融合模式后立即同步双平台最新数据
+                loadTronClassData(forceRefresh = false, silent = true)
+            }
             val modeName = if (nextMode) "双平台融合模式" else "纯畅课模式"
             Toast.makeText(requireContext(), "已切换为$modeName", Toast.LENGTH_SHORT).show()
         }
@@ -1208,14 +1212,27 @@ class TronClassFragment : Fragment() {
             try {
                 val cxEnsure = chaoXingClient.ensureSession()
                 if (cxEnsure.isSuccess) {
-                    val cxCoursesDeferred = async { chaoXingClient.fetchCourses().getOrDefault(emptyList()) }
-                    val cxTodosDeferred = async { chaoXingClient.fetchTodos().getOrDefault(emptyList()) }
-                    val cxNoticesDeferred = async { chaoXingClient.fetchNotices().getOrDefault(emptyList()) }
+                    val cxCoursesDeferred = async { chaoXingClient.fetchCourses() }
+                    val cxTodosDeferred = async { chaoXingClient.fetchTodos() }
+                    val cxNoticesDeferred = async { chaoXingClient.fetchNotices() }
 
-                    val cxCourses = cxCoursesDeferred.await()
-                    val cxTodos = cxTodosDeferred.await()
-                    val cxNotices = cxNoticesDeferred.await()
-                    cachedChaoXingCourses = cxCourses
+                    val rawCxCourses = cxCoursesDeferred.await().getOrNull() ?: emptyList()
+                    val cxCourses = if (rawCxCourses.isNotEmpty()) rawCxCourses else {
+                        ChaoXingPreferences(ctx).getCachedCourses().ifEmpty { cachedChaoXingCourses }
+                    }
+                    if (cxCourses.isNotEmpty()) {
+                        cachedChaoXingCourses = cxCourses
+                    }
+
+                    val rawCxTodos = cxTodosDeferred.await().getOrNull() ?: emptyList()
+                    val cxTodos = if (rawCxTodos.isNotEmpty()) rawCxTodos else {
+                        ChaoXingPreferences(ctx).getCachedTodos()
+                    }
+
+                    val rawCxNotices = cxNoticesDeferred.await().getOrNull() ?: emptyList()
+                    val cxNotices = if (rawCxNotices.isNotEmpty()) rawCxNotices else {
+                        ChaoXingPreferences(ctx).getCachedNotices()
+                    }
 
                     // 并发探测超星各门在修课程是否有进行中的签到
                     val cxSignsDeferred = async {
@@ -1289,10 +1306,44 @@ class TronClassFragment : Fragment() {
                     renderUnifiedData()
                     updateTronClassUserHeader()
                 } else {
-                    val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
-                    allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
-                    allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
-                    allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                    // 超星会话校验暂时未通过（如临时网络抖动），从本地离线缓存恢复超星数据进行融合，坚决不洗白为纯畅课！
+                    val cachedCxList = ChaoXingPreferences(ctx).getCachedCourses().ifEmpty { cachedChaoXingCourses }
+                    if (cachedCxList.isNotEmpty()) {
+                        cachedChaoXingCourses = cachedCxList
+                        val latestSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+                        val customSemMap = ChaoXingPreferences(ctx).getAllCustomSemesters()
+                        val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
+                        allUnifiedCourses = UnifiedCourse.fuseCourses(
+                            allTronClassCourses,
+                            cachedCxList,
+                            fallbackSemesterCode = latestSem,
+                            customSemesterMap = customSemMap,
+                            tcCustomSemesterMap = tcCustomMap
+                        )
+                        val cachedCxTodos = ChaoXingPreferences(ctx).getCachedTodos()
+                        val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                        val uTodos = mutableListOf<UnifiedTodo>()
+                        uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                        uTodos.addAll(cachedCxTodos)
+                        uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                        allUnifiedTodos = uTodos
+
+                        val cachedCxNotices = ChaoXingPreferences(ctx).getCachedNotices()
+                        val uBulletins = mutableListOf<UnifiedBulletin>()
+                        uBulletins.addAll(allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                        uBulletins.addAll(cachedCxNotices)
+                        uBulletins.sortByDescending { it.publishMillis }
+                        allUnifiedBulletins = uBulletins
+                    } else {
+                        // 本地确实完全没有任何超星数据，才回退畅课单源
+                        val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                        val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
+                        allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                        allUnifiedCourses = allTronClassCourses.map { 
+                            UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+                        }
+                        allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                    }
                     allUnifiedActiveRollcalls = tronClassActiveRollcalls.map { tc ->
                         UnifiedActiveRollcall(
                             unifiedId = "tc_${tc.getEffectiveId()}",
