@@ -567,7 +567,10 @@ class TronClassHomeworkFragment : Fragment() {
                     (it.typeName.orEmpty().contains("选") || it.typeName.orEmpty().contains("判断")) && it.safeOptions().isEmpty()
                 }
                 val isCorrupted = cached.contentHtml == null || cached.cleanContent == null || cached.rawQuestions == null
-                if (!isStaleLegacyCache && !hasMissingOptions && !isCorrupted) {
+                val hasBlankStems = cachedQuestions.isNotEmpty() && cachedQuestions.all {
+                    it.cleanStem.isNullOrBlank() && it.stemHtml.isNullOrBlank()
+                }
+                if (!isStaleLegacyCache && !hasMissingOptions && !isCorrupted && !hasBlankStems) {
                     try {
                         chaoXingHomeworkDetail = cached
                         renderChaoXingDetailUi(cached)
@@ -940,7 +943,11 @@ class TronClassHomeworkFragment : Fragment() {
             emptyList()
         }
 
-        if (effectiveQuestions.isNotEmpty()) {
+        val allQuestionsBlank = effectiveQuestions.isNotEmpty() && effectiveQuestions.all {
+            it.cleanStem.isNullOrBlank() && it.stemHtml.isNullOrBlank()
+        }
+
+        if (effectiveQuestions.isNotEmpty() && !allQuestionsBlank) {
             renderChaoXingQuestions(effectiveQuestions)
         } else {
             binding.llChaoXingQuestions.visibility = View.GONE
@@ -1153,18 +1160,19 @@ class TronClassHomeworkFragment : Fragment() {
 
             // 2. 题干 Stem (富文本解析，完整支持图片与公式渲染)
             val stemTv = TextView(context).apply {
-                val stemText = if (q.stemHtml.contains("<img", ignoreCase = true) || q.cleanStem.isNullOrBlank()) {
-                    q.stemHtml.orEmpty()
-                } else {
-                    q.cleanStem.orEmpty()
+                val stemText = when {
+                    !q.stemHtml.isNullOrBlank() -> q.stemHtml.orEmpty()
+                    !q.cleanStem.isNullOrBlank() -> q.cleanStem.orEmpty()
+                    else -> ""
                 }
+                val styledStemText = TronClassHtmlHelper.cleanHtmlStylesPreservingImages(stemText)
                 val spanned = try {
-                    val imgGetter = TronClassHtmlImageGetter(this, stemText)
-                    Html.fromHtml(stemText, Html.FROM_HTML_MODE_LEGACY, imgGetter, null).trimEnd()
+                    val imgGetter = TronClassHtmlImageGetter(this, styledStemText)
+                    Html.fromHtml(styledStemText, Html.FROM_HTML_MODE_LEGACY, imgGetter, null).trimEnd()
                 } catch (_: Exception) {
-                    stemText
+                    styledStemText
                 }
-                text = spanned
+                text = if (spanned.isNotBlank()) spanned else q.cleanStem.orEmpty()
                 textSize = 14.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(textPrimaryColor)
