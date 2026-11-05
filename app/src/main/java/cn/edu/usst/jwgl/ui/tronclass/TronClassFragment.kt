@@ -863,15 +863,16 @@ class TronClassFragment : Fragment() {
             promptTronClassLogin()
         }
 
-        binding.tvPlatformStatusChaoXing.setOnClickListener {
-            if (chaoXingClient.isLoggedIn()) {
-                showChaoXingAccountDialog()
-            } else {
-                promptChaoXingLogin()
-            }
+        binding.swipeRefreshTronClass.isEnabled = true
+        binding.swipeRefreshTronClass.setColorSchemeResources(
+            R.color.primary,
+            R.color.primary_container
+        )
+        binding.swipeRefreshTronClass.setProgressBackgroundColorSchemeResource(R.color.surface)
+        binding.swipeRefreshTronClass.setOnRefreshListener {
+            loadTronClassData(forceRefresh = true)
         }
 
-        binding.swipeRefreshTronClass.isEnabled = false
         updateTronClassUserHeader()
         updateHeroCardAndSignButtonState()
     }
@@ -1018,37 +1019,13 @@ class TronClassFragment : Fragment() {
             val displayName = if (name.endsWith("同学")) name else "${name}同学"
             b.tvTronClassUserName.text = displayName
             b.tvTronClassUserNo.text = if (no.isNotBlank()) "学号: $no" else "已登录"
-            b.tvPlatformStatusTronClass.text = "畅课: 已连接"
             b.btnTronClassSmartSign.visibility = View.VISIBLE
             b.btnTronClassLoginPrompt.visibility = View.GONE
         } else {
             b.tvTronClassUserName.text = "同学，你好！"
             b.tvTronClassUserNo.text = "点击下方按钮授权登录"
-            b.tvPlatformStatusTronClass.text = "畅课: 未连接"
             b.btnTronClassSmartSign.visibility = View.GONE
             b.btnTronClassLoginPrompt.visibility = View.VISIBLE
-        }
-
-        if (isDualPlatformMode) {
-            b.tvPlatformStatusTronClass.visibility = View.VISIBLE
-            b.tvPlatformStatusChaoXing.visibility = View.VISIBLE
-            if (chaoXingClient.isLoggedIn()) {
-                val cxInfo = chaoXingClient.getUserInfo()
-                val displayCx = if (cxInfo.name.isNotBlank() && cxInfo.name != "同学") "学习通: 已连接 (${cxInfo.name})" else "学习通: 已连接 🔄"
-                b.tvPlatformStatusChaoXing.text = displayCx
-                b.tvPlatformStatusChaoXing.setOnClickListener {
-                    showChaoXingAccountDialog()
-                }
-            } else {
-                b.tvPlatformStatusChaoXing.text = "学习通: 点击绑定 ⚡"
-                b.tvPlatformStatusChaoXing.setOnClickListener {
-                    promptChaoXingLogin()
-                }
-            }
-        } else {
-            // 纯畅课模式：彻底隐藏超星学习通标签和多平台标签，回归纯净畅课风格
-            b.tvPlatformStatusChaoXing.visibility = View.GONE
-            b.tvPlatformStatusTronClass.visibility = View.GONE
         }
     }
 
@@ -1122,17 +1099,17 @@ class TronClassFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
-            val todosDeferred = async { tronClassClient.fetchTodos() }
-            val coursesDeferred = async { tronClassClient.fetchMyCourses() }
-            val rollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
+            try {
+                val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
+                val todosDeferred = async { tronClassClient.fetchTodos() }
+                val coursesDeferred = async { tronClassClient.fetchMyCourses() }
+                val rollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
 
-            val todosRes = todosDeferred.await()
-            val coursesRes = coursesDeferred.await()
-            val rollcallsRes = rollcallsDeferred.await()
+                val todosRes = todosDeferred.await()
+                val coursesRes = coursesDeferred.await()
+                val rollcallsRes = rollcallsDeferred.await()
 
-            val b = _binding ?: return@launch
-            b.swipeRefreshTronClass.isRefreshing = false
+                val b = _binding ?: return@launch
 
             // 1. 处理待办作业
             if (todosRes.isSuccess) {
@@ -1468,8 +1445,11 @@ class TronClassFragment : Fragment() {
                 renderUnifiedData()
                 updateTronClassUserHeader()
             }
+        } finally {
+            _binding?.swipeRefreshTronClass?.isRefreshing = false
         }
     }
+}
 
     private fun updateTodoTabBadge(count: Int) {
         val b = _binding ?: return
