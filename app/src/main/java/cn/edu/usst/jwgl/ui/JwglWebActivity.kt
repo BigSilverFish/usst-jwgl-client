@@ -112,9 +112,10 @@ class JwglWebActivity : AppCompatActivity() {
     private var filePathCallback: android.webkit.ValueCallback<Array<Uri>>? = null
 
     // ==========================================
-    // 🎯 直录播大屏采集卡 (PPT) 视角自动签到联动状态
+    // 🎯 直录播大屏采集卡 (PPT) 视角自动签到与低延迟追帧状态
     // ==========================================
     private var isScreenAutoSignInEnabled = true
+    private var isLiveChaseFrameEnabled = true
     private var isPptScanningActive = false
     private var pptScanJob: Job? = null
     private var liveRollcallWatcherJob: Job? = null
@@ -551,6 +552,14 @@ class JwglWebActivity : AppCompatActivity() {
                             label += ' (回放主视窗)';
                         }
 
+                        // 追帧协同：在大屏抓帧扫码前，若视频流滞后，立即快进至最新直播前沿
+                        if (window.__usst_live_chase_enabled && v.seekable && v.seekable.length > 0) {
+                            var liveEnd = v.seekable.end(v.seekable.length - 1);
+                            if (liveEnd - v.currentTime > 2.0) {
+                                v.currentTime = Math.max(0, liveEnd - 0.7);
+                            }
+                        }
+
                         try {
                             // 以 1280 宽高质量导出
                             var scale = Math.min(1, 1280 / vWidth);
@@ -637,7 +646,11 @@ class JwglWebActivity : AppCompatActivity() {
                 val nonBlackPercent: Int,
                 val status: String,
                 val message: String,
-                val bitmap: Bitmap?
+                val bitmap: Bitmap?,
+                val currentTime: Double,
+                val liveEnd: Double,
+                val lag: Double,
+                val playbackRate: Double
             )
 
             val tasks = mutableListOf<ScanTask>()
@@ -654,6 +667,10 @@ class JwglWebActivity : AppCompatActivity() {
                 val cHeight = item.optInt("canvasHeight", 0)
                 val nonBlack = item.optInt("nonBlackPercent", 0)
                 val base64Data = item.optString("frameData", "")
+                val currTime = item.optDouble("currentTime", 0.0)
+                val liveEnd = item.optDouble("liveEnd", 0.0)
+                val lag = item.optDouble("lag", 0.0)
+                val pRate = item.optDouble("playbackRate", 1.0)
 
                 var decodedBitmap: Bitmap? = null
                 if (status == "success" && base64Data.isNotEmpty()) {
@@ -675,7 +692,11 @@ class JwglWebActivity : AppCompatActivity() {
                         nonBlackPercent = nonBlack,
                         status = status,
                         message = message,
-                        bitmap = decodedBitmap
+                        bitmap = decodedBitmap,
+                        currentTime = currTime,
+                        liveEnd = liveEnd,
+                        lag = lag,
+                        playbackRate = pRate
                     )
                 )
             }
@@ -693,6 +714,12 @@ class JwglWebActivity : AppCompatActivity() {
                     finalReport.appendLine("▶ 【${task.label}$pptTag】")
                     finalReport.appendLine("   • 原始分辨率: ${task.videoRes} | 画布: ${task.canvasRes}")
                     finalReport.appendLine("   • 非黑像素率: ${task.nonBlackPercent}%")
+
+                    if (task.liveEnd > 0) {
+                        val lagFormatted = String.format("%.1f", task.lag)
+                        val statusTag = if (task.lag <= 1.8) "极低延迟 🟢" else if (task.lag <= 4.5) "平滑追帧中 (${task.playbackRate}x) ⏩" else "滞后较大 ⚠️"
+                        finalReport.appendLine("   • 画面延迟测算: 滞后约 ${lagFormatted}秒 [$statusTag] (当前: ${String.format("%.1f", task.currentTime)}s, 最新: ${String.format("%.1f", task.liveEnd)}s)")
+                    }
 
                     if (task.status == "success") {
                         finalReport.appendLine("   • 抓帧结果: ✅ 成功 (${task.message})")
@@ -880,6 +907,10 @@ class JwglWebActivity : AppCompatActivity() {
                             isPptGuess = true;
                         }
 
+                        var liveEnd = (v.seekable && v.seekable.length > 0) ? v.seekable.end(v.seekable.length - 1) : 0;
+                        var currTime = v.currentTime || 0;
+                        var lag = liveEnd > 0 ? (liveEnd - currTime) : 0;
+
                         var item = {
                             id: i + 1,
                             label: label,
@@ -891,7 +922,11 @@ class JwglWebActivity : AppCompatActivity() {
                             nonBlackPercent: 0,
                             status: 'unknown',
                             message: '',
-                            frameData: ''
+                            frameData: '',
+                            currentTime: currTime,
+                            liveEnd: liveEnd,
+                            lag: lag,
+                            playbackRate: v.playbackRate || 1.0
                         };
 
                         if (readyState < 2) {
@@ -1088,12 +1123,7 @@ class JwglWebActivity : AppCompatActivity() {
         updateDesktopMenuItemTitle()
 
         val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
-        binding.toolbar.menu.findItem(R.id.action_toggle_screen_signin)?.apply {
-            isVisible = isLiveUrl
-            title = if (isScreenAutoSignInEnabled) "🎯 大屏自动签到 (已开启)" else "🎯 大屏自动签到 (已暂停)"
-        }
-        binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = isLiveUrl
-        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = isLiveUrl
+        updateLiveMenuItemsVisibility(isLiveUrl)
 
         // 悬浮横幅关闭按钮
         binding.btnRollcallBannerClose.setOnClickListener {
@@ -1142,12 +1172,207 @@ class JwglWebActivity : AppCompatActivity() {
                     capturePptFrameNow()
                     true
                 }
+                R.id.action_toggle_chase_frame -> {
+                    toggleLiveChaseFrame(item)
+                    true
+                }
+                R.id.action_sync_live_now -> {
+                    triggerManualSyncLiveNow()
+                    true
+                }
                 R.id.action_test_frame_grab -> {
-                    Toast.makeText(this, "正在抓取视频帧...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "正在抓取视频帧与延迟数据...", Toast.LENGTH_SHORT).show()
                     injectFrameGrabTestJs()
                     true
                 }
                 else -> false
+            }
+        }
+    }
+
+    private fun updateLiveMenuItemsVisibility(isLiveUrl: Boolean) {
+        binding.toolbar.menu.findItem(R.id.action_toggle_screen_signin)?.apply {
+            isVisible = isLiveUrl
+            title = if (isScreenAutoSignInEnabled) "🎯 大屏自动签到 (已开启)" else "🎯 大屏自动签到 (已暂停)"
+        }
+        binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = isLiveUrl
+        binding.toolbar.menu.findItem(R.id.action_toggle_chase_frame)?.apply {
+            isVisible = isLiveUrl
+            title = if (isLiveChaseFrameEnabled) "🚀 直播低延迟追帧 (已开启)" else "🚀 直播低延迟追帧 (已暂停)"
+        }
+        binding.toolbar.menu.findItem(R.id.action_sync_live_now)?.isVisible = isLiveUrl
+        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = isLiveUrl
+    }
+
+    /**
+     * 启动直播低延迟自适应追帧守护引擎
+     * 注入 JS 守护器，智能平滑追帧 (1.25x) 并对超大滞后秒级跳跃对齐，将校外 15-20s 延迟压缩至 1s 左右
+     */
+    private fun startLiveChaseFrameGuard() {
+        if (!isLiveChaseFrameEnabled) return
+        val js = """
+            (function() {
+                window.__usst_live_chase_enabled = true;
+                if (window.__usst_live_chase_initialized) {
+                    return;
+                }
+                window.__usst_live_chase_initialized = true;
+
+                console.log("[USST Live] 🚀 启动直播低延迟自适应追帧守护引擎 (目标延迟: < 1.5s)");
+
+                function getAllVideos() {
+                    var list = Array.from(document.querySelectorAll('video'));
+                    var iframes = document.querySelectorAll('iframe');
+                    for (var f = 0; f < iframes.length; f++) {
+                        try {
+                            var fVideos = iframes[f].contentDocument.querySelectorAll('video');
+                            for (var fv = 0; fv < fVideos.length; fv++) {
+                                list.push(fVideos[fv]);
+                            }
+                        } catch(e) {}
+                    }
+                    return list;
+                }
+
+                function isLiveStream(v) {
+                    if (!v) return false;
+                    var hash = window.location.hash || '';
+                    var href = window.location.href || '';
+                    // 过滤明确的点播回放页面
+                    if (hash.indexOf('play-video') !== -1 || hash.indexOf('videoList') !== -1 || href.indexOf('vod') !== -1) {
+                        return false;
+                    }
+                    if (hash.indexOf('live') !== -1 || href.indexOf('live') !== -1 || (document.title && document.title.indexOf('直播') !== -1)) {
+                        return true;
+                    }
+                    if (v.duration === Infinity || isNaN(v.duration)) return true;
+                    if (v.seekable && v.seekable.length > 0 && v.seekable.start(0) > 0) return true;
+                    return false;
+                }
+
+                function checkAndChase(v) {
+                    if (!window.__usst_live_chase_enabled) {
+                        if (v.playbackRate !== 1.0) v.playbackRate = 1.0;
+                        return;
+                    }
+                    if (v.paused || v.ended || v.seeking || (v.readyState || 0) < 2) return;
+                    if (!isLiveStream(v)) return;
+                    if (!v.seekable || v.seekable.length === 0) return;
+
+                    var liveEnd = v.seekable.end(v.seekable.length - 1);
+                    var curr = v.currentTime;
+                    var lag = liveEnd - curr;
+
+                    // 1. 低延迟巡航区 (<= 1.8 秒)：恢复 1.0x 原速，保证音画平稳无抖动
+                    if (lag <= 1.8) {
+                        if (v.playbackRate !== 1.0) {
+                            console.log("[USST Live] 延迟已处于极低安全区间 (" + lag.toFixed(2) + "s)，恢复 1.0x 原速");
+                            v.playbackRate = 1.0;
+                        }
+                        return;
+                    }
+
+                    // 2. 超大滞后区 (>= 4.5 秒，如校外初始加载或网络恢复后积累的 15-20s 延迟)：
+                    // 毫秒级闪击跳转，直接空降至最新前沿（保留 0.8s 极小缓冲防卡顿）
+                    if (lag >= 4.5) {
+                        var target = Math.max(0, liveEnd - 0.8);
+                        console.log("[USST Live] ⚡ 检测到超大延迟 (" + lag.toFixed(2) + "s)，执行瞬时追帧跳跃 -> " + target.toFixed(2) + "s");
+                        v.currentTime = target;
+                        v.playbackRate = 1.0;
+                        return;
+                    }
+
+                    // 3. 轻度滞后区 (1.8s < lag < 4.5s)：
+                    // 自适应 1.25x 平滑追赶，不损伤音调，悄无声息消灭积攒延迟
+                    if (lag > 1.8) {
+                        if (v.playbackRate !== 1.25) {
+                            console.log("[USST Live] ⏩ 检测到轻度滞后 (" + lag.toFixed(2) + "s)，开启 1.25x 平滑追赶");
+                            v.playbackRate = 1.25;
+                        }
+                    }
+                }
+
+                // 周期守护心跳：每 1.5 秒轮询检测
+                if (window.__usst_live_chase_timer) {
+                    clearInterval(window.__usst_live_chase_timer);
+                }
+                window.__usst_live_chase_timer = setInterval(function() {
+                    var videos = getAllVideos();
+                    for (var i = 0; i < videos.length; i++) {
+                        checkAndChase(videos[i]);
+                    }
+                }, 1500);
+
+                // 注册主动同步函数供 Native 一键调用
+                window.__usst_sync_live_now = function() {
+                    var videos = getAllVideos();
+                    var list = [];
+                    for (var i = 0; i < videos.length; i++) {
+                        var v = videos[i];
+                        if (v.seekable && v.seekable.length > 0) {
+                            var liveEnd = v.seekable.end(v.seekable.length - 1);
+                            var beforeLag = liveEnd - v.currentTime;
+                            var target = Math.max(0, liveEnd - 0.7);
+                            v.currentTime = target;
+                            v.playbackRate = 1.0;
+                            var afterLag = liveEnd - target;
+                            list.push({
+                                index: i + 1,
+                                beforeLag: beforeLag,
+                                afterLag: afterLag
+                            });
+                        }
+                    }
+                    return JSON.stringify(list);
+                };
+            })();
+        """.trimIndent()
+        binding.webView.evaluateJavascript(js, null)
+    }
+
+    private fun toggleLiveChaseFrame(item: android.view.MenuItem) {
+        isLiveChaseFrameEnabled = !isLiveChaseFrameEnabled
+        item.title = if (isLiveChaseFrameEnabled) "🚀 直播低延迟追帧 (已开启)" else "🚀 直播低延迟追帧 (已暂停)"
+        val enabledStr = isLiveChaseFrameEnabled.toString()
+        binding.webView.evaluateJavascript(
+            "window.__usst_live_chase_enabled = $enabledStr; if(!$enabledStr) { Array.from(document.querySelectorAll('video')).forEach(function(v){ v.playbackRate = 1.0; }); }",
+            null
+        )
+        if (isLiveChaseFrameEnabled) {
+            startLiveChaseFrameGuard()
+            Toast.makeText(this, "已开启直播低延迟追帧：智能消除 15-20s 缓冲延迟", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "已暂停直播低延迟追帧：恢复播放器默认缓冲", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun triggerManualSyncLiveNow() {
+        val js = "window.__usst_sync_live_now ? window.__usst_sync_live_now() : '[]'"
+        binding.webView.evaluateJavascript(js) { res ->
+            try {
+                val clean = if (res != null && res != "null" && res.startsWith("\"") && res.endsWith("\"")) {
+                    org.json.JSONTokener(res).nextValue().toString()
+                } else res ?: "[]"
+                val array = org.json.JSONArray(clean)
+                if (array.length() > 0) {
+                    val first = array.getJSONObject(0)
+                    val before = first.optDouble("beforeLag", 0.0)
+                    val after = first.optDouble("afterLag", 0.0)
+                    if (before > 1.5) {
+                        Toast.makeText(
+                            this,
+                            "⚡ 已将直播画面从 ${String.format("%.1f", before)}秒 延迟追平至最新 (${String.format("%.1f", after)}秒)！",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(this, "当前直播已处于极低延迟状态 (约 ${String.format("%.1f", before)}秒)", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this, "未检测到可追帧的活跃直播流", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error parsing sync live result: $res", e)
+                Toast.makeText(this, "已向播放器发送追帧对齐指令", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1486,6 +1711,8 @@ class JwglWebActivity : AppCompatActivity() {
                 // If on the Live video platform and course/date was specified, auto-navigate to playback
                 if (url != null && url.contains("live.usst.edu.cn")) {
                     startLiveRollcallWatcher()
+                    startLiveChaseFrameGuard()
+                    updateLiveMenuItemsVisibility(true)
                     if (!searchQuery.isNullOrBlank() || !targetDate.isNullOrBlank()) {
                     val quotedQuery = JSONObject.quote(searchQuery ?: "")
                     val quotedTargetDate = JSONObject.quote(targetDate ?: "")
