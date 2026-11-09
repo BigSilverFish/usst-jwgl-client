@@ -27,7 +27,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
-import cn.edu.usst.jwgl.data.local.LearningHomePreloader
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
@@ -43,7 +42,6 @@ import cn.edu.usst.jwgl.data.model.UnifiedBulletin
 import cn.edu.usst.jwgl.data.model.UnifiedCourse
 import cn.edu.usst.jwgl.data.model.UnifiedTodo
 import cn.edu.usst.jwgl.data.network.ChaoXingClient
-import cn.edu.usst.jwgl.data.network.ChaoXingQrPayload
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.LayoutPageTronclassBinding
 import cn.edu.usst.jwgl.ui.MainActivity
@@ -57,7 +55,6 @@ import com.google.android.material.tabs.TabLayout
 import eightbitlab.com.blurview.RenderEffectBlur
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +70,7 @@ class TronClassFragment : Fragment() {
 
     private val tronClassClient by lazy { TronClassClient(requireContext()) }
     private val chaoXingClient by lazy { ChaoXingClient(requireContext()) }
+    private val chaoXingDetailClient by lazy { cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient(requireContext()) }
     private lateinit var tronClassTodoAdapter: TronClassTodoAdapter
     private lateinit var tronClassBulletinAdapter: TronClassBulletinAdapter
     private lateinit var tronClassCourseAdapter: TronClassCourseAdapter
@@ -115,72 +113,25 @@ class TronClassFragment : Fragment() {
     }
 
     // Google ML Kit 扫码 Launcher
-    private data class PendingQrScan(
-        val account: String,
-        val tronClassId: Long? = null,
-        val cxCourse: ChaoXingCourse? = null,
-        val cxActive: ChaoXingActiveItem? = null,
-        val cxDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null
-    )
-    private var pendingQrScan: PendingQrScan? = null
-
     private val tronClassMlKitScannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val target = pendingQrScan
-        pendingQrScan = null
         if (result.resultCode == RESULT_OK) {
             val rawContents = result.data?.getStringExtra(MlKitScannerActivity.EXTRA_SCAN_RESULT) ?: ""
             if (rawContents.isNotBlank()) {
-                if (target == null || target.account != tronClassClient.accountKey()) {
-                    context?.let { Toast.makeText(it, "账号或签到活动已变化，请重新扫码", Toast.LENGTH_LONG).show() }
-                } else if (target.cxCourse != null && target.cxActive != null) {
-                    val parsed = ChaoXingQrPayload.readEnc(rawContents, target.cxActive.id)
-                    parsed.onSuccess { enc ->
-                        executeSubmitChaoXingSign(target.cxCourse, target.cxActive, enc, target.cxDetail)
-                    }.onFailure { error ->
-                        context?.let { Toast.makeText(it, error.message, Toast.LENGTH_LONG).show() }
-                    }
-                } else {
-                    handleTronClassScannedQrResult(rawContents, target.tronClassId)
-                }
+                handleTronClassScannedQrResult(rawContents)
             }
         }
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        pendingQrScan = savedInstanceState?.getString("pending_qr_scan")?.let { json ->
-            runCatching { com.google.gson.Gson().fromJson(json, PendingQrScan::class.java) }.getOrNull()
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putString("pending_qr_scan", com.google.gson.Gson().toJson(pendingQrScan))
     }
 
     companion object {
         private const val TAG = "TronClassFragment"
-        private var instance: TronClassFragment? = null
+        private var instanceRef: java.lang.ref.WeakReference<TronClassFragment>? = null
 
         fun newInstance(): TronClassFragment = TronClassFragment()
 
-        fun onRollcallCompleted(targetRollcallId: Long) {
-            val frag = instance ?: return
-            if (frag.isAdded && !frag.isDetached) {
-                frag.handleRollcallInstantCompletion(targetRollcallId)
-            }
-        }
-    }
-
-    fun handleRollcallInstantCompletion(targetRollcallId: Long) {
-        try {
-            allUnifiedActiveRollcalls = allUnifiedActiveRollcalls.filterNot { it.effectiveId == targetRollcallId }
-            tronClassActiveRollcalls = tronClassActiveRollcalls.filterNot { it.getEffectiveId() == targetRollcallId }
-            updateHeroCardAndSignButtonState()
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "Instant rollcall completion error", e)
+        fun onRollcallCompleted(effectiveId: Long) {
+            instanceRef?.get()?.markRollcallCompleted(effectiveId)
         }
     }
 
@@ -195,10 +146,7 @@ class TronClassFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        instance = this
-        binding.swipeRefreshTronClass.setOnRefreshListener {
-            loadTronClassData(forceRefresh = true, silent = false)
-        }
+        instanceRef = java.lang.ref.WeakReference(this)
 
         binding.layoutTronclass.visibility = View.VISIBLE
 
@@ -215,7 +163,10 @@ class TronClassFragment : Fragment() {
         currentPlatformFilter = if (isDualPlatformMode) null else LearningPlatform.TRONCLASS
         updatePlatformModeButtonState()
 
-        // The refresh owns one cache generation; do not launch a cache task it immediately invalidates.
+        // 🚀 0ms 秒开：预置本地持久化缓存（异步线程加载）
+        loadLocalCacheImmediately()
+
+        // 检查用户一致性并开始刷新数据
         checkAndLoadTronClassData()
     }
 
@@ -229,13 +180,18 @@ class TronClassFragment : Fragment() {
         syncDrawerButtonVisibility()
         checkAndRefreshHeaderSpacing()
         if (isDualPlatformMode) {
-            val account = homeAccount.ifBlank { tronClassClient.accountKey() }
+            val account = AuthPreferences.currentStudentId(requireContext())
             val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
-            if (cached.isNotEmpty() && cached != rawCxTodos) {
-                rawCxTodos = cached
-                publishHomeLists()
+            if (cached.isNotEmpty()) {
+                val uTodos = mutableListOf<UnifiedTodo>()
+                val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos()
+                uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                uTodos.addAll(cached)
+                uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                allUnifiedTodos = uTodos
+                renderUnifiedData()
             }
-            if (rawCxTodos.any { it.deadlineMillis == null }) {
+            if (cached.any { it.deadlineMillis == null }) {
                 loadTronClassData(forceRefresh = true, silent = true)
             }
         }
@@ -243,15 +199,62 @@ class TronClassFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        if (isDualPlatformMode) {
+            val account = AuthPreferences.currentStudentId(requireContext())
+            val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+            if (cached.isNotEmpty()) {
+                val uTodos = mutableListOf<UnifiedTodo>()
+                val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos()
+                uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                uTodos.addAll(cached)
+                uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                allUnifiedTodos = uTodos
+                renderUnifiedData()
+            }
+        }
         applyAdaptiveLayout()
         checkAndRefreshHeaderSpacing()
-        if (isDualPlatformMode) {
-            val account = homeAccount.ifBlank { tronClassClient.accountKey() }
-            val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
-            if (cached.isNotEmpty() && cached != rawCxTodos) {
-                rawCxTodos = cached
-                publishHomeLists()
+        if (tronClassClient.isLoggedIn()) {
+            refreshActiveRollcallsSilently()
+        }
+    }
+
+    private fun refreshActiveRollcallsSilently() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val res = tronClassClient.fetchOngoingRollcalls()
+                if (res.isSuccess) {
+                    val ongoing = res.getOrDefault(emptyList())
+                    if (ongoing != tronClassActiveRollcalls) {
+                        tronClassActiveRollcalls = ongoing
+                        val nonTc = allUnifiedActiveRollcalls.filter { it.platform != LearningPlatform.TRONCLASS }
+                        val newTc = ongoing.map { tc ->
+                            UnifiedActiveRollcall(
+                                unifiedId = "tc_${tc.getEffectiveId()}",
+                                platform = LearningPlatform.TRONCLASS,
+                                courseName = tc.courseName ?: "课堂教学",
+                                typeDisplayName = tc.getTypeDisplayName(),
+                                effectiveId = tc.getEffectiveId(),
+                                rawTronClassRollcall = tc
+                            )
+                        }
+                        allUnifiedActiveRollcalls = nonTc + newTc
+                        updateHeroCardAndSignButtonState()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Silent rollcall check failed: ${e.message}")
             }
+        }
+    }
+
+    fun markRollcallCompleted(effectiveId: Long) {
+        val act = activity ?: return
+        act.runOnUiThread {
+            allUnifiedActiveRollcalls = allUnifiedActiveRollcalls.filter { it.effectiveId != effectiveId }
+            tronClassActiveRollcalls = tronClassActiveRollcalls.filter { it.getEffectiveId() != effectiveId }
+            updateHeroCardAndSignButtonState()
+            loadTronClassData(forceRefresh = true, silent = true)
         }
     }
 
@@ -507,8 +510,7 @@ class TronClassFragment : Fragment() {
 
     private fun renderUnifiedData() {
         val b = _binding ?: return
-        val cxLoggedIn = isDualPlatformMode && chaoXingClient.isLoggedIn()
-        val isDual = cxLoggedIn
+        val isDual = isDualPlatformMode && chaoXingClient.isLoggedIn()
         val filter = if (isDualPlatformMode) currentPlatformFilter else LearningPlatform.TRONCLASS
         val selectedSem = currentSelectedSemester
         val query = tronClassCourseSearchQuery.trim().lowercase()
@@ -524,7 +526,7 @@ class TronClassFragment : Fragment() {
         b.tvTronClassTodoBadge.text = "${filteredTodos.size} 项待办"
         updateTodoTabBadge(filteredTodos.size)
         b.tvTronClassEmptyTodos.visibility = if (filteredTodos.isEmpty()) View.VISIBLE else View.GONE
-        b.tvTronClassEmptyTodos.text = if (filter == LearningPlatform.CHAOXING && !cxLoggedIn) {
+        b.tvTronClassEmptyTodos.text = if (filter == LearningPlatform.CHAOXING && !chaoXingClient.isLoggedIn()) {
             "未绑定超星学习通账号\n点击上方提示绑定后可同步作业"
         } else {
             "暂无待办作业与测验"
@@ -552,7 +554,8 @@ class TronClassFragment : Fragment() {
         }
 
         // (b) 学期筛选 (纯畅课未指定学期的课程如先修课归入【其他课程】，不混入当前在读学期)
-        val latestSemester = allUnifiedCourses.mapNotNull { it.semesterCode }.maxOrNull() ?: ""
+        val latestSemester = allUnifiedCourses.mapNotNull { it.semesterCode }
+            .distinct().sortedDescending().firstOrNull() ?: ""
 
         if (filter != LearningPlatform.CHAOXING) {
             courses = when (selectedSem) {
@@ -688,7 +691,7 @@ class TronClassFragment : Fragment() {
                     .setTitle("签到提示")
                     .setMessage("您已完成过《${course.courseName}》的本次签到，无需重复提交。")
                     .setPositiveButton("确定") { _, _ ->
-                        refreshChaoXingRollcallsOnly()
+                        loadTronClassData(forceRefresh = true)
                     }
                     .show()
                 return@launch
@@ -699,7 +702,7 @@ class TronClassFragment : Fragment() {
                     .setTitle("签到提示")
                     .setMessage("《${course.courseName}》的该签到活动已结束。")
                     .setPositiveButton("确定") { _, _ ->
-                        refreshChaoXingRollcallsOnly()
+                        loadTronClassData(forceRefresh = true)
                     }
                     .show()
                 return@launch
@@ -717,11 +720,12 @@ class TronClassFragment : Fragment() {
                         signTypeName = signTypeName
                     )
                     sheet.onSignSuccessListener = { msg ->
+                        markRollcallCompleted(activeItem.id)
                         MaterialAlertDialogBuilder(ctx)
                             .setTitle("手势签到成功 🎉")
                             .setMessage("课程：${course.courseName}\n反馈：$msg")
                             .setPositiveButton("确定") { _, _ ->
-                                refreshChaoXingRollcallsOnly()
+                                loadTronClassData(forceRefresh = true)
                             }
                             .show()
                     }
@@ -737,11 +741,12 @@ class TronClassFragment : Fragment() {
                         signTypeName = signTypeName
                     )
                     sheet.onSignSuccessListener = { msg ->
+                        markRollcallCompleted(activeItem.id)
                         MaterialAlertDialogBuilder(ctx)
                             .setTitle("拍照签到成功 🎉")
                             .setMessage("课程：${course.courseName}\n反馈：$msg")
                             .setPositiveButton("确定") { _, _ ->
-                                refreshChaoXingRollcallsOnly()
+                                loadTronClassData(forceRefresh = true)
                             }
                             .show()
                     }
@@ -793,9 +798,7 @@ class TronClassFragment : Fragment() {
                         .setTitle("超星签到 · 二维码签到")
                         .setMessage("课程：${course.courseName}\n此签到需要扫描教师屏幕出示的动态二维码。\n\n请准备好教师端二维码后点击开始扫码。")
                         .setPositiveButton("扫码签到") { _, _ ->
-                            pendingQrScan = PendingQrScan(tronClassClient.accountKey(), cxCourse = course,
-                                cxActive = activeItem, cxDetail = signDetail)
-                            launchQrScanner()
+                            startTronClassQrScan()
                         }
                         .setNegativeButton("取消", null)
                         .show()
@@ -816,7 +819,6 @@ class TronClassFragment : Fragment() {
         signDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null
     ) {
         val ctx = context ?: return
-        val account = tronClassClient.accountKey()
         val signType = signDetail?.signTypeDisplayName ?: activeItem.resolvedSignTypeName
 
         val progress = ProgressDialog(ctx).apply {
@@ -836,18 +838,19 @@ class TronClassFragment : Fragment() {
                 signCode = effectiveEnc,
                 latitude = signDetail?.latitude ?: 31.2936,
                 longitude = signDetail?.longitude ?: 121.5543,
-                address = signDetail?.locationText ?: "上海理工大学",
-                studentId = account
+                address = signDetail?.locationText ?: "上海理工大学"
             )
             progress.dismiss()
-            if (_binding == null || account != tronClassClient.accountKey()) return@launch
 
             res.onSuccess { result ->
+                if (result.isSuccess) {
+                    markRollcallCompleted(activeItem.id)
+                }
                 MaterialAlertDialogBuilder(ctx)
                     .setTitle(if (result.isSuccess) "签到成功 🎉" else "签到提示")
                     .setMessage("课程：${course.courseName}\n活动：$signType\n反馈：${result.message}")
                     .setPositiveButton("确定") { _, _ ->
-                        refreshChaoXingRollcallsOnly()
+                        loadTronClassData(forceRefresh = true)
                     }
                     .show()
             }.onFailure { err ->
@@ -907,13 +910,11 @@ class TronClassFragment : Fragment() {
             currentPlatformFilter = if (nextMode) null else LearningPlatform.TRONCLASS
             updatePlatformModeButtonState()
             updateTronClassUserHeader()
-            homeLoadJob?.cancel()
-            homeCacheJob?.cancel()
-            homePublishJob?.cancel()
-            homeGeneration++
-            if (tronClassClient.isLoggedIn()) {
+            loadLocalCacheImmediately(force = true)
+            if (nextMode) {
+                // 开启融合模式后立即同步双平台最新数据
                 loadTronClassData(forceRefresh = false, silent = true)
-            } else loadLocalCacheImmediately(force = true)
+            }
             val modeName = if (nextMode) "双平台融合模式" else "纯畅课模式"
             Toast.makeText(requireContext(), "已切换为$modeName", Toast.LENGTH_SHORT).show()
         }
@@ -950,15 +951,16 @@ class TronClassFragment : Fragment() {
             promptTronClassLogin()
         }
 
-        binding.tvPlatformStatusChaoXing.setOnClickListener {
-            if (chaoXingClient.isLoggedIn()) {
-                showChaoXingAccountDialog()
-            } else {
-                promptChaoXingLogin()
-            }
+        binding.swipeRefreshTronClass.isEnabled = true
+        binding.swipeRefreshTronClass.setColorSchemeResources(
+            R.color.primary,
+            R.color.primary_container
+        )
+        binding.swipeRefreshTronClass.setProgressBackgroundColorSchemeResource(R.color.surface)
+        binding.swipeRefreshTronClass.setOnRefreshListener {
+            loadTronClassData(forceRefresh = true)
         }
 
-        binding.swipeRefreshTronClass.isEnabled = true
         updateTronClassUserHeader()
         updateHeroCardAndSignButtonState()
     }
@@ -968,56 +970,103 @@ class TronClassFragment : Fragment() {
             val count = childFragmentManager.backStackEntryCount
             _binding?.flTronClassSecondaryContainer?.visibility = if (count > 0) View.VISIBLE else View.GONE
             if (count == 0 && isDualPlatformMode) {
-                val account = homeAccount.ifBlank { tronClassClient.accountKey() }
+                val account = AuthPreferences.currentStudentId(requireContext())
                 val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
-                if (cached.isNotEmpty() && cached != rawCxTodos) {
-                    rawCxTodos = cached
-                    publishHomeLists()
+                if (cached.isNotEmpty()) {
+                    val uTodos = mutableListOf<UnifiedTodo>()
+                    val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos()
+                    uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                    uTodos.addAll(cached)
+                    uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                    allUnifiedTodos = uTodos
+                    renderUnifiedData()
                 }
             }
         }
     }
 
-    private var homeCacheJob: kotlinx.coroutines.Job? = null
-    private var homePublishJob: kotlinx.coroutines.Job? = null
-    private var homePublishRevision = 0
-    private var courseOptionsRevision = 0
-    private var courseOptions = LearningHomePreloader.CourseOptions(emptyMap(), emptyMap(), emptyMap(), emptySet())
-    private data class CourseMergeKey(
-        val account: String, val tc: List<TronClassCourse>, val cx: List<ChaoXingCourse>, val dual: Boolean,
-        val options: LearningHomePreloader.CourseOptions
+    private data class LocalCacheResult(
+        val todos: List<UnifiedTodo>,
+        val bulletins: List<UnifiedBulletin>,
+        val courses: List<UnifiedCourse>,
+        val tcCourses: List<TronClassCourse>,
+        val cxCourses: List<ChaoXingCourse>
     )
-    private var mergedCourseKey: CourseMergeKey? = null
-    private var mergedCourses: List<UnifiedCourse> = emptyList()
-    private var semesterChipKey: Triple<List<String>, Boolean, String?>? = null
-
-    private fun applyCachedHome(snapshot: LearningHomePreloader.Snapshot) {
-        rawTcTodos = snapshot.tcTodos
-        allTronClassCourses = snapshot.tcCourses
-        allTronClassBulletins = snapshot.tcBulletins
-        rawCxTodos = snapshot.cxTodos
-        cachedChaoXingCourses = snapshot.cxCourses
-        rawCxNotices = snapshot.cxNotices
-        courseOptions = snapshot.options
-        mergedCourseKey = CourseMergeKey(snapshot.account, snapshot.tcCourses, snapshot.cxCourses, snapshot.dual, snapshot.options)
-        mergedCourses = snapshot.courses
-        allUnifiedCourses = snapshot.courses
-        allUnifiedTodos = snapshot.todos
-        allUnifiedBulletins = snapshot.bulletins
-        setupSemesterChips(allUnifiedCourses)
-        renderUnifiedData()
-    }
 
     private fun loadLocalCacheImmediately(force: Boolean = false) {
-        val ctx = context ?: return
-        val account = tronClassClient.accountKey()
-        homeAccount = account
-        val generation = homeGeneration
-        val dual = isDualPlatformMode
-        homeCacheJob?.cancel()
-        homeCacheJob = viewLifecycleOwner.lifecycleScope.launch {
-            val snapshot = LearningHomePreloader.take(ctx, account, dual, fresh = force)
-            if (isCurrentHome(account, generation) && dual == isDualPlatformMode) applyCachedHome(snapshot)
+        // 若内存已有数据且非强制重新组装，先直接秒显，实现后续切换 0ms 瞬间显示
+        if (!force && (allUnifiedCourses.isNotEmpty() || allUnifiedTodos.isNotEmpty() || allUnifiedBulletins.isNotEmpty())) {
+            setupSemesterChips(allUnifiedCourses)
+            renderUnifiedData()
+            updateTodoTabBadge(allUnifiedTodos.size)
+            updateBulletinTabBadge(allUnifiedBulletins.size)
+            return
+        }
+
+        val context = context ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val cacheMgr = TronClassDataCacheManager.getInstance(context)
+                val cxPrefs = ChaoXingPreferences(context)
+
+                val cachedTcTodos = cacheMgr.getCachedTodos()
+                val cachedTcCourses = cacheMgr.getCachedCourses()
+                val cachedTcBulletins = cacheMgr.getCachedHomeBulletins()
+
+                val cachedCxTodos = cxPrefs.getCachedTodos()
+                val cachedCxCourses = cxPrefs.getCachedCourses()
+                val cachedCxNotices = cxPrefs.getCachedNotices()
+
+                val todos = mutableListOf<UnifiedTodo>()
+                todos.addAll(cachedTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                if (isDualPlatformMode) {
+                    todos.addAll(cachedCxTodos)
+                }
+                todos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+
+                val bulletins = mutableListOf<UnifiedBulletin>()
+                bulletins.addAll(cachedTcBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                if (isDualPlatformMode) {
+                    bulletins.addAll(cachedCxNotices)
+                }
+                bulletins.sortByDescending { it.publishMillis }
+
+                val tcPrefs = TronClassPreferences.getInstance(context)
+                val tcCustomMap = tcPrefs.getAllCustomSemesters()
+                val manualBindings = tcPrefs.getAllManualBindings()
+                val unboundPairs = tcPrefs.getUnboundPairs()
+                val courses = if (isDualPlatformMode && cachedCxCourses.isNotEmpty()) {
+                    val latestTcSem = cachedTcCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+                    val customSemMap = cxPrefs.getAllCustomSemesters()
+                    UnifiedCourse.fuseCourses(
+                        cachedTcCourses,
+                        cachedCxCourses,
+                        fallbackSemesterCode = latestTcSem,
+                        customSemesterMap = customSemMap,
+                        tcCustomSemesterMap = tcCustomMap,
+                        manualBindings = manualBindings,
+                        unboundPairs = unboundPairs
+                    )
+                } else {
+                    cachedTcCourses.map { 
+                        UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+                    }
+                }
+
+                LocalCacheResult(todos, bulletins, courses, cachedTcCourses, if (isDualPlatformMode) cachedCxCourses else emptyList())
+            }
+            if (_binding == null) return@launch
+
+            allUnifiedTodos = result.todos
+            allUnifiedBulletins = result.bulletins
+            allTronClassCourses = result.tcCourses
+            cachedChaoXingCourses = result.cxCourses
+            allUnifiedCourses = result.courses
+
+            setupSemesterChips(result.courses)
+            renderUnifiedData()
+            updateTodoTabBadge(result.todos.size)
+            updateBulletinTabBadge(result.bulletins.size)
         }
     }
 
@@ -1045,7 +1094,6 @@ class TronClassFragment : Fragment() {
         }
 
         if (!tronClassClient.isLoggedIn()) {
-            loadLocalCacheImmediately()
             updateTronClassUserHeader()
             autoPerformTronClassSsoLogin()
             return
@@ -1072,37 +1120,13 @@ class TronClassFragment : Fragment() {
             val displayName = if (name.endsWith("同学")) name else "${name}同学"
             b.tvTronClassUserName.text = displayName
             b.tvTronClassUserNo.text = if (no.isNotBlank()) "学号: $no" else "已登录"
-            b.tvPlatformStatusTronClass.text = "畅课: 已连接"
             b.btnTronClassSmartSign.visibility = View.VISIBLE
             b.btnTronClassLoginPrompt.visibility = View.GONE
         } else {
             b.tvTronClassUserName.text = "同学，你好！"
             b.tvTronClassUserNo.text = "点击下方按钮授权登录"
-            b.tvPlatformStatusTronClass.text = "畅课: 未连接"
             b.btnTronClassSmartSign.visibility = View.GONE
             b.btnTronClassLoginPrompt.visibility = View.VISIBLE
-        }
-
-        if (isDualPlatformMode) {
-            b.tvPlatformStatusTronClass.visibility = View.VISIBLE
-            b.tvPlatformStatusChaoXing.visibility = View.VISIBLE
-            if (chaoXingClient.isLoggedIn()) {
-                val cxInfo = chaoXingClient.getUserInfo()
-                val displayCx = if (cxInfo.name.isNotBlank() && cxInfo.name != "同学") "学习通: 已连接 (${cxInfo.name})" else "学习通: 已连接 🔄"
-                b.tvPlatformStatusChaoXing.text = displayCx
-                b.tvPlatformStatusChaoXing.setOnClickListener {
-                    showChaoXingAccountDialog()
-                }
-            } else {
-                b.tvPlatformStatusChaoXing.text = "学习通: 点击绑定 ⚡"
-                b.tvPlatformStatusChaoXing.setOnClickListener {
-                    promptChaoXingLogin()
-                }
-            }
-        } else {
-            // 纯畅课模式：彻底隐藏超星学习通标签和多平台标签，回归纯净畅课风格
-            b.tvPlatformStatusChaoXing.visibility = View.GONE
-            b.tvPlatformStatusTronClass.visibility = View.GONE
         }
     }
 
@@ -1164,201 +1188,423 @@ class TronClassFragment : Fragment() {
             .show()
     }
 
-    private var homeLoadJob: kotlinx.coroutines.Job? = null
-    private var rollcallLoadJob: kotlinx.coroutines.Job? = null
-    private var chaoXingRollcallLoadJob: kotlinx.coroutines.Job? = null
-    private var homeGeneration = 0
-    private var homeAccount = ""
-    private var rawTcTodos: List<TronClassTodo> = emptyList()
-    private var rawCxTodos: List<UnifiedTodo> = emptyList()
-    private var rawCxNotices: List<UnifiedBulletin> = emptyList()
-
-    private fun isCurrentHome(account: String, generation: Int): Boolean =
-        _binding != null && account == tronClassClient.accountKey() && generation == homeGeneration
-
-    private fun publishHomeLists() {
-        if (_binding == null) return
-        val account = homeAccount.ifBlank { tronClassClient.accountKey() }
-        val generation = homeGeneration
-        val revision = ++homePublishRevision
-        val dual = isDualPlatformMode
-        val tcTodos = rawTcTodos.toList()
-        val cxTodos = rawCxTodos.toList()
-        val tcBulletins = allTronClassBulletins.toList()
-        val cxNotices = rawCxNotices.toList()
-        val key = CourseMergeKey(account, allTronClassCourses.toList(), cachedChaoXingCourses.toList(), dual, courseOptions)
-        val previousKey = mergedCourseKey
-        val previousCourses = mergedCourses
-        homePublishJob?.cancel()
-        homePublishJob = viewLifecycleOwner.lifecycleScope.launch {
-            val display = withContext(Dispatchers.Default) {
-                val todos = (tcTodos.map { UnifiedTodo.fromTronClass(it) } +
-                    if (dual) cxTodos else emptyList()).sortedBy { it.deadlineMillis ?: Long.MAX_VALUE }
-                val bulletins = (tcBulletins.map { UnifiedBulletin.fromTronClass(it) } +
-                    if (dual) cxNotices else emptyList()).sortedByDescending { it.publishMillis }
-                val courses = if (key == previousKey) previousCourses
-                    else LearningHomePreloader.mergeCourses(key.tc, key.cx, dual, key.options)
-                Triple(todos, bulletins, courses)
-            }
-            if (!isCurrentHome(account, generation) || revision != homePublishRevision) return@launch
-            allUnifiedTodos = display.first
-            allUnifiedBulletins = display.second
-            allUnifiedCourses = display.third
-            mergedCourseKey = key
-            mergedCourses = display.third
-            setupSemesterChips(allUnifiedCourses)
-            renderUnifiedData()
-        }
-    }
-
-    private fun publishTronClassRollcalls(items: List<TronClassRollcall>) {
-        tronClassActiveRollcalls = items
-        allUnifiedActiveRollcalls = items.map { tc ->
-            UnifiedActiveRollcall(unifiedId = "tc_${tc.getEffectiveId()}", platform = LearningPlatform.TRONCLASS,
-                courseName = tc.courseName ?: "课堂教学", typeDisplayName = tc.getTypeDisplayName(),
-                effectiveId = tc.getEffectiveId(), rawTronClassRollcall = tc)
-        } + if (isDualPlatformMode) allUnifiedActiveRollcalls.filter { it.platform == LearningPlatform.CHAOXING } else emptyList()
-        updateHeroCardAndSignButtonState()
-    }
-
-    private fun refreshRollcallsOnly() {
-        if (rollcallLoadJob?.isActive == true) return
-        val account = tronClassClient.accountKey()
-        rollcallLoadJob = viewLifecycleOwner.lifecycleScope.launch {
-            val result = tronClassClient.fetchOngoingRollcalls()
-            if (_binding != null && account == tronClassClient.accountKey()) {
-                result.onSuccess { publishTronClassRollcalls(it) }
-            }
-        }
-    }
-
-    private fun refreshChaoXingRollcallsOnly() {
-        if (chaoXingRollcallLoadJob?.isActive == true || !isDualPlatformMode) return
-        val account = tronClassClient.accountKey()
-        val courses = cachedChaoXingCourses.toList()
-        chaoXingRollcallLoadJob = viewLifecycleOwner.lifecycleScope.launch {
-            val result = chaoXingClient.fetchActiveSignsForCourses(courses)
-            if (_binding != null && account == tronClassClient.accountKey()) {
-                result.onSuccess { publishChaoXingRollcalls(it) }
-            }
-        }
-    }
-
-    private fun publishChaoXingRollcalls(items: List<Pair<ChaoXingCourse, cn.edu.usst.jwgl.data.model.ChaoXingActiveItem>>) {
-        allUnifiedActiveRollcalls = allUnifiedActiveRollcalls.filter { it.platform == LearningPlatform.TRONCLASS } +
-            items.map { pair -> UnifiedActiveRollcall(unifiedId = "cx_${pair.second.id}",
-                platform = LearningPlatform.CHAOXING, courseName = pair.first.courseName,
-                typeDisplayName = pair.second.resolvedSignTypeName, effectiveId = pair.second.id,
-                rawChaoXingSign = pair, chaoXingSignDetail = pair.second.signDetail) }
-        updateHeroCardAndSignButtonState()
-    }
-
     fun loadTronClassData(forceRefresh: Boolean, silent: Boolean = false) {
         val ctx = context ?: return
-        val b = _binding ?: return
         if (!tronClassClient.isLoggedIn()) {
-            b.swipeRefreshTronClass.isRefreshing = false
+            binding.swipeRefreshTronClass.isRefreshing = false
             return
         }
-        val account = tronClassClient.accountKey()
-        if (!forceRefresh && homeLoadJob?.isActive == true && homeAccount == account) return
-        homeLoadJob?.cancel()
-        homeCacheJob?.cancel()
-        homePublishJob?.cancel()
-        homeAccount = account
-        val generation = ++homeGeneration
-        if (!silent) b.swipeRefreshTronClass.isRefreshing = true
-        homeLoadJob = viewLifecycleOwner.lifecycleScope.launch {
-            val cache = TronClassDataCacheManager.getInstance(ctx)
-            fun current() = isCurrentHome(account, generation)
-            fun fresh(time: Long, ttl: Long) = !forceRefresh && time > 0 &&
-                System.currentTimeMillis() - time in 0 until ttl
+
+        if (!silent) {
+            binding.swipeRefreshTronClass.isRefreshing = true
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
             try {
-                // Each section publishes as soon as it is available; announcements never gate attendance.
-                val initial = LearningHomePreloader.take(ctx, account, isDualPlatformMode, fresh = forceRefresh)
-                if (!current()) return@launch
-                applyCachedHome(initial)
-                kotlinx.coroutines.supervisorScope {
-                    launch {
-                        val result = tronClassClient.fetchOngoingRollcalls()
-                        if (current()) result.onSuccess { publishTronClassRollcalls(it) }
-                    }
-                    launch {
-                        if (fresh(cache.getTodosCacheTime(), 60_000L)) return@launch
-                        val result = tronClassClient.fetchTodos()
-                        if (!current()) return@launch
-                        result.onSuccess { todos ->
-                            val changed = rawTcTodos != todos
-                            withContext(Dispatchers.IO) {
-                                if (changed) TronClassDdlScheduler.scheduleFromPreferences(ctx)
-                            }
-                            if (current()) { rawTcTodos = todos; publishHomeLists() }
+                val cacheMgr = TronClassDataCacheManager.getInstance(ctx)
+                val todosDeferred = async { tronClassClient.fetchTodos() }
+                val coursesDeferred = async { tronClassClient.fetchMyCourses() }
+                val rollcallsDeferred = async { tronClassClient.fetchOngoingRollcalls() }
+
+                val todosRes = todosDeferred.await()
+                val coursesRes = coursesDeferred.await()
+                val rollcallsRes = rollcallsDeferred.await()
+
+                val b = _binding ?: return@launch
+
+            // 1. 处理待办作业
+            if (todosRes.isSuccess) {
+                val todos = todosRes.getOrDefault(emptyList())
+                cacheMgr.saveTodos(todos)
+                TronClassDdlScheduler.scheduleFromPreferences(ctx)
+            } else {
+                val err = todosRes.exceptionOrNull()
+                Log.w(TAG, "Failed to refresh todos: ${err?.message}", err)
+            }
+
+            // 2. 处理在读课程
+            if (coursesRes.isSuccess) {
+                val courses = coursesRes.getOrDefault(emptyList())
+                if (courses.isNotEmpty()) {
+                    cacheMgr.saveCourses(courses)
+                }
+                allTronClassCourses = courses
+            } else {
+                val err = coursesRes.exceptionOrNull()
+                Log.e(TAG, "Failed to refresh courses: ${err?.message}", err)
+                if (err is AppAuthExpiredException) {
+                    Toast.makeText(ctx, err.getFriendlyErrorMessage(), Toast.LENGTH_LONG).show()
+                    promptTronClassLogin()
+                } else {
+                    val cached = cacheMgr.getCachedCourses()
+                    if (cached.isNotEmpty()) {
+                        allTronClassCourses = cached
+                        if (!silent) {
+                            Toast.makeText(
+                                ctx,
+                                "网络同步失败，已载入离线课程数据 (${err?.getFriendlyErrorMessage()})",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
-                    }
-                    launch {
-                        if (!fresh(cache.getCoursesCacheTime(), 30 * 60_000L)) {
-                            val result = tronClassClient.fetchMyCourses()
-                            if (!current()) return@launch
-                            result.onSuccess { courses ->
-                                if (current()) { allTronClassCourses = courses; publishHomeLists() }
-                            }.onFailure { error ->
-                                if (error is AppAuthExpiredException) promptTronClassLogin()
-                                else if (!silent) Toast.makeText(ctx, error.getFriendlyErrorMessage(), Toast.LENGTH_LONG).show()
-                                if (allTronClassCourses.isEmpty()) return@launch
-                            }
-                        }
-                        if (!current() || fresh(cache.getHomeBulletinsCacheTime(), 5 * 60_000L)) return@launch
-                        val latest = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
-                        val courses = if (latest == null) allTronClassCourses.take(12)
-                            else allTronClassCourses.filter { it.extractSemesterCode() == latest }
-                        val courseIds = courses.map { it.id }.toSet()
-                        val byCourse = allTronClassBulletins.filter { it.courseId in courseIds }
-                            .groupBy { it.courseId }.toMutableMap()
-                        val permits = kotlinx.coroutines.sync.Semaphore(3)
-                        val results = courses.map { course -> async {
-                            permits.withPermit {
-                                val result = tronClassClient.fetchCourseBulletins(course.id)
-                                val items = result.getOrNull() ?: withContext(Dispatchers.IO) { cache.getCachedCourseBulletins(course.id) }
-                                if (current() && result.isSuccess) withContext(Dispatchers.IO) { cache.saveCourseBulletins(course.id, items) }
-                                if (!current()) return@withPermit false
-                                items.forEach { it.courseId = course.id; it.courseName = course.getCleanName() }
-                                byCourse[course.id] = items
-                                allTronClassBulletins = byCourse.values.flatten().distinctBy { it.id }
-                                    .sortedByDescending { it.createdAt ?: "" }
-                                publishHomeLists()
-                                result.isSuccess
-                            }
-                        } }.awaitAll()
-                        if (!current()) return@launch
-                        allTronClassBulletins = byCourse.values.flatten().distinctBy { it.id }.sortedByDescending { it.createdAt ?: "" }
-                        if (results.all { it }) withContext(Dispatchers.IO) { cache.saveHomeBulletins(allTronClassBulletins) }
-                        if (current()) publishHomeLists()
-                    }
-                    if (isDualPlatformMode) launch {
-                        if (chaoXingClient.ensureSession().isFailure || !current()) return@launch
-                        val coursesTask = async { chaoXingClient.fetchCourses() }
-                        launch {
-                            val result = chaoXingClient.fetchTodos()
-                            if (current()) result.onSuccess { rawCxTodos = it; publishHomeLists() }
-                        }
-                        launch {
-                            val result = chaoXingClient.fetchNotices()
-                            if (current()) result.onSuccess { rawCxNotices = it; publishHomeLists() }
-                        }
-                        val coursesResult = coursesTask.await()
-                        if (!current()) return@launch
-                        coursesResult.onSuccess { cachedChaoXingCourses = it; publishHomeLists() }
-                        val signs = chaoXingClient.fetchActiveSignsForCourses(cachedChaoXingCourses)
-                        if (!current()) return@launch
-                        signs.onSuccess { publishChaoXingRollcalls(it) }
-                        updateTronClassUserHeader()
+                    } else {
+                        b.tvTronClassEmptyCourses.visibility = View.VISIBLE
+                        b.tvTronClassEmptyCourses.text = "课程获取失败: ${err?.getFriendlyErrorMessage()}\n点击右上角刷新重试"
                     }
                 }
-            } finally {
-                if (current()) _binding?.swipeRefreshTronClass?.isRefreshing = false
             }
+
+            // 3. 处理正在进行的课堂签到（合并在顶部 Hero 卡片中展示：有签到时卡片变绿并在底部显示签到课程）
+            if (rollcallsRes.isSuccess) {
+                tronClassActiveRollcalls = rollcallsRes.getOrDefault(emptyList())
+                val nonTcRollcalls = allUnifiedActiveRollcalls.filter { it.platform != LearningPlatform.TRONCLASS }
+                val newTcRollcalls = tronClassActiveRollcalls.map { tc ->
+                    UnifiedActiveRollcall(
+                        unifiedId = "tc_${tc.getEffectiveId()}",
+                        platform = LearningPlatform.TRONCLASS,
+                        courseName = tc.courseName ?: "课堂教学",
+                        typeDisplayName = tc.getTypeDisplayName(),
+                        effectiveId = tc.getEffectiveId(),
+                        rawTronClassRollcall = tc
+                    )
+                }
+                allUnifiedActiveRollcalls = nonTcRollcalls + newTcRollcalls
+                updateHeroCardAndSignButtonState()
+            } else {
+                val err = rollcallsRes.exceptionOrNull()
+                Log.w(TAG, "Failed to fetch rollcalls: ${err?.message}", err)
+            }
+
+            // 4. 并发拉取各在读课程公告
+            val targetCourses = if (allTronClassCourses.isNotEmpty()) {
+                val latestSemester = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.distinct().sortedDescending().firstOrNull()
+                if (latestSemester != null) {
+                    allTronClassCourses.filter { it.extractSemesterCode() == latestSemester }
+                } else {
+                    allTronClassCourses.take(12)
+                }
+            } else emptyList()
+
+            if (targetCourses.isNotEmpty()) {
+                try {
+                    val bulletinLists = targetCourses.map { c ->
+                        async {
+                            val res = tronClassClient.fetchCourseBulletins(c.id)
+                            val list = res.getOrDefault(emptyList())
+                            list.forEach { item ->
+                                item.courseId = c.id
+                                item.courseName = c.getCleanName()
+                            }
+                            list
+                        }
+                    }.awaitAll()
+
+                    val aggregated = bulletinLists.flatten()
+                        .distinctBy { it.id }
+                        .sortedByDescending { it.createdAt ?: "" }
+
+                    allTronClassBulletins = aggregated
+                    if (aggregated.isNotEmpty()) {
+                        cacheMgr.saveHomeBulletins(aggregated)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to refresh home bulletins: ${e.message}", e)
+                    val cached = cacheMgr.getCachedHomeBulletins()
+                    if (cached.isNotEmpty()) {
+                        allTronClassBulletins = cached
+                    }
+                }
+            } else {
+                val cached = cacheMgr.getCachedHomeBulletins()
+                if (cached.isNotEmpty()) {
+                    allTronClassBulletins = cached
+                }
+            }
+
+            // 🚀 平滑数据更新：纯畅课模式只载入纯畅课数据；双平台模式则与现有超星数据融合
+            if (isDualPlatformMode) {
+                val currentCxTodos = ChaoXingPreferences(ctx).getCachedTodos()
+                val currentCxNotices = ChaoXingPreferences(ctx).getCachedNotices()
+                val currentCxCourses = cachedChaoXingCourses.ifEmpty { ChaoXingPreferences(ctx).getCachedCourses() }
+
+                val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                val interTodos = mutableListOf<UnifiedTodo>()
+                interTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                interTodos.addAll(currentCxTodos)
+                interTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                allUnifiedTodos = interTodos
+
+                val interBulletins = mutableListOf<UnifiedBulletin>()
+                interBulletins.addAll(allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                interBulletins.addAll(currentCxNotices)
+                interBulletins.sortByDescending { it.publishMillis }
+                allUnifiedBulletins = interBulletins
+
+                val latestSemCode = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+                val customSemMap = ChaoXingPreferences(ctx).getAllCustomSemesters()
+                val tcPrefs = TronClassPreferences.getInstance(ctx)
+                val tcCustomMap = tcPrefs.getAllCustomSemesters()
+                val manualBindings = tcPrefs.getAllManualBindings()
+                val unboundPairs = tcPrefs.getUnboundPairs()
+                allUnifiedCourses = UnifiedCourse.fuseCourses(
+                    allTronClassCourses,
+                    currentCxCourses,
+                    fallbackSemesterCode = latestSemCode,
+                    customSemesterMap = customSemMap,
+                    tcCustomSemesterMap = tcCustomMap,
+                    manualBindings = manualBindings,
+                    unboundPairs = unboundPairs
+                )
+            } else {
+                // 纯畅课模式：完全剔除任何超星数据，百分之百纯净畅课
+                val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
+                allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                allUnifiedCourses = allTronClassCourses.map { 
+                    UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+                }
+            }
+
+            setupSemesterChips(allUnifiedCourses)
+            renderUnifiedData()
+            updateTodoTabBadge(allUnifiedTodos.size)
+            updateBulletinTabBadge(allUnifiedBulletins.size)
+
+            if (!isDualPlatformMode) {
+                // 纯畅课模式：不请求任何超星接口，直接完成刷新
+                return@launch
+            }
+
+            // 5. 并发拉取超星学习通数据 (如果存在有效认证或可静默换票)
+            try {
+                val cxEnsure = chaoXingClient.ensureSession()
+                if (cxEnsure.isSuccess) {
+                    val cxCoursesDeferred = async { chaoXingClient.fetchCourses() }
+                    val cxTodosDeferred = async { chaoXingClient.fetchTodos() }
+                    val cxNoticesDeferred = async { chaoXingClient.fetchNotices() }
+
+                    val rawCxCourses = cxCoursesDeferred.await().getOrNull() ?: emptyList()
+                    val cxCourses = if (rawCxCourses.isNotEmpty()) rawCxCourses else {
+                        ChaoXingPreferences(ctx).getCachedCourses().ifEmpty { cachedChaoXingCourses }
+                    }
+                    if (cxCourses.isNotEmpty()) {
+                        cachedChaoXingCourses = cxCourses
+                    }
+
+                    val rawCxTodos = cxTodosDeferred.await().getOrNull() ?: emptyList()
+                    val cxTodos = if (rawCxTodos.isNotEmpty()) rawCxTodos else {
+                        ChaoXingPreferences(ctx).getCachedTodos()
+                    }
+
+                    val rawCxNotices = cxNoticesDeferred.await().getOrNull() ?: emptyList()
+                    val cxNotices = if (rawCxNotices.isNotEmpty()) rawCxNotices else {
+                        ChaoXingPreferences(ctx).getCachedNotices()
+                    }
+
+                    // 并发探测超星各门在修课程是否有进行中的签到与未交作业
+                    val cxSignsDeferred = async {
+                        if (cxCourses.isNotEmpty()) {
+                            chaoXingClient.fetchActiveSignsForCourses(cxCourses).getOrDefault(emptyList())
+                        } else emptyList()
+                    }
+
+                    // 🚀 核心优化：并发探测各门超星课程内部的真实未完成作业，彻底解决全局 stu-work 漏报章节/未同步作业的问题
+                    val cxCourseWorksDeferred = if (cxCourses.isNotEmpty()) {
+                        cxCourses.map { course ->
+                            async {
+                                try {
+                                    val res = chaoXingDetailClient.fetchHomeworks(course, withScores = false)
+                                    val works = res.getOrNull() ?: emptyList()
+                                    works.filter { !it.isSubmitted() }.map { w ->
+                                        UnifiedTodo.fromChaoXingWork(w, course)
+                                    }
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            }
+                        }
+                    } else emptyList()
+
+                    val cxSigns = cxSignsDeferred.await()
+                    val deepCxWorks = cxCourseWorksDeferred.awaitAll().flatten()
+
+                    // 合并超星全局待办与各门课程内部深层探测到的未交作业（去重）
+                    val mergedCxTodos = mutableListOf<UnifiedTodo>()
+                    val seenTodoIds = mutableSetOf<String>()
+                    // 1. 优先加入课程内部深度抓取到的作业（信息和链接最完整，解决 Web应用开发等漏报）
+                    for (todo in deepCxWorks) {
+                        if (seenTodoIds.add(todo.originalTodoId)) {
+                            mergedCxTodos.add(todo)
+                        }
+                    }
+                    // 2. 补充全局待办中的其他作业
+                    for (todo in cxTodos) {
+                        if (seenTodoIds.add(todo.originalTodoId)) {
+                            mergedCxTodos.add(todo)
+                        }
+                    }
+
+                    // 同步持久化超星作业缓存，保证下次冷启动或离线时立即可见
+                    ChaoXingPreferences(ctx).saveCachedTodos(mergedCxTodos)
+
+                    // 双平台签到活动统一聚合
+                    val unifiedRollcalls = mutableListOf<UnifiedActiveRollcall>()
+                    tronClassActiveRollcalls.forEach { tc ->
+                        unifiedRollcalls.add(
+                            UnifiedActiveRollcall(
+                                unifiedId = "tc_${tc.getEffectiveId()}",
+                                platform = LearningPlatform.TRONCLASS,
+                                courseName = tc.courseName ?: "课堂教学",
+                                typeDisplayName = tc.getTypeDisplayName(),
+                                effectiveId = tc.getEffectiveId(),
+                                rawTronClassRollcall = tc
+                            )
+                        )
+                    }
+                    cxSigns.forEach { pair ->
+                        val course = pair.first
+                        val activeItem = pair.second
+                        val typeName = activeItem.resolvedSignTypeName
+                        unifiedRollcalls.add(
+                            UnifiedActiveRollcall(
+                                unifiedId = "cx_${activeItem.id}",
+                                platform = LearningPlatform.CHAOXING,
+                                courseName = course.courseName,
+                                typeDisplayName = typeName,
+                                effectiveId = activeItem.id,
+                                rawChaoXingSign = pair,
+                                chaoXingSignDetail = activeItem.signDetail
+                            )
+                        )
+                    }
+                    allUnifiedActiveRollcalls = unifiedRollcalls
+                    updateHeroCardAndSignButtonState()
+
+                    // 合并待办作业 (按时间升序混排)
+                    val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                    val uTodos = mutableListOf<UnifiedTodo>()
+                    uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                    uTodos.addAll(mergedCxTodos)
+                    uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                    allUnifiedTodos = uTodos
+
+                    // 智能融合双平台课程 (自动归并同名课程为 DUAL 课程，消灭两个入口)
+                    val latestSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+                    val customSemMap = ChaoXingPreferences(ctx).getAllCustomSemesters()
+                    val tcPrefs = TronClassPreferences.getInstance(ctx)
+                    val tcCustomMap = tcPrefs.getAllCustomSemesters()
+                    val manualBindings = tcPrefs.getAllManualBindings()
+                    val unboundPairs = tcPrefs.getUnboundPairs()
+                    val uCourses = UnifiedCourse.fuseCourses(
+                        allTronClassCourses,
+                        cxCourses,
+                        fallbackSemesterCode = latestSem,
+                        customSemesterMap = customSemMap,
+                        tcCustomSemesterMap = tcCustomMap,
+                        manualBindings = manualBindings,
+                        unboundPairs = unboundPairs
+                    )
+                    allUnifiedCourses = uCourses
+
+                    // 合并公告
+                    val uBulletins = mutableListOf<UnifiedBulletin>()
+                    uBulletins.addAll(allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                    uBulletins.addAll(cxNotices)
+                    uBulletins.sortByDescending { it.publishMillis }
+                    allUnifiedBulletins = uBulletins
+
+                    setupSemesterChips(allUnifiedCourses)
+                    renderUnifiedData()
+                    updateTodoTabBadge(allUnifiedTodos.size)
+                    updateBulletinTabBadge(allUnifiedBulletins.size)
+                    updateTronClassUserHeader()
+                } else {
+                    // 超星会话校验暂时未通过（如临时网络抖动），从本地离线缓存恢复超星数据进行融合，坚决不洗白为纯畅课！
+                    val cachedCxList = ChaoXingPreferences(ctx).getCachedCourses().ifEmpty { cachedChaoXingCourses }
+                    if (cachedCxList.isNotEmpty()) {
+                        cachedChaoXingCourses = cachedCxList
+                        val latestSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+                        val customSemMap = ChaoXingPreferences(ctx).getAllCustomSemesters()
+                        val tcPrefs = TronClassPreferences.getInstance(ctx)
+                        val tcCustomMap = tcPrefs.getAllCustomSemesters()
+                        val manualBindings = tcPrefs.getAllManualBindings()
+                        val unboundPairs = tcPrefs.getUnboundPairs()
+                        allUnifiedCourses = UnifiedCourse.fuseCourses(
+                            allTronClassCourses,
+                            cachedCxList,
+                            fallbackSemesterCode = latestSem,
+                            customSemesterMap = customSemMap,
+                            tcCustomSemesterMap = tcCustomMap,
+                            manualBindings = manualBindings,
+                            unboundPairs = unboundPairs
+                        )
+                        val cachedCxTodos = ChaoXingPreferences(ctx).getCachedTodos()
+                        val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                        val uTodos = mutableListOf<UnifiedTodo>()
+                        uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                        uTodos.addAll(cachedCxTodos)
+                        uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+                        allUnifiedTodos = uTodos
+
+                        val cachedCxNotices = ChaoXingPreferences(ctx).getCachedNotices()
+                        val uBulletins = mutableListOf<UnifiedBulletin>()
+                        uBulletins.addAll(allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) })
+                        uBulletins.addAll(cachedCxNotices)
+                        uBulletins.sortByDescending { it.publishMillis }
+                        allUnifiedBulletins = uBulletins
+                    } else {
+                        // 本地确实完全没有任何超星数据，才回退畅课单源
+                        val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                        val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
+                        allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                        allUnifiedCourses = allTronClassCourses.map { 
+                            UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
+                        }
+                        allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                    }
+                    allUnifiedActiveRollcalls = tronClassActiveRollcalls.map { tc ->
+                        UnifiedActiveRollcall(
+                            unifiedId = "tc_${tc.getEffectiveId()}",
+                            platform = LearningPlatform.TRONCLASS,
+                            courseName = tc.courseName ?: "课堂教学",
+                            typeDisplayName = tc.getTypeDisplayName(),
+                            effectiveId = tc.getEffectiveId(),
+                            rawTronClassRollcall = tc
+                        )
+                    }
+                    updateHeroCardAndSignButtonState()
+                    setupSemesterChips(allUnifiedCourses)
+                    renderUnifiedData()
+                    updateTodoTabBadge(allUnifiedTodos.size)
+                    updateBulletinTabBadge(allUnifiedBulletins.size)
+                    updateTronClassUserHeader()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "ChaoXing aggregate fetch failed: ${e.message}", e)
+                val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
+                allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
+                allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
+                allUnifiedActiveRollcalls = tronClassActiveRollcalls.map { tc ->
+                    UnifiedActiveRollcall(
+                        unifiedId = "tc_${tc.getEffectiveId()}",
+                        platform = LearningPlatform.TRONCLASS,
+                        courseName = tc.courseName ?: "课堂教学",
+                        typeDisplayName = tc.getTypeDisplayName(),
+                        effectiveId = tc.getEffectiveId(),
+                        rawTronClassRollcall = tc
+                    )
+                }
+                updateHeroCardAndSignButtonState()
+                setupSemesterChips(allUnifiedCourses)
+                renderUnifiedData()
+                updateTronClassUserHeader()
+            }
+        } finally {
+            _binding?.swipeRefreshTronClass?.isRefreshing = false
         }
     }
+}
 
     private fun updateTodoTabBadge(count: Int) {
         val b = _binding ?: return
@@ -1383,12 +1629,12 @@ class TronClassFragment : Fragment() {
     private fun setupSemesterChips(courses: List<UnifiedCourse>) {
         val b = _binding ?: return
         if (courses.isEmpty()) {
-            semesterChipKey = null
             b.hsvTronClassSemesters.visibility = View.GONE
             b.tvTronClassCourseSectionTitle.text = "本学期在读课程"
             b.tvTronClassCourseBadge.text = "0 门"
             updateCourseTabBadge(0)
             b.tvTronClassEmptyCourses.visibility = View.VISIBLE
+            tronClassCourseAdapter.updateUnifiedData(emptyList(), multiPlatform = chaoXingClient.isLoggedIn())
             return
         }
 
@@ -1404,9 +1650,6 @@ class TronClassFragment : Fragment() {
             currentSelectedSemester = latestSemester
         }
 
-        val nextChipKey = Triple(semesterCodes, courses.any { it.semesterCode == null }, currentSelectedSemester)
-        if (semesterChipKey == nextChipKey) return
-        semesterChipKey = nextChipKey
         val chipGroup = b.chipGroupTronClassSemesters
         chipGroup.removeAllViews()
 
@@ -1480,6 +1723,7 @@ class TronClassFragment : Fragment() {
             chipGroup.addView(otherChip)
         }
 
+        renderUnifiedData()
     }
 
     // --- 二级页面分发与返回栈管理 ---
@@ -1903,18 +2147,33 @@ class TronClassFragment : Fragment() {
 
     private fun refreshCoursesAfterSemesterChange() {
         val ctx = context ?: return
-        val account = tronClassClient.accountKey()
-        val generation = homeGeneration
-        val dual = isDualPlatformMode
-        val revision = ++courseOptionsRevision
-        viewLifecycleOwner.lifecycleScope.launch {
-            val options = withContext(Dispatchers.IO) {
-                LearningHomePreloader.readOptions(ctx, account, dual)
+        val cxPrefs = ChaoXingPreferences(ctx)
+        val tcPrefs = TronClassPreferences.getInstance(ctx)
+        val customMap = cxPrefs.getAllCustomSemesters()
+        val tcCustomMap = tcPrefs.getAllCustomSemesters()
+        val manualBindings = tcPrefs.getAllManualBindings()
+        val unboundPairs = tcPrefs.getUnboundPairs()
+        val latestTcSem = allTronClassCourses.mapNotNull { it.extractSemesterCode() }.maxOrNull()
+        val cxList = cachedChaoXingCourses.ifEmpty { cxPrefs.getCachedCourses() }
+
+        if (isDualPlatformMode && cxList.isNotEmpty()) {
+            allUnifiedCourses = UnifiedCourse.fuseCourses(
+                allTronClassCourses,
+                cxList,
+                fallbackSemesterCode = latestTcSem,
+                customSemesterMap = customMap,
+                tcCustomSemesterMap = tcCustomMap,
+                manualBindings = manualBindings,
+                unboundPairs = unboundPairs
+            )
+        } else {
+            allUnifiedCourses = allTronClassCourses.map { 
+                UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
             }
-            if (!isCurrentHome(account, generation) || dual != isDualPlatformMode || revision != courseOptionsRevision) return@launch
-            courseOptions = options
-            publishHomeLists()
         }
+
+        setupSemesterChips(allUnifiedCourses)
+        renderUnifiedData()
     }
 
     fun openHomework(activityId: Long, courseId: Long, title: String, courseName: String) {
@@ -1959,25 +2218,15 @@ class TronClassFragment : Fragment() {
 
     // --- 课堂签到调度与交互 ---
 
-    private fun startTronClassQrScan(rollcallId: Long? = null) {
-        pendingQrScan = PendingQrScan(tronClassClient.accountKey(), tronClassId = rollcallId)
-        launchQrScanner()
-    }
-
-    private fun launchQrScanner() {
+    private fun startTronClassQrScan() {
         val intent = Intent(requireContext(), MlKitScannerActivity::class.java)
         tronClassMlKitScannerLauncher.launch(intent)
     }
 
-    private fun handleTronClassScannedQrResult(rawContents: String, expectedId: Long? = null) {
+    private fun handleTronClassScannedQrResult(rawContents: String) {
         val ctx = context ?: return
         val parsed = tronClassClient.parseRollcallQr(rawContents)
-        if (parsed != null && expectedId != null && parsed.rollcallId != expectedId) {
-            Toast.makeText(ctx, "二维码属于其他签到活动，请重新扫码", Toast.LENGTH_LONG).show()
-            return
-        }
         if (parsed != null) {
-            val accountAtSubmit = tronClassClient.accountKey()
             val accounts = try {
                 cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
             } catch (_: Exception) {
@@ -1998,24 +2247,26 @@ class TronClassFragment : Fragment() {
                 if (accounts.size > 1) {
                     val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
                     progress.dismiss()
-                    if (tronClassClient.accountKey() != accountAtSubmit) return@launch
+                    if (results.any { it.success }) {
+                        markRollcallCompleted(parsed.rollcallId)
+                    }
                     showMultiAccountRollcallSummaryDialog(results)
-                    refreshRollcallsOnly()
+                    loadTronClassData(forceRefresh = true)
                     return@launch
                 }
 
                 val res = tronClassClient.answerQRRollcall(parsed.rollcallId, parsed.qrData)
                 progress.dismiss()
-                if (tronClassClient.accountKey() != accountAtSubmit) return@launch
 
                 val result = res.getOrNull()
                 if (result != null && result.success) {
+                    markRollcallCompleted(parsed.rollcallId)
                     MaterialAlertDialogBuilder(ctx)
                         .setTitle("🎉 签到成功！")
                         .setMessage(result.message)
                         .setPositiveButton("太棒了", null)
                         .show()
-                    refreshRollcallsOnly()
+                    loadTronClassData(forceRefresh = true)
                 } else {
                     val msg = result?.message ?: res.exceptionOrNull()?.getFriendlyErrorMessage() ?: "未知签到错误"
                     MaterialAlertDialogBuilder(ctx)
@@ -2122,7 +2373,7 @@ class TronClassFragment : Fragment() {
         when (rollcall.getNormalizedType()) {
             "radar" -> showTronClassRadarRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
             "number" -> showTronClassNumberRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            "qr_code" -> startTronClassQrScan(rollcall.getEffectiveId())
+            "qr_code" -> startTronClassQrScan()
             else -> showManualRollcallGuideDialog(rollcall.getEffectiveId(), rollcall.courseName)
         }
     }
@@ -2143,7 +2394,7 @@ class TronClassFragment : Fragment() {
             .setTitle(if (courseName != null) "课程签到 · $courseName" else "课堂签到向导")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> startTronClassQrScan(designatedId)
+                    0 -> startTronClassQrScan()
                     1 -> showTronClassNumberRollcallDialog(designatedId, courseName)
                     2 -> showTronClassRadarRollcallDialog(designatedId, courseName)
                     3 -> {
@@ -2195,7 +2446,8 @@ class TronClassFragment : Fragment() {
                         classroom = classroom
                     )
                     dialog.setOnSignSuccessListener {
-                        refreshRollcallsOnly()
+                        markRollcallCompleted(id)
+                        loadTronClassData(forceRefresh = true)
                     }
                     dialog.show(parentFragmentManager, "RadarRollcallBottomSheet")
                 }
@@ -2213,7 +2465,8 @@ class TronClassFragment : Fragment() {
             teacherScope = activeRollcall?.scope
         )
         dialog.setOnSignSuccessListener {
-            refreshRollcallsOnly()
+            markRollcallCompleted(rollcallId)
+            loadTronClassData(forceRefresh = true)
         }
         dialog.show(parentFragmentManager, "RadarRollcallBottomSheet")
     }
@@ -2231,7 +2484,8 @@ class TronClassFragment : Fragment() {
 
         val dialog = NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
         dialog.setOnSignSuccessListener {
-            refreshRollcallsOnly()
+            markRollcallCompleted(rollcallId)
+            loadTronClassData(forceRefresh = true)
         }
         dialog.show(parentFragmentManager, "NumberRollcallBottomSheet")
     }
@@ -2360,15 +2614,10 @@ class TronClassFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        instance = null
-        semesterChipKey = null
-        homeGeneration++
-        homeLoadJob?.cancel()
-        homeCacheJob?.cancel()
-        homePublishJob?.cancel()
-        rollcallLoadJob?.cancel()
-        chaoXingRollcallLoadJob?.cancel()
         super.onDestroyView()
+        if (instanceRef?.get() == this) {
+            instanceRef = null
+        }
         _binding = null
     }
 }
