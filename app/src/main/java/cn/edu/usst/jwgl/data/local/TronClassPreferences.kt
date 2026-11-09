@@ -24,7 +24,7 @@ class TronClassPreferences(private val context: Context) {
     private fun getAccountPrefix(studentId: String? = null): String {
         val sid = if (!studentId.isNullOrBlank()) studentId else {
             try {
-                AuthPreferences(context).getStudentId()
+                AuthPreferences.currentStudentId(context)
             } catch (_: Exception) {
                 ""
             }
@@ -93,6 +93,7 @@ class TronClassPreferences(private val context: Context) {
 
         @Volatile
         private var defaultInstance: TronClassPreferences? = null
+        private val learningSnapshots = mutableMapOf<String, Pair<List<*>, String>>()
 
         fun getInstance(context: Context): TronClassPreferences {
             return defaultInstance ?: synchronized(this) {
@@ -379,37 +380,65 @@ class TronClassPreferences(private val context: Context) {
     }
 
     fun saveCachedTodos(todos: List<TronClassTodo>, studentId: String? = null) {
-        val prefix = getAccountPrefix(studentId)
-        val json = gson.toJson(todos)
-        prefs.edit().putString(prefix + KEY_CACHED_TODOS, json).apply()
+        saveLearningCache(KEY_CACHED_TODOS, todos.toList(), studentId)
     }
 
     fun getCachedTodos(studentId: String? = null): List<TronClassTodo> {
-        val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CACHED_TODOS, null) ?: prefs.getString(KEY_CACHED_TODOS, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<TronClassTodo>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
-        }
+        return getLearningCache(KEY_CACHED_TODOS, studentId, object : TypeToken<List<TronClassTodo>>() {})
     }
 
     fun saveCachedCourses(courses: List<TronClassCourse>, studentId: String? = null) {
-        val prefix = getAccountPrefix(studentId)
-        val json = gson.toJson(courses)
-        prefs.edit().putString(prefix + KEY_CACHED_COURSES, json).apply()
+        saveLearningCache(KEY_CACHED_COURSES, courses.map { it.copy(instructors = it.instructors?.toList().orEmpty()) }, studentId)
     }
 
     fun getCachedCourses(studentId: String? = null): List<TronClassCourse> {
-        val prefix = getAccountPrefix(studentId)
-        val json = prefs.getString(prefix + KEY_CACHED_COURSES, null) ?: prefs.getString(KEY_CACHED_COURSES, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<TronClassCourse>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
-        } catch (e: Exception) {
+        return getLearningCache(KEY_CACHED_COURSES, studentId, object : TypeToken<List<TronClassCourse>>() {})
+    }
+
+    private fun <T> getLearningCache(resource: String, studentId: String?, type: TypeToken<List<T>>): List<T> = synchronized(learningSnapshots) {
+        val key = getAccountPrefix(studentId) + resource
+        val json = prefs.getString(key, null) ?: return@synchronized emptyList()
+        learningSnapshots[key]?.takeIf { it.second == json }?.let {
+            @Suppress("UNCHECKED_CAST")
+            return@synchronized it.first as List<T>
+        }
+        try {
+            val value: List<T> = gson.fromJson(json, type.type) ?: emptyList()
+            learningSnapshots[key] = value to json
+            value
+        } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private fun saveLearningCache(resource: String, value: List<*>, studentId: String?) = synchronized(learningSnapshots) {
+        val key = getAccountPrefix(studentId) + resource
+        val previous = learningSnapshots[key]
+        val stored = prefs.getString(key, null)
+        val json = if (previous != null && previous.first == value && previous.second == stored) previous.second else gson.toJson(value)
+        val editor = prefs.edit().putLong(key + "_time", System.currentTimeMillis())
+        if (stored != json) editor.putString(key, json)
+        editor.apply()
+        learningSnapshots[key] = value to json
+    }
+
+    fun getTodosCacheTime(): Long = prefs.getLong(getAccountPrefix() + KEY_CACHED_TODOS + "_time", 0L)
+    fun getCoursesCacheTime(): Long = prefs.getLong(getAccountPrefix() + KEY_CACHED_COURSES + "_time", 0L)
+
+    private fun isLearningCacheKey(key: String): Boolean = listOf(KEY_CACHED_TODOS, KEY_CACHED_COURSES)
+        .any { key.endsWith(it) || key.endsWith(it + "_time") }
+
+    fun getLearningCacheSize(): Long = prefs.all.filterKeys(::isLearningCacheKey).values.sumOf {
+        (it as? String)?.toByteArray(Charsets.UTF_8)?.size?.toLong() ?: 8L
+    }
+
+    fun getLearningCacheCount(): Int = prefs.all.keys.count { isLearningCacheKey(it) && !it.endsWith("_time") }
+
+    fun clearLearningCache() = synchronized(learningSnapshots) {
+        val editor = prefs.edit()
+        prefs.all.keys.filter(::isLearningCacheKey).forEach(editor::remove)
+        editor.apply()
+        learningSnapshots.clear()
     }
 
     fun isDdlReminder24hEnabled(): Boolean = prefs.getBoolean(KEY_DDL_24H_ENABLED, true)

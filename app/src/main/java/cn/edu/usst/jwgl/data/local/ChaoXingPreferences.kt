@@ -19,6 +19,7 @@ class ChaoXingPreferences(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     private val securePrefs: SharedPreferences = getOrCreateSecurePrefs(context)
+    private val gson = Gson()
 
     companion object {
         private const val TAG = "ChaoXingPreferences"
@@ -37,9 +38,13 @@ class ChaoXingPreferences(private val context: Context) {
         private const val KEY_CACHED_TODOS = "cx_cached_todos"
         private const val KEY_CACHED_NOTICES = "cx_cached_notices"
         private const val KEY_CUSTOM_SEMESTERS = "cx_custom_semesters"
+        internal val sessionLock = Any()
 
         @Volatile
         private var memoryFallbackInstance: SharedPreferences? = null
+
+        @Volatile
+        private var cachedSecurePrefs: SharedPreferences? = null
 
         private val volatileMemoryFallback: SharedPreferences
             get() = memoryFallbackInstance ?: synchronized(this) {
@@ -47,6 +52,15 @@ class ChaoXingPreferences(private val context: Context) {
             }
 
         private fun getOrCreateSecurePrefs(context: Context): SharedPreferences {
+            return cachedSecurePrefs ?: synchronized(this) {
+                cachedSecurePrefs ?: createSecurePrefs(context.applicationContext).also {
+                    // Keep retrying a failed keystore on later instances, as before.
+                    if (it !== memoryFallbackInstance) cachedSecurePrefs = it
+                }
+            }
+        }
+
+        private fun createSecurePrefs(context: Context): SharedPreferences {
             return try {
                 createEncryptedPrefsInternal(context)
             } catch (firstEx: Exception) {
@@ -76,7 +90,7 @@ class ChaoXingPreferences(private val context: Context) {
     private fun getAccountPrefix(studentId: String? = null): String {
         val sid = if (!studentId.isNullOrBlank()) studentId else {
             try {
-                AuthPreferences(context).getStudentId()
+                AuthPreferences.currentStudentId(context)
             } catch (_: Exception) {
                 ""
             }
@@ -94,7 +108,7 @@ class ChaoXingPreferences(private val context: Context) {
         userName: String? = null,
         schoolId: String = "207",
         schoolName: String = "上海理工大学"
-    ) {
+    ) = synchronized(sessionLock) {
         val prefix = getAccountPrefix(studentNo)
         securePrefs.edit().apply {
             putString(prefix + KEY_COOKIES, cookies)
@@ -149,7 +163,7 @@ class ChaoXingPreferences(private val context: Context) {
         return securePrefs.getLong(prefix + KEY_LAST_LOGIN_TIME, 0L)
     }
 
-    fun clearSession(studentId: String? = null) {
+    fun clearSession(studentId: String? = null) = synchronized(sessionLock) {
         val prefix = getAccountPrefix(studentId)
         securePrefs.edit().apply {
             remove(prefix + KEY_COOKIES)
@@ -160,13 +174,12 @@ class ChaoXingPreferences(private val context: Context) {
     }
 
     fun saveCachedCourses(courses: List<ChaoXingCourse>, studentId: String? = null) {
-        if (courses.isEmpty()) return
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return
         try {
-            val json = Gson().toJson(courses)
+            val json = gson.toJson(courses)
             prefs.edit()
                 .putString(prefix + KEY_CACHED_COURSES, json)
-                .putString(KEY_CACHED_COURSES, json)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "saveCachedCourses error", e)
@@ -175,12 +188,13 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun getCachedCourses(studentId: String? = null): List<ChaoXingCourse> {
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return emptyList()
+        // Legacy global snapshots have no recorded owner; never assign them to another account.
         val json = prefs.getString(prefix + KEY_CACHED_COURSES, null)
-            ?: prefs.getString(KEY_CACHED_COURSES, null)
             ?: return emptyList()
         return try {
             val type = object : TypeToken<List<ChaoXingCourse>>() {}.type
-            Gson().fromJson(json, type) ?: emptyList()
+            gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
             Log.e(TAG, "getCachedCourses error", e)
             emptyList()
@@ -203,6 +217,7 @@ class ChaoXingPreferences(private val context: Context) {
      */
     fun setCustomSemester(courseId: String, classId: String? = null, semesterCode: String?, studentId: String? = null) {
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return
         val all = getAllCustomSemesters(studentId).toMutableMap()
         val keyWithClass = if (!classId.isNullOrBlank()) "${courseId}_${classId}" else null
         if (semesterCode.isNullOrBlank()) {
@@ -213,7 +228,7 @@ class ChaoXingPreferences(private val context: Context) {
             all[courseId] = semesterCode.trim()
         }
         try {
-            val json = Gson().toJson(all)
+            val json = gson.toJson(all)
             prefs.edit().putString(prefix + KEY_CUSTOM_SEMESTERS, json).apply()
         } catch (e: Exception) {
             Log.e(TAG, "setCustomSemester error", e)
@@ -225,12 +240,12 @@ class ChaoXingPreferences(private val context: Context) {
      */
     fun getAllCustomSemesters(studentId: String? = null): Map<String, String> {
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return emptyMap()
         val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null)
-            ?: prefs.getString(KEY_CUSTOM_SEMESTERS, null)
             ?: return emptyMap()
         return try {
             val type = object : TypeToken<Map<String, String>>() {}.type
-            Gson().fromJson(json, type) ?: emptyMap()
+            gson.fromJson(json, type) ?: emptyMap()
         } catch (e: Exception) {
             Log.e(TAG, "getAllCustomSemesters error", e)
             emptyMap()
@@ -238,13 +253,12 @@ class ChaoXingPreferences(private val context: Context) {
     }
 
     fun saveCachedTodos(todos: List<UnifiedTodo>, studentId: String? = null) {
-        if (todos.isEmpty()) return
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return
         try {
-            val json = Gson().toJson(todos)
+            val json = gson.toJson(todos)
             prefs.edit()
                 .putString(prefix + KEY_CACHED_TODOS, json)
-                .putString(KEY_CACHED_TODOS, json)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "saveCachedTodos error", e)
@@ -253,12 +267,12 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun getCachedTodos(studentId: String? = null): List<UnifiedTodo> {
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return emptyList()
         val json = prefs.getString(prefix + KEY_CACHED_TODOS, null)
-            ?: prefs.getString(KEY_CACHED_TODOS, null)
             ?: return emptyList()
         return try {
             val type = object : TypeToken<List<UnifiedTodo>>() {}.type
-            Gson().fromJson(json, type) ?: emptyList()
+            gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
             Log.e(TAG, "getCachedTodos error", e)
             emptyList()
@@ -266,13 +280,12 @@ class ChaoXingPreferences(private val context: Context) {
     }
 
     fun saveCachedNotices(notices: List<UnifiedBulletin>, studentId: String? = null) {
-        if (notices.isEmpty()) return
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return
         try {
-            val json = Gson().toJson(notices)
+            val json = gson.toJson(notices)
             prefs.edit()
                 .putString(prefix + KEY_CACHED_NOTICES, json)
-                .putString(KEY_CACHED_NOTICES, json)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "saveCachedNotices error", e)
@@ -281,12 +294,12 @@ class ChaoXingPreferences(private val context: Context) {
 
     fun getCachedNotices(studentId: String? = null): List<UnifiedBulletin> {
         val prefix = getAccountPrefix(studentId)
+        if (prefix.isEmpty()) return emptyList()
         val json = prefs.getString(prefix + KEY_CACHED_NOTICES, null)
-            ?: prefs.getString(KEY_CACHED_NOTICES, null)
             ?: return emptyList()
         return try {
             val type = object : TypeToken<List<UnifiedBulletin>>() {}.type
-            Gson().fromJson(json, type) ?: emptyList()
+            gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
             Log.e(TAG, "getCachedNotices error", e)
             emptyList()

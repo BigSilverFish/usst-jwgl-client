@@ -11,6 +11,8 @@ import kotlin.math.*
  */
 object CoordinateUtils {
 
+    const val BUILDING_POINT_VERSION = "legacy-22-v1"
+
     private const val EARTH_RADIUS = 6378137.0 // 地球长半轴 (米)
     private const val EE = 0.006693421622965943 // 椭球偏心率平方
 
@@ -104,20 +106,26 @@ object CoordinateUtils {
         val campus: String,
         val latitude: Double, // GCJ-02 纬度
         val longitude: Double, // GCJ-02 经度
-        val aliases: List<String> = emptyList()
+        val aliases: List<String> = emptyList(),
+        val coordinateSystem: CoordinateSystem = CoordinateSystem.GCJ02,
+        val source: String = "旧版内置点位，原始采集来源未记录",
+        val version: String = BUILDING_POINT_VERSION,
+        val calibratedAt: String? = null,
+        val calibrationErrorMeters: Double? = null
     ) {
         override fun toString(): String = "$name ($campus)"
+
+        fun asRollcallLocation(): RollcallLocation = RollcallLocation(
+            latitude, longitude, coordinateSystem, source, pointVersion = version
+        )
     }
 
     /**
-     * 上海理工大学各教学楼及签到点位高精 GCJ-02 火星坐标库
-     * 注意：一网畅学官方前端 bundle (模块 72238/2616/96348) 在提交点名和发起点名时，
-     * 均调用 handleWgs2gcj() 将原始坐标转换为 GCJ-02 火星坐标。
-     * 服务端所有距离裁决均基于 GCJ-02 火星坐标体系计算。
-     * 本库坐标经过高德高精实测校准，直接对应校内各教学楼物理核心，确保误差 < 15 米。
+     * 保留旧版22个点的数值与别名，坐标按原库声明为GCJ-02，不能再次纠偏。
+     * 原始测量、校准日期及误差均无可核验记录；合并楼宇仍为一个参考点，待实地校准。
      */
     val USST_BUILDINGS = listOf(
-        // 本部北校区（军工路516号北区）- GCJ-02 真实火星坐标
+        // 本部北校区（军工路516号北区）
         CampusBuilding("b_516_1j_e", "一教东", "本部北校区", 31.291731, 121.556084, listOf("一教东", "一教东区", "第一教学楼东", "一教中", "第一教学楼中")),
         CampusBuilding("b_516_1j_w", "一教西", "本部北校区", 31.291376, 121.555443, listOf("一教西", "一教西区", "第一教学楼西")),
         CampusBuilding("b_516_3j_e", "三教", "本部北校区", 31.294850, 121.555663, listOf("三教", "第三教学楼", "3教", "三教东", "三教西", "三教东区", "三教西区", "第三教学楼东", "第三教学楼西")),
@@ -132,18 +140,18 @@ object CoordinateUtils {
         CampusBuilding("b_516_xty", "新体育健身中心", "本部北校区", 31.291248, 121.557887, listOf("新体育健身中心", "健身中心", "新体育中心", "体育健身中心")),
         CampusBuilding("b_516_bxty", "北校田径场", "本部北校区", 31.291041, 121.556672, listOf("北校田径场", "北田径场", "北区操场", "北操", "北操场")),
 
-        // 本部南校区（军工路516号南区）- GCJ-02 真实火星坐标
+        // 本部南校区（军工路516号南区）
         CampusBuilding("b_516_zy", "卓越楼", "本部南校区", 31.288889, 121.554837, listOf("卓越楼", "卓越", "卓越工程大楼")),
         CampusBuilding("b_516_gh", "国合楼", "本部南校区", 31.287511, 121.556312, listOf("国合楼", "国合", "国际交流合作楼")),
         CampusBuilding("b_516_4j_w", "四教", "本部南校区", 31.286636, 121.557302, listOf("四教", "第四教学楼", "4教", "四教东", "四教西", "四教东区", "四教西区", "第四教学楼东", "第四教学楼西")),
 
-        // 军工路1100号校区 - GCJ-02 真实火星坐标（精简合并点位）
+        // 军工路1100号校区（保留合并点位，尚未分楼校准）
         CampusBuilding("b_1100_bx", "博学楼", "军工路1100号", 31.299551, 121.547103, listOf("博学楼", "博学")),
         CampusBuilding("b_1100_dl", "达理楼·勤学楼·乐学楼", "军工路1100号", 31.299427, 121.546237, listOf("达理楼", "达理", "勤学楼", "勤学", "乐学楼", "乐学", "1100号图书馆", "1100图", "1100图书馆")),
         CampusBuilding("b_1100_hd", "格物楼·1100学生活动中心", "军工路1100号", 31.299917, 121.546015, listOf("格物楼", "格物", "1100学生活动中心", "学生活动中心", "1100学活", "学活")),
         CampusBuilding("b_1100_jt", "1100申阶梯·体育活动中心", "军工路1100号", 31.300101, 121.547137, listOf("1100申阶梯", "申阶梯", "阶梯教室", "1100体育活动中心", "1100乒操馆", "乒操馆", "1100体育馆", "体育活动中心", "体育馆")),
 
-        // 外校区教学楼（GCJ-02实测坐标）
+        // 外校区教学楼
         CampusBuilding("b_fx_jxl", "复兴路教学楼", "复兴路校区", 31.211925, 121.460448, listOf("复兴路教学楼", "复兴路", "复兴校区", "复兴教学楼")),
         CampusBuilding("b_yk_jxl", "营口路教学楼", "营口路校区", 31.289567, 121.534146, listOf("营口路教学楼", "营口路", "营口校区", "营口教学楼"))
     )

@@ -25,6 +25,16 @@ class AuthPreferences(private val context: Context) {
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
 
+        fun currentStudentId(context: Context): String {
+            val app = context.applicationContext
+            val activeId = try {
+                AccountVault.getInstance(app).getActiveAccountId()
+            } catch (_: Exception) {
+                ""
+            }
+            return activeId.ifBlank { AuthPreferences(app).getStudentId() }
+        }
+
         private fun createSecurePrefs(context: Context): SharedPreferences {
             return try {
                 createEncryptedPrefsInternal(context)

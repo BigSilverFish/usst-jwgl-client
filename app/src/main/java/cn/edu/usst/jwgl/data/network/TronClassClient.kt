@@ -8,6 +8,7 @@ import com.google.gson.reflect.TypeToken
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.data.local.RollcallSubmissionStore
 import java.util.Locale
 import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
 import cn.edu.usst.jwgl.data.model.TronClassActivityItem
@@ -25,6 +26,9 @@ import okhttp3.RequestBody
 import okio.BufferedSink
 import okio.source
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
@@ -33,6 +37,7 @@ import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,9 +47,11 @@ import java.util.Date
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
-class TronClassClient(private val context: Context) {
+class TronClassClient(context: Context) {
 
-    private val prefs = TronClassPreferences(context)
+    private val context = context.applicationContext
+
+    private val prefs = TronClassPreferences(this.context)
     private val gson = Gson()
 
     companion object {
@@ -64,7 +71,7 @@ class TronClassClient(private val context: Context) {
         }
     }
 
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+    private val okHttpClient: OkHttpClient = TronClassTransport.client.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
@@ -91,6 +98,50 @@ class TronClassClient(private val context: Context) {
             chain.proceed(reqBuilder.build())
         }
         .build()
+
+    private val submissionClient = okHttpClient.newBuilder()
+        .retryOnConnectionFailure(false)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
+    fun accountKey(): String = AuthPreferences.currentStudentId(context)
+
+    private suspend fun executeRequest(request: Request, expectedAccount: String? = null): Response {
+        val isRead = request.method == "GET"
+        if (!isRead) {
+            val path = request.url.encodedPath
+            val attendanceWrite = path.startsWith("/api/rollcall/") &&
+                (path.endsWith("/answer") || path.contains("/answer_"))
+            val transport = if (attendanceWrite) submissionClient else okHttpClient
+            return transport.newCall(request).awaitBuffered().response(request)
+        }
+        val account = expectedAccount ?: accountKey()
+        if (account != accountKey()) throw CancellationException("Account changed before loading")
+        val originalSession = prefs.getSessionId(account)
+        val canRefresh = request.url.host == "1906.usst.edu.cn" &&
+            request.url.encodedPath.startsWith("/api/") && request.header("x-session-id") == null
+        fun authenticatedRequest(): Request = request.newBuilder().apply {
+            if (canRefresh) header("x-session-id", prefs.getSessionId(account).orEmpty())
+        }.build()
+        val response = readWithSessionRefresh(
+            read = { TronClassTransport.read(okHttpClient, authenticatedRequest(), account) },
+            refresh = { canRefresh && refreshSessionOnce(account, originalSession).getOrDefault(false) }
+        )
+        currentCoroutineContext().ensureActive()
+        if (account != accountKey()) {
+            response.close()
+            throw CancellationException("Account changed while loading")
+        }
+        return response
+    }
+
+    private suspend fun refreshSessionOnce(account: String, previousSession: String?): Result<Boolean> =
+        TronClassTransport.sessionRefreshes.await("$account\n$previousSession") {
+            val current = prefs.getSessionId(account)
+            if (!current.isNullOrBlank() && current != previousSession) Result.success(true)
+            else refreshSessionInternal(account)
+        }
 
     fun isLoggedIn(): Boolean = prefs.isLoggedIn()
 
@@ -136,7 +187,7 @@ class TronClassClient(private val context: Context) {
                 .header("Accept", "application/json")
                 .build()
 
-            val tokenResp = okHttpClient.newCall(tokenReq).execute()
+            val tokenResp = okHttpClient.newCall(tokenReq).awaitBuffered().response(tokenReq)
             val tokenBody = tokenResp.body?.string() ?: ""
             if (!tokenResp.isSuccessful) {
                 Log.e(TAG, "Token exchange failed: ${tokenResp.code} $tokenBody")
@@ -181,7 +232,7 @@ class TronClassClient(private val context: Context) {
                     .header("Accept", "application/json")
                     .build()
 
-                val resp = okHttpClient.newCall(req).execute()
+                val resp = okHttpClient.newCall(req).awaitBuffered().response(req)
                 val respBody = resp.body?.string() ?: ""
 
                 if (!resp.isSuccessful) {
@@ -234,7 +285,7 @@ class TronClassClient(private val context: Context) {
                             .header("x-session-id", sessionId)
                             .header("Cookie", "session_id=$sessionId")
                             .build()
-                        val meResp = okHttpClient.newCall(meReq).execute()
+                        val meResp = okHttpClient.newCall(meReq).awaitBuffered().response(meReq)
                         if (meResp.isSuccessful) {
                             val meJson = JSONObject(meResp.body?.string() ?: "")
                             if (finalUserId == 0L) finalUserId = meJson.optLong("id", 0L)
@@ -268,7 +319,12 @@ class TronClassClient(private val context: Context) {
     /**
      * 3. 使用 RefreshToken 自动刷新 Session
      */
-    suspend fun refreshSession(studentId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun refreshSession(studentId: String? = null): Result<Boolean> {
+        val account = studentId ?: accountKey()
+        return refreshSessionOnce(account, prefs.getSessionId(account))
+    }
+
+    private suspend fun refreshSessionInternal(studentId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val refreshToken = prefs.getRefreshToken(studentId)
         if (refreshToken.isNullOrBlank()) {
             return@withContext Result.failure(Exception("无有效刷新凭证，请重新登录"))
@@ -288,7 +344,7 @@ class TronClassClient(private val context: Context) {
                 .header("Accept", "application/json")
                 .build()
 
-            val tokenResp = okHttpClient.newCall(tokenReq).execute()
+            val tokenResp = okHttpClient.newCall(tokenReq).awaitBuffered().response(tokenReq)
             val tokenBody = tokenResp.body?.string() ?: ""
             if (!tokenResp.isSuccessful) {
                 Log.w(TAG, "Refresh token failed: ${tokenResp.code} $tokenBody")
@@ -310,18 +366,14 @@ class TronClassClient(private val context: Context) {
      * 4. 获取待办作业与测验列表 (/api/todos)
      */
     suspend fun fetchTodos(): Result<List<TronClassTodo>> = withContext(Dispatchers.IO) {
+        val capturedAccount = accountKey()
         try {
             val url = "$BASE_URL/api/todos"
             val req = Request.Builder().url(url).get().build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (resp.code == 401 || resp.code == 403) {
-                // 尝试刷新 Token
-                val refreshed = refreshSession().getOrDefault(false)
-                if (refreshed) {
-                    return@withContext fetchTodos()
-                }
                 return@withContext Result.failure(AppAuthExpiredException("一网畅学登录已失效，请重新授权登录"))
             }
 
@@ -355,7 +407,7 @@ class TronClassClient(private val context: Context) {
             // 按截止时间排序 (截止日期最近的排在最前)
             list.sortBy { it.getDeadlineDate()?.time ?: Long.MAX_VALUE }
 
-            prefs.saveCachedTodos(list)
+            prefs.saveCachedTodos(list, capturedAccount)
             prefs.setLastSyncTime()
             Result.success(list)
         } catch (e: Exception) {
@@ -368,18 +420,14 @@ class TronClassClient(private val context: Context) {
      * 6. 获取当前学期在读课程 (/api/my-courses)
      */
     suspend fun fetchMyCourses(): Result<List<TronClassCourse>> = withContext(Dispatchers.IO) {
+        val capturedAccount = accountKey()
         try {
             val url = "$BASE_URL/api/my-courses"
             val req = Request.Builder().url(url).get().build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (resp.code == 401 || resp.code == 403) {
-                // 尝试刷新 Token
-                val refreshed = refreshSession().getOrDefault(false)
-                if (refreshed) {
-                    return@withContext fetchMyCourses()
-                }
                 return@withContext Result.failure(AppAuthExpiredException("一网畅学登录已失效，请重新授权登录"))
             }
 
@@ -424,7 +472,7 @@ class TronClassClient(private val context: Context) {
                 }
             }
 
-            prefs.saveCachedCourses(list)
+            prefs.saveCachedCourses(list, capturedAccount)
             Result.success(list)
         } catch (e: Exception) {
             Log.e(TAG, "fetchMyCourses error", e)
@@ -435,18 +483,14 @@ class TronClassClient(private val context: Context) {
     /**
      * 7. 轮询是否有正在进行的课堂签到 (/api/radar/rollcalls)
      */
-    suspend fun fetchOngoingRollcalls(): Result<List<TronClassRollcall>> = withContext(Dispatchers.IO) {
+    suspend fun fetchOngoingRollcalls(expectedAccount: String? = null): Result<List<TronClassRollcall>> = withContext(Dispatchers.IO) {
         try {
             val url = "$BASE_URL/api/radar/rollcalls?api_version=1.1.0"
             val req = Request.Builder().url(url).get().build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req, expectedAccount)
             val body = resp.body?.string() ?: ""
 
-            if (resp.code == 401 || resp.code == 403) {
-                val refreshed = refreshSession().getOrDefault(false)
-                if (refreshed) {
-                    return@withContext fetchOngoingRollcalls()
-                }
+            if (resp.code == 401) {
                 return@withContext Result.failure(AppAuthExpiredException("一网畅学登录已失效，请重新授权登录"))
             }
 
@@ -455,20 +499,28 @@ class TronClassClient(private val context: Context) {
             }
 
             val json = JSONObject(body)
-            val arr = json.optJSONArray("rollcalls")
+            val arr = json.optJSONArray("rollcalls") ?: throw org.json.JSONException("Missing rollcalls array")
             val list = mutableListOf<TronClassRollcall>()
             if (arr != null) {
                 for (i in 0 until arr.length()) {
                     val item = arr.getJSONObject(i)
                     val isNumber = item.optBoolean("is_number", false)
                     val isRadar = item.optBoolean("is_radar", false)
-                    val rawType = item.optString("type", item.optString("source", ""))
+                    val ids = listOf("id", "rollcallId", "rollcall_id").filter { item.has(it) && !item.isNull(it) }
+                        .map { item.optString(it).toLongOrNull()?.takeIf { id -> id > 0L }
+                            ?: throw org.json.JSONException("Invalid activity ID") }.distinct()
+                    if (ids.size != 1) throw org.json.JSONException("Missing or conflicting activity IDs")
+                    val courseIds = listOf("courseId", "course_id").filter { item.has(it) && !item.isNull(it) }
+                        .map { item.optString(it).toLongOrNull()?.takeIf { id -> id > 0L }
+                            ?: throw org.json.JSONException("Invalid course ID") }.distinct()
+                    if (courseIds.size > 1) throw org.json.JSONException("Conflicting course IDs")
+                    val rawType = item.optString("type", item.optString("source", "")).lowercase(Locale.ROOT).trim()
                     val resolvedType = when {
-                        isNumber || rawType.contains("number") -> "number"
-                        isRadar || rawType.contains("radar") || rawType.contains("roomis") -> "radar"
+                        rawType == "number" -> "number"
+                        rawType == "radar" || rawType == "roomis" -> "radar"
                         rawType == "self_registration" -> "self_registration"
-                        rawType.contains("qr") -> "qr_code"
-                        else -> "number"
+                        rawType == "qr" || rawType == "qr_code" -> "qr_code"
+                        else -> "unknown"
                     }
                     val courseTitle = item.optString("course_title",
                         item.optString("courseName",
@@ -480,9 +532,9 @@ class TronClassClient(private val context: Context) {
                     val rClassroom = item.optString("classroom", null)
 
                     val r = TronClassRollcall(
-                        id = item.optLong("id", item.optLong("rollcallId", item.optLong("rollcall_id"))),
-                        rollcallId = item.optLong("rollcallId", item.optLong("id", item.optLong("rollcall_id"))),
-                        courseId = item.optLong("courseId", item.optLong("course_id")),
+                        id = ids.single(),
+                        rollcallId = ids.single(),
+                        courseId = courseIds.singleOrNull() ?: 0L,
                         courseName = courseTitle,
                         type = resolvedType,
                         status = item.optString("status", item.optString("rollcall_status", null)),
@@ -492,13 +544,18 @@ class TronClassClient(private val context: Context) {
                         latitude = rLat,
                         longitude = rLng,
                         scope = rScope,
-                        classroom = rClassroom
+                        classroom = rClassroom,
+                        createdAt = item.optString("created_at").takeIf { it.isNotBlank() && it != "null" },
+                        rollcallTime = item.optString("rollcall_time").takeIf { it.isNotBlank() && it != "null" },
+                        isExpired = item.optBoolean("is_expired", false)
                     )
                     list.add(r)
                 }
             }
 
             Result.success(list)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "fetchOngoingRollcalls error", e)
             Result.failure(e)
@@ -514,12 +571,17 @@ class TronClassClient(private val context: Context) {
         rollcallId: Long,
         qrTokenData: String,
         customSessionId: String? = null,
-        customDeviceId: String? = null
-    ): Result<RollcallSubmitResult> =
-        withContext(Dispatchers.IO) {
+        customDeviceId: String? = null,
+        customAccountKey: String? = null
+    ): Result<RollcallSubmitResult> {
+        val capturedAccount = customAccountKey ?: accountKey()
+        return withContext(Dispatchers.IO) {
+            if (rollcallId <= 0 || qrTokenData.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("请先选择有效活动并重新扫描二维码"))
+            }
             try {
                 val url = "$BASE_URL/api/rollcall/$rollcallId/answer_qr_rollcall"
-                val targetDeviceId = customDeviceId ?: prefs.getDeviceId()
+                val targetDeviceId = customDeviceId ?: prefs.getDeviceId(capturedAccount)
                 val payload = JSONObject().apply {
                     put("data", qrTokenData)
                     put("deviceId", targetDeviceId)
@@ -535,27 +597,15 @@ class TronClassClient(private val context: Context) {
                 }
 
                 val req = reqBuilder.build()
-                val resp = okHttpClient.newCall(req).execute()
-                val body = resp.body?.string() ?: ""
-
-                if (resp.isSuccessful) {
-                    val json = JSONObject(body)
-                    val status = json.optString("status", "on_call")
-                    val statusName = json.optString("status_name", "已签到")
-                    Result.success(RollcallSubmitResult(true, "签到成功！状态: $statusName", statusName))
-                } else {
-                    val errMsg = try {
-                        JSONObject(body).optString("message", "签到失败 (${resp.code})")
-                    } catch (e: Exception) {
-                        "签到失败 (${resp.code})"
-                    }
-                    Result.success(RollcallSubmitResult(false, errMsg))
-                }
+                submitProtectedRollcall(req, rollcallId, customSessionId, customAccountKey, capturedAccount)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "answerQRRollcall error", e)
                 Result.failure(e)
             }
         }
+    }
 
     /**
      * 9. 提交数字口令签到
@@ -566,20 +616,18 @@ class TronClassClient(private val context: Context) {
         rollcallId: Long,
         numberCode: String,
         customSessionId: String? = null,
-        customDeviceId: String? = null
-    ): Result<RollcallSubmitResult> =
-        withContext(Dispatchers.IO) {
+        customDeviceId: String? = null,
+        customAccountKey: String? = null
+    ): Result<RollcallSubmitResult> {
+        val capturedAccount = customAccountKey ?: accountKey()
+        return withContext(Dispatchers.IO) {
             try {
-                var targetRollcallId = rollcallId
-                if (targetRollcallId <= 0L) {
-                    val ongoing = fetchOngoingRollcalls().getOrNull()
-                    targetRollcallId = ongoing?.firstOrNull()?.getEffectiveId() ?: 0L
-                }
-                if (targetRollcallId <= 0L) {
-                    return@withContext Result.failure(Exception("暂无正在签到的课程，请确认任课教师已在课堂开启签到"))
+                val targetRollcallId = rollcallId
+                if (targetRollcallId <= 0L || !numberCode.matches(Regex("[0-9]{4}"))) {
+                    return@withContext Result.failure(IllegalArgumentException("必须选择明确的数字签到活动并输入四位数字"))
                 }
                 val url = "$BASE_URL/api/rollcall/$targetRollcallId/answer_number_rollcall"
-                val targetDeviceId = customDeviceId ?: prefs.getDeviceId()
+                val targetDeviceId = customDeviceId ?: prefs.getDeviceId(capturedAccount)
                 val payload = JSONObject().apply {
                     put("numberCode", numberCode.trim())
                     put("deviceId", targetDeviceId)
@@ -595,26 +643,128 @@ class TronClassClient(private val context: Context) {
                 }
 
                 val req = reqBuilder.build()
-                val resp = okHttpClient.newCall(req).execute()
-                val body = resp.body?.string() ?: ""
-
-                if (resp.isSuccessful) {
-                    val json = JSONObject(body)
-                    val statusName = json.optString("status_name", "已签到")
-                    Result.success(RollcallSubmitResult(true, "口令签到成功！状态: $statusName", statusName))
-                } else {
-                    val errMsg = try {
-                        JSONObject(body).optString("message", "口令错误或签到已结束 (${resp.code})")
-                    } catch (e: Exception) {
-                        "口令签到失败 (${resp.code})"
-                    }
-                    Result.success(RollcallSubmitResult(false, errMsg))
-                }
+                submitProtectedRollcall(req, targetRollcallId, customSessionId, customAccountKey, capturedAccount)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "answerNumberRollcall error", e)
                 Result.failure(e)
             }
         }
+    }
+
+    private suspend fun submitProtectedRollcall(
+        request: Request, rollcallId: Long, customSessionId: String?, customAccountKey: String?, capturedAccount: String,
+        allowRejectedRetry: Boolean = false
+    ): Result<RollcallSubmitResult> {
+        val account = capturedAccount
+        if (account.isBlank() || (!customSessionId.isNullOrBlank() && customAccountKey.isNullOrBlank())) {
+            return Result.failure(IllegalArgumentException("无法确认本次签到账号"))
+        }
+        val session = customSessionId ?: prefs.getSessionId(account)
+        if (session.isNullOrBlank()) return Result.failure(AppAuthExpiredException())
+        val body = request.body ?: return Result.failure(IllegalArgumentException("缺少签到内容"))
+        val authenticated = request.newBuilder().header("x-session-id", session)
+            .method(request.method, SingleAttemptRequestBody(body)).build()
+        currentCoroutineContext().ensureActive()
+        if (customAccountKey == null && account != accountKey()) throw CancellationException("Account changed before submission")
+        val store = RollcallSubmissionStore(context)
+        if (!store.claim(account, rollcallId, allowRejectedRetry)) {
+            val state = store.state(account, rollcallId)
+            if (state == null) return Result.failure(Exception("无法持久化签到保护记录，本次未发送"))
+            val confirmed = state == "confirmed"
+            return recoverUnknownRollcall(account, rollcallId, Result.success(RollcallSubmitResult(confirmed,
+                if (confirmed) "本机已保存本活动的确认签到结果" else "本活动已有提交记录，请查询官方状态；为避免消耗错误次数不会再次发送")))
+        }
+        val result = try {
+            val response = executeRequest(authenticated)
+            val parsed = response.use { parseRollcallWriteResult(it.code, it.body?.string().orEmpty()) }
+            store.record(account, rollcallId, parsed.state)
+            Result.success(parsed.result)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The durable unknown claim is intentionally retained across process death and timeouts.
+            Result.success(RollcallSubmitResult(false, "请求结果未知，请查询官方签到记录；不会再次发送"))
+        }
+        return recoverUnknownRollcall(account, rollcallId, result)
+    }
+
+    private suspend fun recoverUnknownRollcall(
+        account: String, rollcallId: Long, result: Result<RollcallSubmitResult>
+    ): Result<RollcallSubmitResult> {
+        if (result.getOrNull()?.success == true || account != accountKey() ||
+            RollcallSubmissionStore(context).state(account, rollcallId) != "unknown") return result
+        val target = fetchOngoingRollcalls(account).getOrNull()?.singleOrNull {
+            it.getEffectiveId() == rollcallId && it.courseId > 0L
+        } ?: return result
+        val record = queryRollcallAttendance(target, account).getOrNull()
+        return if (record?.isAttended() == true || record?.isLateOrEarly() == true) {
+            Result.success(RollcallSubmitResult(true, "官方记录已确认：${record.getStatusDisplayName()}"))
+        } else result
+    }
+
+    /** Reads the known target only. A returned candidate is never submitted by this method. */
+    suspend fun lookupNumberRollcallCode(rollcall: TronClassRollcall): NumberCodeLookupResult = withContext(Dispatchers.IO) {
+        fun unavailable(reason: NumberCodeLookupFailure, message: String) = NumberCodeLookupResult.Unavailable(reason, message)
+        val account = accountKey()
+        if (account.isBlank() || rollcall.getEffectiveId() <= 0 || rollcall.courseId <= 0 || rollcall.getNormalizedType() != "number") {
+            return@withContext unavailable(NumberCodeLookupFailure.ContextMissing, "请先选择明确的数字签到活动和课程")
+        }
+        try {
+            val ongoing = fetchOngoingRollcalls(account).getOrElse {
+                return@withContext unavailable(when {
+                    it is AppAuthExpiredException -> NumberCodeLookupFailure.SessionExpired
+                    it is AppNetworkException && it.statusCode == 403 -> NumberCodeLookupFailure.Forbidden
+                    it is org.json.JSONException -> NumberCodeLookupFailure.SchemaMismatch
+                    else -> NumberCodeLookupFailure.NetworkError
+                }, it.message ?: "查询活动失败")
+            }
+            val matches = ongoing.filter { it.getEffectiveId() == rollcall.getEffectiveId() && it.courseId == rollcall.courseId && it.getNormalizedType() == "number" && !it.isExpired }
+            if (matches.isEmpty()) return@withContext unavailable(NumberCodeLookupFailure.NoActiveRollcall, "所选数字签到已不在当前活动列表")
+            if (matches.size != 1) return@withContext unavailable(NumberCodeLookupFailure.Conflict, "活动信息不唯一，已停止取码")
+            val request = Request.Builder().url("$BASE_URL/api/rollcall/${rollcall.getEffectiveId()}/student_rollcalls").get().build()
+            val result = executeRequest(request, account).use { response ->
+                when (response.code) {
+                    401 -> unavailable(NumberCodeLookupFailure.SessionExpired, "登录已失效，请重新授权")
+                    403 -> unavailable(NumberCodeLookupFailure.Forbidden, "当前账号无权读取本活动数字码")
+                    in 200..299 -> RollcallNumberCodeLookup.parse(response.body?.string().orEmpty(), matches.single())
+                    else -> unavailable(NumberCodeLookupFailure.NetworkError, "获取数字码失败 (${response.code})")
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            if (account != accountKey()) throw CancellationException("Account changed during number code lookup")
+            // Date-based lookup remains disabled until this deployment's response contract is verified.
+            result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            unavailable(NumberCodeLookupFailure.NetworkError, "无法读取数字码，请检查网络")
+        }
+    }
+
+    /** Read-only recovery for a write whose result is unknown. Absence never enables another write. */
+    suspend fun queryRollcallAttendance(rollcall: TronClassRollcall, expectedAccount: String? = null): Result<TronClassStudentRollcall?> {
+        val account = expectedAccount ?: accountKey()
+        if (account != accountKey()) throw CancellationException("Account changed before checking attendance")
+        if (account.isBlank() || rollcall.courseId <= 0L || rollcall.getEffectiveId() <= 0L) {
+            return Result.failure(IllegalArgumentException("缺少明确的账号、课程或活动"))
+        }
+        return withContext(Dispatchers.IO) {
+            val records = fetchCourseStudentRollcalls(rollcall.courseId, account).getOrElse {
+                if (it is CancellationException) throw it
+                return@withContext Result.failure(it)
+            }
+            if (account != accountKey()) throw CancellationException("Account changed while checking attendance")
+            val matches = records.filter { it.getEffectiveId() == rollcall.getEffectiveId() }
+            if (matches.size > 1) return@withContext Result.failure(Exception("本活动记录不唯一，请查看官方平台"))
+            val record = matches.singleOrNull()
+            if (record?.isAttended() == true || record?.isLateOrEarly() == true) {
+                RollcallSubmissionStore(context).record(account, rollcall.getEffectiveId(), "confirmed")
+            }
+            Result.success(record)
+        }
+    }
 
     /**
      * 9.1 查询点名精简信息（检测是否启用了蓝牙信标等）
@@ -624,7 +774,7 @@ class TronClassClient(private val context: Context) {
         try {
             val url = "$BASE_URL/api/rollcall/$rollcallId/lite"
             val req = Request.Builder().url(url).get().build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
             if (resp.isSuccessful) {
                 Result.success(JSONObject(body))
@@ -646,18 +796,25 @@ class TronClassClient(private val context: Context) {
         rollcallId: Long,
         latitude: Double,
         longitude: Double,
-        accuracy: Double = 15.0,
+        accuracy: Double? = null,
         customSessionId: String? = null,
-        customDeviceId: String? = null
-    ): Result<RollcallSubmitResult> = withContext(Dispatchers.IO) {
+        customDeviceId: String? = null,
+        customAccountKey: String? = null
+    ): Result<RollcallSubmitResult> {
+        val capturedAccount = customAccountKey ?: accountKey()
+        return withContext(Dispatchers.IO) {
         try {
+            if (capturedAccount.isBlank() || rollcallId <= 0L || !latitude.isFinite() || !longitude.isFinite() ||
+                latitude !in -90.0..90.0 || longitude !in -180.0..180.0 || (accuracy != null && (!accuracy.isFinite() || accuracy < 0.0))) {
+                return@withContext Result.failure(IllegalArgumentException("签到活动或位置无效"))
+            }
             val url = "$BASE_URL/api/rollcall/$rollcallId/answer?api_version=1.76"
-            val targetDeviceId = customDeviceId ?: prefs.getDeviceId()
+            val targetDeviceId = customDeviceId ?: prefs.getDeviceId(capturedAccount)
             val payload = JSONObject().apply {
                 put("deviceId", targetDeviceId)
                 put("latitude", latitude)
                 put("longitude", longitude)
-                put("accuracy", accuracy)
+                if (accuracy != null) put("accuracy", accuracy)
                 put("altitude", 10.0)
                 put("radarSignal", JSONObject.NULL)
             }
@@ -673,43 +830,15 @@ class TronClassClient(private val context: Context) {
                 reqBuilder.header("Cookie", "session_id=$customSessionId")
             }
 
-            val req = reqBuilder.build()
-            val resp = okHttpClient.newCall(req).execute()
-            val body = resp.body?.string() ?: ""
-            Log.i(TAG, "Radar rollcall response code=${resp.code}, body=$body")
-
-            if (resp.isSuccessful) {
-                val json = JSONObject(body)
-                val statusName = json.optString("status_name", "已出勤")
-                val distance = if (json.has("distance")) json.optDouble("distance") else null
-                val distMsg = if (distance != null) "（距教师基准点约 ${distance.toInt()} 米）" else ""
-                Result.success(RollcallSubmitResult(true, "雷达签到成功！状态: $statusName $distMsg", statusName, distance))
-            } else {
-                val jsonObj = try { JSONObject(body) } catch (e: Exception) { null }
-                val errCode = jsonObj?.optString("errorCode", "") ?: ""
-                val rawMsg = jsonObj?.optString("message", "") ?: ""
-                val distance = if (jsonObj?.has("distance") == true) jsonObj.optDouble("distance") else null
-
-                val friendlyMsg = when {
-                    errCode == "ROLLCALL_RADAR_OUT_OF_SCOPE" || rawMsg.contains("scope", ignoreCase = true) -> {
-                        val distText = if (distance != null) " (相距约 ${distance.toInt()} 米)" else ""
-                        "当前定位超出签到有效范围$distText，请靠近教室或切换为教学楼基准模式"
-                    }
-                    errCode == "RADAR_ROLLCALL_POSITION_INVALID" ->
-                        "经纬度坐标为空或无效，请重新定位"
-                    errCode == "ROLLCALL_DEVICE_ALREADY_IN_USE" ->
-                        "该设备已为其他账号签过到，无法重复签到"
-                    errCode == "RADAR_SIGNAL_INVALID_NO_SIGNAL" ->
-                        "本堂课开启了蓝牙信标验证，需要教室蓝牙信号支持"
-                    rawMsg.isNotBlank() -> rawMsg
-                    resp.code == 404 -> "点名已结束或已关闭"
-                    else -> "签到失败 (${resp.code})"
-                }
-                Result.success(RollcallSubmitResult(false, friendlyMsg, distance = distance))
-            }
+            // Only an explicit new radar action may retry a definite rejection; unknown writes remain blocked.
+            submitProtectedRollcall(reqBuilder.build(), rollcallId, customSessionId, customAccountKey,
+                capturedAccount, allowRejectedRetry = true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "answerRadarRollcall error", e)
             Result.failure(e)
+        }
         }
     }
 
@@ -829,7 +958,7 @@ class TronClassClient(private val context: Context) {
                     .header("Cookie", "session_id=$sid")
                     .get()
                     .build()
-                val testResp = okHttpClient.newCall(testReq).execute()
+                val testResp = executeRequest(testReq)
                 val isOk = testResp.isSuccessful
                 testResp.body?.close()
                 if (isOk) {
@@ -903,7 +1032,7 @@ class TronClassClient(private val context: Context) {
                 continue
             }
             val devId = prefs.getDeviceId(acc.studentId)
-            val res = answerNumberRollcall(rollcallId, numberCode, customSessionId = sid, customDeviceId = devId)
+            val res = answerNumberRollcall(rollcallId, numberCode, customSessionId = sid, customDeviceId = devId, customAccountKey = acc.studentId)
             val s = res.getOrNull()
             if (s != null) {
                 results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
@@ -950,7 +1079,7 @@ class TronClassClient(private val context: Context) {
                 continue
             }
             val devId = prefs.getDeviceId(acc.studentId)
-            val res = answerQRRollcall(rollcallId, qrTokenData, customSessionId = sid, customDeviceId = devId)
+            val res = answerQRRollcall(rollcallId, qrTokenData, customSessionId = sid, customDeviceId = devId, customAccountKey = acc.studentId)
             val s = res.getOrNull()
             if (s != null) {
                 results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
@@ -969,7 +1098,7 @@ class TronClassClient(private val context: Context) {
         rollcallId: Long,
         latitude: Double,
         longitude: Double,
-        accuracy: Double = 15.0
+        accuracy: Double? = null
     ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
         val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
         val accounts = vault.getAccounts()
@@ -999,7 +1128,7 @@ class TronClassClient(private val context: Context) {
                 continue
             }
             val devId = prefs.getDeviceId(acc.studentId)
-            val res = answerRadarRollcall(rollcallId, latitude, longitude, accuracy, customSessionId = sid, customDeviceId = devId)
+            val res = answerRadarRollcall(rollcallId, latitude, longitude, accuracy, customSessionId = sid, customDeviceId = devId, customAccountKey = acc.studentId)
             val s = res.getOrNull()
             if (s != null) {
                 results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
@@ -1024,22 +1153,8 @@ class TronClassClient(private val context: Context) {
         if (trimmed.isEmpty()) return null
 
         try {
-            // 辅助函数：解码 Base36 数值或十进制数值（自动剥离 \u0010, \u001A 前缀）
-            fun decodeBase36Number(raw: String): Long? {
-                val clean = raw.trim()
-                    .replace("", "")
-                    .replace("", "")
-                    .replace("", "")
-                    .replace("%10", "")
-                    .replace("%1a", "")
-                    .replace("%1A", "")
-                clean.toLongOrNull()?.let { return it }
-                return try {
-                    java.lang.Long.parseLong(clean, 36)
-                } catch (e: Exception) {
-                    null
-                }
-            }
+            fun decodeBase36Number(raw: String, compact: Boolean = false): Long? =
+                decodeTronClassQrId(raw, compact)
 
             // 1. 如果是 URL，提取 p / _p 或直接参数
             var targetPayload = trimmed
@@ -1062,31 +1177,38 @@ class TronClassClient(private val context: Context) {
                             targetPayload = pParam
                         } else {
                             // 检查常规查询参数
-                            val idStr = uri.getQueryParameter("rollcall_id") ?: uri.getQueryParameter("rollcallId")
-                            val dataStr = uri.getQueryParameter("data") ?: uri.getQueryParameter("qr_token")
-                            val courseStr = uri.getQueryParameter("course_id") ?: uri.getQueryParameter("courseId")
-                            val rId = idStr?.let { decodeBase36Number(it) }
-                            if (rId != null && !dataStr.isNullOrBlank()) {
-                                return ParsedQrRollcall(rId, dataStr, courseStr?.let { decodeBase36Number(it) })
-                            }
+                            fun values(vararg keys: String) = keys.flatMap { uri.getQueryParameters(it) }.distinct()
+                            val ids = values("rollcall_id", "rollcallId")
+                            val tokens = values("data", "qr_token")
+                            val courses = values("course_id", "courseId")
+                            if (ids.size != 1 || tokens.size != 1 || courses.size > 1) return null
+                            val rId = decodeBase36Number(ids.single()) ?: return null
+                            val courseId = courses.singleOrNull()?.let { decodeBase36Number(it) ?: return null }
+                            val token = tokens.single().takeIf { it.isNotBlank() } ?: return null
+                            return ParsedQrRollcall(rId, token, courseId)
                         }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Error parsing URI: $trimmed", e)
                 }
             }
+            targetPayload = targetPayload.trim().trimStart('\u0010', '\u001a')
 
             // 2. 检查是否为标准 JSON 格式 (例如通过 _p 传参或原生 JSON)
             if (targetPayload.startsWith("{") && targetPayload.endsWith("}")) {
                 val obj = JSONObject(targetPayload)
-                val idRaw = obj.optString("rollcallId", obj.optString("rollcall_id", ""))
-                val rId = decodeBase36Number(idRaw) ?: obj.optLong("rollcallId", obj.optLong("rollcall_id", 0L))
+                val ids = listOf("rollcallId", "rollcall_id").filter { obj.has(it) }
+                    .map { decodeBase36Number(obj.optString(it)) ?: return null }.distinct()
+                if (ids.size != 1) return null
+                val rId = ids.single()
                 val data = obj.optString("data", obj.optString("qr_token", ""))
-                val courseRaw = obj.optString("courseId", obj.optString("course_id", ""))
-                val cId = decodeBase36Number(courseRaw) ?: obj.optLong("courseId", obj.optLong("course_id", 0L))
+                if (obj.has("data") && obj.has("qr_token") && obj.optString("data") != obj.optString("qr_token")) return null
+                val courses = listOf("courseId", "course_id").filter { obj.has(it) }
+                    .map { decodeBase36Number(obj.optString(it)) ?: return null }.distinct()
+                if (courses.size > 1) return null
 
                 if (rId > 0 && data.isNotBlank()) {
-                    return ParsedQrRollcall(rId, data, if (cId > 0) cId else null)
+                    return ParsedQrRollcall(rId, data, courses.singleOrNull())
                 }
             }
 
@@ -1102,6 +1224,7 @@ class TronClassClient(private val context: Context) {
                 var rollcallId: Long? = null
                 var qrData: String? = null
                 var courseId: Long? = null
+                val seenFields = mutableMapOf<String, String>()
 
                 val parts = targetPayload.split("!")
                 for (part in parts) {
@@ -1109,10 +1232,11 @@ class TronClassClient(private val context: Context) {
                         val kv = part.split("~", limit = 2)
                         val k = keyMap[kv[0]] ?: kv[0]
                         val v = kv[1]
+                        if (k in setOf("rollcallId", "data", "courseId") && seenFields.put(k, v)?.let { it != v } == true) return null
                         when (k) {
-                            "rollcallId" -> rollcallId = decodeBase36Number(v)
+                            "rollcallId" -> rollcallId = decodeBase36Number(v, compact = true) ?: return null
                             "data" -> qrData = v.replace(String(charArrayOf(30.toChar())), "~").replace(String(charArrayOf(31.toChar())), "!")
-                            "courseId" -> courseId = decodeBase36Number(v)
+                            "courseId" -> courseId = decodeBase36Number(v, compact = true) ?: return null
                         }
                     }
                 }
@@ -1132,13 +1256,10 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/courses/$courseId/modules"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                if (resp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext fetchCourseModules(courseId)
-                }
                 return@withContext Result.failure(Exception("è·åè¯¾ç¨ç« èå¤±è´¥: HTTP ${resp.code}"))
             }
 
@@ -1161,13 +1282,10 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/courses/$courseId/activities"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                if (resp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext fetchCourseActivities(courseId)
-                }
                 return@withContext Result.failure(Exception("è·åè¯¾ç¨æ´»å¨å¤±è´¥: HTTP ${resp.code}"))
             }
 
@@ -1190,13 +1308,10 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/courses/$courseId/bulletins"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                if (resp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext fetchCourseBulletins(courseId)
-                }
                 return@withContext Result.failure(Exception("è·åè¯¾ç¨å¬åå¤±è´¥: HTTP ${resp.code}"))
             }
 
@@ -1223,7 +1338,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                 "$BASE_URL/api/bulletins/$bulletinId"
             }
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
@@ -1270,9 +1385,9 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                         val topicDetails = coroutineScope {
                             topicRefs.take(50).map { ref ->
                                 async {
-                                    fetchTopicDetail(ref.id).getOrNull()
+                                    fetchTopicDetail(ref.id).getOrThrow()
                                 }
-                            }.awaitAll().filterNotNull()
+                            }.awaitAll()
                         }
 
                         // 将用户自己的帖子排在前面，其余按时间倒序排列
@@ -1294,25 +1409,22 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             // 回退到老端点备用获取
             val url1 = "$BASE_URL/api/courses/$courseId/forum/topics"
             var req = Request.Builder().url(url1).build()
-            var resp = okHttpClient.newCall(req).execute()
+            var resp = executeRequest(req)
             var body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                if (resp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext fetchCourseDiscussions(courseId)
-                }
                 val url2 = "$BASE_URL/api/courses/$courseId/discussions"
                 req = Request.Builder().url(url2).build()
-                resp = okHttpClient.newCall(req).execute()
+                resp = executeRequest(req)
                 body = resp.body?.string() ?: ""
             }
 
             if (!resp.isSuccessful) {
-                return@withContext Result.success(emptyList())
+                return@withContext Result.failure(Exception("获取课程讨论失败: HTTP ${resp.code}"))
             }
 
             val type = object : TypeToken<List<TronClassDiscussion>>() {}.type
-            val items: List<TronClassDiscussion> = try {
+            val items: List<TronClassDiscussion> =
                 if (body.trim().startsWith("[")) {
                     gson.fromJson(body, type) ?: emptyList()
                 } else {
@@ -1322,14 +1434,13 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                         gson.fromJson(arr.toString(), type) ?: emptyList()
                     } else emptyList()
                 }
-            } catch (e: Exception) {
-                emptyList()
-            }
 
             Result.success(items)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "fetchCourseDiscussions error", e)
-            Result.success(emptyList())
+            Result.failure(e)
         }
     }
 
@@ -1341,13 +1452,10 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/courses/$courseId/topic-categories"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                if (resp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext fetchCourseTopicCategories(courseId)
-                }
                 return@withContext Result.failure(Exception("获取讨论分类失败: HTTP ${resp.code}"))
             }
 
@@ -1370,7 +1478,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/topics/$topicId"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
@@ -1398,7 +1506,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             } else {
                 reqBuilder.delete()
             }
-            val resp = okHttpClient.newCall(reqBuilder.build()).execute()
+            val resp = executeRequest(reqBuilder.build())
             val body = resp.body?.string() ?: ""
             if (resp.isSuccessful) {
                 Result.success(true)
@@ -1433,7 +1541,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                 .url(url)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (resp.isSuccessful) {
@@ -1480,7 +1588,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                 .url(url)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (resp.isSuccessful) {
@@ -1526,7 +1634,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
                 .url(url)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (resp.isSuccessful) {
@@ -1554,7 +1662,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/activities/$activityId"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
@@ -1581,7 +1689,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
         try {
             val url = "$BASE_URL/api/uploads/$uploadId/blob"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
 
             if (!resp.isSuccessful) {
                 return@withContext Result.failure(Exception("ä¸è½½è¯¾ä»¶å¤±è´¥: HTTP ${resp.code}"))
@@ -1630,13 +1738,10 @@ suspend fun fetchSubmissionDetail(
             val effectiveUserId = if (userId > 0L) userId else getUserIdFromSession()
             val url = "$BASE_URL/api/course/activities/$activityId/students/$effectiveUserId/submission"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                if (resp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext fetchSubmissionDetail(activityId, userId)
-                }
                 return@withContext Result.failure(Exception("è·åä½ä¸æäº¤è¯¦æå¤±è´¥: HTTP ${resp.code}"))
             }
 
@@ -1677,7 +1782,7 @@ suspend fun fetchSubmissionDetail(
                 .post(initPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
 
-            val initResp = okHttpClient.newCall(initReq).execute()
+            val initResp = executeRequest(initReq)
             val initBody = initResp.body?.string() ?: ""
 
             if (!initResp.isSuccessful) {
@@ -1735,7 +1840,7 @@ suspend fun fetchSubmissionDetail(
                 .post(multiBody)
                 .build()
 
-            val upResp = okHttpClient.newCall(upReq).execute()
+            val upResp = executeRequest(upReq)
             if (!upResp.isSuccessful) {
                 return@withContext Result.failure(Exception("æä»¶äºè¿å¶ä¼ è¾å¤±è´¥: HTTP ${upResp.code}"))
             }
@@ -1791,7 +1896,7 @@ suspend fun fetchSubmissionDetail(
                     .url(retractUrl)
                     .put(retractPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                     .build()
-                val retractResp = okHttpClient.newCall(retractReq).execute()
+                val retractResp = executeRequest(retractReq)
                 Log.d(TAG, "submitHomework retract response code: ${retractResp.code}")
             }
 
@@ -1814,7 +1919,7 @@ suspend fun fetchSubmissionDetail(
             val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
             val req = Request.Builder().url(submitUrl).post(reqBody).build()
 
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val code = resp.code
             val body = resp.body?.string() ?: ""
 
@@ -1857,7 +1962,11 @@ suspend fun fetchSubmissionDetail(
             // 1. 获取选课与教职名单 (/enrollments)
             val enrollUrl = "$BASE_URL/api/course/$courseId/enrollments"
             val enrollReq = Request.Builder().url(enrollUrl).build()
-            val enrollResp = okHttpClient.newCall(enrollReq).execute()
+            val enrollResp = executeRequest(enrollReq)
+            if (!enrollResp.isSuccessful) {
+                enrollResp.close()
+                return@withContext Result.failure(Exception("获取课程选课名单失败: HTTP ${enrollResp.code}"))
+            }
             if (enrollResp.isSuccessful) {
                 val enrollBody = enrollResp.body?.string() ?: ""
                 val enrollJson = JSONObject(enrollBody)
@@ -1903,7 +2012,11 @@ suspend fun fetchSubmissionDetail(
             // 2. 获取完整学生名单 (/students)，补充班级和学院信息
             val stuUrl = "$BASE_URL/api/course/$courseId/students"
             val stuReq = Request.Builder().url(stuUrl).build()
-            val stuResp = okHttpClient.newCall(stuReq).execute()
+            val stuResp = executeRequest(stuReq)
+            if (!stuResp.isSuccessful) {
+                stuResp.close()
+                return@withContext Result.failure(Exception("获取课程学生名单失败: HTTP ${stuResp.code}"))
+            }
             if (stuResp.isSuccessful) {
                 val stuBody = stuResp.body?.string() ?: ""
                 val stuJson = JSONObject(stuBody)
@@ -1955,6 +2068,8 @@ suspend fun fetchSubmissionDetail(
             }, { it.userNo ?: "" }))
 
             Result.success(members)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "fetchCourseMembers failed", e)
             Result.failure(e)
@@ -1968,7 +2083,7 @@ suspend fun fetchSubmissionDetail(
         try {
             val url = "$BASE_URL/api/course/$courseId/activity-reads-for-user"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             if (!resp.isSuccessful) {
                 return@withContext Result.failure(Exception("获取学习进度失败: ${resp.code}"))
             }
@@ -2008,7 +2123,7 @@ suspend fun fetchSubmissionDetail(
                 .url(url)
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val ok = resp.isSuccessful || resp.code == 201
             resp.close()
             Result.success(ok)
@@ -2047,7 +2162,7 @@ suspend fun fetchSubmissionDetail(
                     .url(url)
                     .post(json.toString().toRequestBody("application/json".toMediaType()))
                     .build()
-                val resp = okHttpClient.newCall(req).execute()
+                val resp = executeRequest(req)
                 resp.close()
                 start = end
                 onProgress?.invoke(start, totalSec)
@@ -2068,7 +2183,7 @@ suspend fun fetchSubmissionDetail(
                 .url("$BASE_URL/api/course/activities-read/$activityId")
                 .post(finalJson.toString().toRequestBody("application/json".toMediaType()))
                 .build()
-            val finalResp = okHttpClient.newCall(finalReq).execute()
+            val finalResp = executeRequest(finalReq)
             finalResp.close()
             Result.success(true)
         } catch (e: Exception) {
@@ -2084,10 +2199,8 @@ suspend fun fetchSubmissionDetail(
         try {
             val url = "$BASE_URL/api/courses/$courseId/exams"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             if (!resp.isSuccessful) {
-                val cached = TronClassDataCacheManager.getCourseExams(context, courseId)
-                if (cached != null) return@withContext Result.success(cached)
                 return@withContext Result.failure(Exception("获取测验列表失败: ${resp.code}"))
             }
             val body = resp.body?.string() ?: ""
@@ -2121,7 +2234,7 @@ suspend fun fetchSubmissionDetail(
                         try {
                             val subUrl = "$BASE_URL/api/exams/${exam.id}/submissions"
                             val subReq = Request.Builder().url(subUrl).build()
-                            val subResp = okHttpClient.newCall(subReq).execute()
+                            val subResp = executeRequest(subReq)
                             if (subResp.isSuccessful) {
                                 val subBody = subResp.body?.string() ?: ""
                                 val subJson = JSONObject(subBody)
@@ -2170,8 +2283,6 @@ suspend fun fetchSubmissionDetail(
             Result.success(list)
         } catch (e: Exception) {
             Log.e(TAG, "fetchCourseExams failed", e)
-            val cached = TronClassDataCacheManager.getCourseExams(context, courseId)
-            if (cached != null) return@withContext Result.success(cached)
             Result.failure(e)
         }
     }
@@ -2184,7 +2295,7 @@ suspend fun fetchSubmissionDetail(
             // 1. 获取考试基本信息
             val examUrl = "$BASE_URL/api/exams/$examId"
             val examReq = Request.Builder().url(examUrl).build()
-            val examResp = okHttpClient.newCall(examReq).execute()
+            val examResp = executeRequest(examReq)
             if (!examResp.isSuccessful) {
                 val cached = TronClassDataCacheManager.getExamDetail(context, examId)
                 if (cached != null) return@withContext Result.success(cached)
@@ -2208,7 +2319,7 @@ suspend fun fetchSubmissionDetail(
             // 2. 获取历史提交列表 (/submissions)
             val subUrl = "$BASE_URL/api/exams/$examId/submissions"
             val subReq = Request.Builder().url(subUrl).build()
-            val subResp = okHttpClient.newCall(subReq).execute()
+            val subResp = executeRequest(subReq)
 
             val submissionsList = mutableListOf<TronClassExamSubmission>()
             var scoreRule: String? = null
@@ -2284,7 +2395,7 @@ suspend fun fetchSubmissionDetail(
             if (chosenSubmissionId != null && chosenSubmissionId > 0) {
                 val detailUrl = "$BASE_URL/api/exams/$examId/submissions/$chosenSubmissionId"
                 val detailReq = Request.Builder().url(detailUrl).build()
-                val detailResp = okHttpClient.newCall(detailReq).execute()
+                val detailResp = executeRequest(detailReq)
                 if (detailResp.isSuccessful) {
                     val detBody = detailResp.body?.string() ?: ""
                     val detJson = JSONObject(detBody)
@@ -2431,7 +2542,7 @@ suspend fun fetchSubmissionDetail(
             } else {
                 val sumUrl = "$BASE_URL/api/exams/$examId/subjects-summary"
                 val sumReq = Request.Builder().url(sumUrl).build()
-                val sumResp = okHttpClient.newCall(sumReq).execute()
+                val sumResp = executeRequest(sumReq)
                 if (sumResp.isSuccessful) {
                     val sumJson = JSONObject(sumResp.body?.string() ?: "")
                     val sumArray = sumJson.optJSONArray("subjects")
@@ -2546,7 +2657,7 @@ suspend fun fetchSubmissionDetail(
             }
             val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
             val req = Request.Builder().url(submitUrl).post(reqBody).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req)
             val code = resp.code
             Log.d(TAG, "submitExamAnswers response code: $code")
             if (code == 200 || code == 201) {
@@ -2575,23 +2686,31 @@ suspend fun fetchSubmissionDetail(
      * 查询学生在指定课程下的历史签到记录
      * GET /api/course/{courseId}/student/{studentId}/rollcalls
      */
-    suspend fun fetchCourseStudentRollcalls(courseId: Long): Result<List<TronClassStudentRollcall>> = withContext(Dispatchers.IO) {
+    suspend fun fetchCourseStudentRollcalls(courseId: Long, expectedAccount: String? = null): Result<List<TronClassStudentRollcall>> = withContext(Dispatchers.IO) {
+        val account = expectedAccount ?: accountKey()
+        if (account.isBlank() || courseId <= 0L) return@withContext Result.failure(IllegalArgumentException("缺少明确的账号或课程"))
         try {
-            var uid = prefs.getUserId()
+            var uid = prefs.getUserId(account)
             if (uid <= 0L) {
                 // 尝试从 /api/users/me 补全用户 ID
                 try {
                     val meReq = Request.Builder()
                         .url("$BASE_URL/api/users/me")
                         .build()
-                    val meResp = okHttpClient.newCall(meReq).execute()
+                    val meResp = executeRequest(meReq, account)
                     if (meResp.isSuccessful) {
                         val meJson = JSONObject(meResp.body?.string() ?: "")
                         uid = meJson.optLong("id", 0L)
                         if (uid > 0L) {
-                            prefs.setUserId(uid)
+                            prefs.setUserId(uid, account)
                         }
+                    } else if (meResp.code == 401) {
+                        return@withContext Result.failure(AppAuthExpiredException())
+                    } else if (meResp.code == 403) {
+                        return@withContext Result.failure(AppNetworkException(403, "当前账号无权读取签到记录"))
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to auto-resolve user ID via /api/users/me", e)
                 }
@@ -2604,12 +2723,13 @@ suspend fun fetchSubmissionDetail(
 
             val url = "$BASE_URL/api/course/$courseId/student/$uid/rollcalls"
             val req = Request.Builder().url(url).build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeRequest(req, account)
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
                 Log.w(TAG, "fetchCourseStudentRollcalls HTTP ${resp.code} for course $courseId: ${body.take(200)}")
-                return@withContext Result.failure(Exception("获取签到历史失败 (${resp.code})"))
+                return@withContext Result.failure(if (resp.code == 401) AppAuthExpiredException()
+                    else AppNetworkException(resp.code, "获取签到历史失败 (${resp.code})", url = url))
             }
 
             val list = mutableListOf<TronClassStudentRollcall>()
@@ -2623,18 +2743,21 @@ suspend fun fetchSubmissionDetail(
             } else if (trimmed.startsWith("{")) {
                 val json = JSONObject(trimmed)
                 val arr = json.optJSONArray("rollcalls") ?: json.optJSONArray("data")
+                    ?: throw org.json.JSONException("Missing rollcall history array")
                 if (arr != null) {
                     for (i in 0 until arr.length()) {
                         val obj = arr.getJSONObject(i)
                         list.add(parseStudentRollcallJson(obj))
                     }
                 }
-            }
+            } else throw org.json.JSONException("Invalid rollcall history response")
 
             // 按时间从新到旧倒序排序
             list.sortByDescending { it.rollcallTime ?: it.createdAt ?: "" }
 
             Result.success(list)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "fetchCourseStudentRollcalls failed for course $courseId", e)
             Result.failure(e)
@@ -2642,7 +2765,14 @@ suspend fun fetchSubmissionDetail(
     }
 
     private fun parseStudentRollcallJson(obj: JSONObject): TronClassStudentRollcall {
-        val rollcallId = obj.optLong("rollcall_id", obj.optLong("rollcallId", obj.optLong("id", 0L)))
+        val activityKeys = listOf("rollcall_id", "rollcallId").filter { obj.has(it) && !obj.isNull(it) }
+            .ifEmpty { listOf("id") }
+        val activityIds = activityKeys.map {
+            obj.optString(it).toLongOrNull()?.takeIf { value -> value > 0L }
+                ?: throw org.json.JSONException("Invalid history activity ID")
+        }.distinct()
+        if (activityIds.size != 1) throw org.json.JSONException("Conflicting history activity IDs")
+        val rollcallId = activityIds.single()
         val id = obj.optLong("id", rollcallId)
         val title = obj.optString("title").takeIf { it.isNotBlank() }
         val rollcallTime = obj.optString("rollcall_time", obj.optString("rollcallTime", obj.optString("created_at", ""))).takeIf { it.isNotBlank() }

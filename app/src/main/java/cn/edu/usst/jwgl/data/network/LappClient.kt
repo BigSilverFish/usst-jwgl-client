@@ -6,6 +6,9 @@ import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.model.LappCourseItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
@@ -293,6 +296,9 @@ val ALL_KNOWN_BUILDINGS = listOf(
     var lastQueryCacheTime: Long = 0L
         private set
 
+    @Volatile
+    private var lastQueryFullCacheVerified: Boolean? = null
+
     fun buildScheduleCacheKey(
         xn: String = "",
         xq: String = "",
@@ -353,6 +359,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
     fun formatCacheTag(timestamp: Long = lastQueryCacheTime, fromCache: Boolean = lastQueryFromCache): String {
         if (timestamp <= 0L) return ""
         if (!fromCache) return "刚刚同步"
+        if (lastQueryFullCacheVerified == false) return "缓存 · 完整性未核验"
         val diff = System.currentTimeMillis() - timestamp
         if (diff < 60_000L) return "缓存 · 刚刚更新"
         val sdf = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
@@ -412,6 +419,11 @@ val ALL_KNOWN_BUILDINGS = listOf(
 
     // 全校课表全量缓存（内存 + 本地文件持久化）
     private val fullScheduleMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<LappCourseItem>>>()
+    private val fullScheduleReads = SharedRequest<List<LappCourseItem>>(CoroutineScope(SupervisorJob() + Dispatchers.IO))
+    private val verifiedFullSchedules = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val failedFullSyncAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun fullScheduleKey(xn: String, xq: String) = "${xn.trim()}_${xq.trim()}"
 
     private fun getFullEncryptedCacheFile(context: Context, xn: String, xq: String): java.io.File {
         val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
@@ -432,11 +444,11 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val ts = root.optLong("time", fallbackTime)
             val itemsObj = root.opt("items")
             val list: List<LappCourseItem> = when (itemsObj) {
-                is String -> gson.fromJson(itemsObj, type) ?: emptyList()
-                is org.json.JSONArray -> gson.fromJson(itemsObj.toString(), type) ?: emptyList()
-                else -> emptyList()
+                is String -> gson.fromJson<List<LappCourseItem>>(itemsObj, type) ?: return null
+                is org.json.JSONArray -> gson.fromJson<List<LappCourseItem>>(itemsObj.toString(), type) ?: return null
+                else -> return null
             }
-            if (list.isNotEmpty()) {
+            if (list.isNotEmpty() || (root.optBoolean("complete", false) && root.optInt("expectedCount", -1) == 0)) {
                 return Pair(ts, list)
             }
         } catch (_: Exception) {}
@@ -464,14 +476,10 @@ val ALL_KNOWN_BUILDINGS = listOf(
 
     fun getFullSchoolScheduleCached(context: Context, xn: String, xq: String): Pair<Long, List<LappCourseItem>>? {
         val key = "${xn.trim()}_${xq.trim()}"
-        fullScheduleMemoryCache[key]?.let { cached ->
-            if (cached.second.size >= 5000) return cached
-        }
+        fullScheduleMemoryCache[key]?.let { return it }
 
         synchronized(fullScheduleMemoryCache) {
-            fullScheduleMemoryCache[key]?.let { cached ->
-                if (cached.second.size >= 5000) return cached
-            }
+            fullScheduleMemoryCache[key]?.let { return it }
 
             // 1. 尝试检测并预备内置 APK 镜像包（Assets）
             val safeXnUnderscore = xn.replace(Regex("[^a-zA-Z0-9]"), "_")
@@ -500,11 +508,16 @@ val ALL_KNOWN_BUILDINGS = listOf(
             // 2. 读取 AES-256-GCM 硬件加密缓存文件 (.enc)
             val encFile = getFullEncryptedCacheFile(context, xn, xq)
             var localPair: Pair<Long, List<LappCourseItem>>? = null
+            var locallyVerified = false
             if (encFile.exists() && encFile.length() > 0L) {
                 try {
                     val jsonStr = cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.readAndDecrypt(context, encFile)
                     if (!jsonStr.isNullOrBlank()) {
                         localPair = tryParseFullScheduleJson(jsonStr, encFile.lastModified())
+                        val metadata = JSONObject(jsonStr)
+                        locallyVerified = metadata.optBoolean("complete", false) &&
+                            metadata.optInt("expectedCount", -1) == localPair?.second?.size
+                        if (locallyVerified) verifiedFullSchedules.add(key)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to read encrypted full schedule cache for $key", e)
@@ -518,7 +531,6 @@ val ALL_KNOWN_BUILDINGS = listOf(
                     try {
                         val jsonStr = legacyFile.readText(Charsets.UTF_8)
                         localPair = tryParseFullScheduleJson(jsonStr, legacyFile.lastModified())
-                        legacyFile.delete()
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to read legacy full schedule file cache for $key", e)
                     }
@@ -531,7 +543,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val presetSize = presetPair?.second?.size ?: 0
             val localSize = localPair?.second?.size ?: 0
 
-            val isSeverelyIncomplete = localPair == null || localSize < 5000 || localSize < (presetSize * 0.8)
+            val isSeverelyIncomplete = localPair == null || (!locallyVerified && (localSize < 5000 || localSize < (presetSize * 0.8)))
             if (presetPair != null && isSeverelyIncomplete) {
                 Log.w(TAG, "Local cache is incomplete or severely outdated (localSize=$localSize vs presetSize=$presetSize). Self-healing with built-in asset preset...")
                 val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second)
@@ -540,7 +552,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 return finalPair
             }
 
-            if (localPair != null && localPair.second.isNotEmpty()) {
+            if (localPair != null && (locallyVerified || localPair.second.isNotEmpty())) {
                 fullScheduleMemoryCache[key] = localPair
                 return localPair
             }
@@ -556,14 +568,17 @@ val ALL_KNOWN_BUILDINGS = listOf(
         }
     }
 
-    private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>): Long {
+    private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>, verified: Boolean = false): Long {
         val key = "${xn.trim()}_${xq.trim()}"
         val now = System.currentTimeMillis()
         fullScheduleMemoryCache[key] = Pair(now, list)
+        if (verified) verifiedFullSchedules.add(key) else verifiedFullSchedules.remove(key)
         try {
             val encFile = getFullEncryptedCacheFile(context, xn, xq)
             val root = JSONObject().apply {
                 put("time", now)
+                put("complete", verified)
+                put("expectedCount", list.size)
                 put("items", gson.toJson(list))
             }
             cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.encryptAndWrite(context, encFile, root.toString())
@@ -586,23 +601,25 @@ val ALL_KNOWN_BUILDINGS = listOf(
         xq: String,
         forceRefresh: Boolean = false
     ): Result<List<LappCourseItem>> = withContext(Dispatchers.IO) {
+        val termKey = fullScheduleKey(xn, xq)
         if (!forceRefresh) {
             getFullSchoolScheduleCached(context, xn, xq)?.let { (ts, list) ->
-                lastQueryFromCache = true
-                lastQueryCacheTime = ts
-                return@withContext Result.success(list)
+                val recentlyFailed = System.currentTimeMillis() - (failedFullSyncAt[termKey] ?: 0L) in 0..30_000L
+                if (termKey in verifiedFullSchedules || recentlyFailed) {
+                    lastQueryFromCache = true
+                    lastQueryCacheTime = ts
+                    lastQueryFullCacheVerified = termKey in verifiedFullSchedules
+                    return@withContext Result.success(list)
+                }
             }
         }
 
         try {
             ensureSession(context)
-            val allCourses = mutableListOf<LappCourseItem>()
-            var page = 0
-            val rows = 1000
-            var total = 0
-
-            do {
-                val pageResult = fetchSchedulePage(
+            val account = AuthPreferences(context).getStudentId()
+            val allCourses = fullScheduleReads.await("${context.applicationContext.filesDir}|$account|$xn|$xq") {
+                val complete = completeSchedulePages<LappCourseItem>(key = { it.id.takeIf(String::isNotBlank) ?: it }) { offset, rows ->
+                    fetchSchedulePage(
                     context = context,
                     xn = xn,
                     xq = xq,
@@ -613,49 +630,28 @@ val ALL_KNOWN_BUILDINGS = listOf(
                     kcmc = "",
                     kcdm = "",
                     lsmc = "",
-                    page = page * rows,
+                    page = offset,
                     rows = rows
-                )
-                if (pageResult.isFailure) {
-                    Log.w(TAG, "fetchSchedulePage failed at page $page (offset ${page * rows}), aborting incomplete sync...")
-                    // 绝不保存残缺分页数据！直接回退到本地/预置完整缓存
-                    getFullSchoolScheduleCached(context, xn, xq)?.let { (ts, list) ->
-                        lastQueryFromCache = true
-                        lastQueryCacheTime = ts
-                        return@withContext Result.success(list)
-                    }
-                    return@withContext Result.failure(pageResult.exceptionOrNull() ?: Exception("全量课表获取失败"))
+                    ).getOrThrow()
                 }
-                val (t, pageItems) = pageResult.getOrThrow()
-                total = t
-                allCourses.addAll(pageItems)
-                page++
-                if (pageItems.isEmpty() || allCourses.size >= total) break
-            } while (page * rows < total && page < 20)
-
-            // 严禁残缺数据覆盖：只有当拉取条数完整（达到后端总数或至少 8000 条）时才允许覆盖保存！
-            if (allCourses.isNotEmpty() && (allCourses.size >= total || allCourses.size >= 8000)) {
-                val savedTs = saveFullSchoolSchedule(context, xn, xq, allCourses)
-                lastQueryFromCache = false
-                lastQueryCacheTime = savedTs
-                Result.success(allCourses)
-            } else {
-                Log.w(TAG, "allCourses incomplete (${allCourses.size} < total $total), preserving existing complete cache...")
-                val fallback = getFullSchoolScheduleCached(context, xn, xq)
-                if (fallback != null) {
-                    lastQueryFromCache = true
-                    lastQueryCacheTime = fallback.first
-                    Result.success(fallback.second)
-                } else {
-                    Result.failure(Exception("未能拉取到完整全校课表数据"))
-                }
+                saveFullSchoolSchedule(context, xn, xq, complete, verified = true)
+                failedFullSyncAt.remove(termKey)
+                complete
             }
+            lastQueryFromCache = false
+            lastQueryFullCacheVerified = true
+            lastQueryCacheTime = fullScheduleMemoryCache["${xn.trim()}_${xq.trim()}"]?.first ?: System.currentTimeMillis()
+            Result.success(allCourses)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            failedFullSyncAt[termKey] = System.currentTimeMillis()
             Log.e(TAG, "getOrFetchFullSchoolSchedule error", e)
             val fallback = getFullSchoolScheduleCached(context, xn, xq)
             if (fallback != null) {
                 lastQueryFromCache = true
                 lastQueryCacheTime = fallback.first
+                lastQueryFullCacheVerified = termKey in verifiedFullSchedules
                 Result.success(fallback.second)
             } else {
                 Result.failure(e)
@@ -716,9 +712,9 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 return@withContext Result.failure(Exception(err))
             }
 
-            val resultObj = json.optJSONObject("result") ?: JSONObject()
-            val total = resultObj.optInt("total", 0)
-            val dataArr = resultObj.optJSONArray("data") ?: org.json.JSONArray()
+            val resultObj = json.optJSONObject("result") ?: error("课表响应缺少 result")
+            val total = resultObj.opt("total")?.toString()?.toIntOrNull() ?: error("课表响应缺少有效总数")
+            val dataArr = resultObj.optJSONArray("data") ?: error("课表响应缺少课程列表")
 
             val list = mutableListOf<LappCourseItem>()
             for (i in 0 until dataArr.length()) {
@@ -777,7 +773,17 @@ val ALL_KNOWN_BUILDINGS = listOf(
         forceRefresh: Boolean = false
     ): Result<Pair<Int, List<LappCourseItem>>> = withContext(Dispatchers.IO) {
         // 1. 优先检查是否存在全校课表全量缓存，若存在直接在内存中秒级检索
-        val cachedFullPair = getFullSchoolScheduleCached(context, xn, xq)
+        lastQueryFullCacheVerified = null
+        var cachedFullPair = getFullSchoolScheduleCached(context, xn, xq)
+        val isCompositeSection = jc != "-1" && jc.contains("-")
+        if (isCompositeSection || (cachedFullPair != null && (forceRefresh || fullScheduleKey(xn, xq) !in verifiedFullSchedules))) {
+            val fullResult = getOrFetchFullSchoolSchedule(context, xn, xq, forceRefresh)
+            cachedFullPair = getFullSchoolScheduleCached(context, xn, xq)
+            if (isCompositeSection && cachedFullPair == null) {
+                return@withContext Result.failure(fullResult.exceptionOrNull()
+                    ?: Exception("节次区间查询需要完整课表，请联网同步后重试"))
+            }
+        }
         val filterFromFullCache = { pair: Pair<Long, List<LappCourseItem>> ->
             val (ts, allList) = pair
             var filtered = allList.asSequence()
@@ -808,19 +814,17 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val list = filtered.toList()
             lastQueryFromCache = true
             lastQueryCacheTime = ts
+            lastQueryFullCacheVerified = fullScheduleKey(xn, xq) in verifiedFullSchedules
             Log.i(TAG, "queryClassSchedule HIT full schedule in-memory filter: ${list.size} results")
             Pair(list.size, list)
         }
 
-        val hasFullCache = cachedFullPair != null && cachedFullPair.second.isNotEmpty()
+        val hasFullCache = cachedFullPair != null
 
         // 如果是多节次区间（如 "6-7"、"1-2" 等），服务端接口无法处理复合字符串，只能由本地全量缓存精确区间过滤
-        val isCompositeSection = jc != "-1" && jc.contains("-")
-        if (hasFullCache && (isCompositeSection || !forceRefresh)) {
+        if (hasFullCache) {
             val result = filterFromFullCache(cachedFullPair!!)
-            if (result.second.isNotEmpty() || !forceRefresh) {
-                return@withContext Result.success(result)
-            }
+            return@withContext Result.success(result)
         }
 
         val cacheKey = buildScheduleCacheKey(xn, xq, week, xy, zj, jc, kcmc, kcdm, lsmc, page, rows)
@@ -995,8 +999,11 @@ val ALL_KNOWN_BUILDINGS = listOf(
             // 1. 优先拉取或读取全校课表全量缓存进行秒级精确匹配
             val fullResult = getOrFetchFullSchoolSchedule(context, xn, xq, forceRefresh)
             val allCourses = fullResult.getOrNull()
+            if (allCourses != null && fullScheduleKey(xn, xq) !in verifiedFullSchedules) {
+                return@withContext Result.failure(Exception("当前全校课表完整性未核验，暂不能准确判断空教室；请联网同步"))
+            }
 
-            if (!allCourses.isNullOrEmpty()) {
+            if (allCourses != null) {
                 val matchedCourses = allCourses.filter { c ->
                     (zj <= 0 || c.zj == zj) &&
                     matchesSection(c, jc) &&
@@ -1025,7 +1032,10 @@ val ALL_KNOWN_BUILDINGS = listOf(
                     return@withContext Result.failure(schedResult.exceptionOrNull() ?: Exception("查询失败"))
                 }
 
-                val (_, courses) = schedResult.getOrNull() ?: Pair(0, emptyList())
+                val (total, courses) = schedResult.getOrNull() ?: Pair(0, emptyList())
+                if (total != courses.size) {
+                    return@withContext Result.failure(Exception("时段课表尚未完整获取，暂不能准确判断空教室"))
+                }
                 for (c in courses) {
                     if (c.jsdd.isNotEmpty() && isCourseActiveInWeek(c, targetWeek) && matchesSection(c, jc)) {
                         occupiedMap[c.jsdd] = c

@@ -38,15 +38,15 @@ class TronClassDdlWorker(
         }
 
         val client = TronClassClient(appContext)
+        val account = client.accountKey()
         if (!client.isLoggedIn()) {
             return Result.success()
         }
 
         val res = client.fetchTodos()
+        if (account != client.accountKey()) return Result.success()
         val todos = if (res.isSuccess) {
-            val list = res.getOrDefault(emptyList())
-            prefs.saveCachedTodos(list)
-            list
+            res.getOrDefault(emptyList())
         } else {
             // 网络异常时回退检查本地缓存待办
             prefs.getCachedTodos()

@@ -12,6 +12,19 @@ class CoordinateUtilsTest {
     }
 
     @Test
+    fun legacyPointsDeclareVersionAndUnknownCalibrationWithoutInventedAccuracy() {
+        for (point in CoordinateUtils.USST_BUILDINGS) {
+            assertEquals(CoordinateSystem.GCJ02, point.coordinateSystem)
+            assertEquals(CoordinateUtils.BUILDING_POINT_VERSION, point.version)
+            assertTrue(point.source.isNotBlank())
+            assertNull(point.calibratedAt)
+            assertNull(point.calibrationErrorMeters)
+            assertNull(point.asRollcallLocation().accuracyMeters)
+        }
+        assertNull(CoordinateUtils.findMatchingBuilding("未知教学地点"))
+    }
+
+    @Test
     fun testFindMatchingBuilding_Jungong1100Buildings() {
         // 勤学楼、达理楼、乐学楼合并为同一教学组团点位
         val qx = CoordinateUtils.findMatchingBuilding("1100号-勤学楼302")
@@ -157,8 +170,8 @@ class CoordinateUtilsTest {
     }
 
     @Test
-    fun testFindNearestBuilding_RealPhoneLocationNearBuilding3() {
-        // 真机在三教实测物理定位 (WGS-84 原生坐标)
+    fun testFindNearestBuilding_LegacyWgs84FixtureNearBuilding3() {
+        // 旧版坐标样例用于回归转换算法，不作为现场测量或校准证据。
         val phoneWgsLat = 31.297542
         val phoneWgsLng = 121.553112
 

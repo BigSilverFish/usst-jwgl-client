@@ -222,16 +222,27 @@ data class TronClassRollcall(
     val classroom: String? = null,
 
     @SerializedName("created_at")
-    val createdAt: String? = null
+    val createdAt: String? = null,
+
+    @SerializedName("rollcall_time")
+    val rollcallTime: String? = null,
+
+    @SerializedName("is_expired")
+    val isExpired: Boolean = false
 ) : Serializable {
     fun getEffectiveId(): Long = if (id > 0) id else rollcallId
 
     fun getNormalizedType(): String {
-        if (isNumber || type == "number") return "number"
-        if (isRadar || type == "radar" || type == "roomis") return "radar"
-        if (type == "self_registration") return "self_registration"
-        if (type == "qr_code" || type == "qr") return "qr_code"
-        return if (source == "manual") "number" else "qr_code"
+        val types = mutableSetOf<String>()
+        if (isNumber) types.add("number")
+        if (isRadar) types.add("radar")
+        when (type) {
+            "number" -> types.add("number")
+            "radar", "roomis" -> types.add("radar")
+            "self_registration" -> types.add("self_registration")
+            "qr_code", "qr" -> types.add("qr_code")
+        }
+        return types.singleOrNull() ?: "unknown"
     }
 
     fun getTypeDisplayName(): String {
@@ -286,7 +297,7 @@ data class TronClassStudentRollcall(
     @SerializedName("rollcall_status")
     val rollcallStatus: String? = null
 ) : Serializable {
-    fun getEffectiveId(): Long = if (id > 0) id else rollcallId
+    fun getEffectiveId(): Long = if (rollcallId > 0) rollcallId else id
 
     fun getEffectiveStatus(): String {
         return (studentStatus ?: status ?: "").lowercase().trim()
@@ -314,7 +325,7 @@ data class TronClassStudentRollcall(
 
     fun isLateOrEarly(): Boolean {
         val s = getEffectiveStatus()
-        return s.contains("late") || s.contains("leave_early")
+        return s in setOf("on_call_arrive_late", "late", "on_call_leave_early", "leave_early", "on_call_arrive_late_leave_early")
     }
 
     fun isAbsent(): Boolean {
