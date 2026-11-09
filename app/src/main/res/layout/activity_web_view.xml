@@ -150,4 +150,20 @@
         android:background="#000000"
         android:visibility="gone" />
 
+    <!-- 右下角数字签到悬浮按键 -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabNumberRollcall"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="36dp"
+        android:contentDescription="输入数字口令"
+        android:src="@drawable/ic_dialpad"
+        android:visibility="gone"
+        app:backgroundTint="@color/primary"
+        app:elevation="8dp"
+        app:fabSize="normal"
+        app:tint="#FFFFFF" />
+
 </FrameLayout>

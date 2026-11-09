@@ -73,6 +73,9 @@ class JwglWebActivity : AppCompatActivity() {
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
         const val EXTRA_TARGET_DATE = "extra_target_date"
         const val EXTRA_TARGET_NODE = "extra_target_node"
+        const val EXTRA_ENABLE_LIVE_NUMBER_FAB = "extra_enable_live_number_fab"
+        const val EXTRA_ROLLCALL_ID = "extra_rollcall_id"
+        const val EXTRA_COURSE_NAME = "extra_course_name"
 
         fun start(
             context: Context,
@@ -96,6 +99,24 @@ class JwglWebActivity : AppCompatActivity() {
                 if (targetNode > 0) {
                     putExtra(EXTRA_TARGET_NODE, targetNode)
                 }
+            }
+            context.startActivity(intent)
+        }
+
+        fun startForNumberRollcall(
+            context: Context,
+            rollcallId: Long,
+            courseName: String? = null
+        ) {
+            val intent = Intent(context, JwglWebActivity::class.java).apply {
+                putExtra(EXTRA_URL, LIVE_TARGET_URL)
+                putExtra(EXTRA_TITLE, "课堂直播 · ${courseName ?: "签到口令"}")
+                if (!courseName.isNullOrBlank()) {
+                    putExtra(EXTRA_SEARCH_QUERY, courseName)
+                }
+                putExtra(EXTRA_ENABLE_LIVE_NUMBER_FAB, true)
+                putExtra(EXTRA_ROLLCALL_ID, rollcallId)
+                putExtra(EXTRA_COURSE_NAME, courseName)
             }
             context.startActivity(intent)
         }
@@ -1055,6 +1076,32 @@ class JwglWebActivity : AppCompatActivity() {
         initWebView(targetUrl)
         handleBackPress()
         prepareAndLoad(targetUrl)
+
+        val isNumberFabEnabled = intent.getBooleanExtra(EXTRA_ENABLE_LIVE_NUMBER_FAB, false)
+        val rollcallId = intent.getLongExtra(EXTRA_ROLLCALL_ID, 0L)
+        val rollcallCourseName = intent.getStringExtra(EXTRA_COURSE_NAME)
+        if (isNumberFabEnabled) {
+            setupNumberRollcallFab(rollcallId, rollcallCourseName)
+        }
+    }
+
+    /**
+     * 🎯 数字口令签到联动悬浮按键
+     * 点击弹出轻量数字输入面板，成功后自动关闭直播页
+     */
+    private fun setupNumberRollcallFab(rollcallId: Long, courseName: String?) {
+        binding.fabNumberRollcall.visibility = View.VISIBLE
+        binding.fabNumberRollcall.bringToFront()
+        binding.fabNumberRollcall.setOnClickListener {
+            val dialog = cn.edu.usst.jwgl.ui.tronclass.NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
+            dialog.setOnSignSuccessListener {
+                Toast.makeText(this, "🎉 数字口令签到成功，已自动返回！", Toast.LENGTH_SHORT).show()
+                binding.fabNumberRollcall.postDelayed({
+                    finish()
+                }, 300)
+            }
+            dialog.show(supportFragmentManager, "live_number_rollcall")
+        }
     }
 
     private fun isAllowedTargetHost(host: String?): Boolean {
@@ -1573,6 +1620,9 @@ class JwglWebActivity : AppCompatActivity() {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 }
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                if (binding.fabNumberRollcall.visibility == View.VISIBLE) {
+                    binding.fabNumberRollcall.bringToFront()
+                }
             }
 
             override fun onHideCustomView() {
@@ -1583,6 +1633,9 @@ class JwglWebActivity : AppCompatActivity() {
                     visibility = View.GONE
                 }
                 binding.layoutNormalWeb.visibility = View.VISIBLE
+                if (binding.fabNumberRollcall.visibility == View.VISIBLE) {
+                    binding.fabNumberRollcall.bringToFront()
+                }
 
                 customVideoCallback?.onCustomViewHidden()
                 customVideoView = null
