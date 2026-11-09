@@ -478,6 +478,35 @@ data class UnifiedTodo(
                 rawTronClassTodo = todo
             )
         }
+
+        fun fromChaoXingWork(
+            work: ChaoXingWork,
+            course: ChaoXingCourse? = null
+        ): UnifiedTodo {
+            val ddlMillis = cn.edu.usst.jwgl.data.network.ChaoXingClient.parseDdlMillis(work.deadline)
+            val cName = work.courseName.ifBlank { course?.courseName ?: "超星学习通课程" }
+            val cId = course?.courseId ?: "0"
+            val clId = course?.classId ?: ""
+            return UnifiedTodo(
+                unifiedId = "cx_work_${work.workId}",
+                platform = LearningPlatform.CHAOXING,
+                originalTodoId = work.workId,
+                courseId = "cx_${cId}_${clId}",
+                originalCourseId = cId,
+                originalClassId = clId,
+                courseName = cName,
+                cleanCourseName = cName.replace(Regex("""^\(.*?\)"""), "").trim(),
+                title = work.title,
+                cleanTitle = work.title.replace(Regex("""^\(.*?\)"""), "").trim(),
+                deadlineDate = ddlMillis?.let { Date(it) },
+                deadlineMillis = ddlMillis,
+                type = "homework",
+                typeDisplayName = "作业",
+                isSubmitted = work.isSubmitted(),
+                isLocked = work.expired,
+                detailUrl = work.taskUrl
+            )
+        }
     }
 }
 

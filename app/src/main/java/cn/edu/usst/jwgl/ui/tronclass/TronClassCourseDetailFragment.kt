@@ -882,7 +882,10 @@ class TronClassCourseDetailFragment : Fragment() {
             if (worksRes.isSuccess || examsRes.isSuccess) {
                 cachedCxWorks = worksRes.getOrDefault(emptyList())
                 cachedCxExams = examsRes.getOrDefault(emptyList())
-                if (cachedCxWorks.isNotEmpty()) cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+                if (cachedCxWorks.isNotEmpty()) {
+                    cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+                    syncChaoXingWorksToHomeTodos(cxCourse, cachedCxWorks)
+                }
                 if (cachedCxExams.isNotEmpty()) cacheMgr.saveChaoXingExams(cxCourse.courseId, cachedCxExams)
 
                 val assessList = mutableListOf<TronClassAssessmentItem>()
@@ -987,6 +990,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         cachedCxWorks = cxWorksRes.getOrDefault(emptyList())
                         if (cachedCxWorks.isNotEmpty()) {
                             cacheMgr.saveChaoXingHomeworks(cxCourse.courseId, cachedCxWorks)
+                            syncChaoXingWorksToHomeTodos(cxCourse, cachedCxWorks)
                         }
                         updateCombinedAssessmentsUI()
                     }
@@ -2110,6 +2114,41 @@ class TronClassCourseDetailFragment : Fragment() {
         super.onConfigurationChanged(newConfig)
         _binding?.let { b ->
             ViewCompat.requestApplyInsets(b.root)
+        }
+    }
+
+    private fun syncChaoXingWorksToHomeTodos(cxCourse: ChaoXingCourse, works: List<ChaoXingWork>) {
+        try {
+            val ctx = context ?: return
+            val cxPrefs = ChaoXingPreferences(ctx)
+            val existing = cxPrefs.getCachedTodos().toMutableList()
+            var changed = false
+
+            // 1. 移除已提交/已批改的作业
+            val submittedIds = works.filter { it.isSubmitted() }.map { it.workId }.toSet()
+            if (submittedIds.isNotEmpty()) {
+                val removed = existing.removeAll { it.originalTodoId in submittedIds }
+                if (removed) changed = true
+            }
+
+            // 2. 更新或追加未提交的作业
+            val unsubmitted = works.filter { !it.isSubmitted() }.map { UnifiedTodo.fromChaoXingWork(it, cxCourse) }
+            for (newTodo in unsubmitted) {
+                val idx = existing.indexOfFirst { it.originalTodoId == newTodo.originalTodoId }
+                if (idx >= 0) {
+                    existing[idx] = newTodo
+                    changed = true
+                } else {
+                    existing.add(newTodo)
+                    changed = true
+                }
+            }
+
+            if (changed) {
+                cxPrefs.saveCachedTodos(existing)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to sync works to home todos: ${e.message}")
         }
     }
 
