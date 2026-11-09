@@ -147,6 +147,16 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
         setupKeypadListeners(view)
         updatePinBoxes()
+
+        view.findViewById<View>(R.id.btnWatchLiveForCode)?.setOnClickListener {
+            val cName = courseName
+            cn.edu.usst.jwgl.ui.JwglWebActivity.startForNumberRollcall(
+                context = requireContext(),
+                rollcallId = rollcallId,
+                courseName = cName
+            )
+            dismiss()
+        }
     }
 
     private fun setupKeypadListeners(root: View) {
