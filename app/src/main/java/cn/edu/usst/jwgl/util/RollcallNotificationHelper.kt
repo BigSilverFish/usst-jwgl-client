@@ -284,6 +284,83 @@ object RollcallNotificationHelper {
     }
 
     /**
+     * 智慧录播大屏二维码自动签到结果通知
+     */
+    fun notifyLiveQrResult(
+        context: Context,
+        rollcallId: Long,
+        courseName: String?,
+        success: Boolean,
+        viewName: String,
+        message: String?
+    ) {
+        createChannels(context)
+
+        val notifId = ((rollcallId % 100000L).toInt() + 45000)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TAB, 8)
+            if (!success) {
+                putExtra("extra_open_qr_scan", true)
+                putExtra("extra_rollcall_id", rollcallId)
+                putExtra("extra_course_name", courseName)
+            }
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+
+        val builder = if (success) {
+            NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("🎉 大屏二维码已秒级自动签到")
+                .setContentText("【${courseName ?: "课堂"}】已通过智慧录播 [$viewName] 自动扫码并签到成功！")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "课程：${courseName ?: "未指定课程"}\n" +
+                    "识别机位：$viewName\n" +
+                    "签到状态：$message\n" +
+                    "已通过 FLV 低延迟机位极速抽取大屏画面，在 1.5 秒内全自动完成二维码识别与提交。"
+                ))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(defaultSound)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+        } else {
+            NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("📢 收到扫码签到 (大屏未检测到)")
+                .setContentText("【${courseName ?: "课堂"}】教师已发起二维码签到，点击打开扫码器")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "课程：${courseName ?: "课堂"}\n" +
+                    "自动检测反馈：$message\n" +
+                    "当前正在进行二维码扫码签到！点击此通知将立即打开扫码相机手动对准幕布完成签到。"
+                ))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(defaultSound)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+        }
+
+        try {
+            NotificationManagerCompat.from(context).notify(notifId, builder.build())
+        } catch (_: SecurityException) {
+        }
+    }
+
+    /**
      * 其他类型签到通知
      */
     fun notifyGenericRollcall(context: Context, rollcallId: Long, courseName: String?, typeDesc: String) {
