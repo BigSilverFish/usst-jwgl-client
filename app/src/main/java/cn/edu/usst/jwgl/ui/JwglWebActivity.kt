@@ -76,6 +76,7 @@ class JwglWebActivity : AppCompatActivity() {
         const val EXTRA_ENABLE_LIVE_NUMBER_FAB = "extra_enable_live_number_fab"
         const val EXTRA_ROLLCALL_ID = "extra_rollcall_id"
         const val EXTRA_COURSE_NAME = "extra_course_name"
+        const val EXTRA_NAVIGATE_TO_LIVE = "extra_navigate_to_live"
 
         fun start(
             context: Context,
@@ -115,6 +116,7 @@ class JwglWebActivity : AppCompatActivity() {
                     putExtra(EXTRA_SEARCH_QUERY, courseName)
                 }
                 putExtra(EXTRA_ENABLE_LIVE_NUMBER_FAB, true)
+                putExtra(EXTRA_NAVIGATE_TO_LIVE, true)
                 putExtra(EXTRA_ROLLCALL_ID, rollcallId)
                 putExtra(EXTRA_COURSE_NAME, courseName)
             }
@@ -130,6 +132,7 @@ class JwglWebActivity : AppCompatActivity() {
     private var targetDate: String? = null
     private var targetNode: Int = -1
     private var isDesktopMode = false
+    private var isLiveNavigation = false
     private var filePathCallback: android.webkit.ValueCallback<Array<Uri>>? = null
 
     // ==========================================
@@ -1099,6 +1102,7 @@ class JwglWebActivity : AppCompatActivity() {
         prepareAndLoad(targetUrl)
 
         val isNumberFabEnabled = intent.getBooleanExtra(EXTRA_ENABLE_LIVE_NUMBER_FAB, false)
+        isLiveNavigation = intent.getBooleanExtra(EXTRA_NAVIGATE_TO_LIVE, false) || isNumberFabEnabled
         val rollcallId = intent.getLongExtra(EXTRA_ROLLCALL_ID, 0L)
         val rollcallCourseName = intent.getStringExtra(EXTRA_COURSE_NAME)
         if (isNumberFabEnabled) {
@@ -1124,6 +1128,7 @@ class JwglWebActivity : AppCompatActivity() {
         binding.fabNumberRollcall.setOnClickListener {
             val dialog = cn.edu.usst.jwgl.ui.tronclass.NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
             dialog.setOnSignSuccessListener {
+                cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(rollcallId)
                 Toast.makeText(this, "🎉 数字口令签到成功，已自动返回！", Toast.LENGTH_SHORT).show()
                 binding.fabNumberRollcall.postDelayed({
                     finish()
@@ -1796,17 +1801,123 @@ class JwglWebActivity : AppCompatActivity() {
                     startLiveChaseFrameGuard()
                     updateLiveMenuItemsVisibility(true)
                     if (!searchQuery.isNullOrBlank() || !targetDate.isNullOrBlank()) {
-                    val quotedQuery = JSONObject.quote(searchQuery ?: "")
-                    val quotedTargetDate = JSONObject.quote(targetDate ?: "")
-                    val targetNodeVal = targetNode
-                    val jsSearch = """
-                        (function() {
-                            if (window.__usst_live_nav_running) return;
-                            window.__usst_live_nav_running = true;
+                        val quotedQuery = JSONObject.quote(searchQuery ?: "")
+                        val quotedTargetDate = JSONObject.quote(targetDate ?: "")
+                        val targetNodeVal = targetNode
+                        val jsSearch = if (isLiveNavigation) {
+                            """
+                            (function() {
+                                if (window.__usst_live_nav_running) return;
+                                window.__usst_live_nav_running = true;
 
-                            var courseQuery = $quotedQuery;
-                            var targetDate = $quotedTargetDate;
-                            var targetNode = $targetNodeVal;
+                                var courseQuery = $quotedQuery;
+                                console.log("Starting USST Live auto-navigation (LIVE STREAM mode):", courseQuery);
+
+                                var attempts = 0;
+                                var maxAttempts = 75; // ~37.5s max duration
+                                var searchedCourse = false;
+                                var courseClicked = false;
+                                var playbackStarted = false;
+
+                                var timer = setInterval(function() {
+                                    attempts++;
+                                    if (attempts > maxAttempts || playbackStarted) {
+                                        clearInterval(timer);
+                                        window.__usst_live_nav_running = false;
+                                        return;
+                                    }
+
+                                    var hash = window.location.hash || "";
+
+                                    // 1. If in play-live player, ensure video starts playing
+                                    if (hash.indexOf('/play-live') !== -1 || hash.indexOf('/play-center') !== -1) {
+                                        var playBtn = document.querySelector('.kmedia-mobile-play-btn, .kmd-m-flex-center, .icon-play');
+                                        if (playBtn) playBtn.click();
+                                        var video = document.querySelector('video');
+                                        if (video) {
+                                            video.play().catch(function(e) {});
+                                            playbackStarted = true;
+                                            clearInterval(timer);
+                                            window.__usst_live_nav_running = false;
+                                            return;
+                                        }
+                                    }
+
+                                    // 2. On Mobile H5: Stay on Live tab! If on videoList, switch back to liveList
+                                    if (hash.indexOf('/videoList') !== -1) {
+                                        var tabs = Array.from(document.querySelectorAll('.van-tab'));
+                                        var liveTab = tabs.find(function(t) { return t.innerText && t.innerText.trim() === '直播'; });
+                                        if (liveTab && liveTab.getAttribute('aria-selected') !== 'true') {
+                                            liveTab.click();
+                                            return;
+                                        }
+                                    }
+
+                                    // 3. Search and find matching live course on liveList
+                                    if (hash.indexOf('/liveList') !== -1 || hash === '' || hash === '#/') {
+                                        var titleEls = Array.from(document.querySelectorAll('.live-item-title, .title, .live-item'));
+                                        if (titleEls.length > 0 && !courseClicked) {
+                                            var target = null;
+                                            if (courseQuery) {
+                                                target = titleEls.find(function(el) {
+                                                    var txt = el.innerText ? el.innerText.trim() : '';
+                                                    return txt && (txt === courseQuery || txt.indexOf(courseQuery) !== -1 || courseQuery.indexOf(txt) !== -1);
+                                                });
+                                            }
+                                            if (!target && !courseQuery && titleEls.length > 0) {
+                                                target = titleEls[0];
+                                            }
+
+                                            if (target) {
+                                                courseClicked = true;
+                                                var item = target.closest('.live-item') || target.closest('.van-cell') || target;
+                                                item.click();
+                                                return;
+                                            }
+                                        }
+
+                                        // Try searching courseQuery in search box if available and not searched
+                                        if (courseQuery && !searchedCourse) {
+                                            var input = document.querySelector('input[placeholder*="课程名称"]') || 
+                                                        document.querySelector('.van-search__content input') || 
+                                                        document.querySelector('input[type="search"]');
+                                            if (input && input.value !== courseQuery) {
+                                                searchedCourse = true;
+                                                input.focus();
+                                                input.value = courseQuery;
+                                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                                input.dispatchEvent(new Event('change', { bubbles: true }));
+                                                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                                input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                                input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                                return;
+                                            }
+                                        }
+                                    }
+
+                                    // 4. Desktop mode
+                                    if (hash.indexOf('/liveCourse') !== -1 || hash.indexOf('/home') !== -1) {
+                                        var desktopLiveCards = Array.from(document.querySelectorAll('*')).filter(function(el) {
+                                            return el.children.length === 0 && el.innerText && (el.innerText.trim() === courseQuery || el.innerText.indexOf(courseQuery) !== -1);
+                                        });
+                                        if (desktopLiveCards.length > 0 && !courseClicked) {
+                                            courseClicked = true;
+                                            desktopLiveCards[0].click();
+                                            return;
+                                        }
+                                    }
+                                }, 500);
+                            })();
+                            """.trimIndent()
+                        } else {
+                            """
+                            (function() {
+                                if (window.__usst_live_nav_running) return;
+                                window.__usst_live_nav_running = true;
+
+                                var courseQuery = $quotedQuery;
+                                var targetDate = $quotedTargetDate;
+                                var targetNode = $targetNodeVal;
 
                             console.log("Starting USST Live auto-navigation:", courseQuery, targetDate, targetNode);
 
@@ -1979,7 +2090,8 @@ class JwglWebActivity : AppCompatActivity() {
                                 }
                             }, 500);
                         })();
-                    """.trimIndent()
+                        """.trimIndent()
+                    }
                     view?.evaluateJavascript(jsSearch, null)
                 }
             }

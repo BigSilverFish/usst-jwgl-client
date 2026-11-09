@@ -286,6 +286,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 layoutKeypad.isEnabled = true
 
                 if (results.any { it.success }) {
+                    cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(targetRollcallId)
                     onSignSuccessListener?.invoke()
                 }
                 dismiss()
@@ -300,6 +301,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
             val result = res.getOrNull()
             if (result != null && result.success) {
+                cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(targetRollcallId)
                 onSignSuccessListener?.invoke()
                 dismiss()
                 MaterialAlertDialogBuilder(requireActivity())

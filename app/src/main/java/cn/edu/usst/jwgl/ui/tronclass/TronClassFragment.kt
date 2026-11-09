@@ -126,8 +126,13 @@ class TronClassFragment : Fragment() {
 
     companion object {
         private const val TAG = "TronClassFragment"
+        private var instanceRef: java.lang.ref.WeakReference<TronClassFragment>? = null
 
         fun newInstance(): TronClassFragment = TronClassFragment()
+
+        fun onRollcallCompleted(effectiveId: Long) {
+            instanceRef?.get()?.markRollcallCompleted(effectiveId)
+        }
     }
 
     override fun onCreateView(
@@ -141,6 +146,7 @@ class TronClassFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        instanceRef = java.lang.ref.WeakReference(this)
 
         binding.layoutTronclass.visibility = View.VISIBLE
 
@@ -174,6 +180,48 @@ class TronClassFragment : Fragment() {
         super.onResume()
         applyAdaptiveLayout()
         checkAndRefreshHeaderSpacing()
+        if (tronClassClient.isLoggedIn()) {
+            refreshActiveRollcallsSilently()
+        }
+    }
+
+    private fun refreshActiveRollcallsSilently() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val res = tronClassClient.fetchOngoingRollcalls()
+                if (res.isSuccess) {
+                    val ongoing = res.getOrDefault(emptyList())
+                    if (ongoing != tronClassActiveRollcalls) {
+                        tronClassActiveRollcalls = ongoing
+                        val nonTc = allUnifiedActiveRollcalls.filter { it.platform != LearningPlatform.TRONCLASS }
+                        val newTc = ongoing.map { tc ->
+                            UnifiedActiveRollcall(
+                                unifiedId = "tc_${tc.getEffectiveId()}",
+                                platform = LearningPlatform.TRONCLASS,
+                                courseName = tc.courseName ?: "课堂教学",
+                                typeDisplayName = tc.getTypeDisplayName(),
+                                effectiveId = tc.getEffectiveId(),
+                                rawTronClassRollcall = tc
+                            )
+                        }
+                        allUnifiedActiveRollcalls = nonTc + newTc
+                        updateHeroCardAndSignButtonState()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Silent rollcall check failed: ${e.message}")
+            }
+        }
+    }
+
+    fun markRollcallCompleted(effectiveId: Long) {
+        val act = activity ?: return
+        act.runOnUiThread {
+            allUnifiedActiveRollcalls = allUnifiedActiveRollcalls.filter { it.effectiveId != effectiveId }
+            tronClassActiveRollcalls = tronClassActiveRollcalls.filter { it.getEffectiveId() != effectiveId }
+            updateHeroCardAndSignButtonState()
+            loadTronClassData(forceRefresh = true, silent = true)
+        }
     }
 
     fun checkAndRefreshHeaderSpacing() {
@@ -638,6 +686,7 @@ class TronClassFragment : Fragment() {
                         signTypeName = signTypeName
                     )
                     sheet.onSignSuccessListener = { msg ->
+                        markRollcallCompleted(activeItem.id)
                         MaterialAlertDialogBuilder(ctx)
                             .setTitle("手势签到成功 🎉")
                             .setMessage("课程：${course.courseName}\n反馈：$msg")
@@ -658,6 +707,7 @@ class TronClassFragment : Fragment() {
                         signTypeName = signTypeName
                     )
                     sheet.onSignSuccessListener = { msg ->
+                        markRollcallCompleted(activeItem.id)
                         MaterialAlertDialogBuilder(ctx)
                             .setTitle("拍照签到成功 🎉")
                             .setMessage("课程：${course.courseName}\n反馈：$msg")
@@ -759,6 +809,9 @@ class TronClassFragment : Fragment() {
             progress.dismiss()
 
             res.onSuccess { result ->
+                if (result.isSuccess) {
+                    markRollcallCompleted(activeItem.id)
+                }
                 MaterialAlertDialogBuilder(ctx)
                     .setTitle(if (result.isSuccess) "签到成功 🎉" else "签到提示")
                     .setMessage("课程：${course.courseName}\n活动：$signType\n反馈：${result.message}")
@@ -1156,6 +1209,18 @@ class TronClassFragment : Fragment() {
             // 3. 处理正在进行的课堂签到（合并在顶部 Hero 卡片中展示：有签到时卡片变绿并在底部显示签到课程）
             if (rollcallsRes.isSuccess) {
                 tronClassActiveRollcalls = rollcallsRes.getOrDefault(emptyList())
+                val nonTcRollcalls = allUnifiedActiveRollcalls.filter { it.platform != LearningPlatform.TRONCLASS }
+                val newTcRollcalls = tronClassActiveRollcalls.map { tc ->
+                    UnifiedActiveRollcall(
+                        unifiedId = "tc_${tc.getEffectiveId()}",
+                        platform = LearningPlatform.TRONCLASS,
+                        courseName = tc.courseName ?: "课堂教学",
+                        typeDisplayName = tc.getTypeDisplayName(),
+                        effectiveId = tc.getEffectiveId(),
+                        rawTronClassRollcall = tc
+                    )
+                }
+                allUnifiedActiveRollcalls = nonTcRollcalls + newTcRollcalls
                 updateHeroCardAndSignButtonState()
             } else {
                 val err = rollcallsRes.exceptionOrNull()
@@ -2135,6 +2200,9 @@ class TronClassFragment : Fragment() {
                 if (accounts.size > 1) {
                     val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
                     progress.dismiss()
+                    if (results.any { it.success }) {
+                        markRollcallCompleted(parsed.rollcallId)
+                    }
                     showMultiAccountRollcallSummaryDialog(results)
                     loadTronClassData(forceRefresh = true)
                     return@launch
@@ -2145,6 +2213,7 @@ class TronClassFragment : Fragment() {
 
                 val result = res.getOrNull()
                 if (result != null && result.success) {
+                    markRollcallCompleted(parsed.rollcallId)
                     MaterialAlertDialogBuilder(ctx)
                         .setTitle("🎉 签到成功！")
                         .setMessage(result.message)
@@ -2330,6 +2399,7 @@ class TronClassFragment : Fragment() {
                         classroom = classroom
                     )
                     dialog.setOnSignSuccessListener {
+                        markRollcallCompleted(id)
                         loadTronClassData(forceRefresh = true)
                     }
                     dialog.show(parentFragmentManager, "RadarRollcallBottomSheet")
@@ -2348,6 +2418,7 @@ class TronClassFragment : Fragment() {
             teacherScope = activeRollcall?.scope
         )
         dialog.setOnSignSuccessListener {
+            markRollcallCompleted(rollcallId)
             loadTronClassData(forceRefresh = true)
         }
         dialog.show(parentFragmentManager, "RadarRollcallBottomSheet")
@@ -2366,6 +2437,7 @@ class TronClassFragment : Fragment() {
 
         val dialog = NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
         dialog.setOnSignSuccessListener {
+            markRollcallCompleted(rollcallId)
             loadTronClassData(forceRefresh = true)
         }
         dialog.show(parentFragmentManager, "NumberRollcallBottomSheet")
@@ -2496,6 +2568,9 @@ class TronClassFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        if (instanceRef?.get() == this) {
+            instanceRef = null
+        }
         _binding = null
     }
 }
