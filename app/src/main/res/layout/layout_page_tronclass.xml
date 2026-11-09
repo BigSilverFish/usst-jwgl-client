@@ -537,7 +537,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="0dp"
                 android:layout_weight="1"
-                android:text="一网畅学 · 移动教学"
+                android:text="课程门户"
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold" />

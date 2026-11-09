@@ -1802,7 +1802,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="3dp"
                         android:singleLine="true"
-                        android:text="一网畅学"
+                        android:text="课程门户"
                         android:textColor="@color/text_secondary"
                         android:textSize="11.5sp" />
                 </LinearLayout>

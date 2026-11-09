@@ -685,7 +685,7 @@ class ChaoXingClient(private val context: Context) {
             val todoList = mutableListOf<UnifiedTodo>()
             if (resp.isSuccessful && html.isNotBlank()) {
                 val doc = Jsoup.parse(html)
-                val items = doc.select("ul.stu-work-list > li, .work-list > li, ul > li[data]")
+                val items = doc.select("ul.stu-work-list > li, .work-list > li, ul > li[data], li[data], li[onclick*='goTask']")
                 val recognizedContainer = doc.select("ul.stu-work-list, .work-list").isNotEmpty()
                 val emptyMessage = listOf("暂无作业", "暂无待办", "暂无未完成作业", "没有待完成的作业", "暂无相关作业")
                     .any { doc.text().contains(it) }
@@ -696,12 +696,32 @@ class ChaoXingClient(private val context: Context) {
                 var recognizedItems = 0
 
                 for (el in items) {
-                    val title = el.select(".title, .item-title, p.title, h3").text().trim()
+                    var title = el.select("div[role='option'] > p, p.title, .title, .item-title, h3").firstOrNull()?.text()?.trim().orEmpty()
+                    if (title.isBlank()) {
+                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
+                        if (aria.isNotBlank()) {
+                            title = aria.split(";").first().trim()
+                        }
+                    }
+                    if (title.isBlank()) {
+                        title = el.select("p").firstOrNull()?.text()?.trim().orEmpty()
+                    }
                     if (title.isBlank()) continue
                     recognizedItems++
 
-                    val courseName = el.select(".course-name, .course, span.course-name").text().trim()
-                        .ifBlank { "超星课程" }
+                    var courseName = el.select(".course-name, .course, span.course-name").text().trim()
+                    if (courseName.isBlank()) {
+                        val spans = el.select("div[role='option'] > span, span")
+                        for (sp in spans) {
+                            val txt = sp.text().trim()
+                            if (txt.startsWith("《") || txt.endsWith("》")) {
+                                courseName = txt
+                                break
+                            }
+                        }
+                    }
+                    if (courseName.isBlank()) courseName = "超星课程"
+
                     var timeStr = el.select(".time, .end-time, .status-time, span.time").text().trim()
                     if (timeStr.isBlank()) {
                         val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
@@ -713,6 +733,18 @@ class ChaoXingClient(private val context: Context) {
 
                     // 过滤已提交的作业，聚焦未交与待办
                     if (isSub) continue
+
+                    val isItemLocked = el.select(".icon-zy-g").isNotEmpty() ||
+                            el.html().contains("icon-zy-g") ||
+                            el.html().contains("task-work-gray") ||
+                            statusText.contains("已截止") ||
+                            statusText.contains("已过期") ||
+                            statusText.contains("已逾期") ||
+                            statusText.contains("已结束") ||
+                            (ddlMillis != null && ddlMillis < System.currentTimeMillis())
+
+                    // 核心过滤：过滤掉已过期的作业，不进入待办
+                    if (isItemLocked) continue
 
                     val dataUrl = el.attr("data").ifBlank { el.select("a").attr("href") }
                     val workId = Regex("""(?:workId|workid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
@@ -734,6 +766,9 @@ class ChaoXingClient(private val context: Context) {
                         }
                     }
 
+                    // 若解析出的截止时间已早于当前时间，直接过滤
+                    if (ddlMillis != null && ddlMillis < System.currentTimeMillis()) continue
+
                     todoList.add(
                         UnifiedTodo(
                             unifiedId = "cx_work_${workId}",
@@ -751,7 +786,7 @@ class ChaoXingClient(private val context: Context) {
                             type = "homework",
                             typeDisplayName = "作业",
                             isSubmitted = false,
-                            isLocked = ddlMillis != null && ddlMillis < System.currentTimeMillis(),
+                            isLocked = false,
                             detailUrl = dataUrl
                         )
                     )
@@ -781,13 +816,13 @@ class ChaoXingClient(private val context: Context) {
                                         .build()
                                     val respDetail = okHttpClient.newCall(reqDetail).execute()
                                     val detailHtml = respDetail.body?.string().orEmpty()
+                                    val isDetailExpired = detailHtml.contains("task-work-gray") ||
+                                            detailHtml.contains("已截止") ||
+                                            detailHtml.contains("已结束") ||
+                                            detailHtml.contains("已逾期")
                                     val extractedDdl = ChaoXingCourseDetailClient.extractDeadlineFromText(detailHtml, detailHtml)
-                                    if (extractedDdl.isNotBlank()) {
-                                        val parsed = parseDdlMillis(extractedDdl)
-                                        if (parsed != null) {
-                                            Pair(todo.unifiedId, parsed)
-                                        } else null
-                                    } else null
+                                    val parsed = if (extractedDdl.isNotBlank()) parseDdlMillis(extractedDdl) else null
+                                    Triple(todo.unifiedId, parsed, isDetailExpired)
                                 } catch (e: Exception) {
                                     Log.w(TAG, "Failed to resolve deadline for ${todo.title}: ${e.message}")
                                     null
@@ -795,26 +830,33 @@ class ChaoXingClient(private val context: Context) {
                             }
                         }
                         val resolved = ddlTasks.awaitAll().filterNotNull()
-                        for ((unifiedId, parsedMillis) in resolved) {
+                        for ((unifiedId, parsedMillis, isDetailExpired) in resolved) {
                             val idx = todoList.indexOfFirst { it.unifiedId == unifiedId }
                             if (idx >= 0) {
-                                val t = todoList[idx]
-                                todoList[idx] = t.copy(
-                                    deadlineDate = Date(parsedMillis),
-                                    deadlineMillis = parsedMillis,
-                                    isLocked = parsedMillis < System.currentTimeMillis()
-                                )
+                                if (isDetailExpired || (parsedMillis != null && parsedMillis < System.currentTimeMillis())) {
+                                    // 探测出已过期，直接移出待办作业
+                                    todoList.removeAt(idx)
+                                } else if (parsedMillis != null) {
+                                    val t = todoList[idx]
+                                    todoList[idx] = t.copy(
+                                        deadlineDate = Date(parsedMillis),
+                                        deadlineMillis = parsedMillis,
+                                        isLocked = false
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // 按截止时间升序排序（临期的在前）
-            todoList.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
-            prefs.saveCachedTodos(todoList, account)
-            Log.i(TAG, "Successfully fetched ${todoList.size} ChaoXing uncompleted todos for $account")
-            Result.success(todoList)
+            // 过滤掉所有已过期或已锁定的作业，按截止时间升序排序（临期的在前）
+            val activeTodos = todoList.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
+                .toMutableList()
+            activeTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
+            prefs.saveCachedTodos(activeTodos, account)
+            Log.i(TAG, "Successfully fetched ${activeTodos.size} ChaoXing uncompleted active todos for $account")
+            Result.success(activeTodos)
         } catch (e: Exception) {
             Log.e(TAG, "fetchTodos error", e)
             Result.failure(e)

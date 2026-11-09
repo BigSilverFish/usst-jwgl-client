@@ -415,11 +415,14 @@ data class UnifiedTodo(
 ) : Serializable {
 
     fun getFormattedDeadline(): String {
-        val date = deadlineDate ?: return "未定截止时间"
-        val outFormat = SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).apply {
-            timeZone = TimeZone.getDefault()
+        val date = deadlineDate
+        if (date != null) {
+            val outFormat = SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).apply {
+                timeZone = TimeZone.getDefault()
+            }
+            return outFormat.format(date)
         }
-        return outFormat.format(date)
+        return if (isLocked) "已截止" else "未定截止时间"
     }
 
     fun getRemainingHours(): Long {
@@ -429,6 +432,7 @@ data class UnifiedTodo(
     }
 
     fun getRemainingTimeText(): String {
+        if (isLocked) return "已截止"
         val ms = deadlineMillis ?: return "长期有效"
         val diffMs = ms - System.currentTimeMillis()
         if (diffMs <= 0) return "已逾期"
@@ -452,6 +456,7 @@ data class UnifiedTodo(
     }
 
     fun isOverdue(): Boolean {
+        if (isLocked) return true
         val ms = deadlineMillis ?: return false
         return ms < System.currentTimeMillis()
     }
@@ -487,6 +492,9 @@ data class UnifiedTodo(
             val cName = work.courseName.ifBlank { course?.courseName ?: "超星学习通课程" }
             val cId = course?.courseId ?: "0"
             val clId = course?.classId ?: ""
+            val isItemLocked = work.expired || work.statusText.contains("已截止") ||
+                    work.statusText.contains("已过期") || work.statusText.contains("已逾期") ||
+                    (ddlMillis != null && ddlMillis < System.currentTimeMillis())
             return UnifiedTodo(
                 unifiedId = "cx_work_${work.workId}",
                 platform = LearningPlatform.CHAOXING,
@@ -503,7 +511,7 @@ data class UnifiedTodo(
                 type = "homework",
                 typeDisplayName = "作业",
                 isSubmitted = work.isSubmitted(),
-                isLocked = work.expired,
+                isLocked = isItemLocked,
                 detailUrl = work.taskUrl
             )
         }
