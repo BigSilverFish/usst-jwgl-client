@@ -1,6 +1,5 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
-import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -11,23 +10,23 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AccountVault
+import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
+import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
+import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * 锁屏风格固定九宫格数字口令签到弹窗
- * 固定4位数，输满自动提交，支持多账号同步签到
+ * 固定4位数，输满自动提交（带防抖撤销），底座严格绑定活动与账号，具备原子防重复与只读核验防护。
  */
 class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
@@ -37,6 +36,10 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     private val enteredCode = StringBuilder()
     private var isSubmitting = false
+    private var submittedHere = false
+    private var targetRollcall: TronClassRollcall? = null
+    private var accountAtOpen = ""
+    private var activityPicker: androidx.appcompat.app.AlertDialog? = null
 
     private lateinit var tvCourseName: TextView
     private lateinit var tvStatusTip: TextView
@@ -65,6 +68,8 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        accountAtOpen = savedInstanceState?.getString("number_open_account")
+            ?: AuthPreferences.currentStudentId(requireContext())
         arguments?.let {
             rollcallId = it.getLong(ARG_ROLLCALL_ID, 0L)
             courseName = it.getString(ARG_COURSE_NAME)
@@ -93,6 +98,11 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         cbSignAll = view.findViewById(R.id.cbSignAll)
         layoutKeypad = view.findViewById(R.id.layoutKeypad)
 
+        targetRollcall = null
+        isSubmitting = false
+        submittedHere = false
+        enteredCode.clear()
+
         boxPins = arrayOf(
             view.findViewById(R.id.boxPin1),
             view.findViewById(R.id.boxPin2),
@@ -119,7 +129,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             val accounts = AccountVault.getInstance(requireContext()).getAccounts()
             if (accounts.size > 1) {
                 cbSignAll.visibility = View.VISIBLE
-                cbSignAll.isChecked = true
+                cbSignAll.isChecked = false
                 cbSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
             } else {
                 cbSignAll.visibility = View.GONE
@@ -128,34 +138,77 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             cbSignAll.visibility = View.GONE
         }
 
-        // 若传入的点名ID无效，在后台尝试解析正在进行的点名
-        if (rollcallId <= 0L) {
-            val client = TronClassClient(requireContext().applicationContext)
-            lifecycleScope.launch {
-                val ongoing = withContext(Dispatchers.IO) {
-                    client.fetchOngoingRollcalls().getOrNull()
-                }
-                val target = ongoing?.firstOrNull()
-                if (target != null) {
-                    rollcallId = target.getEffectiveId()
-                    if (courseName.isNullOrBlank() && !target.courseName.isNullOrBlank()) {
-                        tvCourseName.text = "${target.courseName} · 请输入 4 位数字口令"
-                    }
-                }
-            }
+        // 观看课堂直播按钮
+        view.findViewById<View?>(R.id.btnWatchLiveForCode)?.setOnClickListener {
+            val cNameTarget = courseName
+            cn.edu.usst.jwgl.ui.JwglWebActivity.startForNumberRollcall(
+                context = requireContext(),
+                rollcallId = rollcallId,
+                courseName = cNameTarget
+            )
+            dismiss()
         }
 
         setupKeypadListeners(view)
         updatePinBoxes()
 
-        view.findViewById<View>(R.id.btnWatchLiveForCode)?.setOnClickListener {
-            val cName = courseName
-            cn.edu.usst.jwgl.ui.JwglWebActivity.startForNumberRollcall(
-                context = requireContext(),
-                rollcallId = rollcallId,
-                courseName = cName
-            )
-            dismiss()
+        resolveRollcall()
+    }
+
+    private fun sameAccount(): Boolean = isAdded && accountAtOpen.isNotBlank() &&
+        accountAtOpen == AuthPreferences.currentStudentId(requireContext())
+
+    private fun canShowResult(): Boolean {
+        if (view == null) return false
+        val act = activity ?: return false
+        return isAdded && !isDetached && !act.isFinishing && !act.isDestroyed
+    }
+
+    private fun resolveRollcall() {
+        if (!sameAccount()) {
+            tvStatusTip.text = "当前账号已改变，请重新打开签到"
+            return
+        }
+        val client = TronClassClient(requireContext().applicationContext)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = client.fetchOngoingRollcalls()
+            if (!canShowResult()) return@launch
+            val candidates = result.getOrNull().orEmpty().filter {
+                it.getEffectiveId() > 0 && !it.isExpired && it.getNormalizedType() == "number" &&
+                    (if (rollcallId > 0) it.getEffectiveId() == rollcallId
+                     else courseName.isNullOrBlank() || it.courseName == courseName)
+            }.distinctBy { it.getEffectiveId() }
+
+            fun bind(target: TronClassRollcall) {
+                targetRollcall = target
+                rollcallId = target.getEffectiveId()
+                courseName = target.courseName
+                tvCourseName.text = "${courseName ?: "当前课程"} · 点名 $rollcallId"
+                if (!isSubmitting) {
+                    tvStatusTip.text = "输入满 4 位后自动提交签到"
+                    tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
+                }
+            }
+
+            when (candidates.size) {
+                0 -> {
+                    if (rollcallId > 0) {
+                        targetRollcall = TronClassRollcall(id = rollcallId, courseName = courseName, type = "number")
+                        tvStatusTip.text = "输入满 4 位后自动提交签到"
+                    } else {
+                        tvStatusTip.text = result.exceptionOrNull()?.message ?: "未找到对应数字签到活动或已结束"
+                        tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.grade_red_text))
+                    }
+                }
+                1 -> bind(candidates.single())
+                else -> {
+                    activityPicker = MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("请选择本次签到活动")
+                        .setItems(candidates.map { "${it.courseName ?: "未命名课程"} · 点名 ${it.getEffectiveId()}" }.toTypedArray()) { _, which ->
+                            if (view != null && sameAccount()) bind(candidates[which])
+                        }.show()
+                }
+            }
         }
     }
 
@@ -189,7 +242,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun onDigitPressed(view: View, digit: String) {
-        if (isSubmitting) return
+        if (isSubmitting || submittedHere) return
         if (enteredCode.length >= 4) return
 
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -197,17 +250,20 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         updatePinBoxes()
 
         if (enteredCode.length == 4) {
-            // 输入满 4 位，延迟 120ms 后自动触发提交
+            // 输满 4 位延迟 180ms 自动提交（防抖并提供视觉反馈，期间用户退格可取消）
+            handler.removeCallbacksAndMessages(null)
             handler.postDelayed({
-                if (isAdded && !isSubmitting && enteredCode.length == 4) {
+                if (isAdded && !isSubmitting && !submittedHere && sameAccount()) {
                     submitNumberCode()
                 }
-            }, 120)
+            }, 180)
         }
     }
 
     private fun onDeletePressed(view: View) {
-        if (isSubmitting) return
+        // 用户发现输错按下退格，立即取消正在排队的自动提交
+        handler.removeCallbacksAndMessages(null)
+        if (isSubmitting || submittedHere) return
         if (enteredCode.isNotEmpty()) {
             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             enteredCode.deleteCharAt(enteredCode.length - 1)
@@ -216,7 +272,9 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun onClearPressed(view: View) {
-        if (isSubmitting) return
+        // 用户按下清空，立即取消正在排队的自动提交
+        handler.removeCallbacksAndMessages(null)
+        if (isSubmitting || submittedHere) return
         if (enteredCode.isNotEmpty()) {
             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             enteredCode.clear()
@@ -234,14 +292,11 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
             if (isError) {
                 box.background = ContextCompat.getDrawable(context, R.drawable.bg_pin_box_error)
+                tv.text = if (i < len) enteredCode[i].toString() else ""
                 tv.setTextColor(ContextCompat.getColor(context, R.color.grade_red_text))
             } else if (i < len) {
-                box.background = ContextCompat.getDrawable(context, R.drawable.bg_pin_box)
-                tv.text = enteredCode[i].toString()
-                tv.setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-            } else if (i == len) {
                 box.background = ContextCompat.getDrawable(context, R.drawable.bg_pin_box_active)
-                tv.text = ""
+                tv.text = enteredCode[i].toString()
                 tv.setTextColor(ContextCompat.getColor(context, R.color.text_primary))
             } else {
                 box.background = ContextCompat.getDrawable(context, R.drawable.bg_pin_box)
@@ -259,9 +314,18 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private fun submitNumberCode() {
         val ctx = context ?: return
         val code = enteredCode.toString().trim()
-        if (code.length != 4) return
+        val target = targetRollcall
+        val targetRollcallId = target?.getEffectiveId() ?: rollcallId
+
+        if (code.length != 4 || targetRollcallId <= 0L || isSubmitting || submittedHere || !sameAccount()) {
+            if (targetRollcallId <= 0L) {
+                tvStatusTip.text = "正在核对有效点名活动，请稍后..."
+            }
+            return
+        }
 
         isSubmitting = true
+        submittedHere = true
         progressSubmitting.visibility = View.VISIBLE
         tvStatusTip.text = "正在提交口令..."
         tvStatusTip.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
@@ -270,22 +334,15 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         val isBatch = (cbSignAll.visibility == View.VISIBLE && cbSignAll.isChecked)
         val client = TronClassClient(ctx.applicationContext)
 
-        lifecycleScope.launch {
-            var targetRollcallId = rollcallId
-            if (targetRollcallId <= 0L) {
-                val ongoing = withContext(Dispatchers.IO) {
-                    client.fetchOngoingRollcalls().getOrNull()
-                }
-                targetRollcallId = ongoing?.firstOrNull()?.getEffectiveId() ?: 0L
-            }
-
+        viewLifecycleOwner.lifecycleScope.launch {
             if (isBatch) {
                 val results = client.batchAnswerNumberRollcall(targetRollcallId, code)
+                if (!canShowResult()) return@launch
                 isSubmitting = false
                 progressSubmitting.visibility = View.GONE
                 layoutKeypad.isEnabled = true
 
-                if (results.any { it.success }) {
+                if (results.any { it.studentId == accountAtOpen && it.success }) {
                     cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(targetRollcallId)
                     onSignSuccessListener?.invoke()
                 }
@@ -295,11 +352,23 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             }
 
             val res = client.answerNumberRollcall(targetRollcallId, code)
+            if (!canShowResult()) return@launch
+            val directResult = res.getOrNull()
+
+            // 若网络返回异常或失败，进行一次只读出勤核对，确认是否在服务端实际已生效
+            val result = if (directResult?.success == true) directResult else {
+                tvStatusTip.text = "正在核对本人签到状态…"
+                val record = target?.let { client.queryRollcallAttendance(it).getOrNull() }
+                if (!canShowResult()) return@launch
+                if (record?.isAttended() == true || record?.isLateOrEarly() == true) {
+                    RollcallSubmitResult(true, "官方记录已确认：${record.getStatusDisplayName()}")
+                } else directResult
+            }
+
             isSubmitting = false
             progressSubmitting.visibility = View.GONE
             layoutKeypad.isEnabled = true
 
-            val result = res.getOrNull()
             if (result != null && result.success) {
                 cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(targetRollcallId)
                 onSignSuccessListener?.invoke()
@@ -316,11 +385,12 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 updatePinBoxes(isError = true)
                 view?.performHapticFeedback(HapticFeedbackConstants.REJECT)
 
-                // 错误后延迟 800ms 清空重置，方便用户立即重新盲按
+                // 错误后延迟 800ms 清空重置，允许用户重新输入并自动提交
                 handler.postDelayed({
                     if (isAdded) {
                         enteredCode.clear()
                         updatePinBoxes(isError = false)
+                        submittedHere = false // 解除提交锁定，允许重试
                     }
                 }, 800)
             }
@@ -358,8 +428,16 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         this.onSignSuccessListener = listener
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("number_open_account", accountAtOpen)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroyView() {
-        super.onDestroyView()
         handler.removeCallbacksAndMessages(null)
+        activityPicker?.dismiss()
+        activityPicker = null
+        onSignSuccessListener = null
+        super.onDestroyView()
     }
 }
