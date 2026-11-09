@@ -20,21 +20,26 @@ class TronClassTodoAdapter(
     private val onTronClassClick: ((TronClassTodo) -> Unit)? = null
 ) : RecyclerView.Adapter<TronClassTodoAdapter.TodoViewHolder>() {
 
-    private var items: List<UnifiedTodo> = emptyList()
-    var isMultiPlatformMode: Boolean = false
+    private val differ = HomeAdapterDiffer<UnifiedTodo>(this) { it.unifiedId }
+    private var multiPlatformMode = false
+    var isMultiPlatformMode: Boolean
+        get() = multiPlatformMode
+        set(value) { updateUnifiedData(differ.submittedItems, value) }
     var onChaoXingClickListener: ((UnifiedTodo) -> Unit)? = null
     var onUnifiedClickListener: ((UnifiedTodo) -> Unit)? = null
+    private var renderedMinute = -1L
 
     fun updateData(newItems: List<TronClassTodo>) {
-        this.items = newItems.map { UnifiedTodo.fromTronClass(it) }
-        this.isMultiPlatformMode = false
-        notifyDataSetChanged()
+        updateUnifiedData(newItems.map { UnifiedTodo.fromTronClass(it) })
     }
 
     fun updateUnifiedData(newItems: List<UnifiedTodo>, multiPlatform: Boolean = false) {
-        this.items = newItems
-        this.isMultiPlatformMode = multiPlatform
-        notifyDataSetChanged()
+        val minute = System.currentTimeMillis() / 60_000L
+        val refreshTime = renderedMinute >= 0L && renderedMinute != minute
+        renderedMinute = minute
+        multiPlatformMode = multiPlatform
+        differ.submit(newItems, multiPlatform)
+        if (refreshTime && itemCount > 0) notifyItemRangeChanged(0, itemCount, COUNTDOWN_PAYLOAD)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TodoViewHolder {
@@ -47,19 +52,28 @@ class TronClassTodoAdapter(
     }
 
     override fun onBindViewHolder(holder: TodoViewHolder, position: Int) {
-        holder.bind(items[position])
+        val row = differ[position]
+        holder.bind(row.item, row.multiPlatform)
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun onBindViewHolder(holder: TodoViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it === COUNTDOWN_PAYLOAD }) {
+            holder.bindCountdown(differ[position].item)
+        } else onBindViewHolder(holder, position)
+    }
+
+    override fun getItemCount(): Int = differ.size
+
+    private companion object { val COUNTDOWN_PAYLOAD = Any() }
 
     inner class TodoViewHolder(private val binding: ItemTronclassTodoBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(todo: UnifiedTodo) {
-            val context = binding.root.context
+        private val countdownBackground = GradientDrawable().apply { cornerRadius = 24f }
 
+        fun bind(todo: UnifiedTodo, multiPlatform: Boolean) {
             // 1. 课程名称与平台徽章 (支持双轨模式动态徽标)
-            if (isMultiPlatformMode) {
+            if (multiPlatform) {
                 val badgeText = if (todo.platform.isChaoXing) "【学习通】" else "【畅课】"
                 val badgeColor = todo.platform.getBrandColor()
                 val ssb = SpannableStringBuilder(badgeText).apply {
@@ -75,14 +89,44 @@ class TronClassTodoAdapter(
             binding.tvTodoTitle.text = todo.cleanTitle
             binding.tvDeadline.text = "截止: ${todo.getFormattedDeadline()}"
 
+            bindCountdown(todo)
+
+            // 3. 双轨点击分发
+            binding.root.setOnClickListener {
+                if (onUnifiedClickListener != null) {
+                    onUnifiedClickListener?.invoke(todo)
+                } else {
+                    when (todo.platform) {
+                        LearningPlatform.TRONCLASS -> {
+                            val raw = todo.rawTronClassTodo ?: TronClassTodo(
+                                id = todo.originalTodoId.toLongOrNull() ?: 0L,
+                                courseId = todo.originalCourseId.toLongOrNull() ?: 0L,
+                                courseName = todo.courseName,
+                                title = todo.title,
+                                type = todo.type,
+                                isLocked = todo.isLocked
+                            )
+                            onTronClassClick?.invoke(raw)
+                        }
+                        LearningPlatform.CHAOXING -> onChaoXingClickListener?.invoke(todo)
+                        LearningPlatform.DUAL -> {
+                            if (todo.rawTronClassTodo != null) onTronClassClick?.invoke(todo.rawTronClassTodo)
+                            else onChaoXingClickListener?.invoke(todo)
+                        }
+                    }
+                }
+            }
+        }
+
+        fun bindCountdown(todo: UnifiedTodo) {
+            val context = binding.root.context
+
             // 2. 倒计时 Chip 与紧急程度色彩系统
             val remainingHours = todo.getRemainingHours()
             val remainingText = todo.getRemainingTimeText()
             binding.tvCountdownChip.text = remainingText
 
-            val chipBg = GradientDrawable().apply {
-                cornerRadius = 24f
-            }
+            val chipBg = countdownBackground
 
             when {
                 todo.isOverdue() -> {
@@ -115,36 +159,6 @@ class TronClassTodoAdapter(
                 }
             }
 
-            // 3. 双轨点击分发
-            binding.root.setOnClickListener {
-                if (onUnifiedClickListener != null) {
-                    onUnifiedClickListener?.invoke(todo)
-                } else {
-                    when (todo.platform) {
-                        LearningPlatform.TRONCLASS -> {
-                            val raw = todo.rawTronClassTodo ?: TronClassTodo(
-                                id = todo.originalTodoId.toLongOrNull() ?: 0L,
-                                courseId = todo.originalCourseId.toLongOrNull() ?: 0L,
-                                courseName = todo.courseName,
-                                title = todo.title,
-                                type = todo.type,
-                                isLocked = todo.isLocked
-                            )
-                            onTronClassClick?.invoke(raw)
-                        }
-                        LearningPlatform.CHAOXING -> {
-                            onChaoXingClickListener?.invoke(todo)
-                        }
-                        LearningPlatform.DUAL -> {
-                            if (todo.rawTronClassTodo != null) {
-                                onTronClassClick?.invoke(todo.rawTronClassTodo)
-                            } else {
-                                onChaoXingClickListener?.invoke(todo)
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }
