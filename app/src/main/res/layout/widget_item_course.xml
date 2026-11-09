@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The widget host inflates RemoteViews with framework ImageViews; keep android:tint. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/llCourseItemRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -69,7 +71,8 @@
                 android:layout_width="12dp"
                 android:layout_height="12dp"
                 android:src="@drawable/ic_location"
-                android:tint="@color/text_secondary" />
+                android:tint="@color/text_secondary"
+                tools:ignore="UseAppTint" />
 
             <TextView
                 android:id="@+id/tvCourseRoom"

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The widget host inflates RemoteViews with framework ImageViews; keep android:tint. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/llWidgetRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -19,7 +21,8 @@
             android:layout_width="16dp"
             android:layout_height="16dp"
             android:src="@drawable/ic_nav_timetable"
-            android:tint="@color/primary" />
+            android:tint="@color/primary"
+            tools:ignore="UseAppTint" />
 
         <TextView
             android:id="@+id/tvWidgetHeaderDate"
@@ -54,7 +57,8 @@
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:padding="2dp"
             android:src="@drawable/ic_refresh"
-            android:tint="@color/text_secondary" />
+            android:tint="@color/text_secondary"
+            tools:ignore="UseAppTint" />
     </LinearLayout>
 
     <ImageView
@@ -91,7 +95,8 @@
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:src="@drawable/ic_empty_courses"
-                android:tint="@color/text_tertiary" />
+                android:tint="@color/text_tertiary"
+                tools:ignore="UseAppTint" />
 
             <TextView
                 android:id="@+id/tvWidgetEmptyTitle"

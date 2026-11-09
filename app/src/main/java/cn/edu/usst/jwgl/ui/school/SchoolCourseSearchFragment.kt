@@ -904,9 +904,7 @@ class SchoolCourseSearchFragment : Fragment() {
                     }
                     if (selectedSearchWeek > 0) {
                         filtered = filtered.filter {
-                            it.weekList.contains(selectedSearchWeek) ||
-                            (it.qsz <= selectedSearchWeek && it.jsz >= selectedSearchWeek) ||
-                            it.zc.contains(selectedSearchWeek.toString())
+                            LappClient.isCourseActiveInWeek(it, selectedSearchWeek)
                         }
                     }
                     if (selectedSearchCollege.isNotBlank() && selectedSearchCollege != "全部学院") {
@@ -918,16 +916,7 @@ class SchoolCourseSearchFragment : Fragment() {
                         filtered = filtered.filter { it.zj == selectedSearchDay }
                     }
                     if (selectedSearchSection != "-1") {
-                        filtered = filtered.filter { item ->
-                            when (selectedSearchSection) {
-                                "1-2" -> item.jc in 1..2
-                                "3-5" -> item.jc in 3..5
-                                "6-7" -> item.jc in 6..8
-                                "8-9" -> item.jc in 8..10
-                                "10-12" -> item.jc in 11..13
-                                else -> true
-                            }
-                        }
+                        filtered = filtered.filter { LappClient.matchesSection(it, selectedSearchSection) }
                     }
 
                     val merged = MergedSchoolCourse.fromLappItems(filtered)

@@ -197,7 +197,6 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                                 if (todosRes.isSuccess) {
                                     val fetched = todosRes.getOrDefault(emptyList())
                                     if (fetched.isNotEmpty()) {
-                                        cacheMgr.saveTodos(fetched)
                                         updatedTodos = fetched
                                     }
                                 }

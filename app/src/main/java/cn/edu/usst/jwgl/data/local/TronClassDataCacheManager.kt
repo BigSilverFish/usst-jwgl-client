@@ -19,9 +19,13 @@ class TronClassDataCacheManager(private val context: Context) {
     private val gson = Gson()
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
+    init {
+        // These four legacy keys duplicated the account-scoped Preferences cache.
+        prefs.edit().remove(KEY_COURSES).remove(KEY_COURSES_TIME)
+            .remove(KEY_TODOS).remove(KEY_TODOS_TIME).apply()
+    }
+
     // --- 内存一级快速缓存 (In-Memory L1 Cache，微秒级极速直出，杜绝主线程重复反序列化) ---
-    private val memCourses = ConcurrentHashMap<String, List<TronClassCourse>>()
-    private val memTodos = ConcurrentHashMap<String, List<TronClassTodo>>()
     private val memModules = ConcurrentHashMap<Long, List<TronClassModule>>()
     private val memSyllabus = ConcurrentHashMap<Long, List<TronClassActivityItem>>()
     private val memReads = ConcurrentHashMap<Long, Map<Long, String>>()
@@ -199,74 +203,28 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 1. 我的课程缓存 ---
     fun saveCourses(courses: List<TronClassCourse>) {
-        if (courses.isEmpty()) return
-        memCourses["all"] = courses
         TronClassPreferences(context).saveCachedCourses(courses)
-        prefs.edit()
-            .putString(KEY_COURSES, gson.toJson(courses))
-            .putLong(KEY_COURSES_TIME, System.currentTimeMillis())
-            .apply()
     }
 
     fun getCachedCourses(): List<TronClassCourse> {
-        memCourses["all"]?.let { return it }
-        val prefCourses = TronClassPreferences(context).getCachedCourses()
-        if (prefCourses.isNotEmpty()) {
-            memCourses["all"] = prefCourses
-            return prefCourses
-        }
-        val json = prefs.getString(KEY_COURSES, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<TronClassCourse>>() {}.type
-            val res: List<TronClassCourse> = gson.fromJson(json, type) ?: emptyList()
-            if (res.isNotEmpty()) {
-                memCourses["all"] = res
-            }
-            res
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to deserialize cached courses from prefs", e)
-            emptyList()
-        }
+        return TronClassPreferences(context).getCachedCourses()
     }
 
-    fun getCoursesCacheTime(): Long = prefs.getLong(KEY_COURSES_TIME, 0L)
+    fun getCoursesCacheTime(): Long = TronClassPreferences(context).getCoursesCacheTime()
 
     // --- 2. 待办事项缓存 ---
     fun saveTodos(todos: List<TronClassTodo>) {
-        memTodos["all"] = todos
         TronClassPreferences(context).saveCachedTodos(todos)
-        prefs.edit()
-            .putString(KEY_TODOS, gson.toJson(todos))
-            .putLong(KEY_TODOS_TIME, System.currentTimeMillis())
-            .apply()
     }
 
     fun getCachedTodos(): List<TronClassTodo> {
-        memTodos["all"]?.let { return it }
-        val prefTodos = TronClassPreferences(context).getCachedTodos()
-        if (prefTodos.isNotEmpty()) {
-            memTodos["all"] = prefTodos
-            return prefTodos
-        }
-        val json = prefs.getString(KEY_TODOS, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<TronClassTodo>>() {}.type
-            val res: List<TronClassTodo> = gson.fromJson(json, type) ?: emptyList()
-            if (res.isNotEmpty()) {
-                memTodos["all"] = res
-            }
-            res
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to deserialize cached todos from prefs", e)
-            emptyList()
-        }
+        return TronClassPreferences(context).getCachedTodos()
     }
 
-    fun getTodosCacheTime(): Long = prefs.getLong(KEY_TODOS_TIME, 0L)
+    fun getTodosCacheTime(): Long = TronClassPreferences(context).getTodosCacheTime()
 
     // --- 3. 课程章节目录 (Modules) 缓存 ---
     fun saveCourseModules(courseId: Long, modules: List<TronClassModule>) {
-        if (modules.isEmpty()) return
         memModules[courseId] = modules
         prefs.edit()
             .putString(PREFIX_MODULES + courseId, gson.toJson(modules))
@@ -292,7 +250,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 3.1 学习进度 / 完成度映射缓存 ---
     fun saveCourseReads(courseId: Long, reads: Map<Long, String>) {
-        if (reads.isEmpty()) return
         memReads[courseId] = reads
         prefs.edit()
             .putString(PREFIX_READS + courseId, gson.toJson(reads))
@@ -318,7 +275,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 3.2 课程章节大纲/课件目录缓存 ---
     fun saveCourseSyllabus(courseId: Long, activities: List<TronClassActivityItem>) {
-        if (activities.isEmpty()) return
         memSyllabus[courseId] = activities
         prefs.edit()
             .putString(PREFIX_SYLLABUS + courseId, gson.toJson(activities))
@@ -362,7 +318,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 4. 课程测验考试列表缓存 ---
     fun saveCourseExams(courseId: Long, exams: List<TronClassExam>) {
-        if (exams.isEmpty()) return
         memExams[courseId] = exams
         prefs.edit()
             .putString(PREFIX_EXAMS + courseId, gson.toJson(exams))
@@ -388,7 +343,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 5. 课程班级成员缓存 ---
     fun saveCourseMembers(courseId: Long, members: List<TronClassMember>) {
-        if (members.isEmpty()) return
         memMembers[courseId] = members
         prefs.edit()
             .putString(PREFIX_MEMBERS + courseId, gson.toJson(members))
@@ -414,7 +368,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 6. 课程公告缓存 ---
     fun saveCourseBulletins(courseId: Long, bulletins: List<TronClassBulletin>) {
-        if (bulletins.isEmpty()) return
         memBulletins[courseId] = bulletins
         prefs.edit()
             .putString(PREFIX_BULLETINS + courseId, gson.toJson(bulletins))
@@ -440,7 +393,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 6.1 主页多课程聚合公告缓存 ---
     fun saveHomeBulletins(bulletins: List<TronClassBulletin>) {
-        if (bulletins.isEmpty()) return
         memHomeBulletins["all"] = bulletins
         prefs.edit()
             .putString(KEY_HOME_BULLETINS, gson.toJson(bulletins))
@@ -468,7 +420,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 6.2 课程课堂讨论缓存 ---
     fun saveCourseDiscussions(courseId: Long, discussions: List<TronClassDiscussion>) {
-        if (discussions.isEmpty()) return
         memDiscussions[courseId] = discussions
         prefs.edit()
             .putString(PREFIX_DISCUSSIONS + courseId, gson.toJson(discussions))
@@ -512,7 +463,6 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 9. 超星课程详情缓存 (章节、作业、考试) ---
     fun saveChaoXingChapters(courseId: String, units: List<ChaoXingChapterUnit>) {
-        if (units.isEmpty()) return
         val json = gson.toJson(units)
         prefs.edit()
             .putString("cx_cache_chapters_$courseId", json)
@@ -531,7 +481,6 @@ class TronClassDataCacheManager(private val context: Context) {
     }
 
     fun saveChaoXingHomeworks(courseId: String, works: List<ChaoXingWork>) {
-        if (works.isEmpty()) return
         val json = gson.toJson(works)
         prefs.edit()
             .putString("cx_cache_works_$courseId", json)
@@ -550,7 +499,6 @@ class TronClassDataCacheManager(private val context: Context) {
     }
 
     fun saveChaoXingExams(courseId: String, exams: List<ChaoXingExam>) {
-        if (exams.isEmpty()) return
         val json = gson.toJson(exams)
         prefs.edit()
             .putString("cx_cache_exams_$courseId", json)
@@ -616,11 +564,12 @@ class TronClassDataCacheManager(private val context: Context) {
 
     // --- 8. 统计与清理缓存 ---
     fun getDataCacheCount(): Int {
-        return prefs.all.count { it.key.startsWith("tc_cache_") && !it.key.endsWith("_time") }
+        return prefs.all.count { it.key.startsWith("tc_cache_") && !it.key.endsWith("_time") } +
+            TronClassPreferences(context).getLearningCacheCount()
     }
 
     fun getDataCacheSizeBytes(): Long {
-        return prefs.all.entries
+        return TronClassPreferences(context).getLearningCacheSize() + prefs.all.entries
             .filter { it.key.startsWith("tc_cache_") }
             .sumOf { (it.value as? String)?.toByteArray(Charsets.UTF_8)?.size?.toLong() ?: 8L }
     }
@@ -632,8 +581,7 @@ class TronClassDataCacheManager(private val context: Context) {
 
     fun clearDataCache(): Long {
         val size = getDataCacheSizeBytes()
-        memCourses.clear()
-        memTodos.clear()
+        TronClassPreferences(context).clearLearningCache()
         memModules.clear()
         memSyllabus.clear()
         memReads.clear()

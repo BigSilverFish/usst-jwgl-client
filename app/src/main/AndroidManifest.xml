@@ -123,12 +123,6 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".ui.tronclass.TronClassDiscussionActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
             android:name=".ui.tronclass.TronClassExamActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
