@@ -18,22 +18,22 @@ class TronClassCourseAdapter(
     private val onTronClassClick: ((TronClassCourse) -> Unit)? = null
 ) : RecyclerView.Adapter<TronClassCourseAdapter.CourseViewHolder>() {
 
-    private var items: List<UnifiedCourse> = emptyList()
-    var isMultiPlatformMode: Boolean = false
+    private val differ = HomeAdapterDiffer<UnifiedCourse>(this) { it.unifiedId }
+    private var multiPlatformMode = false
+    var isMultiPlatformMode: Boolean
+        get() = multiPlatformMode
+        set(value) { updateUnifiedData(differ.submittedItems, value) }
     var onChaoXingClickListener: ((UnifiedCourse) -> Unit)? = null
     var onUnifiedClickListener: ((UnifiedCourse) -> Unit)? = null
     var onCourseLongClickListener: ((UnifiedCourse) -> Boolean)? = null
 
     fun updateData(newItems: List<TronClassCourse>) {
-        this.items = newItems.map { UnifiedCourse.fromTronClass(it) }
-        this.isMultiPlatformMode = false
-        notifyDataSetChanged()
+        updateUnifiedData(newItems.map { UnifiedCourse.fromTronClass(it) })
     }
 
     fun updateUnifiedData(newItems: List<UnifiedCourse>, multiPlatform: Boolean = false) {
-        this.items = newItems
-        this.isMultiPlatformMode = multiPlatform
-        notifyDataSetChanged()
+        multiPlatformMode = multiPlatform
+        differ.submit(newItems, multiPlatform)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CourseViewHolder {
@@ -46,19 +46,20 @@ class TronClassCourseAdapter(
     }
 
     override fun onBindViewHolder(holder: CourseViewHolder, position: Int) {
-        holder.bind(items[position])
+        val row = differ[position]
+        holder.bind(row.item, row.multiPlatform)
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = differ.size
 
     inner class CourseViewHolder(private val binding: ItemTronclassCourseBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(course: UnifiedCourse) {
+        fun bind(course: UnifiedCourse, multiPlatform: Boolean) {
             val context = binding.root.context
 
             // 1. 课程名称与平台徽标
-            if (isMultiPlatformMode) {
+            if (multiPlatform) {
                 val badgeText = when {
                     course.platform.isDual -> "【畅课+学习通】"
                     course.platform.isChaoXing -> "【学习通】"

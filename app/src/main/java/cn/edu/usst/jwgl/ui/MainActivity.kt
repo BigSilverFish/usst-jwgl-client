@@ -498,6 +498,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleStaggeredWarmup() {
+        // Read account-bound learning caches off the UI thread immediately after the first frame.
+        binding.root.post {
+            if (!isFinishing && !isDestroyed && !isGuestMode &&
+                supportFragmentManager.findFragmentByTag("TronClassFragment") == null) {
+                cn.edu.usst.jwgl.data.local.LearningHomePreloader.warm(applicationContext, lifecycleScope)
+            }
+        }
         // 第一阶段错峰预热：启动 1.5 秒后（避开冷启动首屏后台 I/O 和用户刚进界面的黄金交互期）预热成绩页
         binding.root.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed

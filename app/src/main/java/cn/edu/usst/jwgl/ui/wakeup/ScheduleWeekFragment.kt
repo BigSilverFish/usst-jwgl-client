@@ -14,6 +14,10 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.fragment.app.Fragment
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.DataCacheManager
@@ -144,31 +148,97 @@ class ScheduleWeekFragment : Fragment() {
         }
     }
 
-    internal fun renderSchedule() {
-        val context = context ?: return
-        val db = AppDatabase.getDatabase(context)
-        val act = activity as? cn.edu.usst.jwgl.ui.MainActivity
-        val actTable = act?.currentTable
-        val table = if (actTable != null && (tableId <= 0 || actTable.id == tableId)) {
-            actTable
-        } else if (tableId > 0) {
-            db.tableDao.getTableById(tableId) ?: db.tableDao.getDefaultTable()
-        } else {
-            db.tableDao.getDefaultTable()
-        }
-        val times = db.timeDetailDao.getTimeDetails(table.timeTable)
-        val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
+    private var renderJob: kotlinx.coroutines.Job? = null
+    private var renderGeneration = 0
+    private var lastRenderFingerprint: List<Any>? = null
+    private data class PreparedDay(val resolved: ResolvedDaySchedule, val exams: List<ExamItem>,
+                                   val placements: List<CardPlacement>)
+    private data class PreparedWeek(val table: TableBean, val times: List<TimeDetailBean>,
+                                    val days: List<PreparedDay>, val revision: Long)
 
+    internal fun renderSchedule() {
+        val ctx = context?.applicationContext ?: return
+        val targetView = view ?: return
+        val preferred = (activity as? cn.edu.usst.jwgl.ui.MainActivity)?.currentTable
+            ?.takeIf { tableId <= 0 || it.id == tableId }?.copy()
+        val requestedTable = preferred?.id ?: tableId
+        val requestedWeek = week
+        val generation = ++renderGeneration
+        renderJob?.cancel()
+        renderJob = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val snapshot = cn.edu.usst.jwgl.data.wakeup.ScheduleSnapshots.load(ctx, requestedTable)
+                val table = preferred ?: snapshot.table
+                val times = if (table.timeTable == snapshot.table.timeTable) snapshot.times else withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(ctx).timeDetailDao.getTimeDetails(table.timeTable)
+                }
+                val raw = withContext(Dispatchers.IO) {
+                    val db = AppDatabase.getDatabase(ctx)
+                    val exams = if (ExamHelper.isExamWeek(table.tableName, requestedWeek)) DataCacheManager(ctx).getAllCachedExams() else emptyList()
+                    (0..6).map { i ->
+                        val day = if (table.sundayFirst) (if (i == 0) 7 else i) else i + 1
+                        val date = CourseUtils.getFullDateForWeekDay(table.startDate, requestedWeek, i, table.sundayFirst)
+                        CourseAdjustmentResolver.resolve(db, table.id, date, requestedWeek, day, snapshot.courses) to
+                            exams.filter { it.getDateString() == date }
+                    }
+                }
+                val prepared = withContext(Dispatchers.Default) {
+                    raw.map { (resolved, exams) -> PreparedDay(resolved, exams,
+                        computeCardPlacements(buildDisplayCourses(resolved, table, requestedWeek))) }
+                }
+                if (generation != renderGeneration || view !== targetView) return@launch
+                val data = PreparedWeek(table, times, prepared, snapshot.revision)
+                val fingerprint = listOf(data, requestedWeek, CourseUtils.countWeek(table.startDate),
+                    resources.configuration.hashCode(), llWeekColumnsContainer.width,
+                    CourseUtils.getTodayWeekdayInt(), TimetableSettingHelper.isDayPartDividersEnabled(ctx))
+                if (fingerprint != lastRenderFingerprint) {
+                    applySchedule(data)
+                    lastRenderFingerprint = fingerprint
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation == renderGeneration && view === targetView)
+                    android.widget.Toast.makeText(requireContext(), "课表加载失败，请刷新重试", android.widget.Toast.LENGTH_SHORT).show()
+                android.util.Log.w("ScheduleWeek", "Unable to load timetable", e)
+            }
+        }
+    }
+
+    override fun onDestroyView() {
+        renderGeneration++
+        renderJob?.cancel()
+        lastRenderFingerprint = null
+        hasRendered = false
+        super.onDestroyView()
+    }
+
+    private fun buildDisplayCourses(resolved: ResolvedDaySchedule, table: TableBean, displayWeek: Int): List<Pair<CourseBean, Boolean>> {
+        val active = if (resolved.isSwapped) resolved.courses else resolved.courses.filter {
+            displayWeek in it.startWeek..it.endWeek && (it.type == 0 || it.type == 1 && displayWeek % 2 != 0 || it.type == 2 && displayWeek % 2 == 0)
+        }
+        val result = active.map { it to true }.toMutableList()
+        val occupied = active.flatMap { it.startNode until it.startNode + it.step }.toMutableSet()
+        if (table.showOtherWeekCourse && !resolved.isSwapped) {
+            val candidates = resolved.courses.filter { it !in active && it.endWeek >= displayWeek }.sortedWith(
+                compareBy<CourseBean> { if (displayWeek in it.startWeek..it.endWeek) 0.5 else (it.startWeek - displayWeek).toDouble() }
+                    .thenBy { it.startWeek }.thenByDescending { it.step }.thenBy { it.id })
+            for (course in candidates) {
+                val nodes = course.startNode until course.startNode + course.step
+                if (nodes.none { it in occupied }) { result.add(course to false); occupied.addAll(nodes) }
+            }
+        }
+        return result
+    }
+
+    private fun applySchedule(data: PreparedWeek) {
+        val context = context ?: return
+        val table = data.table
+        val times = data.times
         val curWeek = CourseUtils.countWeek(table.startDate)
         val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)
-        val todayWeekday = CourseUtils.getTodayWeekdayInt() // 1..7 (1=Mon..7=Sun)
-
+        val todayWeekday = CourseUtils.getTodayWeekdayInt()
         val isExamWeek = ExamHelper.isExamWeek(table.tableName, week)
-        val cachedExams = if (isExamWeek) {
-            DataCacheManager(context).getAllCachedExams()
-        } else {
-            emptyList()
-        }
 
         val itemHeightPx = dpToPx(table.itemHeight.toFloat())
         val examSessionHeightPx = dpToPx(105f)
@@ -281,8 +351,8 @@ class ScheduleWeekFragment : Fragment() {
             for (i in 0 until totalDays) {
                 val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
                 val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
-                val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
-                val dayExams = if (isExamWeek) cachedExams.filter { it.getDateString() == fullDateStr } else emptyList()
+                val resolved = data.days[i].resolved
+                val dayExams = data.days[i].exams
                 val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
                 if (!table.showSat && dayNumber == 6 && !hasContent) continue
                 if (!table.showSun && dayNumber == 7 && !hasContent) continue
@@ -297,13 +367,9 @@ class ScheduleWeekFragment : Fragment() {
         for (i in 0 until totalDays) {
             val dayNumber = if (table.sundayFirst) (if (i == 0) 7 else i) else (i + 1)
             val fullDateStr = CourseUtils.getFullDateForWeekDay(table.startDate, week, i, table.sundayFirst)
-            val resolved = CourseAdjustmentResolver.resolve(db, table.id, fullDateStr, week, dayNumber, allCourses)
+            val resolved = data.days[i].resolved
 
-            val dayExams = if (isExamWeek) {
-                cachedExams.filter { it.getDateString() == fullDateStr }
-            } else {
-                emptyList()
-            }
+            val dayExams = data.days[i].exams
 
             val hasContent = resolved.isSwapped || resolved.courses.isNotEmpty() || dayExams.isNotEmpty()
             if (!table.showSat && dayNumber == 6 && !hasContent) continue
@@ -376,68 +442,7 @@ class ScheduleWeekFragment : Fragment() {
             }
 
 
-            val dayCourses = resolved.courses
-
-            // Partition into active courses and inactive courses
-            val activeCourses = if (resolved.isSwapped) {
-                dayCourses
-            } else {
-                dayCourses.filter { course ->
-                    (week >= course.startWeek && week <= course.endWeek) &&
-                    (course.type == 0 || (course.type == 1 && week % 2 != 0) || (course.type == 2 && week % 2 == 0))
-                }
-            }
-
-            val displayList = mutableListOf<Pair<CourseBean, Boolean>>()
-            val occupiedNodes = mutableSetOf<Int>()
-
-            // 1. Add all active courses first (they take highest priority for this week)
-            for (c in activeCourses) {
-                displayList.add(Pair(c, true))
-                for (n in c.startNode until (c.startNode + c.step)) {
-                    occupiedNodes.add(n)
-                }
-            }
-
-            // 2. Add non-current week courses without overlapping, prioritizing the course closest in time
-            // 需求：显示非本周课程应当只显示未开始的课程，彻底去掉已结束课程（endWeek < week）的显示
-            if (table.showOtherWeekCourse && !resolved.isSwapped) {
-                val inactiveCourses = dayCourses.filter { c ->
-                    !activeCourses.contains(c) && (c.endWeek >= week)
-                }
-
-                // Lower score means closer in time to the current displayed week
-                fun getDistanceScore(c: CourseBean): Double {
-                    return when {
-                        // Alternate week (单双周) within valid range
-                        week in c.startWeek..c.endWeek -> 0.5
-                        // Upcoming in future weeks
-                        else -> (c.startWeek - week).toDouble()
-                    }
-                }
-
-                // Sort candidates: closest distance first, then earlier startWeek, then longer step, then id
-                val sortedCandidates = inactiveCourses.sortedWith(
-                    compareBy(
-                        { getDistanceScore(it) },
-                        { it.startWeek },
-                        { -it.step },
-                        { it.id }
-                    )
-                )
-
-                for (c in sortedCandidates) {
-                    val courseNodes = c.startNode until (c.startNode + c.step)
-                    // Only add if none of this course's section nodes are already occupied
-                    val hasOverlap = courseNodes.any { it in occupiedNodes }
-                    if (!hasOverlap) {
-                        displayList.add(Pair(c, false))
-                        occupiedNodes.addAll(courseNodes)
-                    }
-                }
-            }
-
-            val placements = computeCardPlacements(displayList)
+            val placements = data.days[i].placements
             val gapPx = dpToPx(1.5f).coerceAtLeast(1)
 
             for (placement in placements) {
