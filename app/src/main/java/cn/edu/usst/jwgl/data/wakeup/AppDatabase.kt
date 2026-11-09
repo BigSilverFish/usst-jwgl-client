@@ -210,189 +210,179 @@ class AppDatabase private constructor(context: Context) {
     }
 
     fun ensureLatestTimeTableAndDefaults() {
+        val db = dbHelper.writableDatabase
+
+        db.beginTransaction()
         try {
-            val db = dbHelper.writableDatabase
+            // Ensure TimeTableBean entries exist for both schedules
+            db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (1, '新课时表(13节)');")
+            db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (2, '老课时表(12节)');")
 
-            db.beginTransaction()
-            try {
-                // Ensure TimeTableBean entries exist for both schedules
-                db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (1, '新课时表(13节)');")
-                db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (2, '老课时表(12节)');")
-
-                // 1. New Timetable (timeTable = 1, 13 sections for 2025-2026-2 and later)
-                val times = timeDetailDao.getTimeDetails(1)
-                val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
-                if (needsTimeUpdate) {
-                    db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
-                    val usstTimes = arrayOf(
-                        Triple(1, "08:00", "08:40"),
-                        Triple(2, "08:45", "09:25"),
-                        Triple(3, "09:45", "10:25"),
-                        Triple(4, "10:30", "11:10"),
-                        Triple(5, "11:15", "11:55"),
-                        Triple(6, "13:00", "13:40"),
-                        Triple(7, "13:45", "14:25"),
-                        Triple(8, "14:45", "15:25"),
-                        Triple(9, "15:30", "16:10"),
-                        Triple(10, "16:15", "16:55"),
-                        Triple(11, "18:00", "18:40"),
-                        Triple(12, "18:45", "19:25"),
-                        Triple(13, "19:30", "20:10")
-                    )
-                    for ((node, start, end) in usstTimes) {
-                        val cv = ContentValues().apply {
-                            put("node", node)
-                            put("startTime", start)
-                            put("endTime", end)
-                            put("timeTable", 1)
-                        }
-                        db.insert("TimeDetailBean", null, cv)
+            // 1. New Timetable (timeTable = 1, 13 sections for 2025-2026-2 and later)
+            val times = timeDetailDao.getTimeDetails(1)
+            val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
+            if (needsTimeUpdate) {
+                db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
+                val usstTimes = arrayOf(
+                    Triple(1, "08:00", "08:40"),
+                    Triple(2, "08:45", "09:25"),
+                    Triple(3, "09:45", "10:25"),
+                    Triple(4, "10:30", "11:10"),
+                    Triple(5, "11:15", "11:55"),
+                    Triple(6, "13:00", "13:40"),
+                    Triple(7, "13:45", "14:25"),
+                    Triple(8, "14:45", "15:25"),
+                    Triple(9, "15:30", "16:10"),
+                    Triple(10, "16:15", "16:55"),
+                    Triple(11, "18:00", "18:40"),
+                    Triple(12, "18:45", "19:25"),
+                    Triple(13, "19:30", "20:10")
+                )
+                for ((node, start, end) in usstTimes) {
+                    val cv = ContentValues().apply {
+                        put("node", node)
+                        put("startTime", start)
+                        put("endTime", end)
+                        put("timeTable", 1)
                     }
+                    db.insert("TimeDetailBean", null, cv)
                 }
-
-                // 2. Old Timetable (timeTable = 2, 12 sections for semesters before 2025-2026-2)
-                val oldTimes = timeDetailDao.getTimeDetails(2)
-                if (oldTimes.isEmpty() || oldTimes.size != 12) {
-                    db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 2;")
-                    val usstOldTimes = arrayOf(
-                        Triple(1, "08:00", "08:45"),
-                        Triple(2, "08:50", "09:35"),
-                        Triple(3, "09:55", "10:40"),
-                        Triple(4, "10:45", "11:30"),
-                        Triple(5, "11:35", "12:20"),
-                        Triple(6, "13:15", "14:00"),
-                        Triple(7, "14:05", "14:50"),
-                        Triple(8, "15:05", "15:50"),
-                        Triple(9, "15:55", "16:40"),
-                        Triple(10, "18:00", "18:45"),
-                        Triple(11, "18:50", "19:35"),
-                        Triple(12, "19:40", "20:25")
-                    )
-                    for ((node, start, end) in usstOldTimes) {
-                        val cv = ContentValues().apply {
-                            put("node", node)
-                            put("startTime", start)
-                            put("endTime", end)
-                            put("timeTable", 2)
-                        }
-                        db.insert("TimeDetailBean", null, cv)
-                    }
-                }
-
-                // 3. Ensure all existing tables adopt the correct nodes & timeTable matching their semester
-                val allTables = tableDao.getAllTables()
-                for (t in allTables) {
-                    val isOld = CourseUtils.isBefore2025_2026_2(t.tableName)
-                    val expectedNodes = if (isOld) 12 else 13
-                    val expectedTimeTable = if (isOld) 2 else 1
-                    var tableChanged = false
-                    if (t.nodes != expectedNodes || t.timeTable != expectedTimeTable) {
-                        t.nodes = expectedNodes
-                        t.timeTable = expectedTimeTable
-                        tableChanged = true
-                    }
-                    if (t.maxWeek == 25) {
-                        t.maxWeek = 20
-                        tableChanged = true
-                    }
-                    if (tableChanged) {
-                        tableDao.updateTable(t)
-                    }
-                }
-
-
-
-                // Also check if active table needs weekend update
-                val defaultTable = tableDao.getDefaultTable()
-                var updated = false
-                val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
-                val hasWeekend = allCourses.any { it.day == 6 || it.day == 7 }
-                if (!hasWeekend && (defaultTable.showSat || defaultTable.showSun)) {
-                    defaultTable.showSat = false
-                    defaultTable.showSun = false
-                    updated = true
-                }
-                if (updated) {
-                    tableDao.updateTable(defaultTable)
-                }
-
-                db.setTransactionSuccessful()
-            } finally {
-                db.endTransaction()
             }
 
+            // 2. Old Timetable (timeTable = 2, 12 sections for semesters before 2025-2026-2)
+            val oldTimes = timeDetailDao.getTimeDetails(2)
+            if (oldTimes.isEmpty() || oldTimes.size != 12) {
+                db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 2;")
+                val usstOldTimes = arrayOf(
+                    Triple(1, "08:00", "08:45"),
+                    Triple(2, "08:50", "09:35"),
+                    Triple(3, "09:55", "10:40"),
+                    Triple(4, "10:45", "11:30"),
+                    Triple(5, "11:35", "12:20"),
+                    Triple(6, "13:15", "14:00"),
+                    Triple(7, "14:05", "14:50"),
+                    Triple(8, "15:05", "15:50"),
+                    Triple(9, "15:55", "16:40"),
+                    Triple(10, "18:00", "18:45"),
+                    Triple(11, "18:50", "19:35"),
+                    Triple(12, "19:40", "20:25")
+                )
+                for ((node, start, end) in usstOldTimes) {
+                    val cv = ContentValues().apply {
+                        put("node", node)
+                        put("startTime", start)
+                        put("endTime", end)
+                        put("timeTable", 2)
+                    }
+                    db.insert("TimeDetailBean", null, cv)
+                }
+            }
+
+            // 3. Ensure all existing tables adopt the correct nodes & timeTable matching their semester
+            val allTables = tableDao.getAllTables()
+            for (t in allTables) {
+                val isOld = CourseUtils.isBefore2025_2026_2(t.tableName)
+                val expectedNodes = if (isOld) 12 else 13
+                val expectedTimeTable = if (isOld) 2 else 1
+                var tableChanged = false
+                if (t.nodes != expectedNodes || t.timeTable != expectedTimeTable) {
+                    t.nodes = expectedNodes
+                    t.timeTable = expectedTimeTable
+                    tableChanged = true
+                }
+                if (t.maxWeek == 25) {
+                    t.maxWeek = 20
+                    tableChanged = true
+                }
+                if (tableChanged) {
+                    tableDao.updateTable(t)
+                }
+            }
+
+
+
+            // Also check if active table needs weekend update
+            val defaultTable = tableDao.getDefaultTable()
+            var updated = false
+            val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
+            val hasWeekend = allCourses.any { it.day == 6 || it.day == 7 }
+            if (!hasWeekend && (defaultTable.showSat || defaultTable.showSun)) {
+                defaultTable.showSat = false
+                defaultTable.showSun = false
+                updated = true
+            }
+            if (updated) {
+                tableDao.updateTable(defaultTable)
+            }
+
+            db.setTransactionSuccessful()
         } finally {
-            ScheduleSnapshots.invalidate()
+            db.endTransaction()
         }
     }
 
     fun replaceAllLabReservations(tableId: Int, reservations: List<LabReservation>) {
+        require(reservations.isNotEmpty()) { "没有可导入的实验预约" }
+        val table = tableDao.getTableById(tableId) ?: throw IllegalArgumentException("找不到目标课表")
+        require(reservations.all {
+            it.week in 1..table.maxWeek && it.day in 1..7 &&
+                it.startNode in 1..table.nodes && it.step > 0 && it.startNode + it.step - 1 <= table.nodes && it.name.isNotBlank()
+        }) {
+            "预约时间超出当前课表节次范围"
+        }
+
+        val db = dbHelper.writableDatabase
+        db.beginTransaction()
         try {
-            require(reservations.isNotEmpty()) { "没有可导入的实验预约" }
-            val table = tableDao.getTableById(tableId) ?: throw IllegalArgumentException("找不到目标课表")
-            require(reservations.all {
-                it.week in 1..table.maxWeek && it.day in 1..7 &&
-                    it.startNode in 1..table.nodes && it.step > 0 && it.startNode + it.step - 1 <= table.nodes && it.name.isNotBlank()
-            }) {
-                "预约时间超出当前课表节次范围"
+            val imported = courseBaseDao.getCourseOfTable(tableId)
+                .filter { it.courseName.startsWith(LAB_RESERVATION_PREFIX) }
+                .distinctBy { it.id }
+
+            for (course in imported) {
+                val details = courseDetailDao.getDetailByIdOfTable(course.id, tableId)
+                details.filter {
+                    it.type == 0
+                }
+                    .forEach(courseDetailDao::deleteCourseDetail)
+                if (courseDetailDao.getDetailByIdOfTable(course.id, tableId).isEmpty()) {
+                    courseBaseDao.deleteCourseBase(course.id, tableId)
+                }
             }
 
-            val db = dbHelper.writableDatabase
-            db.beginTransaction()
-            try {
-                val imported = courseBaseDao.getCourseOfTable(tableId)
-                    .filter { it.courseName.startsWith(LAB_RESERVATION_PREFIX) }
-                    .distinctBy { it.id }
-
-                for (course in imported) {
-                    val details = courseDetailDao.getDetailByIdOfTable(course.id, tableId)
-                    details.filter {
-                        it.type == 0
-                    }
-                        .forEach(courseDetailDao::deleteCourseDetail)
-                    if (courseDetailDao.getDetailByIdOfTable(course.id, tableId).isEmpty()) {
-                        courseBaseDao.deleteCourseBase(course.id, tableId)
-                    }
-                }
-
-                var nextId = courseBaseDao.getLastIdOfTable(tableId)
-                for ((name, items) in reservations.groupBy { it.name.trim() }) {
-                    if (name.isBlank()) continue
-                    nextId++
-                    courseBaseDao.insertCourseBase(
-                        CourseBaseBean(
-                            id = nextId,
-                            courseName = LAB_RESERVATION_PREFIX + name,
-                            color = CourseUtils.getColorHex(nextId - 1),
-                            tableId = tableId
-                        )
+            var nextId = courseBaseDao.getLastIdOfTable(tableId)
+            for ((name, items) in reservations.groupBy { it.name.trim() }) {
+                if (name.isBlank()) continue
+                nextId++
+                courseBaseDao.insertCourseBase(
+                    CourseBaseBean(
+                        id = nextId,
+                        courseName = LAB_RESERVATION_PREFIX + name,
+                        color = CourseUtils.getColorHex(nextId - 1),
+                        tableId = tableId
                     )
-                    courseDetailDao.insertList(items.map { item ->
-                        CourseDetailBean(
-                            id = nextId,
-                            day = item.day,
-                            room = item.room,
-                            teacher = "",
-                            startNode = item.startNode,
-                            step = item.step,
-                            startWeek = item.week,
-                            endWeek = item.week,
-                            type = 0,
-                            tableId = tableId
-                        )
-                    })
-                }
-
-                if (reservations.any { it.day == 6 }) table.showSat = true
-                if (reservations.any { it.day == 7 }) table.showSun = true
-                tableDao.updateTable(table)
-                db.setTransactionSuccessful()
-            } finally {
-                db.endTransaction()
+                )
+                courseDetailDao.insertList(items.map { item ->
+                    CourseDetailBean(
+                        id = nextId,
+                        day = item.day,
+                        room = item.room,
+                        teacher = "",
+                        startNode = item.startNode,
+                        step = item.step,
+                        startWeek = item.week,
+                        endWeek = item.week,
+                        type = 0,
+                        tableId = tableId
+                    )
+                })
             }
 
+            if (reservations.any { it.day == 6 }) table.showSat = true
+            if (reservations.any { it.day == 7 }) table.showSun = true
+            tableDao.updateTable(table)
+            db.setTransactionSuccessful()
         } finally {
-            ScheduleSnapshots.invalidate()
+            db.endTransaction()
         }
     }
 
@@ -400,77 +390,72 @@ class AppDatabase private constructor(context: Context) {
      * 将全校排课查询中的课程直接加入指定的课表并持久化至本地 SQLite 数据库
      */
     fun addMergedSchoolCourse(tableId: Int, mergedCourse: MergedSchoolCourse): Int {
-        try {
-            val table = tableDao.getTableById(tableId) ?: tableDao.getDefaultTable()
-            val nextId = courseBaseDao.getLastIdOfTable(table.id) + 1
-            val color = CourseUtils.getColorHex(nextId - 1)
-            val baseBean = CourseBaseBean(
-                id = nextId,
-                courseName = mergedCourse.kcmc.ifBlank { "未命名课程" },
-                color = color,
-                tableId = table.id
-            )
-            courseBaseDao.insertCourseBase(baseBean)
+        val table = tableDao.getTableById(tableId) ?: tableDao.getDefaultTable()
+        val nextId = courseBaseDao.getLastIdOfTable(table.id) + 1
+        val color = CourseUtils.getColorHex(nextId - 1)
+        val baseBean = CourseBaseBean(
+            id = nextId,
+            courseName = mergedCourse.kcmc.ifBlank { "未命名课程" },
+            color = color,
+            tableId = table.id
+        )
+        courseBaseDao.insertCourseBase(baseBean)
 
-            val detailsToInsert = mutableListOf<CourseDetailBean>()
-            for (slot in mergedCourse.slots) {
-                val weekBeans = if (slot.weekList.isNotEmpty()) {
-                    CourseUtils.intList2WeekBeanList(slot.weekList)
-                } else if (slot.qsz in 1..30 && slot.jsz >= slot.qsz) {
-                    listOf(WeekBean(start = slot.qsz, end = slot.jsz, type = 0))
-                } else {
-                    listOf(WeekBean(start = 1, end = table.maxWeek, type = 0))
-                }
-                val teacher = if (mergedCourse.lszc.isNotEmpty() && mergedCourse.lszc != "无") {
-                    "${mergedCourse.lsmc} (${mergedCourse.lszc})"
-                } else {
-                    mergedCourse.lsmc
-                }
-                val room = slot.jsdd.ifBlank { "待定地点" }
-                val startNode = if (slot.jc in 1..table.nodes) slot.jc else 1
-                val step = if (slot.jccd in 1..table.nodes) slot.jccd else 2
-                val day = if (slot.zj in 1..7) slot.zj else 1
+        val detailsToInsert = mutableListOf<CourseDetailBean>()
+        for (slot in mergedCourse.slots) {
+            val weekBeans = if (slot.weekList.isNotEmpty()) {
+                CourseUtils.intList2WeekBeanList(slot.weekList)
+            } else if (slot.qsz in 1..30 && slot.jsz >= slot.qsz) {
+                listOf(WeekBean(start = slot.qsz, end = slot.jsz, type = 0))
+            } else {
+                listOf(WeekBean(start = 1, end = table.maxWeek, type = 0))
+            }
+            val teacher = if (mergedCourse.lszc.isNotEmpty() && mergedCourse.lszc != "无") {
+                "${mergedCourse.lsmc} (${mergedCourse.lszc})"
+            } else {
+                mergedCourse.lsmc
+            }
+            val room = slot.jsdd.ifBlank { "待定地点" }
+            val startNode = if (slot.jc in 1..table.nodes) slot.jc else 1
+            val step = if (slot.jccd in 1..table.nodes) slot.jccd else 2
+            val day = if (slot.zj in 1..7) slot.zj else 1
 
-                for (wb in weekBeans) {
-                    detailsToInsert.add(
-                        CourseDetailBean(
-                            id = nextId,
-                            day = day,
-                            room = room,
-                            teacher = teacher,
-                            startNode = startNode,
-                            step = step,
-                            startWeek = wb.start,
-                            endWeek = wb.end,
-                            type = wb.type,
-                            tableId = table.id
-                        )
+            for (wb in weekBeans) {
+                detailsToInsert.add(
+                    CourseDetailBean(
+                        id = nextId,
+                        day = day,
+                        room = room,
+                        teacher = teacher,
+                        startNode = startNode,
+                        step = step,
+                        startWeek = wb.start,
+                        endWeek = wb.end,
+                        type = wb.type,
+                        tableId = table.id
                     )
-                }
+                )
             }
-
-            if (detailsToInsert.isNotEmpty()) {
-                courseDetailDao.insertList(detailsToInsert)
-            }
-
-            var tableUpdated = false
-            if (detailsToInsert.any { it.day == 6 } && !table.showSat) {
-                table.showSat = true
-                tableUpdated = true
-            }
-            if (detailsToInsert.any { it.day == 7 } && !table.showSun) {
-                table.showSun = true
-                tableUpdated = true
-            }
-            if (tableUpdated) {
-                tableDao.updateTable(table)
-            }
-
-            return nextId
-
-        } finally {
-            ScheduleSnapshots.invalidate()
         }
+
+        if (detailsToInsert.isNotEmpty()) {
+            courseDetailDao.insertList(detailsToInsert)
+        }
+
+        var tableUpdated = false
+        if (detailsToInsert.any { it.day == 6 } && !table.showSat) {
+            table.showSat = true
+            tableUpdated = true
+        }
+        if (detailsToInsert.any { it.day == 7 } && !table.showSun) {
+            table.showSun = true
+            tableUpdated = true
+        }
+        if (tableUpdated) {
+            tableDao.updateTable(table)
+        }
+
+        return nextId
     }
 
     /**
@@ -597,75 +582,60 @@ class AppDatabase private constructor(context: Context) {
 
         @Synchronized
         fun insertTable(table: TableBean): Long {
-            try {
-                val db = dbHelper.writableDatabase
-                val cv = ContentValues().apply {
-                    put("tableName", table.tableName)
-                    put("nodes", table.nodes)
-                    put("background", table.background)
-                    put("timeTable", table.timeTable)
-                    put("startDate", table.startDate)
-                    put("maxWeek", table.maxWeek)
-                    put("itemHeight", table.itemHeight)
-                    put("itemAlpha", table.itemAlpha)
-                    put("itemTextSize", table.itemTextSize)
-                    put("strokeColor", table.strokeColor)
-                    put("textColor", table.textColor)
-                    put("courseTextColor", table.courseTextColor)
-                    put("showSat", if (table.showSat) 1 else 0)
-                    put("showSun", if (table.showSun) 1 else 0)
-                    put("sundayFirst", if (table.sundayFirst) 1 else 0)
-                    put("showOtherWeekCourse", if (table.showOtherWeekCourse) 1 else 0)
-                    put("showTime", if (table.showTime) 1 else 0)
-                    put("type", table.type)
-                }
-                return db.insert("TableBean", null, cv)
-
-            } finally {
-                ScheduleSnapshots.invalidate()
+            val db = dbHelper.writableDatabase
+            val cv = ContentValues().apply {
+                put("tableName", table.tableName)
+                put("nodes", table.nodes)
+                put("background", table.background)
+                put("timeTable", table.timeTable)
+                put("startDate", table.startDate)
+                put("maxWeek", table.maxWeek)
+                put("itemHeight", table.itemHeight)
+                put("itemAlpha", table.itemAlpha)
+                put("itemTextSize", table.itemTextSize)
+                put("strokeColor", table.strokeColor)
+                put("textColor", table.textColor)
+                put("courseTextColor", table.courseTextColor)
+                put("showSat", if (table.showSat) 1 else 0)
+                put("showSun", if (table.showSun) 1 else 0)
+                put("sundayFirst", if (table.sundayFirst) 1 else 0)
+                put("showOtherWeekCourse", if (table.showOtherWeekCourse) 1 else 0)
+                put("showTime", if (table.showTime) 1 else 0)
+                put("type", table.type)
             }
+            return db.insert("TableBean", null, cv)
         }
 
         @Synchronized
         fun updateTable(table: TableBean) {
-            try {
-                val db = dbHelper.writableDatabase
-                val cv = ContentValues().apply {
-                    put("tableName", table.tableName)
-                    put("nodes", table.nodes)
-                    put("background", table.background)
-                    put("timeTable", table.timeTable)
-                    put("startDate", table.startDate)
-                    put("maxWeek", table.maxWeek)
-                    put("itemHeight", table.itemHeight)
-                    put("itemAlpha", table.itemAlpha)
-                    put("itemTextSize", table.itemTextSize)
-                    put("strokeColor", table.strokeColor)
-                    put("textColor", table.textColor)
-                    put("courseTextColor", table.courseTextColor)
-                    put("showSat", if (table.showSat) 1 else 0)
-                    put("showSun", if (table.showSun) 1 else 0)
-                    put("sundayFirst", if (table.sundayFirst) 1 else 0)
-                    put("showOtherWeekCourse", if (table.showOtherWeekCourse) 1 else 0)
-                    put("showTime", if (table.showTime) 1 else 0)
-                    put("type", table.type)
-                }
-                db.update("TableBean", cv, "id = ?", arrayOf(table.id.toString()))
-
-            } finally {
-                ScheduleSnapshots.invalidate()
+            val db = dbHelper.writableDatabase
+            val cv = ContentValues().apply {
+                put("tableName", table.tableName)
+                put("nodes", table.nodes)
+                put("background", table.background)
+                put("timeTable", table.timeTable)
+                put("startDate", table.startDate)
+                put("maxWeek", table.maxWeek)
+                put("itemHeight", table.itemHeight)
+                put("itemAlpha", table.itemAlpha)
+                put("itemTextSize", table.itemTextSize)
+                put("strokeColor", table.strokeColor)
+                put("textColor", table.textColor)
+                put("courseTextColor", table.courseTextColor)
+                put("showSat", if (table.showSat) 1 else 0)
+                put("showSun", if (table.showSun) 1 else 0)
+                put("sundayFirst", if (table.sundayFirst) 1 else 0)
+                put("showOtherWeekCourse", if (table.showOtherWeekCourse) 1 else 0)
+                put("showTime", if (table.showTime) 1 else 0)
+                put("type", table.type)
             }
+            db.update("TableBean", cv, "id = ?", arrayOf(table.id.toString()))
         }
 
         @Synchronized
         fun deleteTable(id: Int) {
-            try {
-                val db = dbHelper.writableDatabase
-                db.delete("TableBean", "id = ?", arrayOf(id.toString()))
-
-            } finally {
-                ScheduleSnapshots.invalidate()
-            }
+            val db = dbHelper.writableDatabase
+            db.delete("TableBean", "id = ?", arrayOf(id.toString()))
         }
 
         @Synchronized
@@ -711,19 +681,14 @@ class AppDatabase private constructor(context: Context) {
 
         @Synchronized
         fun setDefaultTable(newId: Int) {
+            val db = dbHelper.writableDatabase
+            db.beginTransaction()
             try {
-                val db = dbHelper.writableDatabase
-                db.beginTransaction()
-                try {
-                    db.execSQL("UPDATE TableBean SET type = 0")
-                    db.execSQL("UPDATE TableBean SET type = 1 WHERE id = ?", arrayOf(newId.toString()))
-                    db.setTransactionSuccessful()
-                } finally {
-                    db.endTransaction()
-                }
-
+                db.execSQL("UPDATE TableBean SET type = 0")
+                db.execSQL("UPDATE TableBean SET type = 1 WHERE id = ?", arrayOf(newId.toString()))
+                db.setTransactionSuccessful()
             } finally {
-                ScheduleSnapshots.invalidate()
+                db.endTransaction()
             }
         }
 
@@ -797,64 +762,49 @@ class AppDatabase private constructor(context: Context) {
 
         @Synchronized
         fun insertCourseBase(course: CourseBaseBean) {
-            try {
-                val db = dbHelper.writableDatabase
-                val cv = ContentValues().apply {
-                    put("id", course.id)
-                    put("courseName", course.courseName)
-                    put("color", course.color)
-                    put("tableId", course.tableId)
-                }
-                db.insertWithOnConflict(
-                    "CourseBaseBean",
-                    null,
-                    cv,
-                    SQLiteDatabase.CONFLICT_REPLACE
-                )
-
-            } finally {
-                ScheduleSnapshots.invalidate()
+            val db = dbHelper.writableDatabase
+            val cv = ContentValues().apply {
+                put("id", course.id)
+                put("courseName", course.courseName)
+                put("color", course.color)
+                put("tableId", course.tableId)
             }
+            db.insertWithOnConflict(
+                "CourseBaseBean",
+                null,
+                cv,
+                SQLiteDatabase.CONFLICT_REPLACE
+            )
         }
 
         @Synchronized
         fun updateCourseBase(course: CourseBaseBean) {
-            try {
-                val db = dbHelper.writableDatabase
-                val cv = ContentValues().apply {
-                    put("courseName", course.courseName)
-                    put("color", course.color)
-                }
-                db.update(
-                    "CourseBaseBean",
-                    cv,
-                    "id = ? AND tableId = ?",
-                    arrayOf(course.id.toString(), course.tableId.toString())
-                )
-
-            } finally {
-                ScheduleSnapshots.invalidate()
+            val db = dbHelper.writableDatabase
+            val cv = ContentValues().apply {
+                put("courseName", course.courseName)
+                put("color", course.color)
             }
+            db.update(
+                "CourseBaseBean",
+                cv,
+                "id = ? AND tableId = ?",
+                arrayOf(course.id.toString(), course.tableId.toString())
+            )
         }
 
         @Synchronized
         fun deleteCourseBase(id: Int, tableId: Int) {
-            try {
-                val db = dbHelper.writableDatabase
-                db.delete(
-                    "CourseBaseBean",
-                    "id = ? AND tableId = ?",
-                    arrayOf(id.toString(), tableId.toString())
-                )
-                db.delete(
-                    "CourseDetailBean",
-                    "id = ? AND tableId = ?",
-                    arrayOf(id.toString(), tableId.toString())
-                )
-
-            } finally {
-                ScheduleSnapshots.invalidate()
-            }
+            val db = dbHelper.writableDatabase
+            db.delete(
+                "CourseBaseBean",
+                "id = ? AND tableId = ?",
+                arrayOf(id.toString(), tableId.toString())
+            )
+            db.delete(
+                "CourseDetailBean",
+                "id = ? AND tableId = ?",
+                arrayOf(id.toString(), tableId.toString())
+            )
         }
 
         @Synchronized
@@ -988,86 +938,66 @@ class AppDatabase private constructor(context: Context) {
 
         @Synchronized
         fun insertDetail(detail: CourseDetailBean) {
-            try {
-                val db = dbHelper.writableDatabase
-                val cv = ContentValues().apply {
-                    put("id", detail.id)
-                    put("day", detail.day)
-                    put("room", detail.room)
-                    put("teacher", detail.teacher)
-                    put("startNode", detail.startNode)
-                    put("step", detail.step)
-                    put("startWeek", detail.startWeek)
-                    put("endWeek", detail.endWeek)
-                    put("type", detail.type)
-                    put("tableId", detail.tableId)
-                }
-                db.insertWithOnConflict(
-                    "CourseDetailBean",
-                    null,
-                    cv,
-                    SQLiteDatabase.CONFLICT_REPLACE
-                )
-
-            } finally {
-                ScheduleSnapshots.invalidate()
+            val db = dbHelper.writableDatabase
+            val cv = ContentValues().apply {
+                put("id", detail.id)
+                put("day", detail.day)
+                put("room", detail.room)
+                put("teacher", detail.teacher)
+                put("startNode", detail.startNode)
+                put("step", detail.step)
+                put("startWeek", detail.startWeek)
+                put("endWeek", detail.endWeek)
+                put("type", detail.type)
+                put("tableId", detail.tableId)
             }
+            db.insertWithOnConflict(
+                "CourseDetailBean",
+                null,
+                cv,
+                SQLiteDatabase.CONFLICT_REPLACE
+            )
         }
 
         @Synchronized
         fun insertList(list: List<CourseDetailBean>) {
+            val db = dbHelper.writableDatabase
+            db.beginTransaction()
             try {
-                val db = dbHelper.writableDatabase
-                db.beginTransaction()
-                try {
-                    for (item in list) {
-                        insertDetail(item)
-                    }
-                    db.setTransactionSuccessful()
-                } finally {
-                    db.endTransaction()
+                for (item in list) {
+                    insertDetail(item)
                 }
-
+                db.setTransactionSuccessful()
             } finally {
-                ScheduleSnapshots.invalidate()
+                db.endTransaction()
             }
         }
 
         @Synchronized
         fun deleteCourseDetail(detail: CourseDetailBean) {
-            try {
-                val db = dbHelper.writableDatabase
-                db.delete(
-                    "CourseDetailBean",
-                    "id = ? AND day = ? AND startNode = ? AND startWeek = ? AND type = ? AND tableId = ?",
-                    arrayOf(
-                        detail.id.toString(),
-                        detail.day.toString(),
-                        detail.startNode.toString(),
-                        detail.startWeek.toString(),
-                        detail.type.toString(),
-                        detail.tableId.toString()
-                    )
+            val db = dbHelper.writableDatabase
+            db.delete(
+                "CourseDetailBean",
+                "id = ? AND day = ? AND startNode = ? AND startWeek = ? AND type = ? AND tableId = ?",
+                arrayOf(
+                    detail.id.toString(),
+                    detail.day.toString(),
+                    detail.startNode.toString(),
+                    detail.startWeek.toString(),
+                    detail.type.toString(),
+                    detail.tableId.toString()
                 )
-
-            } finally {
-                ScheduleSnapshots.invalidate()
-            }
+            )
         }
 
         @Synchronized
         fun deleteByIdOfTable(id: Int, tableId: Int) {
-            try {
-                val db = dbHelper.writableDatabase
-                db.delete(
-                    "CourseDetailBean",
-                    "id = ? AND tableId = ?",
-                    arrayOf(id.toString(), tableId.toString())
-                )
-
-            } finally {
-                ScheduleSnapshots.invalidate()
-            }
+            val db = dbHelper.writableDatabase
+            db.delete(
+                "CourseDetailBean",
+                "id = ? AND tableId = ?",
+                arrayOf(id.toString(), tableId.toString())
+            )
         }
 
         @Synchronized

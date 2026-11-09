@@ -21,21 +21,21 @@ class TronClassBulletinAdapter(
     private val onTronClassClick: ((TronClassBulletin) -> Unit)? = null
 ) : RecyclerView.Adapter<TronClassBulletinAdapter.BulletinViewHolder>() {
 
-    private val differ = HomeAdapterDiffer<UnifiedBulletin>(this) { it.unifiedId }
-    private var multiPlatformMode = false
-    var isMultiPlatformMode: Boolean
-        get() = multiPlatformMode
-        set(value) { updateUnifiedData(differ.submittedItems, value) }
+    private var items: List<UnifiedBulletin> = emptyList()
+    var isMultiPlatformMode: Boolean = false
     var onChaoXingClickListener: ((UnifiedBulletin) -> Unit)? = null
     var onUnifiedClickListener: ((UnifiedBulletin) -> Unit)? = null
 
     fun updateData(newItems: List<TronClassBulletin>) {
-        updateUnifiedData(newItems.map { UnifiedBulletin.fromTronClass(it) })
+        this.items = newItems.map { UnifiedBulletin.fromTronClass(it) }
+        this.isMultiPlatformMode = false
+        notifyDataSetChanged()
     }
 
     fun updateUnifiedData(newItems: List<UnifiedBulletin>, multiPlatform: Boolean = false) {
-        multiPlatformMode = multiPlatform
-        differ.submit(newItems, multiPlatform)
+        this.items = newItems
+        this.isMultiPlatformMode = multiPlatform
+        notifyDataSetChanged()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): BulletinViewHolder {
@@ -48,42 +48,16 @@ class TronClassBulletinAdapter(
     }
 
     override fun onBindViewHolder(holder: BulletinViewHolder, position: Int) {
-        val row = differ[position]
-        holder.bind(row.item, row.multiPlatform)
+        holder.bind(items[position])
     }
 
-    override fun getItemCount(): Int = differ.size
-
-    override fun onViewRecycled(holder: BulletinViewHolder) {
-        holder.clearImages()
-        super.onViewRecycled(holder)
-    }
-
-    private data class ThumbnailSlot(val card: MaterialCardView, val image: ImageView, var url: String? = null)
+    override fun getItemCount(): Int = items.size
 
     inner class BulletinViewHolder(private val binding: ItemTronclassBulletinBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        private val thumbnails = mutableListOf<ThumbnailSlot>()
-        private var singleUrl: String? = null
-        private var renderedUrls: List<String>? = null
-        private var boundBulletin: UnifiedBulletin? = null
-
-        init { bindImageClicks(binding.cardSingleImage) { singleUrl } }
-
-        fun clearImages() {
-            TronClassImageLoader.clear(binding.ivSingleImage)
-            singleUrl = null
-            thumbnails.forEach {
-                TronClassImageLoader.clear(it.image)
-                it.url = null
-                it.card.visibility = View.GONE
-            }
-            renderedUrls = null
-        }
-
-        fun bind(b: UnifiedBulletin, multiPlatform: Boolean) {
-            boundBulletin = b
+        fun bind(b: UnifiedBulletin) {
+            val context = binding.root.context
 
             // 1. 课程名外标签 (有课程名时显示，无时隐藏)
             val cName = b.courseName.trim()
@@ -95,7 +69,7 @@ class TronClassBulletinAdapter(
             }
 
             // 2. 标题行与平台微徽标
-            if (multiPlatform) {
+            if (isMultiPlatformMode) {
                 val badgeText = if (b.platform.isChaoXing) "【学习通】" else "【畅课】"
                 val badgeColor = b.platform.getBrandColor()
                 val ssb = SpannableStringBuilder(badgeText).apply {
@@ -113,7 +87,120 @@ class TronClassBulletinAdapter(
             // 3. 正文摘要纯文本
             binding.tvBulletinContent.text = b.cleanContent.ifBlank { "（包含图片或表格内容，点击查看详情）" }
 
-            bindImages(b.imageUrls)
+            // 4. 附图与缩略图预览
+            val imageUrls = b.imageUrls
+            if (imageUrls.isEmpty()) {
+                binding.layoutImagesPreview.visibility = View.GONE
+            } else if (imageUrls.size == 1) {
+                binding.layoutImagesPreview.visibility = View.VISIBLE
+                binding.cardSingleImage.visibility = View.VISIBLE
+                binding.layoutMultiImages.visibility = View.GONE
+
+                TronClassImageLoader.load(
+                    binding.ivSingleImage,
+                    imageUrls[0],
+                    context,
+                    targetWidth = 720,
+                    targetHeight = 360
+                )
+
+                binding.cardSingleImage.setOnClickListener {
+                    TronClassImageHelper.showFullScreenPreview(
+                        context,
+                        imageUrls[0],
+                        title = b.title,
+                        courseName = b.courseName
+                    )
+                }
+
+                binding.cardSingleImage.setOnLongClickListener { v ->
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    TronClassImageHelper.showImageOptionsDialog(
+                        context,
+                        imageUrls[0],
+                        title = b.title,
+                        courseName = b.courseName
+                    ) {
+                        TronClassImageHelper.showFullScreenPreview(
+                            context,
+                            imageUrls[0],
+                            title = b.title,
+                            courseName = b.courseName
+                        )
+                    }
+                    true
+                }
+            } else {
+                binding.layoutImagesPreview.visibility = View.VISIBLE
+                binding.cardSingleImage.visibility = View.GONE
+                binding.layoutMultiImages.visibility = View.VISIBLE
+                binding.tvImageCountBadge.text = "共 ${imageUrls.size} 张附图 · 点击查看全部"
+
+                binding.llThumbnailsContainer.removeAllViews()
+                val density = context.resources.displayMetrics.density
+                val thumbSizePx = (84 * density).toInt()
+                val marginEndPx = (8 * density).toInt()
+                val cornerRadiusPx = 8 * density
+
+                for (url in imageUrls.take(6)) {
+                    val card = MaterialCardView(context).apply {
+                        layoutParams = LinearLayout.LayoutParams(thumbSizePx, thumbSizePx).apply {
+                            setMargins(0, 0, marginEndPx, 0)
+                        }
+                        radius = cornerRadiusPx
+                        cardElevation = 0f
+                        strokeWidth = (1 * density).toInt()
+                        strokeColor = context.getColor(R.color.card_stroke)
+                        setCardBackgroundColor(0xFF1E293B.toInt())
+                    }
+
+                    val iv = ImageView(context).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                    }
+                    card.addView(iv)
+
+                    card.setOnClickListener {
+                        TronClassImageHelper.showFullScreenPreview(
+                            context,
+                            url,
+                            title = b.title,
+                            courseName = b.courseName
+                        )
+                    }
+
+                    card.setOnLongClickListener { v ->
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                        TronClassImageHelper.showImageOptionsDialog(
+                            context,
+                            url,
+                            title = b.title,
+                            courseName = b.courseName
+                        ) {
+                            TronClassImageHelper.showFullScreenPreview(
+                                context,
+                                url,
+                                title = b.title,
+                                courseName = b.courseName
+                            )
+                        }
+                        true
+                    }
+
+                    binding.llThumbnailsContainer.addView(card)
+
+                    TronClassImageLoader.load(
+                        iv,
+                        url,
+                        context,
+                        targetWidth = thumbSizePx * 2,
+                        targetHeight = thumbSizePx * 2
+                    )
+                }
+            }
 
             // 5. 双轨点击分发
             binding.root.setOnClickListener {
@@ -144,87 +231,6 @@ class TronClassBulletinAdapter(
                         }
                     }
                 }
-            }
-        }
-
-        private fun bindImages(urls: List<String>) {
-            if (renderedUrls == urls) return
-            val context = binding.root.context
-            if (urls.isEmpty()) {
-                clearImages()
-                binding.layoutImagesPreview.visibility = View.GONE
-            } else if (urls.size == 1) {
-                binding.layoutImagesPreview.visibility = View.VISIBLE
-                binding.cardSingleImage.visibility = View.VISIBLE
-                binding.layoutMultiImages.visibility = View.GONE
-                thumbnails.forEach {
-                    if (it.url != null) TronClassImageLoader.clear(it.image)
-                    it.url = null
-                    it.card.visibility = View.GONE
-                }
-                if (singleUrl != urls[0]) {
-                    singleUrl = urls[0]
-                    TronClassImageLoader.load(binding.ivSingleImage, urls[0], context, 720, 360)
-                }
-            } else {
-                binding.layoutImagesPreview.visibility = View.VISIBLE
-                binding.cardSingleImage.visibility = View.GONE
-                binding.layoutMultiImages.visibility = View.VISIBLE
-                binding.tvImageCountBadge.text = "共 ${urls.size} 张附图 · 点击查看全部"
-                if (singleUrl != null) TronClassImageLoader.clear(binding.ivSingleImage)
-                singleUrl = null
-                val thumbSize = (84 * context.resources.displayMetrics.density).toInt()
-                urls.take(6).forEachIndexed { index, url ->
-                    val slot = thumbnails.getOrNull(index) ?: createThumbnail(thumbSize).also { thumbnails.add(it) }
-                    slot.card.visibility = View.VISIBLE
-                    if (slot.url != url) {
-                        slot.url = url
-                        TronClassImageLoader.load(slot.image, url, context, thumbSize * 2, thumbSize * 2)
-                    }
-                }
-                thumbnails.drop(urls.size.coerceAtMost(6)).forEach {
-                    if (it.url != null) TronClassImageLoader.clear(it.image)
-                    it.url = null
-                    it.card.visibility = View.GONE
-                }
-            }
-            renderedUrls = urls.toList()
-        }
-
-        private fun createThumbnail(size: Int): ThumbnailSlot {
-            val context = binding.root.context
-            val density = context.resources.displayMetrics.density
-            val card = MaterialCardView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = (8 * density).toInt() }
-                radius = 8 * density
-                cardElevation = 0f
-                strokeWidth = (1 * density).toInt()
-                strokeColor = context.getColor(R.color.card_stroke)
-                setCardBackgroundColor(0xFF1E293B.toInt())
-            }
-            val image = ImageView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                scaleType = ImageView.ScaleType.CENTER_CROP
-            }
-            card.addView(image)
-            binding.llThumbnailsContainer.addView(card)
-            return ThumbnailSlot(card, image).also { slot -> bindImageClicks(card) { slot.url } }
-        }
-
-        private fun bindImageClicks(view: View, url: () -> String?) {
-            view.setOnClickListener {
-                val imageUrl = url() ?: return@setOnClickListener
-                val bulletin = boundBulletin ?: return@setOnClickListener
-                TronClassImageHelper.showFullScreenPreview(view.context, imageUrl, title = bulletin.title, courseName = bulletin.courseName)
-            }
-            view.setOnLongClickListener {
-                val imageUrl = url() ?: return@setOnLongClickListener false
-                val bulletin = boundBulletin ?: return@setOnLongClickListener false
-                view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                TronClassImageHelper.showImageOptionsDialog(view.context, imageUrl, title = bulletin.title, courseName = bulletin.courseName) {
-                    TronClassImageHelper.showFullScreenPreview(view.context, imageUrl, title = bulletin.title, courseName = bulletin.courseName)
-                }
-                true
             }
         }
     }

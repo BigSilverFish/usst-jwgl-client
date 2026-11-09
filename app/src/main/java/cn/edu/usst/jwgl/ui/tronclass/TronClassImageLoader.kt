@@ -4,169 +4,206 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.LruCache
 import android.view.View
 import android.widget.ImageView
-import cn.edu.usst.jwgl.data.local.AuthPreferences
-import cn.edu.usst.jwgl.data.local.TronClassPreferences
-import cn.edu.usst.jwgl.data.network.SharedRequest
-import cn.edu.usst.jwgl.data.network.TronClassTransport
-import cn.edu.usst.jwgl.data.network.awaitBuffered
-import kotlinx.coroutines.*
+import cn.edu.usst.jwgl.data.network.TronClassClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.lang.ref.WeakReference
+import java.io.FileOutputStream
 import java.security.MessageDigest
-import java.util.WeakHashMap
+import java.util.concurrent.ConcurrentHashMap
 
 object TronClassImageLoader {
-    private val memoryCache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8 / 1024).toInt()) {
-        override fun sizeOf(key: String, bitmap: Bitmap) = maxOf(1, bitmap.byteCount / 1024)
-    }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val downloads = SharedRequest<ByteArray?>(scope)
-    private val bitmaps = SharedRequest<Bitmap?>(scope)
-    private data class Binding(val job: Job, val listener: View.OnAttachStateChangeListener)
-    // Accessed on Main. The job also holds only a weak reference to its target.
-    private val bindings = WeakHashMap<ImageView, Binding>()
-    private var okHttpClient: OkHttpClient = TronClassTransport.client
 
-    fun initClient(client: OkHttpClient) { okHttpClient = client }
+    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+    private val cacheSize = maxMemory / 8
 
-    fun clear(imageView: ImageView) {
-        bindings.remove(imageView)?.let {
-            imageView.removeOnAttachStateChangeListener(it.listener)
-            it.job.cancel()
+    private val memoryCache = object : LruCache<String, Bitmap>(cacheSize) {
+        override fun sizeOf(key: String, bitmap: Bitmap): Int {
+            return bitmap.byteCount / 1024
         }
-        imageView.tag = null
-        imageView.setImageDrawable(null)
     }
 
-    fun load(imageView: ImageView, url: String, context: Context, targetWidth: Int = 0,
-             targetHeight: Int = 0, onSuccess: ((Bitmap) -> Unit)? = null) {
-        clear(imageView)
-        val app = context.applicationContext
-        val account = AuthPreferences.currentStudentId(app)
-        val width = targetWidth.takeIf { it > 0 } ?: imageView.width.takeIf { it > 0 }
-            ?: imageView.layoutParams?.width?.takeIf { it > 0 } ?: app.resources.displayMetrics.widthPixels
-        val height = targetHeight.takeIf { it > 0 } ?: imageView.height.takeIf { it > 0 } ?: width
-        val key = "$account\n$url\n${width}x$height"
-        val token = Any()
-        imageView.tag = token
-        memoryCache.get(key)?.let {
-            imageView.setImageBitmap(it)
+    private val activeJobs = ConcurrentHashMap<ImageView, Job>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var okHttpClient: OkHttpClient = OkHttpClient.Builder().build()
+
+    fun initClient(client: OkHttpClient) {
+        this.okHttpClient = client
+    }
+
+    /**
+     * 异步加载图片到指定的 ImageView
+     */
+    fun load(
+        imageView: ImageView,
+        url: String,
+        context: Context,
+        targetWidth: Int = 0,
+        targetHeight: Int = 0,
+        onSuccess: ((Bitmap) -> Unit)? = null
+    ) {
+        val cached = memoryCache.get(url)
+        if (cached != null) {
+            imageView.setImageBitmap(cached)
             imageView.visibility = View.VISIBLE
-            onSuccess?.invoke(it)
+            onSuccess?.invoke(cached)
             return
         }
-        val target = WeakReference(imageView)
-        var detached = false
-        val listener = object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
-                if (!detached) return
-                v.removeOnAttachStateChangeListener(this)
-                if (v.tag === token) load(v as ImageView, url, app, width, height, onSuccess)
-            }
-            override fun onViewDetachedFromWindow(v: View) {
-                if (v.tag !== token) {
-                    v.removeOnAttachStateChangeListener(this)
-                    return
-                }
-                detached = true
-                bindings.remove(v as ImageView)?.job?.cancel()
-                // The view owns this listener, so a RecyclerView cached holder can resume
-                // without a rebind. clear()/a new load changes the token and invalidates it.
-                v.setImageDrawable(null)
-            }
-        }
-        val job = scope.launch(start = CoroutineStart.LAZY) {
-            try {
-                val bitmap = getOrFetchBitmap(app, url, width, height) ?: return@launch
-                withContext(Dispatchers.Main.immediate) {
-                    val view = target.get()
-                    if (view?.tag === token && account == AuthPreferences.currentStudentId(app)) {
-                        view.setImageBitmap(bitmap)
-                        view.visibility = View.VISIBLE
+
+        activeJobs[imageView]?.cancel()
+        imageView.tag = url
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            val bitmap = getOrFetchBitmap(context, url, targetWidth, targetHeight)
+            if (bitmap != null) {
+                memoryCache.put(url, bitmap)
+                withContext(Dispatchers.Main) {
+                    if (imageView.tag == url) {
+                        imageView.setImageBitmap(bitmap)
+                        imageView.visibility = View.VISIBLE
                         onSuccess?.invoke(bitmap)
                     }
                 }
-            } finally {
-                withContext(NonCancellable + Dispatchers.Main.immediate) {
-                    target.get()?.let { view ->
-                        if (view.tag === token) {
-                            bindings.remove(view)
-                            if (!detached) view.removeOnAttachStateChangeListener(listener)
-                        }
-                    }
-                }
             }
         }
-        bindings[imageView] = Binding(job, listener)
-        imageView.addOnAttachStateChangeListener(listener)
-        job.start()
+        activeJobs[imageView] = job
     }
 
-    suspend fun getOrFetchBitmap(context: Context, url: String, targetWidth: Int = 0,
-                                targetHeight: Int = 0): Bitmap? = withContext(Dispatchers.IO) {
-        val account = AuthPreferences.currentStudentId(context)
-        val key = "$account\n$url\n${targetWidth}x$targetHeight"
-        memoryCache.get(key) ?: bitmaps.await(key) {
-            val bytes = fetchImageBytes(context.applicationContext, url, account) ?: return@await null
-            currentCoroutineContext().ensureActive()
-            val options = BitmapFactory.Options()
-            if (targetWidth > 0 && targetHeight > 0) {
-                options.inJustDecodeBounds = true
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                var sample = 1
-                while (options.outWidth / (sample * 2) >= targetWidth && options.outHeight / (sample * 2) >= targetHeight) sample *= 2
-                options.inSampleSize = sample
-                options.inJustDecodeBounds = false
-            }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also { memoryCache.put(key, it) }
+    suspend fun getOrFetchBitmap(
+        context: Context,
+        url: String,
+        targetWidth: Int = 0,
+        targetHeight: Int = 0
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        val cached = memoryCache.get(url)
+        if (cached != null) return@withContext cached
+
+        val bytes = getOrFetchImageBytes(context, url) ?: return@withContext null
+        val b = decodeSampledBitmapFromByteArray(bytes, targetWidth, targetHeight)
+        if (b != null) {
+            memoryCache.put(url, b)
         }
+        return@withContext b
     }
 
-    suspend fun getOrFetchImageBytes(context: Context, url: String): ByteArray? =
-        fetchImageBytes(context.applicationContext, url, AuthPreferences.currentStudentId(context))
-
-    private suspend fun fetchImageBytes(context: Context, url: String, account: String): ByteArray? = withContext(Dispatchers.IO) {
-        val app = context.applicationContext
-        downloads.await("$account\n$url") {
-            val file = diskFile(app, url, account)
-            if (file.isFile && file.length() > 0) {
-                runCatching { file.readBytes() }.getOrNull()?.let { return@await it }
-            }
+    suspend fun getOrFetchImageBytes(
+        context: Context,
+        url: String
+    ): ByteArray? = withContext(Dispatchers.IO) {
+        val diskFile = getDiskCacheFile(context, url)
+        if (diskFile.exists() && diskFile.length() > 0) {
             try {
-                val builder = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android; TronClass)")
-                val uri = Uri.parse(url)
-                val host = uri.host?.lowercase().orEmpty()
-                if (uri.scheme.equals("https", true) && (host.endsWith(".usst.edu.cn") || host == "1906.usst.edu.cn" ||
-                        host.endsWith(".tronclass.com.cn") || host == "tronclass.com.cn")) {
-                    TronClassPreferences(app).getSessionId(account)?.takeIf { it.isNotBlank() }?.let {
-                        builder.header("x-session-id", it).header("Cookie", "session=$it; x-session-id=$it")
-                    }
-                    builder.header("Referer", "https://1906.usst.edu.cn/")
+                return@withContext diskFile.readBytes()
+            } catch (e: Exception) {
+                // fall through to re-fetch
+            }
+        }
+
+        // 从公网 / 畅课服务器拉取
+        try {
+            val tcClient = TronClassClient(context)
+            val reqBuilder = Request.Builder().url(url)
+            val uri = runCatching { Uri.parse(url) }.getOrNull()
+            val host = uri?.host?.lowercase() ?: ""
+            val isHttps = "https".equals(uri?.scheme, ignoreCase = true)
+            val isTrustedHost = host == "1906.usst.edu.cn" ||
+                                host.endsWith(".usst.edu.cn") ||
+                                host.endsWith(".tronclass.com.cn") ||
+                                host == "tronclass.com.cn"
+
+            if (isHttps && isTrustedHost) {
+                val sessionId = tcClient.getSessionId()
+                if (!sessionId.isNullOrBlank()) {
+                    reqBuilder.header("x-session-id", sessionId)
+                    reqBuilder.header("Cookie", "session=$sessionId; x-session-id=$sessionId")
                 }
-                val response = okHttpClient.newCall(builder.build()).awaitBuffered()
-                if (response.code !in 200..299) return@await null
-                currentCoroutineContext().ensureActive()
-                runCatching { file.writeBytes(response.bytes) }
-                response.bytes
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) { null }
+                reqBuilder.header("Referer", "https://1906.usst.edu.cn/")
+            }
+            reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android; TronClass)")
+
+            val resp = okHttpClient.newCall(reqBuilder.build()).execute()
+            if (!resp.isSuccessful) return@withContext null
+
+            val bytes = resp.body?.bytes() ?: return@withContext null
+
+            // 写入本地缓存文件
+            try {
+                diskFile.parentFile?.mkdirs()
+                FileOutputStream(diskFile).use { it.write(bytes) }
+            } catch (e: Exception) {
+                // Ignore cache write error
+            }
+
+            return@withContext bytes
+        } catch (e: Exception) {
+            null
         }
     }
 
-    fun getDiskCacheFile(context: Context, url: String): File =
-        diskFile(context, url, AuthPreferences.currentStudentId(context))
+    private fun decodeSampledBitmap(filePath: String, reqWidth: Int, reqHeight: Int): Bitmap? {
+        if (reqWidth <= 0 || reqHeight <= 0) {
+            return BitmapFactory.decodeFile(filePath)
+        }
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(filePath, options)
 
-    private fun diskFile(context: Context, url: String, account: String): File {
-        val directory = File(context.cacheDir, "tronclass_images").apply { mkdirs() }
-        return File(directory, "${md5("$account\n$url")}.img")
+        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
+        options.inJustDecodeBounds = false
+        return BitmapFactory.decodeFile(filePath, options)
     }
 
-    fun md5(str: String): String = MessageDigest.getInstance("MD5").digest(str.toByteArray())
-        .joinToString("") { "%02x".format(it) }
+    private fun decodeSampledBitmapFromByteArray(data: ByteArray, reqWidth: Int, reqHeight: Int): Bitmap? {
+        if (reqWidth <= 0 || reqHeight <= 0) {
+            return BitmapFactory.decodeByteArray(data, 0, data.size)
+        }
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeByteArray(data, 0, data.size, options)
+
+        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
+        options.inJustDecodeBounds = false
+        return BitmapFactory.decodeByteArray(data, 0, data.size, options)
+    }
+
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.outHeight to options.outWidth
+        var inSampleSize = 1
+
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
+    }
+
+    fun getDiskCacheFile(context: Context, url: String): File {
+        val cacheDir = File(context.cacheDir, "tronclass_images")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+        val hash = md5(url)
+        return File(cacheDir, "$hash.img")
+    }
+
+    fun md5(str: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        val digested = md.digest(str.toByteArray())
+        return digested.joinToString("") { "%02x".format(it) }
+    }
 }
