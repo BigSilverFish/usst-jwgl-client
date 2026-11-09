@@ -279,17 +279,38 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     /**
-     * 捕捉到了签到事件：展开悬浮感知横幅并唤醒定向抓帧引擎
+     * 捕捉到了签到事件：根据签到类型智能调度（仅限二维码签到才唤醒大屏识码引擎）
      */
     private fun onRollcallTriggered(rollcall: TronClassRollcall) {
+        val normType = rollcall.getNormalizedType()
+        val courseTitle = rollcall.courseName?.takeIf { it.isNotBlank() } ?: "当前课堂"
+        val isNumberFabMode = intent.getBooleanExtra(EXTRA_ENABLE_LIVE_NUMBER_FAB, false)
+
+        // 🎯 核心控制：如果是数字口令签到或处于数字联动模式，绝对不启动大屏二维码抓帧！
+        if (normType == "number" || isNumberFabMode) {
+            Log.i(TAG, "Rollcall is number code or in number FAB mode, skipping QR scanning")
+            setupNumberRollcallFab(rollcall.getEffectiveId(), rollcall.courseName)
+            binding.cardRollcallBanner.visibility = View.VISIBLE
+            binding.pbRollcallScanning.visibility = View.GONE
+            binding.ivRollcallStatusIcon.visibility = View.VISIBLE
+            binding.ivRollcallStatusIcon.setImageResource(R.drawable.ic_dialpad)
+            binding.tvRollcallBannerTitle.text = "🔢 请关注大屏展示的 4 位数字口令，点击右下角按钮直接输入"
+            return
+        }
+
+        // 非二维码签到（如雷达签到等），直接跳过
+        if (normType != "qr_code") {
+            Log.i(TAG, "Rollcall type ($normType) is not qr_code, skipping QR scanning")
+            return
+        }
+
         if (isPptScanningActive && activeRollcallForCapture?.id == rollcall.id) return
 
         activeRollcallForCapture = rollcall
         binding.cardRollcallBanner.visibility = View.VISIBLE
         binding.pbRollcallScanning.visibility = View.VISIBLE
         binding.ivRollcallStatusIcon.visibility = View.GONE
-        val courseTitle = rollcall.courseName?.takeIf { it.isNotBlank() } ?: "当前课堂"
-        binding.tvRollcallBannerTitle.text = "🔔 检测到【$courseTitle】开启签到，正在从大屏采集卡识别二维码..."
+        binding.tvRollcallBannerTitle.text = "🔔 检测到【$courseTitle】开启二维码签到，正在从大屏采集卡识别二维码..."
 
         startPptScanningLoop(rollcall)
     }
@@ -1092,6 +1113,14 @@ class JwglWebActivity : AppCompatActivity() {
     private fun setupNumberRollcallFab(rollcallId: Long, courseName: String?) {
         binding.fabNumberRollcall.visibility = View.VISIBLE
         binding.fabNumberRollcall.bringToFront()
+
+        // 展开友好提示横幅，并确保绝对不尝试扫描二维码
+        binding.cardRollcallBanner.visibility = View.VISIBLE
+        binding.pbRollcallScanning.visibility = View.GONE
+        binding.ivRollcallStatusIcon.visibility = View.VISIBLE
+        binding.ivRollcallStatusIcon.setImageResource(R.drawable.ic_dialpad)
+        binding.tvRollcallBannerTitle.text = "🔢 请关注大屏展示的 4 位数字口令，点击右下角按钮直接输入"
+
         binding.fabNumberRollcall.setOnClickListener {
             val dialog = cn.edu.usst.jwgl.ui.tronclass.NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
             dialog.setOnSignSuccessListener {
