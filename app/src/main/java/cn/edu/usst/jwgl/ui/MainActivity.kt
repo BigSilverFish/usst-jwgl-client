@@ -1376,8 +1376,7 @@ class MainActivity : AppCompatActivity() {
                         .replace(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
                         .commitAllowingStateLoss()
                 } else {
-                    tf.syncDrawerButtonVisibility()
-                    tf.checkAndRefreshHeaderSpacing()
+                    tf.onTabSelected()
                 }
             }
             MainTab.MORE_FEATURES -> {

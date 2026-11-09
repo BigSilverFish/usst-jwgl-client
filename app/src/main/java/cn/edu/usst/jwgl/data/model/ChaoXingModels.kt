@@ -206,13 +206,13 @@ data class ChaoXingActiveItem(
     private val rawId: com.google.gson.JsonElement? = null,
 
     @SerializedName("activeType")
-    val activeType: Int = 0, // 2 表示签到
+    private val rawActiveType: com.google.gson.JsonElement? = null,
 
     @SerializedName("status")
-    val status: Int = 0, // 1 表示进行中, 2 表示已结束
+    private val rawStatus: com.google.gson.JsonElement? = null,
 
     @SerializedName("userStatus")
-    val userStatus: Int = 0, // 0: 未参与/未签到, 1: 已签到/已出勤, 2: 迟到, 3: 请假/早退
+    private val rawUserStatus: com.google.gson.JsonElement? = null,
 
     @SerializedName("nameOne")
     val nameOne: String? = null, // "二维码签到" / "签到"
@@ -224,10 +224,10 @@ data class ChaoXingActiveItem(
     val nameFour: String? = null, // "11-04 15:11" / "进行中"
 
     @SerializedName("startTime")
-    val startTime: Long = 0L,
+    private val rawStartTime: com.google.gson.JsonElement? = null,
 
     @SerializedName("endTime")
-    val endTime: Long = 0L,
+    private val rawEndTime: com.google.gson.JsonElement? = null,
 
     @SerializedName("createtime")
     private val rawCreatetime: com.google.gson.JsonElement? = null,
@@ -235,6 +235,56 @@ data class ChaoXingActiveItem(
     @SerializedName("otherId")
     private val rawOtherId: com.google.gson.JsonElement? = null
 ) : Serializable {
+
+    val activeType: Int
+        get() = try {
+            rawActiveType?.let {
+                if (it.isJsonPrimitive) {
+                    val p = it.asJsonPrimitive
+                    if (p.isNumber) p.asInt else p.asString.trim().toIntOrNull() ?: 0
+                } else 0
+            } ?: 0
+        } catch (_: Exception) { 0 }
+
+    val status: Int
+        get() = try {
+            rawStatus?.let {
+                if (it.isJsonPrimitive) {
+                    val p = it.asJsonPrimitive
+                    if (p.isNumber) p.asInt else p.asString.trim().toIntOrNull() ?: 0
+                } else 0
+            } ?: 0
+        } catch (_: Exception) { 0 }
+
+    val userStatus: Int
+        get() = try {
+            rawUserStatus?.let {
+                if (it.isJsonPrimitive) {
+                    val p = it.asJsonPrimitive
+                    if (p.isNumber) p.asInt else p.asString.trim().toIntOrNull() ?: 0
+                } else 0
+            } ?: 0
+        } catch (_: Exception) { 0 }
+
+    val startTime: Long
+        get() = try {
+            rawStartTime?.let {
+                if (it.isJsonPrimitive) {
+                    val p = it.asJsonPrimitive
+                    if (p.isNumber) p.asLong else p.asString.trim().toLongOrNull() ?: 0L
+                } else 0L
+            } ?: 0L
+        } catch (_: Exception) { 0L }
+
+    val endTime: Long
+        get() = try {
+            rawEndTime?.let {
+                if (it.isJsonPrimitive) {
+                    val p = it.asJsonPrimitive
+                    if (p.isNumber) p.asLong else p.asString.trim().toLongOrNull() ?: 0L
+                } else 0L
+            } ?: 0L
+        } catch (_: Exception) { 0L }
 
     val otherId: Int
         get() = try {

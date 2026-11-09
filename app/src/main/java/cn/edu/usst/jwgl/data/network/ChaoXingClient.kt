@@ -82,24 +82,55 @@ class ChaoXingClient(private val context: Context) {
          */
         fun parseDdlMillis(timeStr: String?): Long? {
             if (timeStr.isNullOrBlank()) return null
-            val raw = timeStr.trim().replace("截止时间：", "").replace("截止时间:", "").replace("截止:", "").trim()
-            val formats = listOf(
-                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA),
-                SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA),
-                SimpleDateFormat("MM-dd HH:mm", Locale.CHINA),
-                SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.CHINA)
-            )
+            val raw = ChaoXingCourseDetailClient.cleanDeadline(timeStr)
+            if (raw.isBlank()) return null
+
+            val hasYear = raw.matches(Regex("""^\d{4}[-/].*"""))
+            val formats = if (hasYear) {
+                listOf(
+                    SimpleDateFormat("yyyy-M-d H:m:s", Locale.CHINA),
+                    SimpleDateFormat("yyyy-M-d H:m", Locale.CHINA),
+                    SimpleDateFormat("yyyy-M-d", Locale.CHINA),
+                    SimpleDateFormat("yyyy/M/d H:m:s", Locale.CHINA),
+                    SimpleDateFormat("yyyy/M/d H:m", Locale.CHINA),
+                    SimpleDateFormat("yyyy/M/d", Locale.CHINA)
+                )
+            } else {
+                listOf(
+                    SimpleDateFormat("M-d H:m:s", Locale.CHINA),
+                    SimpleDateFormat("M-d H:m", Locale.CHINA),
+                    SimpleDateFormat("M-d", Locale.CHINA),
+                    SimpleDateFormat("M/d H:m", Locale.CHINA),
+                    SimpleDateFormat("M/d", Locale.CHINA)
+                )
+            }
+
             for (sdf in formats) {
                 try {
                     val d = sdf.parse(raw) ?: continue
-                    if (!raw.contains("202")) {
-                        val cal = java.util.Calendar.getInstance()
-                        val curYear = cal.get(java.util.Calendar.YEAR)
-                        cal.time = d
-                        cal.set(java.util.Calendar.YEAR, curYear)
-                        return cal.timeInMillis
+                    val cal = java.util.Calendar.getInstance()
+                    val curYear = cal.get(java.util.Calendar.YEAR)
+                    val curMonth = cal.get(java.util.Calendar.MONTH) // 0..11
+
+                    val parsedCal = java.util.Calendar.getInstance().apply { time = d }
+                    val parsedMonth = parsedCal.get(java.util.Calendar.MONTH)
+
+                    var targetYear = curYear
+                    if (!hasYear) {
+                        if (curMonth == 11 && parsedMonth == 0) {
+                            targetYear += 1 // 12月看明年1月的作业
+                        } else if (curMonth == 0 && parsedMonth == 11) {
+                            targetYear -= 1 // 1月看去年12月的作业
+                        }
+                        parsedCal.set(java.util.Calendar.YEAR, targetYear)
                     }
-                    return d.time
+                    if (!raw.contains(":")) {
+                        parsedCal.set(java.util.Calendar.HOUR_OF_DAY, 23)
+                        parsedCal.set(java.util.Calendar.MINUTE, 59)
+                        parsedCal.set(java.util.Calendar.SECOND, 59)
+                        parsedCal.set(java.util.Calendar.MILLISECOND, 999)
+                    }
+                    return parsedCal.timeInMillis
                 } catch (_: Exception) {}
             }
             return null
@@ -671,8 +702,12 @@ class ChaoXingClient(private val context: Context) {
 
                     val courseName = el.select(".course-name, .course, span.course-name").text().trim()
                         .ifBlank { "超星课程" }
-                    val timeStr = el.select(".time, .end-time, .status-time, span.time").text().trim()
-                    val ddlMillis = parseDdlMillis(timeStr)
+                    var timeStr = el.select(".time, .end-time, .status-time, span.time").text().trim()
+                    if (timeStr.isBlank()) {
+                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
+                        timeStr = ChaoXingCourseDetailClient.extractDeadlineFromText(el.text(), el.html(), aria)
+                    }
+                    var ddlMillis = parseDdlMillis(timeStr)
                     val statusText = el.select(".status, .state, span.status").text().trim()
                     val isSub = statusText.contains("已交") || statusText.contains("已完成") || statusText.contains("待批改")
 
@@ -684,6 +719,20 @@ class ChaoXingClient(private val context: Context) {
                         ?: System.currentTimeMillis().toString()
                     val courseId = Regex("""(?:courseId|courseid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: "0"
                     val classId = Regex("""(?:classId|clazzId|clazzid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+
+                    if (ddlMillis == null) {
+                        val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
+                        val cachedDetail = cacheMgr.getCachedChaoXingHomeworkDetail(workId)
+                        if (cachedDetail != null && !cachedDetail.deadline.isNullOrBlank()) {
+                            ddlMillis = parseDdlMillis(cachedDetail.deadline)
+                        }
+                    }
+                    if (ddlMillis == null) {
+                        val prevTodo = prefs.getCachedTodos(account).find { it.originalTodoId == workId }
+                        if (prevTodo?.deadlineMillis != null) {
+                            ddlMillis = prevTodo.deadlineMillis
+                        }
+                    }
 
                     todoList.add(
                         UnifiedTodo(
@@ -709,6 +758,55 @@ class ChaoXingClient(private val context: Context) {
                 }
                 if (items.isNotEmpty() && recognizedItems == 0) {
                     return@withContext Result.failure(Exception("超星待办条目格式无法识别，已保留原缓存"))
+                }
+
+                // 针对未提交且未解析出截止时间的作业，并发进行轻量探测
+                val needDdlItems = todoList.filter { it.deadlineMillis == null && !it.detailUrl.isNullOrBlank() }
+                if (needDdlItems.isNotEmpty()) {
+                    val cpi = prefs.getUid(account).orEmpty()
+                    coroutineScope {
+                        val ddlTasks = needDdlItems.map { todo ->
+                            async {
+                                try {
+                                    var targetUrl = if (todo.detailUrl!!.startsWith("http")) todo.detailUrl!! else "https://mooc1.chaoxing.com${todo.detailUrl}"
+                                    if (cpi.isNotBlank() && !targetUrl.contains("cpi=")) {
+                                        targetUrl += if (targetUrl.contains("?")) "&cpi=$cpi" else "?cpi=$cpi"
+                                    }
+                                    val reqDetail = Request.Builder()
+                                        .url(targetUrl)
+                                        .forAccount(account)
+                                        .header("Cookie", cookies)
+                                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                                        .get()
+                                        .build()
+                                    val respDetail = okHttpClient.newCall(reqDetail).execute()
+                                    val detailHtml = respDetail.body?.string().orEmpty()
+                                    val extractedDdl = ChaoXingCourseDetailClient.extractDeadlineFromText(detailHtml, detailHtml)
+                                    if (extractedDdl.isNotBlank()) {
+                                        val parsed = parseDdlMillis(extractedDdl)
+                                        if (parsed != null) {
+                                            Pair(todo.unifiedId, parsed)
+                                        } else null
+                                    } else null
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to resolve deadline for ${todo.title}: ${e.message}")
+                                    null
+                                }
+                            }
+                        }
+                        val resolved = ddlTasks.awaitAll().filterNotNull()
+                        for ((unifiedId, parsedMillis) in resolved) {
+                            val idx = todoList.indexOfFirst { it.unifiedId == unifiedId }
+                            if (idx >= 0) {
+                                val t = todoList[idx]
+                                todoList[idx] = t.copy(
+                                    deadlineDate = Date(parsedMillis),
+                                    deadlineMillis = parsedMillis,
+                                    isLocked = parsedMillis < System.currentTimeMillis()
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
