@@ -25,6 +25,7 @@ class RollcallMonitorService : Service() {
 
     private val tronClassClient by lazy { TronClassClient(this) }
     private val prefs by lazy { TronClassPreferences.getInstance(this) }
+    private val smartLiveQrManager by lazy { cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager(this) }
 
     companion object {
         private const val TAG = "RollcallMonitorService"
@@ -169,7 +170,7 @@ class RollcallMonitorService : Service() {
                     RollcallNotificationHelper.notifyNumberRollcall(this, rollcallId, cName)
                 }
                 "qr_code" -> {
-                    RollcallNotificationHelper.notifyQrRollcall(this, rollcallId, cName)
+                    handleQrCodeAutoSign(rollcall, session)
                 }
                 else -> {
                     RollcallNotificationHelper.notifyGenericRollcall(
@@ -180,6 +181,35 @@ class RollcallMonitorService : Service() {
                     )
                 }
             }
+        }
+    }
+
+    private suspend fun handleQrCodeAutoSign(
+        rollcall: TronClassRollcall,
+        currentSession: ScheduledClassSession
+    ) {
+        val rollcallId = rollcall.getEffectiveId()
+        val matchedSession = RollcallScheduleHelper.findMatchingClassSession(this, rollcall.courseName) ?: currentSession
+        val cName = rollcall.courseName ?: matchedSession.courseName
+        val room = rollcall.classroom ?: matchedSession.room
+
+        Log.i(TAG, "Triggering Smart Live QR auto sign for $cName in $room")
+
+        val success = smartLiveQrManager.tryAutoSignFromLive(
+            rollcall = rollcall,
+            courseName = cName,
+            classroom = room
+        )
+
+        if (success) {
+            updateForegroundNotification(
+                matchedSession,
+                "已自动大屏扫码签到【$cName】"
+            )
+        } else {
+            // 降级回退：大屏未捕获到或无直播，弹出普通扫码通知引导手动扫码
+            Log.w(TAG, "Smart Live QR failed or unavailable, fallback to manual QR notification")
+            RollcallNotificationHelper.notifyQrRollcall(this, rollcallId, cName)
         }
     }
 
