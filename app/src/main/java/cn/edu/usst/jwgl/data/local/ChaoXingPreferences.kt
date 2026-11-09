@@ -256,7 +256,8 @@ class ChaoXingPreferences(private val context: Context) {
         val prefix = getAccountPrefix(studentId)
         if (prefix.isEmpty()) return
         try {
-            val json = gson.toJson(todos)
+            val deduped = UnifiedTodo.deduplicateTodos(todos)
+            val json = gson.toJson(deduped)
             prefs.edit()
                 .putString(prefix + KEY_CACHED_TODOS, json)
                 .apply()
@@ -272,7 +273,8 @@ class ChaoXingPreferences(private val context: Context) {
             ?: return emptyList()
         return try {
             val type = object : TypeToken<List<UnifiedTodo>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            val list = gson.fromJson<List<UnifiedTodo>>(json, type) ?: emptyList()
+            UnifiedTodo.deduplicateTodos(list)
         } catch (e: Exception) {
             Log.e(TAG, "getCachedTodos error", e)
             emptyList()

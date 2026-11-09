@@ -284,11 +284,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         status = li.select(".status, .state, span.status, p.status, span").text().trim()
                     }
 
-                    var timeRaw = li.select(".time, .end-time, .status-time, div.time, span.time, p.time, .date").text().trim()
+                    var timeRaw = extractDeadlineFromText(li.text(), li.html(), li.attr("aria-label"))
                     if (timeRaw.isBlank()) {
-                        timeRaw = extractDeadlineFromText(li.text(), li.html(), li.attr("aria-label"))
-                    } else {
-                        timeRaw = cleanDeadline(timeRaw)
+                        val elemTime = li.select(".time, .end-time, .status-time, div.time, span.time, p.time, .date").text().trim()
+                        timeRaw = cleanDeadline(elemTime)
                     }
                     val isExpired = li.select(".icon-zy-g").isNotEmpty() ||
                             li.html().contains("icon-zy-g") ||
@@ -473,12 +472,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
                     if (!matchCourse) continue
 
-                    var timeStr = el.select(".time, .end-time, .status-time, span.time, div.time, p.time, .date").text().trim()
+                    var timeStr = extractDeadlineFromText(el.text(), el.html(), el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") })
                     if (timeStr.isBlank()) {
-                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
-                        timeStr = extractDeadlineFromText(el.text(), el.html(), aria)
-                    } else {
-                        timeStr = cleanDeadline(timeStr)
+                        val elemTime = el.select(".time, .end-time, .status-time, span.time, div.time, p.time, .date").text().trim()
+                        timeStr = cleanDeadline(elemTime)
                     }
                     val isExpired = el.select(".icon-zy-g").isNotEmpty() ||
                             el.html().contains("icon-zy-g") ||
@@ -529,7 +526,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             if (raw.isNullOrBlank()) return ""
             var s = raw.trim()
             // 剔除括号内容，如 (剩 1 天 1 小时)、(已截止)
-            s = s.replace(Regex("""\([^)]*\)|（[^）]*）"""), "").trim()
+            // 仅当括号外有包含数字的内容时才剔除括号；若整个字符串均在括号内则剥去括号保留其内容
+            val withoutBrackets = s.replace(Regex("""\([^)]*\)|（[^）]*）"""), "").trim()
+            if (withoutBrackets.any { it.isDigit() }) {
+                s = withoutBrackets
+            } else {
+                s = s.replace(Regex("""^[（(]|[)）]$"""), "").trim()
+            }
             val prefixes = listOf(
                 "截止时间：", "截止时间:", "截止时间",
                 "截止：", "截止:", "截止",
@@ -1893,9 +1896,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 }
             }
 
-            // Step 3b: 针对未提交且缺失截止时间的作业，并发探测并补全其截止时间
+            // Step 3b: 针对未提交且缺失有效截止时间的作业，并发探测并补全其截止时间
             val unsubmittedWithoutDdl = allWorks.mapIndexedNotNull { index, work ->
-                if (!work.isSubmitted() && work.deadline.isBlank()) Pair(index, work) else null
+                val ddlMs = ChaoXingClient.parseDdlMillis(work.deadline)
+                val hasExactDate = work.deadline.isNotBlank() && (work.deadline.contains("-") || work.deadline.contains("/"))
+                if (!work.isSubmitted() && (ddlMs == null || !hasExactDate)) Pair(index, work) else null
             }
             if (unsubmittedWithoutDdl.isNotEmpty()) {
                 val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
@@ -2013,6 +2018,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         } else {
             "https://mooc1.chaoxing.com/work/phone/work?courseId=${course?.courseId ?: ""}&classId=${course?.classId ?: ""}&workId=$workIdSafe"
         }
+        initialUrl = initialUrl.replace("&amp;", "&")
 
         if (cpi.isNotBlank() && !initialUrl.contains("cpi=")) {
             initialUrl += if (initialUrl.contains("?")) "&cpi=$cpi" else "?cpi=$cpi"
@@ -2054,10 +2060,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 }
 
                 // 提取 look / selectWorkQuestionYiPiYue / doHomeWork URL
-                val lookMatch = Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"])(/work/phone/selectWorkQuestion[^'"]+)""").find(html1)
-                    ?: Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"])(/work/phone/doHomeWork[^'"]+)""").find(html1)
+                val lookMatch = Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"]|location\.href\s*=\s*['"]|window\.location(?:\.href)?\s*=\s*['"])(/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(html1)
+                    ?: Regex("""['"](/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(html1)
 
-                val subPath = lookMatch?.groupValues?.get(1)?.trim().orEmpty()
+                val subPath = lookMatch?.groupValues?.get(1)?.trim()?.replace("&amp;", "&").orEmpty()
                 if (subPath.isNotBlank()) {
                     val detailSubUrlRaw = if (subPath.startsWith("http")) {
                         subPath
@@ -2090,6 +2096,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         val html2 = resp2.body?.string() ?: ""
                         if (html2.isNotBlank()) {
                             questionsHtml = html2
+                            val ddlFromHtml2 = extractDeadlineFromText(html2, html2)
+                            if (ddlFromHtml2.isNotBlank()) {
+                                deadlineFromPage = ddlFromHtml2
+                            }
                             // 若返回的内容仍无题目容器，且含有下一层 selectWorkQuestion 链接，才尝试第三级
                             val hasQuestionsAlready = html2.contains("singleQuesId") || html2.contains("TiMu") || html2.contains("Zy_TItle") || html2.contains("questionBlock")
                             if (!hasQuestionsAlready && html2.contains("selectWorkQuestion")) {

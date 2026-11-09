@@ -495,6 +495,16 @@ data class UnifiedTodo(
             val isItemLocked = work.expired || work.statusText.contains("已截止") ||
                     work.statusText.contains("已过期") || work.statusText.contains("已逾期") ||
                     (ddlMillis != null && ddlMillis < System.currentTimeMillis())
+            val cleanC = cName
+                .replace("《", "")
+                .replace("》", "")
+                .replace("...", "")
+                .replace("…", "")
+                .replace(Regex("""^\(.*?\)"""), "")
+                .trim()
+            val cleanT = work.title
+                .replace(Regex("""^\(.*?\)"""), "")
+                .trim()
             return UnifiedTodo(
                 unifiedId = "cx_work_${work.workId}",
                 platform = LearningPlatform.CHAOXING,
@@ -503,9 +513,9 @@ data class UnifiedTodo(
                 originalCourseId = cId,
                 originalClassId = clId,
                 courseName = cName,
-                cleanCourseName = cName.replace(Regex("""^\(.*?\)"""), "").trim(),
+                cleanCourseName = cleanC.ifBlank { "超星课程" },
                 title = work.title,
-                cleanTitle = work.title.replace(Regex("""^\(.*?\)"""), "").trim(),
+                cleanTitle = cleanT.ifBlank { "作业" },
                 deadlineDate = ddlMillis?.let { Date(it) },
                 deadlineMillis = ddlMillis,
                 type = "homework",
@@ -514,6 +524,76 @@ data class UnifiedTodo(
                 isLocked = isItemLocked,
                 detailUrl = work.taskUrl
             )
+        }
+
+        fun getTodoSignature(todo: UnifiedTodo): String {
+            val cleanTitle = todo.title
+                .replace(Regex("""\s+|【.*?】|\[.*?\]|\(.*?\)|（.*?）"""), "")
+                .lowercase()
+                .trim()
+            val rawCourse = todo.courseName
+                .replace("《", "")
+                .replace("》", "")
+                .replace("...", "")
+                .replace("…", "")
+                .replace(Regex("""\s+|【.*?】|\[.*?\]|\(.*?\)|（.*?）"""), "")
+                .lowercase()
+                .trim()
+            val isLab = rawCourse.contains("实验") || cleanTitle.contains("实验")
+            val courseCore = rawCourse.replace("实验", "").trim().let { if (it.length >= 4) it.take(4) else it }
+            return "${todo.platform.name}_${if (isLab) "lab_" else ""}${courseCore}_${cleanTitle}"
+        }
+
+        fun deduplicateTodos(todos: List<UnifiedTodo>): List<UnifiedTodo> {
+            val result = mutableListOf<UnifiedTodo>()
+            val seenIds = mutableMapOf<String, Int>()
+            val seenSignatures = mutableMapOf<String, Int>()
+
+            for (todo in todos) {
+                val signature = getTodoSignature(todo)
+                val existingIndex = seenIds[todo.originalTodoId] ?: seenSignatures[signature]
+
+                if (existingIndex != null) {
+                    val existing = result[existingIndex]
+                    val bestDeadlineMillis = existing.deadlineMillis ?: todo.deadlineMillis
+                    val bestDeadlineDate = existing.deadlineDate ?: todo.deadlineDate
+                    val bestCourseName = if (existing.courseName.contains("...") && !todo.courseName.contains("...")) {
+                        todo.courseName
+                    } else {
+                        existing.courseName
+                    }
+                    val bestCleanCourseName = if (existing.cleanCourseName.contains("...") && !todo.cleanCourseName.contains("...")) {
+                        todo.cleanCourseName
+                    } else {
+                        existing.cleanCourseName
+                    }
+                    val bestDetailUrl = if (existing.detailUrl.isNullOrBlank()) todo.detailUrl else existing.detailUrl
+                    val bestOriginalTodoId = if (existing.originalTodoId.length > 11 && todo.originalTodoId.length <= 11) {
+                        todo.originalTodoId
+                    } else {
+                        existing.originalTodoId
+                    }
+
+                    result[existingIndex] = existing.copy(
+                        originalTodoId = bestOriginalTodoId,
+                        courseName = bestCourseName,
+                        cleanCourseName = bestCleanCourseName,
+                        deadlineMillis = bestDeadlineMillis,
+                        deadlineDate = bestDeadlineDate,
+                        detailUrl = bestDetailUrl,
+                        isLocked = existing.isLocked && todo.isLocked
+                    )
+                    if (bestOriginalTodoId != existing.originalTodoId) {
+                        seenIds[bestOriginalTodoId] = existingIndex
+                    }
+                } else {
+                    val newIndex = result.size
+                    seenIds[todo.originalTodoId] = newIndex
+                    seenSignatures[signature] = newIndex
+                    result.add(todo)
+                }
+            }
+            return result
         }
     }
 }
