@@ -553,6 +553,12 @@ data class ChaoXingWork(
     val score: String = ""
 ) : Serializable {
     fun withScore(newScore: String): ChaoXingWork = copy(score = newScore)
+
+    fun isSubmitted(): Boolean {
+        val s = statusText.trim()
+        return s.contains("已交") || s.contains("已批") || s.contains("已完成") ||
+               s.contains("互评") || s.contains("打分") || score.isNotBlank()
+    }
 }
 
 /**

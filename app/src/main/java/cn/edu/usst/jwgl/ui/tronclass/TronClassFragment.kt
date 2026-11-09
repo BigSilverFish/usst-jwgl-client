@@ -70,6 +70,7 @@ class TronClassFragment : Fragment() {
 
     private val tronClassClient by lazy { TronClassClient(requireContext()) }
     private val chaoXingClient by lazy { ChaoXingClient(requireContext()) }
+    private val chaoXingDetailClient by lazy { cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient(requireContext()) }
     private lateinit var tronClassTodoAdapter: TronClassTodoAdapter
     private lateinit var tronClassBulletinAdapter: TronClassBulletinAdapter
     private lateinit var tronClassCourseAdapter: TronClassCourseAdapter
@@ -1288,13 +1289,51 @@ class TronClassFragment : Fragment() {
                         ChaoXingPreferences(ctx).getCachedNotices()
                     }
 
-                    // 并发探测超星各门在修课程是否有进行中的签到
+                    // 并发探测超星各门在修课程是否有进行中的签到与未交作业
                     val cxSignsDeferred = async {
                         if (cxCourses.isNotEmpty()) {
                             chaoXingClient.fetchActiveSignsForCourses(cxCourses).getOrDefault(emptyList())
                         } else emptyList()
                     }
+
+                    // 🚀 核心优化：并发探测各门超星课程内部的真实未完成作业，彻底解决全局 stu-work 漏报章节/未同步作业的问题
+                    val cxCourseWorksDeferred = if (cxCourses.isNotEmpty()) {
+                        cxCourses.map { course ->
+                            async {
+                                try {
+                                    val res = chaoXingDetailClient.fetchHomeworks(course, withScores = false)
+                                    val works = res.getOrNull() ?: emptyList()
+                                    works.filter { !it.isSubmitted() }.map { w ->
+                                        UnifiedTodo.fromChaoXingWork(w, course)
+                                    }
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            }
+                        }
+                    } else emptyList()
+
                     val cxSigns = cxSignsDeferred.await()
+                    val deepCxWorks = cxCourseWorksDeferred.awaitAll().flatten()
+
+                    // 合并超星全局待办与各门课程内部深层探测到的未交作业（去重）
+                    val mergedCxTodos = mutableListOf<UnifiedTodo>()
+                    val seenTodoIds = mutableSetOf<String>()
+                    // 1. 优先加入课程内部深度抓取到的作业（信息和链接最完整，解决 Web应用开发等漏报）
+                    for (todo in deepCxWorks) {
+                        if (seenTodoIds.add(todo.originalTodoId)) {
+                            mergedCxTodos.add(todo)
+                        }
+                    }
+                    // 2. 补充全局待办中的其他作业
+                    for (todo in cxTodos) {
+                        if (seenTodoIds.add(todo.originalTodoId)) {
+                            mergedCxTodos.add(todo)
+                        }
+                    }
+
+                    // 同步持久化超星作业缓存，保证下次冷启动或离线时立即可见
+                    ChaoXingPreferences(ctx).saveCachedTodos(mergedCxTodos)
 
                     // 双平台签到活动统一聚合
                     val unifiedRollcalls = mutableListOf<UnifiedActiveRollcall>()
@@ -1333,7 +1372,7 @@ class TronClassFragment : Fragment() {
                     val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
                     val uTodos = mutableListOf<UnifiedTodo>()
                     uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
-                    uTodos.addAll(cxTodos)
+                    uTodos.addAll(mergedCxTodos)
                     uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
                     allUnifiedTodos = uTodos
 
@@ -1364,6 +1403,8 @@ class TronClassFragment : Fragment() {
 
                     setupSemesterChips(allUnifiedCourses)
                     renderUnifiedData()
+                    updateTodoTabBadge(allUnifiedTodos.size)
+                    updateBulletinTabBadge(allUnifiedBulletins.size)
                     updateTronClassUserHeader()
                 } else {
                     // 超星会话校验暂时未通过（如临时网络抖动），从本地离线缓存恢复超星数据进行融合，坚决不洗白为纯畅课！
@@ -1422,6 +1463,8 @@ class TronClassFragment : Fragment() {
                     updateHeroCardAndSignButtonState()
                     setupSemesterChips(allUnifiedCourses)
                     renderUnifiedData()
+                    updateTodoTabBadge(allUnifiedTodos.size)
+                    updateBulletinTabBadge(allUnifiedBulletins.size)
                     updateTronClassUserHeader()
                 }
             } catch (e: Exception) {
