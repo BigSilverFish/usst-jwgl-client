@@ -1021,11 +1021,12 @@ class TronClassFragment : Fragment() {
                 val cachedCxCourses = cxPrefs.getCachedCourses()
                 val cachedCxNotices = cxPrefs.getCachedNotices()
 
-                val todos = mutableListOf<UnifiedTodo>()
-                todos.addAll(cachedTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
+                val rawTodos = mutableListOf<UnifiedTodo>()
+                rawTodos.addAll(cachedTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
                 if (isDualPlatformMode) {
-                    todos.addAll(cachedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
+                    rawTodos.addAll(cachedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
                 }
+                val todos = UnifiedTodo.deduplicateTodos(rawTodos).toMutableList()
                 todos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
 
                 val bulletins = mutableListOf<UnifiedBulletin>()
@@ -1432,21 +1433,11 @@ class TronClassFragment : Fragment() {
                     val cxSigns = cxSignsDeferred.await()
                     val deepCxWorks = cxCourseWorksDeferred.awaitAll().flatten()
 
-                    // 合并超星全局待办与各门课程内部深层探测到的未交作业（去重）
-                    val mergedCxTodos = mutableListOf<UnifiedTodo>()
-                    val seenTodoIds = mutableSetOf<String>()
-                    // 1. 优先加入课程内部深度抓取到的作业（信息和链接最完整，解决 Web应用开发等漏报）
-                    for (todo in deepCxWorks) {
-                        if (seenTodoIds.add(todo.originalTodoId)) {
-                            mergedCxTodos.add(todo)
-                        }
-                    }
-                    // 2. 补充全局待办中的其他作业
-                    for (todo in cxTodos) {
-                        if (seenTodoIds.add(todo.originalTodoId)) {
-                            mergedCxTodos.add(todo)
-                        }
-                    }
+                    // 合并超星全局待办与各门课程内部深层探测到的未交作业（深度去重融合）
+                    val allCandidateCxTodos = mutableListOf<UnifiedTodo>()
+                    allCandidateCxTodos.addAll(deepCxWorks)
+                    allCandidateCxTodos.addAll(cxTodos)
+                    val mergedCxTodos = UnifiedTodo.deduplicateTodos(allCandidateCxTodos)
 
                     // 同步持久化超星作业缓存，保证下次冷启动或离线时立即可见
                     val activeMergedCxTodos = mergedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
@@ -1545,9 +1536,10 @@ class TronClassFragment : Fragment() {
                         )
                         val cachedCxTodos = ChaoXingPreferences(ctx).getCachedTodos()
                         val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
-                        val uTodos = mutableListOf<UnifiedTodo>()
-                        uTodos.addAll(rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
-                        uTodos.addAll(cachedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
+                        val rawUTodos = mutableListOf<UnifiedTodo>()
+                        rawUTodos.addAll(rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
+                        rawUTodos.addAll(cachedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
+                        val uTodos = UnifiedTodo.deduplicateTodos(rawUTodos).toMutableList()
                         uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
                         allUnifiedTodos = uTodos
 

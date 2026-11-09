@@ -85,6 +85,23 @@ class ChaoXingClient(private val context: Context) {
             val raw = ChaoXingCourseDetailClient.cleanDeadline(timeStr)
             if (raw.isBlank()) return null
 
+            // 1. 优先解析相对倒计时格式 (如 "剩余19小时23分钟", "剩 1 天 2 小时", "剩 45 分钟")
+            val relativeMatch = Regex("""(?:剩余|剩)\s*(?:(\d+)\s*天)?\s*(?:(\d+)\s*小时)?\s*(?:(\d+)\s*分(?:钟)?)?""").find(raw)
+            if (relativeMatch != null) {
+                val dStr = relativeMatch.groupValues[1]
+                val hStr = relativeMatch.groupValues[2]
+                val mStr = relativeMatch.groupValues[3]
+                if (dStr.isNotEmpty() || hStr.isNotEmpty() || mStr.isNotEmpty()) {
+                    val days = dStr.toLongOrNull() ?: 0L
+                    val hours = hStr.toLongOrNull() ?: 0L
+                    val minutes = mStr.toLongOrNull() ?: 0L
+                    val totalMs = (days * 24 * 3600 + hours * 3600 + minutes * 60) * 1000L
+                    if (totalMs > 0) {
+                        return System.currentTimeMillis() + totalMs
+                    }
+                }
+            }
+
             val hasYear = raw.matches(Regex("""^\d{4}[-/].*"""))
             val formats = if (hasYear) {
                 listOf(
@@ -720,7 +737,15 @@ class ChaoXingClient(private val context: Context) {
                             }
                         }
                     }
+                    val cleanCourse = courseName
+                        .replace("《", "")
+                        .replace("》", "")
+                        .replace("...", "")
+                        .replace("…", "")
+                        .replace(Regex("""^\(.*?\)"""), "")
+                        .trim()
                     if (courseName.isBlank()) courseName = "超星课程"
+                    val finalCourseName = cleanCourse.ifBlank { "超星课程" }
 
                     var timeStr = el.select(".time, .end-time, .status-time, span.time").text().trim()
                     if (timeStr.isBlank()) {
@@ -746,8 +771,9 @@ class ChaoXingClient(private val context: Context) {
                     // 核心过滤：过滤掉已过期的作业，不进入待办
                     if (isItemLocked) continue
 
-                    val dataUrl = el.attr("data").ifBlank { el.select("a").attr("href") }
-                    val workId = Regex("""(?:workId|workid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+                    val dataUrl = el.attr("data").ifBlank { el.select("a").attr("href") }.replace("&amp;", "&")
+                    val workId = Regex("""(?:workId|workid|taskrefId)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
+                        ?: Regex("""[0-9]+""").find(el.attr("id"))?.value
                         ?: System.currentTimeMillis().toString()
                     val courseId = Regex("""(?:courseId|courseid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: "0"
                     val classId = Regex("""(?:classId|clazzId|clazzid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
@@ -777,8 +803,8 @@ class ChaoXingClient(private val context: Context) {
                             courseId = "cx_${courseId}_${classId ?: "0"}",
                             originalCourseId = courseId,
                             originalClassId = classId,
-                            courseName = courseName,
-                            cleanCourseName = courseName,
+                            courseName = finalCourseName,
+                            cleanCourseName = finalCourseName,
                             title = title,
                             cleanTitle = title,
                             deadlineDate = ddlMillis?.let { Date(it) },
@@ -804,6 +830,7 @@ class ChaoXingClient(private val context: Context) {
                             async {
                                 try {
                                     var targetUrl = if (todo.detailUrl!!.startsWith("http")) todo.detailUrl!! else "https://mooc1.chaoxing.com${todo.detailUrl}"
+                                    targetUrl = targetUrl.replace("&amp;", "&")
                                     if (cpi.isNotBlank() && !targetUrl.contains("cpi=")) {
                                         targetUrl += if (targetUrl.contains("?")) "&cpi=$cpi" else "?cpi=$cpi"
                                     }
@@ -816,11 +843,48 @@ class ChaoXingClient(private val context: Context) {
                                         .build()
                                     val respDetail = okHttpClient.newCall(reqDetail).execute()
                                     val detailHtml = respDetail.body?.string().orEmpty()
-                                    val isDetailExpired = detailHtml.contains("task-work-gray") ||
+                                    var isDetailExpired = detailHtml.contains("task-work-gray") ||
                                             detailHtml.contains("已截止") ||
                                             detailHtml.contains("已结束") ||
                                             detailHtml.contains("已逾期")
-                                    val extractedDdl = ChaoXingCourseDetailClient.extractDeadlineFromText(detailHtml, detailHtml)
+                                    var extractedDdl = ChaoXingCourseDetailClient.extractDeadlineFromText(detailHtml, detailHtml)
+
+                                    // 若一级引导页未直接包含截止时间，深入解析二级答题/查看详情页
+                                    if (extractedDdl.isBlank() && !isDetailExpired) {
+                                        val lookMatch = Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"]|location\.href\s*=\s*['"]|window\.location(?:\.href)?\s*=\s*['"])(/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(detailHtml)
+                                            ?: Regex("""['"](/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(detailHtml)
+                                        val subPath = lookMatch?.groupValues?.get(1)?.trim()?.replace("&amp;", "&").orEmpty()
+                                        if (subPath.isNotBlank()) {
+                                            val hostBase = if (targetUrl.contains("mooc1-api.chaoxing.com")) {
+                                                "https://mooc1-api.chaoxing.com/mooc-ans"
+                                            } else {
+                                                "https://mooc1.chaoxing.com/mooc-ans"
+                                            }
+                                            val subUrl = if (subPath.startsWith("http")) subPath else hostBase + (if (subPath.startsWith("/")) subPath else "/$subPath")
+                                            try {
+                                                val reqSub = Request.Builder()
+                                                    .url(subUrl)
+                                                    .forAccount(account)
+                                                    .header("Cookie", cookies)
+                                                    .header("Referer", targetUrl)
+                                                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                                                    .get()
+                                                    .build()
+                                                val respSub = okHttpClient.newCall(reqSub).execute()
+                                                val subHtml = respSub.body?.string().orEmpty()
+                                                if (subHtml.isNotBlank()) {
+                                                    val ddlSub = ChaoXingCourseDetailClient.extractDeadlineFromText(subHtml, subHtml)
+                                                    if (ddlSub.isNotBlank()) {
+                                                        extractedDdl = ddlSub
+                                                    }
+                                                    if (subHtml.contains("已截止") || subHtml.contains("已结束") || subHtml.contains("已逾期")) {
+                                                        isDetailExpired = true
+                                                    }
+                                                }
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+
                                     val parsed = if (extractedDdl.isNotBlank()) parseDdlMillis(extractedDdl) else null
                                     Triple(todo.unifiedId, parsed, isDetailExpired)
                                 } catch (e: Exception) {
@@ -850,8 +914,9 @@ class ChaoXingClient(private val context: Context) {
                 }
             }
 
-            // 过滤掉所有已过期或已锁定的作业，按截止时间升序排序（临期的在前）
-            val activeTodos = todoList.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
+            // 过滤掉所有已过期或已锁定的作业，去重并按截止时间升序排序（临期的在前）
+            val activeTodos = UnifiedTodo.deduplicateTodos(todoList)
+                .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
                 .toMutableList()
             activeTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
             prefs.saveCachedTodos(activeTodos, account)
