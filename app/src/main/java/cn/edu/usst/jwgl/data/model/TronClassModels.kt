@@ -77,11 +77,14 @@ data class TronClassTodo(
     }
 
     fun getFormattedDeadline(): String {
-        val date = getDeadlineDate() ?: return "未定截止时间"
-        val outFormat = SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).apply {
-            timeZone = TimeZone.getDefault()
+        val date = getDeadlineDate()
+        if (date != null) {
+            val outFormat = SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).apply {
+                timeZone = TimeZone.getDefault()
+            }
+            return outFormat.format(date)
         }
-        return outFormat.format(date)
+        return if (isLocked) "已截止" else "未定截止时间"
     }
 
     fun getRemainingHours(): Long {
@@ -91,6 +94,7 @@ data class TronClassTodo(
     }
 
     fun getRemainingTimeText(): String {
+        if (isLocked) return "已截止"
         val date = getDeadlineDate() ?: return "长期有效"
         val diffMs = date.time - System.currentTimeMillis()
         if (diffMs <= 0) {
@@ -115,6 +119,7 @@ data class TronClassTodo(
     }
 
     fun isOverdue(): Boolean {
+        if (isLocked) return true
         val date = getDeadlineDate() ?: return false
         return date.time < System.currentTimeMillis()
     }

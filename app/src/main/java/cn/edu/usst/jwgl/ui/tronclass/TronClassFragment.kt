@@ -182,9 +182,10 @@ class TronClassFragment : Fragment() {
         if (isDualPlatformMode) {
             val account = AuthPreferences.currentStudentId(requireContext())
             val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+                .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
             if (cached.isNotEmpty()) {
                 val uTodos = mutableListOf<UnifiedTodo>()
-                val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos()
+                val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos().filterNot { it.isOverdue() || it.isLocked }
                 uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
                 uTodos.addAll(cached)
                 uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
@@ -202,9 +203,10 @@ class TronClassFragment : Fragment() {
         if (isDualPlatformMode) {
             val account = AuthPreferences.currentStudentId(requireContext())
             val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+                .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
             if (cached.isNotEmpty()) {
                 val uTodos = mutableListOf<UnifiedTodo>()
-                val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos()
+                val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos().filterNot { it.isOverdue() || it.isLocked }
                 uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
                 uTodos.addAll(cached)
                 uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
@@ -515,12 +517,13 @@ class TronClassFragment : Fragment() {
         val selectedSem = currentSelectedSemester
         val query = tronClassCourseSearchQuery.trim().lowercase()
 
-        // 1. 待办作业过滤
+        // 1. 待办作业过滤 (过滤已逾期/已截止/已提交)
+        val activeAllTodos = allUnifiedTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
         val filteredTodos = when (filter) {
-            null -> allUnifiedTodos
-            LearningPlatform.TRONCLASS -> allUnifiedTodos.filter { it.platform.isTronClass }
-            LearningPlatform.CHAOXING -> allUnifiedTodos.filter { it.platform.isChaoXing }
-            LearningPlatform.DUAL -> allUnifiedTodos.filter { it.platform == LearningPlatform.DUAL }
+            null -> activeAllTodos
+            LearningPlatform.TRONCLASS -> activeAllTodos.filter { it.platform.isTronClass }
+            LearningPlatform.CHAOXING -> activeAllTodos.filter { it.platform.isChaoXing }
+            LearningPlatform.DUAL -> activeAllTodos.filter { it.platform == LearningPlatform.DUAL }
         }
         tronClassTodoAdapter.updateUnifiedData(filteredTodos, multiPlatform = isDual)
         b.tvTronClassTodoBadge.text = "${filteredTodos.size} 项待办"
@@ -972,9 +975,10 @@ class TronClassFragment : Fragment() {
             if (count == 0 && isDualPlatformMode) {
                 val account = AuthPreferences.currentStudentId(requireContext())
                 val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+                .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
                 if (cached.isNotEmpty()) {
                     val uTodos = mutableListOf<UnifiedTodo>()
-                    val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos()
+                    val rawTcTodos = TronClassDataCacheManager(requireContext()).getCachedTodos().filterNot { it.isOverdue() || it.isLocked }
                     uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
                     uTodos.addAll(cached)
                     uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
@@ -1018,9 +1022,9 @@ class TronClassFragment : Fragment() {
                 val cachedCxNotices = cxPrefs.getCachedNotices()
 
                 val todos = mutableListOf<UnifiedTodo>()
-                todos.addAll(cachedTcTodos.map { UnifiedTodo.fromTronClass(it) })
+                todos.addAll(cachedTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
                 if (isDualPlatformMode) {
-                    todos.addAll(cachedCxTodos)
+                    todos.addAll(cachedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
                 }
                 todos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
 
@@ -1328,8 +1332,8 @@ class TronClassFragment : Fragment() {
 
                 val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
                 val interTodos = mutableListOf<UnifiedTodo>()
-                interTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
-                interTodos.addAll(currentCxTodos)
+                interTodos.addAll(rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
+                interTodos.addAll(currentCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
                 interTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
                 allUnifiedTodos = interTodos
 
@@ -1358,7 +1362,7 @@ class TronClassFragment : Fragment() {
                 // 纯畅课模式：完全剔除任何超星数据，百分之百纯净畅课
                 val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
                 val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
-                allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                allUnifiedTodos = rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) }
                 allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
                 allUnifiedCourses = allTronClassCourses.map { 
                     UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
@@ -1415,9 +1419,9 @@ class TronClassFragment : Fragment() {
                                 try {
                                     val res = chaoXingDetailClient.fetchHomeworks(course, withScores = false)
                                     val works = res.getOrNull() ?: emptyList()
-                                    works.filter { !it.isSubmitted() }.map { w ->
-                                        UnifiedTodo.fromChaoXingWork(w, course)
-                                    }
+                                    works.filter { !it.isSubmitted() && !it.expired && !it.statusText.contains("已截止") && !it.statusText.contains("已过期") && !it.statusText.contains("已逾期") }
+                                    .map { w -> UnifiedTodo.fromChaoXingWork(w, course) }
+                                    .filterNot { it.isOverdue() || it.isLocked }
                                 } catch (_: Exception) {
                                     emptyList()
                                 }
@@ -1445,7 +1449,8 @@ class TronClassFragment : Fragment() {
                     }
 
                     // 同步持久化超星作业缓存，保证下次冷启动或离线时立即可见
-                    ChaoXingPreferences(ctx).saveCachedTodos(mergedCxTodos)
+                    val activeMergedCxTodos = mergedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
+                    ChaoXingPreferences(ctx).saveCachedTodos(activeMergedCxTodos)
 
                     // 双平台签到活动统一聚合
                     val unifiedRollcalls = mutableListOf<UnifiedActiveRollcall>()
@@ -1484,7 +1489,7 @@ class TronClassFragment : Fragment() {
                     val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
                     val uTodos = mutableListOf<UnifiedTodo>()
                     uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
-                    uTodos.addAll(mergedCxTodos)
+                    uTodos.addAll(activeMergedCxTodos)
                     uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
                     allUnifiedTodos = uTodos
 
@@ -1541,8 +1546,8 @@ class TronClassFragment : Fragment() {
                         val cachedCxTodos = ChaoXingPreferences(ctx).getCachedTodos()
                         val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
                         val uTodos = mutableListOf<UnifiedTodo>()
-                        uTodos.addAll(rawTcTodos.map { UnifiedTodo.fromTronClass(it) })
-                        uTodos.addAll(cachedCxTodos)
+                        uTodos.addAll(rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) })
+                        uTodos.addAll(cachedCxTodos.filterNot { it.isOverdue() || it.isLocked || it.isSubmitted })
                         uTodos.sortBy { it.deadlineMillis ?: Long.MAX_VALUE }
                         allUnifiedTodos = uTodos
 
@@ -1556,7 +1561,7 @@ class TronClassFragment : Fragment() {
                         // 本地确实完全没有任何超星数据，才回退畅课单源
                         val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
                         val tcCustomMap = TronClassPreferences.getInstance(ctx).getAllCustomSemesters()
-                        allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                        allUnifiedTodos = rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) }
                         allUnifiedCourses = allTronClassCourses.map { 
                             UnifiedCourse.fromTronClass(it, customSemesterCode = tcCustomMap[it.id.toString()])
                         }
@@ -1582,7 +1587,7 @@ class TronClassFragment : Fragment() {
             } catch (e: Exception) {
                 Log.w(TAG, "ChaoXing aggregate fetch failed: ${e.message}", e)
                 val rawTcTodos = if (todosRes.isSuccess) todosRes.getOrDefault(emptyList()) else cacheMgr.getCachedTodos()
-                allUnifiedTodos = rawTcTodos.map { UnifiedTodo.fromTronClass(it) }
+                allUnifiedTodos = rawTcTodos.filterNot { it.isOverdue() || it.isLocked }.map { UnifiedTodo.fromTronClass(it) }
                 allUnifiedCourses = allTronClassCourses.map { UnifiedCourse.fromTronClass(it) }
                 allUnifiedBulletins = allTronClassBulletins.map { UnifiedBulletin.fromTronClass(it) }
                 allUnifiedActiveRollcalls = tronClassActiveRollcalls.map { tc ->

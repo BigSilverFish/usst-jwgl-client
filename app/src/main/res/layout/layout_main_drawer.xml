@@ -215,7 +215,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="14dp"
-                    android:text="&#x4E00;&#x7F51;&#x7545;&#x5B66; (TronClass)"
+                    android:text="课程门户"
                     android:textColor="@color/text_primary"
                     android:textSize="14.5sp"
                     android:textStyle="bold" />

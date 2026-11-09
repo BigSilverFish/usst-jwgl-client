@@ -292,7 +292,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     }
                     val isExpired = li.select(".icon-zy-g").isNotEmpty() ||
                             li.html().contains("icon-zy-g") ||
-                            status.contains("已截止")
+                            li.html().contains("task-work-gray") ||
+                            status.contains("已截止") ||
+                            status.contains("已过期") ||
+                            status.contains("已逾期") ||
+                            status.contains("已结束")
 
                     out.add(
                         ChaoXingWork(
@@ -357,7 +361,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         courseName = course.courseName,
                         statusText = status,
                         deadline = timeText,
-                        expired = body.contains("icon-zy-g"),
+                        expired = body.contains("icon-zy-g") || body.contains("task-work-gray") ||
+                                status.contains("已截止") || status.contains("已过期") || status.contains("已逾期"),
                         taskUrl = dataUrl.replace("&amp;", "&")
                     )
                 )
@@ -475,7 +480,13 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     } else {
                         timeStr = cleanDeadline(timeStr)
                     }
-                    val isExpired = el.select(".icon-zy-g").isNotEmpty() || statusText.contains("已截止")
+                    val isExpired = el.select(".icon-zy-g").isNotEmpty() ||
+                            el.html().contains("icon-zy-g") ||
+                            el.html().contains("task-work-gray") ||
+                            statusText.contains("已截止") ||
+                            statusText.contains("已过期") ||
+                            statusText.contains("已逾期") ||
+                            statusText.contains("已结束")
 
                     out.add(
                         ChaoXingWork(
@@ -1912,7 +1923,10 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     val results = ddlTasks.awaitAll()
                     for ((index, ddl) in results) {
                         if (ddl.isNotBlank()) {
-                            allWorks[index] = allWorks[index].copy(deadline = ddl)
+                            val parsedMs = ChaoXingClient.parseDdlMillis(ddl)
+                            val isPast = parsedMs != null && parsedMs < System.currentTimeMillis()
+                            val isExp = allWorks[index].expired || isPast
+                            allWorks[index] = allWorks[index].copy(deadline = ddl, expired = isExp)
                         }
                     }
                 }
@@ -2261,12 +2275,15 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     val ddlMs = ChaoXingClient.parseDdlMillis(finalDeadline)
                     if (matchIdx >= 0 && ddlMs != null) {
                         val oldTodo = cachedTodos[matchIdx]
-                        if (oldTodo.deadlineMillis == null || oldTodo.deadlineMillis != ddlMs) {
-                            cachedTodos[matchIdx] = oldTodo.copy(
-                                deadlineDate = Date(ddlMs),
-                                deadlineMillis = ddlMs,
-                                isLocked = ddlMs < System.currentTimeMillis()
-                            )
+                            val isItemLocked = ddlMs < System.currentTimeMillis() ||
+                                    finalStatus.contains("已截止") ||
+                                    finalStatus.contains("已过期")
+                            if (oldTodo.deadlineMillis == null || oldTodo.deadlineMillis != ddlMs || oldTodo.isLocked != isItemLocked) {
+                                cachedTodos[matchIdx] = oldTodo.copy(
+                                    deadlineDate = Date(ddlMs),
+                                    deadlineMillis = ddlMs,
+                                    isLocked = isItemLocked
+                                )
                             prefs.saveCachedTodos(cachedTodos, account)
                         }
                     }
