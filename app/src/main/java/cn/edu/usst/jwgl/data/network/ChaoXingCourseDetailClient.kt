@@ -22,6 +22,8 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.File
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
@@ -515,6 +517,8 @@ class ChaoXingCourseDetailClient(private val context: Context) {
         fun cleanDeadline(raw: String?): String {
             if (raw.isNullOrBlank()) return ""
             var s = raw.trim()
+            // 剔除括号内容，如 (剩 1 天 1 小时)、(已截止)
+            s = s.replace(Regex("""\([^)]*\)|（[^）]*）"""), "").trim()
             val prefixes = listOf(
                 "截止时间：", "截止时间:", "截止时间",
                 "截止：", "截止:", "截止",
@@ -522,13 +526,18 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 "结束时间：", "结束时间:", "结束时间",
                 "作答时间：", "作答时间:", "作答时间",
                 "起止时间：", "起止时间:", "起止时间",
-                "有效时间：", "有效时间:", "有效时间"
+                "有效时间：", "有效时间:", "有效时间",
+                "考试时间：", "考试时间:", "考试时间",
+                "开放时间：", "开放时间:", "开放时间",
+                "时间范围：", "时间范围:", "时间范围"
             )
             for (p in prefixes) {
                 if (s.startsWith(p)) {
                     s = s.substring(p.length).trim()
                 }
             }
+            s = s.replace(Regex("""^[^0-9]{0,10}[:：]\s*"""), "").trim()
+
             // 若传入时间区间如 "10-21 17:58 至 10-27 17:58"，提取区间终点作为截止时间
             val rangeDelimiters = listOf("至", "到", "～", "~", "—", " - ")
             for (delim in rangeDelimiters) {
@@ -543,6 +552,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             s = s.replace(Regex("""(\d{4})年(\d{1,2})月(\d{1,2})日?"""), "$1-$2-$3")
             s = s.replace(Regex("""(\d{1,2})月(\d{1,2})日?"""), "$1-$2")
             s = s.replace('/', '-').replace('.', '-')
+            s = s.replace(Regex("""(?:截止|结束|前完成)$"""), "").trim()
             return s.replace("\u00A0", " ").trim()
         }
 
@@ -560,6 +570,9 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             )
             val dualDateRegex = Regex(
                 """$datePat\s*(?:至|到|~|～|—|\s+-\s+)\s*($datePat)"""
+            )
+            val reverseDdlRegex = Regex(
+                """($datePat)\s*(?:前完成|截止|结束)"""
             )
 
             // 0. 若存在 HTML，优先通过 Jsoup 精准分析常用时间容器（如 rightBord、time、end-time 等）
@@ -579,6 +592,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                             val ddl = cleanDeadline(mDdl.groupValues[1])
                             if (ddl.isNotBlank()) return ddl
                         }
+                        val mReverse = reverseDdlRegex.find(t)
+                        if (mReverse != null) {
+                            val ddl = cleanDeadline(mReverse.groupValues[1])
+                            if (ddl.isNotBlank()) return ddl
+                        }
                         val mDual = dualDateRegex.find(t)
                         if (mDual != null) {
                             val ddl = cleanDeadline(mDual.groupValues[1])
@@ -594,6 +612,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     val mDdlWhole = ddlRegex.find(wholeDocText)
                     if (mDdlWhole != null) {
                         val ddl = cleanDeadline(mDdlWhole.groupValues[1])
+                        if (ddl.isNotBlank()) return ddl
+                    }
+                    val mReverseWhole = reverseDdlRegex.find(wholeDocText)
+                    if (mReverseWhole != null) {
+                        val ddl = cleanDeadline(mReverseWhole.groupValues[1])
                         if (ddl.isNotBlank()) return ddl
                     }
                     val mDualWhole = dualDateRegex.find(wholeDocText)
@@ -617,6 +640,11 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 val mDdl = ddlRegex.find(cleanSrc)
                 if (mDdl != null) {
                     val ddl = cleanDeadline(mDdl.groupValues[1])
+                    if (ddl.isNotBlank()) return ddl
+                }
+                val mReverse = reverseDdlRegex.find(cleanSrc)
+                if (mReverse != null) {
+                    val ddl = cleanDeadline(mReverse.groupValues[1])
                     if (ddl.isNotBlank()) return ddl
                 }
                 val mDual = dualDateRegex.find(cleanSrc)
@@ -1796,7 +1824,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     val respList = okHttpClient.newCall(reqList).execute()
                     val listHtml = respList.body?.string() ?: ""
                     val works = parseWorkListHtml(listHtml, course)
-                    Log.w(TAG, "fetchHomeworks mooc2/work/list parsed ${works.size} works")
+                    Log.w(TAG, "fetchHomeworks mooc2/work/list parsed ${works.size} works: ${works.map { "[${it.title}] ddl='${it.deadline}' status='${it.statusText}'" }}")
                     allWorks.addAll(works)
                 } catch (e: Exception) {
                     Log.w(TAG, "fetchHomeworks mooc2/work/list request failed", e)
@@ -1817,7 +1845,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 val respStuWork = okHttpClient.newCall(reqStuWork).execute()
                 val stuWorkHtml = respStuWork.body?.string() ?: ""
                 val stuWorks = parseStuWorkHtmlForCourse(stuWorkHtml, course)
-                Log.w(TAG, "fetchHomeworks stu-work parsed ${stuWorks.size} works for course ${course.courseName}")
+                Log.w(TAG, "fetchHomeworks stu-work parsed ${stuWorks.size} works for course ${course.courseName}: ${stuWorks.map { "[${it.title}] ddl='${it.deadline}' status='${it.statusText}'" }}")
 
                 // 合并去重 (根据 workId)
                 val existingIds = allWorks.map { it.workId }.toSet()
@@ -1849,6 +1877,42 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                             if (score.isNotBlank()) {
                                 allWorks[index] = allWorks[index].withScore(score)
                             }
+                        }
+                    }
+                }
+            }
+
+            // Step 3b: 针对未提交且缺失截止时间的作业，并发探测并补全其截止时间
+            val unsubmittedWithoutDdl = allWorks.mapIndexedNotNull { index, work ->
+                if (!work.isSubmitted() && work.deadline.isBlank()) Pair(index, work) else null
+            }
+            if (unsubmittedWithoutDdl.isNotEmpty()) {
+                val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
+                coroutineScope {
+                    val ddlTasks = unsubmittedWithoutDdl.map { pair ->
+                        async {
+                            val work = pair.second
+                            // 优先查二级缓存
+                            val cached = cacheMgr.getCachedChaoXingHomeworkDetail(work.workId)
+                            if (cached != null && !cached.deadline.isNullOrBlank()) {
+                                return@async Pair(pair.first, cleanDeadline(cached.deadline))
+                            }
+                            // 其次查全局待办缓存
+                            val cachedTodo = prefs.getCachedTodos(studentId).find { it.originalTodoId == work.workId }
+                            if (cachedTodo?.deadlineMillis != null) {
+                                val ddlStr = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(cachedTodo.deadlineMillis!!))
+                                return@async Pair(pair.first, ddlStr)
+                            }
+                            // 请求详情探测
+                            val detailRes = fetchHomeworkDetail(work, course, studentId)
+                            val ddl = cleanDeadline(detailRes.getOrNull()?.deadline.orEmpty())
+                            Pair(pair.first, ddl)
+                        }
+                    }
+                    val results = ddlTasks.awaitAll()
+                    for ((index, ddl) in results) {
+                        if (ddl.isNotBlank()) {
+                            allWorks[index] = allWorks[index].copy(deadline = ddl)
                         }
                     }
                 }
@@ -2187,6 +2251,28 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
             // 存入本地二级缓存
             cacheMgr.saveChaoXingHomeworkDetail(workIdSafe, detail)
+
+            // 反向同步回填全局待办列表缓存中的截止时间
+            if (finalDeadline.isNotBlank()) {
+                try {
+                    val account = if (!studentId.isNullOrBlank()) studentId else cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+                    val cachedTodos = prefs.getCachedTodos(account).toMutableList()
+                    val matchIdx = cachedTodos.indexOfFirst { it.originalTodoId == workIdSafe }
+                    val ddlMs = ChaoXingClient.parseDdlMillis(finalDeadline)
+                    if (matchIdx >= 0 && ddlMs != null) {
+                        val oldTodo = cachedTodos[matchIdx]
+                        if (oldTodo.deadlineMillis == null || oldTodo.deadlineMillis != ddlMs) {
+                            cachedTodos[matchIdx] = oldTodo.copy(
+                                deadlineDate = Date(ddlMs),
+                                deadlineMillis = ddlMs,
+                                isLocked = ddlMs < System.currentTimeMillis()
+                            )
+                            prefs.saveCachedTodos(cachedTodos, account)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
             Log.i(TAG, "Successfully fetched and cached ChaoXing homework detail: $workTitleSafe (${parsedQuestions.size} questions)")
             Result.success(detail)
         } catch (e: Exception) {

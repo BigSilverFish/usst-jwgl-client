@@ -225,10 +225,34 @@ class TronClassFragment : Fragment() {
         checkAndRefreshHeaderSpacing()
     }
 
+    fun onTabSelected() {
+        syncDrawerButtonVisibility()
+        checkAndRefreshHeaderSpacing()
+        if (isDualPlatformMode) {
+            val account = homeAccount.ifBlank { tronClassClient.accountKey() }
+            val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+            if (cached.isNotEmpty() && cached != rawCxTodos) {
+                rawCxTodos = cached
+                publishHomeLists()
+            }
+            if (rawCxTodos.any { it.deadlineMillis == null }) {
+                loadTronClassData(forceRefresh = true, silent = true)
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         applyAdaptiveLayout()
         checkAndRefreshHeaderSpacing()
+        if (isDualPlatformMode) {
+            val account = homeAccount.ifBlank { tronClassClient.accountKey() }
+            val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+            if (cached.isNotEmpty() && cached != rawCxTodos) {
+                rawCxTodos = cached
+                publishHomeLists()
+            }
+        }
     }
 
     fun checkAndRefreshHeaderSpacing() {
@@ -934,7 +958,7 @@ class TronClassFragment : Fragment() {
             }
         }
 
-        binding.swipeRefreshTronClass.isEnabled = false
+        binding.swipeRefreshTronClass.isEnabled = true
         updateTronClassUserHeader()
         updateHeroCardAndSignButtonState()
     }
@@ -943,6 +967,14 @@ class TronClassFragment : Fragment() {
         childFragmentManager.addOnBackStackChangedListener {
             val count = childFragmentManager.backStackEntryCount
             _binding?.flTronClassSecondaryContainer?.visibility = if (count > 0) View.VISIBLE else View.GONE
+            if (count == 0 && isDualPlatformMode) {
+                val account = homeAccount.ifBlank { tronClassClient.accountKey() }
+                val cached = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(requireContext()).getCachedTodos(account)
+                if (cached.isNotEmpty() && cached != rawCxTodos) {
+                    rawCxTodos = cached
+                    publishHomeLists()
+                }
+            }
         }
     }
 
