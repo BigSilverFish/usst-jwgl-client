@@ -274,11 +274,11 @@
 
                     </LinearLayout>
 
-                    <androidx.recyclerview.widget.RecyclerView
+                    <cn.edu.usst.jwgl.ui.tronclass.ViewportRecyclerView
                         android:id="@+id/rvTronClassTodos"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:nestedScrollingEnabled="false"
+                        android:nestedScrollingEnabled="true"
                         tools:listitem="@layout/item_tronclass_todo" />
 
                     <TextView
@@ -336,11 +336,11 @@
 
                     </LinearLayout>
 
-                    <androidx.recyclerview.widget.RecyclerView
+                    <cn.edu.usst.jwgl.ui.tronclass.ViewportRecyclerView
                         android:id="@+id/rvTronClassBulletins"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:nestedScrollingEnabled="false"
+                        android:nestedScrollingEnabled="true"
                         tools:listitem="@layout/item_tronclass_bulletin" />
 
                     <TextView
@@ -466,11 +466,11 @@
                     </HorizontalScrollView>
 
                     <!-- Courses RecyclerView -->
-                    <androidx.recyclerview.widget.RecyclerView
+                    <cn.edu.usst.jwgl.ui.tronclass.ViewportRecyclerView
                         android:id="@+id/rvTronClassCourses"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:nestedScrollingEnabled="false"
+                        android:nestedScrollingEnabled="true"
                         tools:listitem="@layout/item_tronclass_course" />
 
                     <!-- Empty Courses View -->
