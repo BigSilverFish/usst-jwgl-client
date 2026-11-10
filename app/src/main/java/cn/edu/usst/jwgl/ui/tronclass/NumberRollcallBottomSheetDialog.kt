@@ -16,6 +16,7 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AccountVault
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
+import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
@@ -36,10 +37,12 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     private val enteredCode = StringBuilder()
     private var isSubmitting = false
+    private var isFetchingCode = false
     private var submittedHere = false
     private var targetRollcall: TronClassRollcall? = null
     private var accountAtOpen = ""
     private var activityPicker: androidx.appcompat.app.AlertDialog? = null
+    private var btnFetchCodeDirectly: View? = null
 
     private lateinit var tvCourseName: TextView
     private lateinit var tvStatusTip: TextView
@@ -149,10 +152,70 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             dismiss()
         }
 
+        // 一键获取口令按钮
+        btnFetchCodeDirectly = view.findViewById(R.id.btnFetchCodeDirectly)
+        btnFetchCodeDirectly?.setOnClickListener {
+            fetchNumberCodeDirectly()
+        }
+
         setupKeypadListeners(view)
         updatePinBoxes()
 
         resolveRollcall()
+    }
+
+    private fun fetchNumberCodeDirectly() {
+        if (!sameAccount()) {
+            tvStatusTip.text = "当前账号已改变，请重新打开签到"
+            return
+        }
+        val target = targetRollcall
+        if (target == null || target.getEffectiveId() <= 0L) {
+            tvStatusTip.text = "正在核对签到活动，请稍候再试"
+            return
+        }
+        if (isFetchingCode || isSubmitting || submittedHere) return
+
+        isFetchingCode = true
+        progressSubmitting.visibility = View.VISIBLE
+        tvStatusTip.text = "正在尝试从服务端获取口令..."
+        tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+        btnFetchCodeDirectly?.isEnabled = false
+
+        val client = TronClassClient(requireContext().applicationContext)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val lookupResult = client.lookupNumberRollcallCode(target)
+            if (!canShowResult() || targetRollcall?.getEffectiveId() != target.getEffectiveId()) return@launch
+
+            isFetchingCode = false
+            progressSubmitting.visibility = View.GONE
+            btnFetchCodeDirectly?.isEnabled = true
+
+            when (lookupResult) {
+                is NumberCodeLookupResult.Found -> {
+                    val code = lookupResult.code
+                    enteredCode.clear()
+                    enteredCode.append(code)
+                    updatePinBoxes()
+                    tvStatusTip.text = "已获取到口令：$code，正在提交..."
+                    tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.primary))
+                    view?.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+
+                    handler.removeCallbacksAndMessages(null)
+                    handler.postDelayed({
+                        if (isAdded && !isSubmitting && !submittedHere && sameAccount()) {
+                            submitNumberCode()
+                        }
+                    }, 180)
+                }
+                is NumberCodeLookupResult.Unavailable -> {
+                    val msg = lookupResult.message.ifBlank { "服务端未返回口令，请手动输入或看直播获取" }
+                    tvStatusTip.text = msg
+                    tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.grade_red_text))
+                    view?.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                }
+            }
+        }
     }
 
     private fun sameAccount(): Boolean = isAdded && accountAtOpen.isNotBlank() &&

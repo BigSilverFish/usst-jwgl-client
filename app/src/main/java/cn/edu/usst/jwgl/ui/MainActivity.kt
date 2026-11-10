@@ -1776,7 +1776,7 @@ class MainActivity : AppCompatActivity() {
                 if (!tcPrefs.isLoggedIn()) {
                     Toast.makeText(this, "已开启上课签到监听（提示：请先登录一网畅学）", Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(this, "已开启上课签到后台监听：上课时自动检测，雷达点名自动匹配点位签到", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "已开启上课签到后台监听：上课时自动检测课堂点名", Toast.LENGTH_SHORT).show()
                 }
             } else {
                 tcPrefs.setRollcallMonitorEnabled(false)
@@ -1784,6 +1784,32 @@ class MainActivity : AppCompatActivity() {
                 RollcallMonitorScheduler.onPreferenceChanged(this)
                 Toast.makeText(this, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        // TronClass Rollcall Auto-Sign Row & Switch
+        binding.rowRollcallAutoSign.setOnClickListener {
+            if (!tcPrefs.isRollcallMonitorEnabled()) {
+                Toast.makeText(this, "需先开启上课签到后台监听功能", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            showRollcallAutoSignDelayDialog()
+        }
+        binding.switchRollcallAutoSign.isChecked = tcPrefs.isRollcallAutoSignEnabled()
+        binding.switchRollcallAutoSign.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && !tcPrefs.isRollcallMonitorEnabled()) {
+                binding.switchRollcallAutoSign.isChecked = false
+                Toast.makeText(this, "需先开启上课签到后台监听功能", Toast.LENGTH_SHORT).show()
+                return@setOnCheckedChangeListener
+            }
+            tcPrefs.setRollcallAutoSignEnabled(isChecked)
+            updateReminderSubtitles()
+            val msg = if (isChecked) {
+                val delay = tcPrefs.getRollcallAutoSignDelaySeconds()
+                "已开启课堂签到自动提交（发现后延迟 ${delay} 秒）"
+            } else {
+                "已关闭课堂签到自动提交（仅保留后台监听通知）"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
         // Powerful AlarmClock Reminder Row & Switch
@@ -2218,10 +2244,23 @@ class MainActivity : AppCompatActivity() {
             "已关闭 · 点击可设置提前时长"
         }
 
-        binding.tvRollcallMonitorSubtitle.text = if (tcPrefs.isRollcallMonitorEnabled()) {
-            "已开启 · 上课时驻留后台自动检测与雷达签到"
+        val isMonitorEnabled = tcPrefs.isRollcallMonitorEnabled()
+        binding.tvRollcallMonitorSubtitle.text = if (isMonitorEnabled) {
+            "已开启 · 上课时驻留后台检测签到活动"
         } else {
-            "已关闭 · 上课时驻留后台检测签到 · 雷达自动签到"
+            "已关闭 · 上课时驻留后台检测签到活动"
+        }
+
+        val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
+        val delaySec = tcPrefs.getRollcallAutoSignDelaySeconds()
+        binding.switchRollcallAutoSign.isEnabled = isMonitorEnabled
+        binding.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
+        binding.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
+            "未启用 · 需先开启上方的上课签到后台监听"
+        } else if (isAutoSignEnabled) {
+            "已开启 · 首次发现签到 ${delaySec} 秒后自动提交 (点击设置时延)"
+        } else {
+            "已关闭 · 仅后台监听并发通知，不自动提交签到"
         }
 
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)
@@ -2308,6 +2347,74 @@ class MainActivity : AppCompatActivity() {
                 TronClassDdlScheduler.scheduleFromPreferences(this)
                 Toast.makeText(this, "已设置作业临期提前 $chosenHours 小时提醒", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showRollcallAutoSignDelayDialog() {
+        val options = arrayOf(
+            "延迟 5 秒",
+            "延迟 10 秒 (推荐)",
+            "延迟 15 秒",
+            "延迟 20 秒",
+            "延迟 25 秒",
+            "延迟 30 秒",
+            "自定义秒数 (5 - 30 秒)"
+        )
+        val values = intArrayOf(5, 10, 15, 20, 25, 30, -1)
+        val tcPrefs = TronClassPreferences(this)
+        val currentSeconds = tcPrefs.getRollcallAutoSignDelaySeconds()
+        val matchIdx = values.indexOf(currentSeconds)
+        val selectedIdx = if (matchIdx >= 0) matchIdx else 6
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("自动签到时延设置")
+            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
+                if (which == 6) {
+                    dialog.dismiss()
+                    showCustomRollcallAutoSignDelayDialog()
+                } else {
+                    val chosen = values[which]
+                    tcPrefs.setRollcallAutoSignDelaySeconds(chosen)
+                    updateReminderSubtitles()
+                    Toast.makeText(this, "已设置自首次发现签到 $chosen 秒后尝试自动签到", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showCustomRollcallAutoSignDelayDialog() {
+        val tcPrefs = TronClassPreferences(this)
+        val currentSeconds = tcPrefs.getRollcallAutoSignDelaySeconds()
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(currentSeconds.toString())
+            setSelection(text.length)
+            setHint("请输入 5 到 30 之间的整数秒")
+        }
+
+        val container = android.widget.FrameLayout(this).apply {
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, (8 * resources.displayMetrics.density).toInt(), padding, 0)
+            addView(input)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("自定义自动签到时延 (秒)")
+            .setMessage("设定自首次发现签到活动至开始尝试自动提交的等待时间（5 - 30 秒）：")
+            .setView(container)
+            .setPositiveButton("确定") { _, _ ->
+                val entered = input.text.toString().trim().toIntOrNull()
+                if (entered == null || entered !in 5..30) {
+                    Toast.makeText(this, "请输入 5 到 30 之间的秒数", Toast.LENGTH_SHORT).show()
+                } else {
+                    tcPrefs.setRollcallAutoSignDelaySeconds(entered)
+                    updateReminderSubtitles()
+                    Toast.makeText(this, "已设置自动签到时延为 $entered 秒", Toast.LENGTH_SHORT).show()
+                }
             }
             .setNegativeButton("取消", null)
             .safeShow()

@@ -163,23 +163,59 @@ class RollcallMonitorService : Service() {
 
             Log.i(TAG, "Detected ongoing rollcall: id=$rollcallId, type=$normType, course=$cName")
 
-            when (normType) {
-                "radar" -> {
-                    handleRadarAutoSign(rollcall, session)
-                }
-                "number" -> {
-                    handleNumberAutoSign(rollcall, session)
-                }
-                "qr_code" -> {
-                    handleQrCodeAutoSign(rollcall, session)
-                }
-                else -> {
-                    RollcallNotificationHelper.notifyGenericRollcall(
+            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
+            val delaySeconds = prefs.getRollcallAutoSignDelaySeconds().coerceIn(5, 30)
+
+            if (!isAutoSignEnabled) {
+                // 仅监听模式：立即通知用户手动签到
+                Log.i(TAG, "Auto-sign disabled, notifying user for manual rollcall: id=$rollcallId, type=$normType")
+                when (normType) {
+                    "number" -> RollcallNotificationHelper.notifyNumberRollcall(this, rollcallId, cName)
+                    "radar" -> {
+                        val room = rollcall.classroom ?: session.room
+                        RollcallNotificationHelper.notifyRadarResult(
+                            context = this,
+                            rollcallId = rollcallId,
+                            courseName = cName,
+                            building = null,
+                            success = false,
+                            message = "已检测到课堂雷达签到，点击手动选择点位签到",
+                            classroom = room,
+                            latitude = rollcall.latitude,
+                            longitude = rollcall.longitude,
+                            scope = rollcall.scope
+                        )
+                    }
+                    "qr_code" -> RollcallNotificationHelper.notifyQrRollcall(this, rollcallId, cName)
+                    else -> RollcallNotificationHelper.notifyGenericRollcall(
                         this,
                         rollcallId,
                         cName,
                         rollcall.getTypeDisplayName()
                     )
+                }
+            } else {
+                // 自动签到模式：自首次发现签到的 5-30 秒才开始尝试自动签到
+                Log.i(TAG, "Auto-sign enabled. Waiting $delaySeconds seconds before submitting rollcall $rollcallId ($normType)")
+                updateForegroundNotification(
+                    session,
+                    "检测到【$cName】签到，将在 ${delaySeconds} 秒后尝试自动提交"
+                )
+                serviceScope.launch {
+                    delay(delaySeconds * 1000L)
+                    if (!isActive) return@launch
+
+                    when (normType) {
+                        "radar" -> handleRadarAutoSign(rollcall, session)
+                        "number" -> handleNumberAutoSign(rollcall, session)
+                        "qr_code" -> handleQrCodeAutoSign(rollcall, session)
+                        else -> RollcallNotificationHelper.notifyGenericRollcall(
+                            this@RollcallMonitorService,
+                            rollcallId,
+                            cName,
+                            rollcall.getTypeDisplayName()
+                        )
+                    }
                 }
             }
         }
