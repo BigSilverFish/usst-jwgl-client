@@ -13,21 +13,31 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <androidx.core.widget.NestedScrollView
-            android:id="@+id/scrollTronClass"
+        <androidx.coordinatorlayout.widget.CoordinatorLayout
+            android:id="@+id/coordinatorTronClass"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:fillViewport="true">
+            android:layout_height="match_parent">
 
-            <LinearLayout
-                android:id="@+id/llTronClassContent"
+            <com.google.android.material.appbar.AppBarLayout
+                android:id="@+id/appBarTronClass"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingBottom="48dp">
+                android:background="@android:color/transparent"
+                app:elevation="0dp">
 
-                <!-- Space for Floating Header -->
+                <com.google.android.material.appbar.CollapsingToolbarLayout
+                    android:id="@+id/collapsingToolbarTronClass"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:layout_scrollFlags="scroll|exitUntilCollapsed">
+
+                    <LinearLayout
+                        android:id="@+id/llTronClassCollapsibleHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+<!-- Space for Floating Header -->
                 <View
                     android:id="@+id/viewTronClassHeaderSpacing"
                     android:layout_width="match_parent"
@@ -200,7 +210,16 @@
 
                 </LinearLayout>
 
-                <!-- 三列 Tab 导航栏：作业、公告、课程 -->
+                    </LinearLayout>
+
+                    <View
+                        android:id="@+id/viewPinnedSpacing"
+                        android:layout_width="match_parent"
+                        android:layout_height="96dp"
+                        app:layout_collapseMode="pin" />
+
+                </com.google.android.material.appbar.CollapsingToolbarLayout>
+
                 <com.google.android.material.tabs.TabLayout
                     android:id="@+id/tabLayoutTronClass"
                     android:layout_width="match_parent"
@@ -234,11 +253,20 @@
 
                 </com.google.android.material.tabs.TabLayout>
 
-                <!-- Tab 1 容器: 待办作业与测验 -->
+            </com.google.android.material.appbar.AppBarLayout>
+
+            <FrameLayout
+                android:id="@+id/llTronClassContent"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:paddingBottom="48dp"
+                app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+<!-- Tab 1 容器: 待办作业与测验 -->
                 <LinearLayout
                     android:id="@+id/layoutTabTodos"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:visibility="visible">
 
@@ -274,11 +302,12 @@
 
                     </LinearLayout>
 
-                    <cn.edu.usst.jwgl.ui.tronclass.ViewportRecyclerView
+                    <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rvTronClassTodos"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:nestedScrollingEnabled="true"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:clipToPadding="false"
                         tools:listitem="@layout/item_tronclass_todo" />
 
                     <TextView
@@ -300,7 +329,7 @@
                 <LinearLayout
                     android:id="@+id/layoutTabBulletins"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:visibility="gone">
 
@@ -336,11 +365,12 @@
 
                     </LinearLayout>
 
-                    <cn.edu.usst.jwgl.ui.tronclass.ViewportRecyclerView
+                    <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rvTronClassBulletins"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:nestedScrollingEnabled="true"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:clipToPadding="false"
                         tools:listitem="@layout/item_tronclass_bulletin" />
 
                     <TextView
@@ -362,7 +392,7 @@
                 <LinearLayout
                     android:id="@+id/layoutTabCourses"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:visibility="gone">
 
@@ -466,11 +496,12 @@
                     </HorizontalScrollView>
 
                     <!-- Courses RecyclerView -->
-                    <cn.edu.usst.jwgl.ui.tronclass.ViewportRecyclerView
+                    <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rvTronClassCourses"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:nestedScrollingEnabled="true"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:clipToPadding="false"
                         tools:listitem="@layout/item_tronclass_course" />
 
                     <!-- Empty Courses View -->
@@ -489,9 +520,9 @@
 
                 </LinearLayout>
 
-            </LinearLayout>
+            </FrameLayout>
 
-        </androidx.core.widget.NestedScrollView>
+        </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
