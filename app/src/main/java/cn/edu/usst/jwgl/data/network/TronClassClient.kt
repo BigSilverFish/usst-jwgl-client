@@ -506,6 +506,7 @@ class TronClassClient(context: Context) {
                     val item = arr.getJSONObject(i)
                     val isNumber = item.optBoolean("is_number", false)
                     val isRadar = item.optBoolean("is_radar", false)
+                    val isSelfRegistration = item.optBoolean("is_self_registration", false)
                     val ids = listOf("id", "rollcallId", "rollcall_id").filter { item.has(it) && !item.isNull(it) }
                         .map { item.optString(it).toLongOrNull()?.takeIf { id -> id > 0L }
                             ?: throw org.json.JSONException("Invalid activity ID") }.distinct()
@@ -516,10 +517,10 @@ class TronClassClient(context: Context) {
                     if (courseIds.size > 1) throw org.json.JSONException("Conflicting course IDs")
                     val rawType = item.optString("type", item.optString("source", "")).lowercase(Locale.ROOT).trim()
                     val resolvedType = when {
-                        rawType == "number" -> "number"
-                        rawType == "radar" || rawType == "roomis" -> "radar"
-                        rawType == "self_registration" -> "self_registration"
-                        rawType == "qr" || rawType == "qr_code" -> "qr_code"
+                        isNumber || rawType == "number" -> "number"
+                        isRadar || rawType == "radar" || rawType == "roomis" -> "radar"
+                        isSelfRegistration || rawType == "self_registration" -> "self_registration"
+                        rawType == "qr" || rawType == "qr_code" || rawType == "qr_rollcall" -> "qr_code"
                         else -> "unknown"
                     }
                     val courseTitle = item.optString("course_title",
@@ -541,6 +542,7 @@ class TronClassClient(context: Context) {
                         source = item.optString("source", null),
                         isNumber = isNumber,
                         isRadar = isRadar,
+                        isSelfRegistration = isSelfRegistration,
                         latitude = rLat,
                         longitude = rLng,
                         scope = rScope,
@@ -648,6 +650,49 @@ class TronClassClient(context: Context) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "answerNumberRollcall error", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * 9.2 提交学生自主点名
+     * PUT /api/rollcall/{rollcallId}/answer_self_registration_rollcall
+     * Body: { "deviceId": deviceId }
+     */
+    suspend fun answerSelfRegistrationRollcall(
+        rollcallId: Long,
+        customSessionId: String? = null,
+        customDeviceId: String? = null,
+        customAccountKey: String? = null
+    ): Result<RollcallSubmitResult> {
+        val capturedAccount = customAccountKey ?: accountKey()
+        return withContext(Dispatchers.IO) {
+            try {
+                if (rollcallId <= 0L) {
+                    return@withContext Result.failure(IllegalArgumentException("请先选择明确的自主签到活动"))
+                }
+                val url = "$BASE_URL/api/rollcall/$rollcallId/answer_self_registration_rollcall"
+                val targetDeviceId = customDeviceId ?: prefs.getDeviceId(capturedAccount)
+                val payload = JSONObject().apply {
+                    put("deviceId", targetDeviceId)
+                }
+
+                val reqBuilder = Request.Builder()
+                    .url(url)
+                    .put(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+
+                if (!customSessionId.isNullOrBlank()) {
+                    reqBuilder.header("x-session-id", customSessionId)
+                    reqBuilder.header("Cookie", "session_id=$customSessionId")
+                }
+
+                val req = reqBuilder.build()
+                submitProtectedRollcall(req, rollcallId, customSessionId, customAccountKey, capturedAccount)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "answerSelfRegistrationRollcall error", e)
                 Result.failure(e)
             }
         }
@@ -1138,6 +1183,117 @@ class TronClassClient(context: Context) {
             }
         }
         results
+    }
+
+    /**
+     * 9.7 一键为所有已保存账号提交【自主点名】签到
+     */
+    suspend fun batchAnswerSelfRegistrationRollcall(
+        rollcallId: Long
+    ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
+        val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
+        val accounts = vault.getAccounts()
+        if (accounts.isEmpty()) {
+            val currId = AuthPreferences(context).getStudentId()
+            val single = answerSelfRegistrationRollcall(rollcallId)
+            val sRes = single.getOrNull()
+            return@withContext listOf(
+                MultiAccountRollcallResult(
+                    studentId = currId,
+                    studentName = "当前用户",
+                    success = sRes?.success == true,
+                    message = sRes?.message ?: "未知结果",
+                    statusName = sRes?.statusName ?: ""
+                )
+            )
+        }
+
+        val results = mutableListOf<MultiAccountRollcallResult>()
+        for (acc in accounts) {
+            val nameDisplay = acc.studentName.ifBlank { acc.studentId }
+            val sessionRes = ensureSessionForAccount(acc.studentId)
+            val sid = sessionRes.getOrNull()
+            if (sid.isNullOrBlank()) {
+                val err = sessionRes.exceptionOrNull()?.message ?: "登录失效"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, "畅课授权失败: $err"))
+                continue
+            }
+            val devId = prefs.getDeviceId(acc.studentId)
+            val res = answerSelfRegistrationRollcall(rollcallId, customSessionId = sid, customDeviceId = devId, customAccountKey = acc.studentId)
+            val s = res.getOrNull()
+            if (s != null) {
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, s.success, s.message, s.statusName ?: ""))
+            } else {
+                val errMsg = res.exceptionOrNull()?.message ?: "签到请求失败"
+                results.add(MultiAccountRollcallResult(acc.studentId, nameDisplay, false, errMsg))
+            }
+        }
+        results
+    }
+
+    /**
+     * 权威花名册二次查验闭环（recheck_on_call_fine）
+     * 查询 GET /api/rollcall/{rollcallId}/student_rollcalls，核验自身状态是否为 on_call_fine
+     */
+    suspend fun recheckOnCallFine(
+        rollcallId: Long,
+        studentId: String,
+        customSessionId: String? = null,
+        expectedAccount: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (rollcallId <= 0L || studentId.isBlank()) return@withContext false
+        val account = expectedAccount ?: accountKey()
+        try {
+            val url = "$BASE_URL/api/rollcall/$rollcallId/student_rollcalls"
+            val reqBuilder = Request.Builder().url(url).get()
+            if (!customSessionId.isNullOrBlank()) {
+                reqBuilder.header("x-session-id", customSessionId)
+                reqBuilder.header("Cookie", "session_id=$customSessionId")
+            }
+            val resp = executeRequest(reqBuilder.build(), account)
+            if (!resp.isSuccessful) return@withContext false
+            val body = resp.body?.string() ?: return@withContext false
+            val json = JSONObject(body)
+
+            // 1. 检查外层整体状态
+            val topStatus = json.optString("status", json.optString("rollcallStatus", ""))
+            if (topStatus.equals("on_call_fine", ignoreCase = true)) {
+                RollcallSubmissionStore(context).record(account, rollcallId, "confirmed")
+                return@withContext true
+            }
+
+            // 2. 遍历 student_rollcalls 数组
+            val arr = json.optJSONArray("student_rollcalls") ?: json.optJSONArray("data")
+            if (arr != null && arr.length() > 0) {
+                var presentCount = 0
+                val totalCount = arr.length()
+                var myPresent = false
+
+                for (i in 0 until arr.length()) {
+                    val entry = arr.getJSONObject(i)
+                    val uNo = entry.optString("user_no", entry.optString("user_id", entry.optString("student_no", "")))
+                    val eStatus = entry.optString("rollcall_status", entry.optString("student_rollcall_status", entry.optString("status", "")))
+                    val isFine = eStatus.equals("on_call_fine", ignoreCase = true)
+                    if (isFine) {
+                        presentCount++
+                    }
+                    if (uNo.equals(studentId, ignoreCase = true) && isFine) {
+                        myPresent = true
+                    }
+                }
+
+                if (myPresent || (totalCount > 0 && presentCount == totalCount)) {
+                    RollcallSubmissionStore(context).record(account, rollcallId, "confirmed")
+                    return@withContext true
+                }
+            }
+            false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "recheckOnCallFine error for rollcall $rollcallId, student $studentId: ${e.message}")
+            false
+        }
     }
 
     /**

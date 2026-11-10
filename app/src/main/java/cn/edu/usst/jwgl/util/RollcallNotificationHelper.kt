@@ -472,4 +472,52 @@ object RollcallNotificationHelper {
         } catch (_: SecurityException) {
         }
     }
+
+    /**
+     * 自主签到结果通知
+     */
+    fun notifySelfRegistrationResult(
+        context: Context,
+        rollcallId: Long,
+        courseName: String?,
+        success: Boolean,
+        message: String
+    ) {
+        createChannels(context)
+
+        val notifId = ((rollcallId % 100000L).toInt() + 60000)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TAB, 8)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = if (success) "✅ 自主签到成功" else "⚠️ 自主签到失败"
+        val content = if (success) {
+            "【${courseName ?: "课堂"}】已全自动完成自主点名确认"
+        } else {
+            "【${courseName ?: "课堂"}】自主签到未能确认: $message"
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        try {
+            NotificationManagerCompat.from(context).notify(notifId, builder.build())
+        } catch (_: SecurityException) {
+        }
+    }
 }
