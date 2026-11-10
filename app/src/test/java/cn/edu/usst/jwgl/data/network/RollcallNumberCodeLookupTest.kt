@@ -48,6 +48,12 @@ class RollcallNumberCodeLookupTest {
         assertEquals("unknown", TronClassRollcall(id = 1, isRadar = true, isNumber = true).getNormalizedType())
     }
 
+    @Test fun selfRegistrationTypeIsNormalizedCorrectly() {
+        assertEquals("self_registration", TronClassRollcall(id = 1, type = "self_registration").getNormalizedType())
+        assertEquals("self_registration", TronClassRollcall(id = 1, isSelfRegistration = true).getNormalizedType())
+        assertEquals("unknown", TronClassRollcall(id = 1, isSelfRegistration = true, isNumber = true).getNormalizedType())
+    }
+
     @Test fun expiredDetailsAndMissingTargetContextCannotReturnACode() {
         assertEquals(NumberCodeLookupFailure.NoActiveRollcall, failure("""{"number_code":"1234","is_expired":true}"""))
         assertEquals(NumberCodeLookupFailure.SchemaMismatch, failure("""{"number_code":"1234","is_expired":"true"}"""))

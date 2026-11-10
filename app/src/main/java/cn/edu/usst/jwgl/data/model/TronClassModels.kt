@@ -214,6 +214,9 @@ data class TronClassRollcall(
     @SerializedName("is_radar")
     val isRadar: Boolean = false,
 
+    @SerializedName("is_self_registration")
+    val isSelfRegistration: Boolean = false,
+
     @SerializedName("latitude")
     val latitude: Double? = null,
 
@@ -241,11 +244,12 @@ data class TronClassRollcall(
         val types = mutableSetOf<String>()
         if (isNumber) types.add("number")
         if (isRadar) types.add("radar")
+        if (isSelfRegistration) types.add("self_registration")
         when (type) {
             "number" -> types.add("number")
             "radar", "roomis" -> types.add("radar")
             "self_registration" -> types.add("self_registration")
-            "qr_code", "qr" -> types.add("qr_code")
+            "qr_code", "qr", "qr_rollcall" -> types.add("qr_code")
         }
         return types.singleOrNull() ?: "unknown"
     }

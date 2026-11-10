@@ -187,6 +187,12 @@ class RollcallMonitorService : Service() {
                         )
                     }
                     "qr_code" -> RollcallNotificationHelper.notifyQrRollcall(this, rollcallId, cName)
+                    "self_registration" -> RollcallNotificationHelper.notifyGenericRollcall(
+                        this,
+                        rollcallId,
+                        cName,
+                        "自主签到"
+                    )
                     else -> RollcallNotificationHelper.notifyGenericRollcall(
                         this,
                         rollcallId,
@@ -209,6 +215,7 @@ class RollcallMonitorService : Service() {
                         "radar" -> handleRadarAutoSign(rollcall, session)
                         "number" -> handleNumberAutoSign(rollcall, session)
                         "qr_code" -> handleQrCodeAutoSign(rollcall, session)
+                        "self_registration" -> handleSelfRegistrationAutoSign(rollcall, session)
                         else -> RollcallNotificationHelper.notifyGenericRollcall(
                             this@RollcallMonitorService,
                             rollcallId,
@@ -284,6 +291,13 @@ class RollcallMonitorService : Service() {
         val successCount = results.count { it.success }
         val totalCount = results.size
 
+        // 权威查册复核闭环（recheck_on_call_fine）
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
+        if (primarySuccess && currentStudentId.isNotBlank()) {
+            val confirmed = tronClassClient.recheckOnCallFine(rollcallId, currentStudentId)
+            Log.i(TAG, "Radar sign recheckOnCallFine result for $currentStudentId: $confirmed")
+        }
+
         val details = if (results.size > 1) {
             "$successCount/$totalCount 个账号签到成功"
         } else {
@@ -347,6 +361,13 @@ class RollcallMonitorService : Service() {
         val successCount = results.count { it.success }
         val totalCount = results.size
 
+        // 权威查册复核闭环（recheck_on_call_fine）
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
+        if (primarySuccess && currentStudentId.isNotBlank()) {
+            val confirmed = tronClassClient.recheckOnCallFine(rollcallId, currentStudentId)
+            Log.i(TAG, "Radar sign recheckOnCallFine result for $currentStudentId: $confirmed")
+        }
+
         val details = if (results.size > 1) {
             "$successCount/$totalCount 个账号签到成功"
         } else {
@@ -367,6 +388,57 @@ class RollcallMonitorService : Service() {
             updateForegroundNotification(
                 currentSession,
                 "已自动签到【$courseName】(数字口令 $numberCode)"
+            )
+        }
+    }
+
+    /**
+     * 自主签到自动化处理：
+     * 无需坐标、无需口令、无需扫码，直接向畅课服务器提交自主点名请求，
+     * 并在完成后调用 recheckOnCallFine 进行权威复核闭环。
+     */
+    private suspend fun handleSelfRegistrationAutoSign(
+        rollcall: TronClassRollcall,
+        currentSession: ScheduledClassSession
+    ) {
+        val rollcallId = rollcall.getEffectiveId()
+        val courseName = rollcall.courseName ?: currentSession.courseName
+        Log.i(TAG, "Triggering Self-Registration auto sign for $courseName (rollcallId=$rollcallId)")
+
+        // 1. 批量提交自主签到
+        val results = tronClassClient.batchAnswerSelfRegistrationRollcall(rollcallId)
+        val primaryResult = results.firstOrNull()
+        val primarySuccess = primaryResult?.success == true
+
+        // 2. 权威查册复核闭环：确认学号是否已成功标记为 on_call_fine
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
+        if (primarySuccess && currentStudentId.isNotBlank()) {
+            val confirmed = tronClassClient.recheckOnCallFine(rollcallId, currentStudentId)
+            Log.i(TAG, "Self-Registration sign recheckOnCallFine result for $currentStudentId: $confirmed")
+        }
+
+        val successCount = results.count { it.success }
+        val totalCount = results.size
+        val details = if (results.size > 1) {
+            "$successCount/$totalCount 个账号签到成功"
+        } else {
+            primaryResult?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
+        }
+
+        // 3. 发送对应结果通知
+        RollcallNotificationHelper.notifySelfRegistrationResult(
+            context = this,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            success = primarySuccess,
+            message = details
+        )
+
+        // 4. 更新前台服务常驻通知
+        if (primarySuccess) {
+            updateForegroundNotification(
+                currentSession,
+                "已自动自主签到【$courseName】"
             )
         }
     }

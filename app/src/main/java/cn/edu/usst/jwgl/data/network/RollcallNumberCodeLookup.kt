@@ -47,20 +47,39 @@ internal object RollcallNumberCodeLookup {
                     return unavailable(NumberCodeLookupFailure.Conflict, "详情课程与所选课程不一致")
                 }
             }
-            val code = record.get("number_code") ?: continue
-            if (code.isJsonNull) continue
-            // A short numeric value cannot recover leading zeros; only verbatim four-digit values are usable.
-            if (!code.isJsonPrimitive || !(code.asJsonPrimitive.isString || code.asJsonPrimitive.isNumber) ||
-                !code.asString.matches(Regex("[0-9]{4}"))) {
+            val codeElement = record.get("number_code") ?: continue
+            if (codeElement.isJsonNull) continue
+            val coercedCode = coerceNumberCode(codeElement)
+            if (coercedCode == null) {
                 return unavailable(NumberCodeLookupFailure.SchemaMismatch, "服务器返回的数字码格式无法确认")
             }
-            codes.add(code.asString)
+            codes.add(coercedCode)
         }
         return when (codes.size) {
             0 -> unavailable(NumberCodeLookupFailure.CodeNotReturned, "服务器未返回本活动数字码，请使用课堂提供的口令")
             1 -> NumberCodeLookupResult.Found(codes.single(), target.getEffectiveId(), target.courseId)
             else -> unavailable(NumberCodeLookupFailure.Conflict, "详情中存在不一致的数字码，已停止取码")
         }
+    }
+
+    /** Coerce one JSON element into a 4-digit code. */
+    fun coerceNumberCode(element: com.google.gson.JsonElement): String? {
+        if (!element.isJsonPrimitive) return null
+        val prim = element.asJsonPrimitive
+        return if (prim.isNumber) {
+            val raw = prim.asString
+            if (raw.matches(Regex("^[0-9]+$"))) {
+                val num = raw.toLongOrNull()
+                if (num != null && num in 1000L..9999L) {
+                    raw
+                } else null
+            } else null
+        } else if (prim.isString) {
+            val text = prim.asString
+            if (text.matches(Regex("^[0-9]{4}$"))) {
+                text
+            } else null
+        } else null
     }
 
     private fun longField(obj: JsonObject, key: String): Long? = try {
