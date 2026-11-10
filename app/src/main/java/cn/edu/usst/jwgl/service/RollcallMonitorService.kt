@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.util.CoordinateUtils
@@ -167,7 +168,7 @@ class RollcallMonitorService : Service() {
                     handleRadarAutoSign(rollcall, session)
                 }
                 "number" -> {
-                    RollcallNotificationHelper.notifyNumberRollcall(this, rollcallId, cName)
+                    handleNumberAutoSign(rollcall, session)
                 }
                 "qr_code" -> {
                     handleQrCodeAutoSign(rollcall, session)
@@ -272,6 +273,64 @@ class RollcallMonitorService : Service() {
             updateForegroundNotification(
                 matchedSession,
                 "已自动签到【$courseName】(${building.name})"
+            )
+        }
+    }
+
+    /**
+     * 数字口令签到自动化处理：
+     * 尝试从服务端 student_rollcalls 接口读取 number_code（学校自部署实例可能未修复泄露），
+     * 如果成功取到 4 位码则自动提交（含多账号批量），否则退回通知让用户手动输入。
+     */
+    private suspend fun handleNumberAutoSign(
+        rollcall: TronClassRollcall,
+        currentSession: ScheduledClassSession
+    ) {
+        val rollcallId = rollcall.getEffectiveId()
+        val courseName = rollcall.courseName ?: currentSession.courseName
+
+        // 1. 尝试从服务端读取数字签到码
+        Log.i(TAG, "Attempting to lookup number code for rollcall $rollcallId ($courseName)")
+        val lookupResult = tronClassClient.lookupNumberRollcallCode(rollcall)
+
+        if (lookupResult !is NumberCodeLookupResult.Found) {
+            // 服务端未返回数字码 → 退回通知让用户手动输入
+            val reason = (lookupResult as? NumberCodeLookupResult.Unavailable)?.message ?: "未知原因"
+            Log.i(TAG, "Number code not available for rollcall $rollcallId: $reason")
+            RollcallNotificationHelper.notifyNumberRollcall(this, rollcallId, courseName)
+            return
+        }
+
+        // 2. 成功获取数字码，自动提交
+        val numberCode = lookupResult.code
+        Log.i(TAG, "Got number code [$numberCode] for rollcall $rollcallId, auto-submitting")
+
+        val results = tronClassClient.batchAnswerNumberRollcall(rollcallId, numberCode)
+
+        val primarySuccess = results.firstOrNull()?.success == true
+        val successCount = results.count { it.success }
+        val totalCount = results.size
+
+        val details = if (results.size > 1) {
+            "$successCount/$totalCount 个账号签到成功"
+        } else {
+            results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
+        }
+
+        // 3. 发送结果通知
+        RollcallNotificationHelper.notifyNumberAutoResult(
+            context = this,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            success = primarySuccess,
+            message = details
+        )
+
+        // 4. 更新前台服务常驻通知
+        if (primarySuccess) {
+            updateForegroundNotification(
+                currentSession,
+                "已自动签到【$courseName】(数字口令 $numberCode)"
             )
         }
     }

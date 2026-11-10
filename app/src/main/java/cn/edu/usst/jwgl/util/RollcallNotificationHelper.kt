@@ -237,6 +237,81 @@ object RollcallNotificationHelper {
     }
 
     /**
+     * 数字口令自动签到结果通知（后台自动从服务端获取到签到码并提交后）
+     */
+    fun notifyNumberAutoResult(
+        context: Context,
+        rollcallId: Long,
+        courseName: String?,
+        success: Boolean,
+        message: String?
+    ) {
+        createChannels(context)
+
+        val notifId = ((rollcallId % 100000L).toInt() + 35000)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TAB, 8)
+            if (!success) {
+                putExtra("extra_open_number_rollcall", true)
+                putExtra("extra_rollcall_id", rollcallId)
+                putExtra("extra_course_name", courseName)
+            }
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+
+        val builder = if (success) {
+            NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("🎉 数字口令已自动签到")
+                .setContentText("【${courseName ?: "课堂"}】已自动获取签到码并成功签到！")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "课程：${courseName ?: "未指定课程"}\n" +
+                    "签到状态：$message\n" +
+                    "已从服务端自动获取数字口令并在后台完成签到。"
+                ))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(defaultSound)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+        } else {
+            NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("⚠️ 数字口令自动签到未成功")
+                .setContentText("【${courseName ?: "课堂"}】自动签到未成功，点击手动输入口令")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "课程：${courseName ?: "课堂"}\n" +
+                    "反馈：$message\n" +
+                    "自动获取的口令签到未成功，请点击通知手动输入教师提供的4位数字签到码。"
+                ))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(defaultSound)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+        }
+
+        try {
+            NotificationManagerCompat.from(context).notify(notifId, builder.build())
+        } catch (_: SecurityException) {
+        }
+    }
+
+    /**
      * 二维码扫码签到通知
      */
     fun notifyQrRollcall(context: Context, rollcallId: Long, courseName: String?) {
