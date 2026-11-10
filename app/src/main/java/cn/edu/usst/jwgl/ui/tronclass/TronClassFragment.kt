@@ -298,12 +298,25 @@ class TronClassFragment : Fragment() {
             val bottomInset = mainAct?.getBottomInset() ?: 0
             val isBottomBar = mainAct?.isBottomBarModeActive() ?: false
             val navPad = if (isBottomBar) MainActivity.bottomBarHeightPx else bottomInset
+            val bottomPad = navPad + (12 * density).toInt()
 
-            binding.llTronClassContent.setPadding(
-                binding.llTronClassContent.paddingLeft,
-                binding.llTronClassContent.paddingTop,
-                binding.llTronClassContent.paddingRight,
-                navPad + (24 * density).toInt()
+            b.rvTronClassTodos.setPadding(
+                b.rvTronClassTodos.paddingLeft,
+                b.rvTronClassTodos.paddingTop,
+                b.rvTronClassTodos.paddingRight,
+                bottomPad
+            )
+            b.rvTronClassBulletins.setPadding(
+                b.rvTronClassBulletins.paddingLeft,
+                b.rvTronClassBulletins.paddingTop,
+                b.rvTronClassBulletins.paddingRight,
+                bottomPad
+            )
+            b.rvTronClassCourses.setPadding(
+                b.rvTronClassCourses.paddingLeft,
+                b.rvTronClassCourses.paddingTop,
+                b.rvTronClassCourses.paddingRight,
+                bottomPad
             )
             insets
         }
@@ -317,12 +330,6 @@ class TronClassFragment : Fragment() {
             params.height = headerHeight
             b.viewTronClassHeaderSpacing.layoutParams = params
             b.viewTronClassHeaderSpacing.requestLayout()
-        }
-        val pinParams = b.viewPinnedSpacing.layoutParams
-        if (pinParams.height != headerHeight) {
-            pinParams.height = headerHeight
-            b.viewPinnedSpacing.layoutParams = pinParams
-            b.viewPinnedSpacing.requestLayout()
         }
         val density = resources.displayMetrics.density
         b.swipeRefreshTronClass.setProgressViewOffset(
