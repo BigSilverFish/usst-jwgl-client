@@ -147,25 +147,54 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- 观看课堂直播获取口令按钮 -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnWatchLiveForCode"
-        style="@style/Widget.Material3.Button.TonalButton"
+    <!-- 快捷获取口令操作区 (并排展示) -->
+    <LinearLayout
         android:layout_width="wrap_content"
-        android:layout_height="36dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:insetTop="0dp"
-        android:insetBottom="0dp"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="0dp"
-        android:text="📺 观看课堂直播获取口令"
-        android:textColor="@color/primary"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        app:cornerRadius="18dp"
-        app:icon="@drawable/ic_live_video"
-        app:iconSize="14dp"
-        app:iconTint="@color/primary" />
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <!-- 一键获取口令按钮 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFetchCodeDirectly"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginEnd="8dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="0dp"
+            android:text="⚡ 一键获取口令"
+            android:textColor="@color/primary"
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            app:cornerRadius="18dp"
+            app:icon="@drawable/ic_bolt"
+            app:iconSize="14dp"
+            app:iconTint="@color/primary" />
+
+        <!-- 观看课堂直播获取口令按钮 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnWatchLiveForCode"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="0dp"
+            android:text="📺 观看课堂直播获取口令"
+            android:textColor="@color/primary"
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            app:cornerRadius="18dp"
+            app:icon="@drawable/ic_live_video"
+            app:iconSize="14dp"
+            app:iconTint="@color/primary" />
+
+    </LinearLayout>
 
     <!-- 多账号同步签到勾选 -->
     <com.google.android.material.checkbox.MaterialCheckBox

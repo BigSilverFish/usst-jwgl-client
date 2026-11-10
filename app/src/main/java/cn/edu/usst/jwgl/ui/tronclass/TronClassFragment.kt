@@ -2,6 +2,7 @@ package cn.edu.usst.jwgl.ui.tronclass
 
 import android.app.Activity.RESULT_OK
 import android.app.ProgressDialog
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -2388,11 +2389,14 @@ class TronClassFragment : Fragment() {
         val ctx = context ?: return
         val prefs = TronClassPreferences.getInstance(ctx)
         val isMonitorEnabled = prefs.isRollcallMonitorEnabled()
+        val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
+        val delaySec = prefs.getRollcallAutoSignDelaySeconds()
         val options = arrayOf(
             "📷 启动扫码签到 (针对教师投影仪二维码)",
             "🔢 输入口令签到 (针对数字签到码)",
             "📡 雷达定位签到 (上理教学楼基准/GPS)",
             if (isMonitorEnabled) "🛡️ 上课签到后台监听: 已开启 (点击关闭)" else "🛡️ 上课签到后台监听: 已关闭 (点击开启)",
+            if (!isMonitorEnabled) "⚡ 课堂签到自动提交: 未启用 (需先开启监听)" else if (isAutoSignEnabled) "⚡ 课堂签到自动提交: 已开启(${delaySec}s时延 点击设置)" else "⚡ 课堂签到自动提交: 已关闭 (点击开启)",
             "🔄 刷新点名状态"
         )
 
@@ -2408,15 +2412,66 @@ class TronClassFragment : Fragment() {
                         prefs.setRollcallMonitorEnabled(newEnabled)
                         RollcallMonitorScheduler.onPreferenceChanged(ctx)
                         if (newEnabled) {
-                            Toast.makeText(ctx, "已开启上课签到后台监听：上课时自动检测，雷达点名自动匹配点位签到", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(ctx, "已开启上课签到后台监听：上课时自动检测课堂点名", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(ctx, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
                         }
                     }
-                    4 -> loadTronClassData(forceRefresh = true)
+                    4 -> {
+                        if (!prefs.isRollcallMonitorEnabled()) {
+                            Toast.makeText(ctx, "自动签到功能需要先开启上课签到后台监听", Toast.LENGTH_SHORT).show()
+                            return@setItems
+                        }
+                        showRollcallAutoSignSettingDialog(ctx, prefs)
+                    }
+                    5 -> loadTronClassData(forceRefresh = true)
                 }
             }
             .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showRollcallAutoSignSettingDialog(ctx: Context, prefs: TronClassPreferences) {
+        val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
+        val currentDelay = prefs.getRollcallAutoSignDelaySeconds()
+        val actions = if (isAutoSignEnabled) {
+            arrayOf(
+                "关闭自动签到提交 (仅保留监听通知)",
+                "设置自动签到时延 (当前: ${currentDelay}秒)"
+            )
+        } else {
+            arrayOf(
+                "开启自动签到提交 (当前时延: ${currentDelay}秒)"
+            )
+        }
+
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("课堂签到自动提交设置")
+            .setItems(actions) { _, which ->
+                if (!isAutoSignEnabled) {
+                    prefs.setRollcallAutoSignEnabled(true)
+                    Toast.makeText(ctx, "已开启课堂签到自动提交（发现后延迟 ${currentDelay} 秒）", Toast.LENGTH_SHORT).show()
+                } else if (which == 0) {
+                    prefs.setRollcallAutoSignEnabled(false)
+                    Toast.makeText(ctx, "已关闭课堂签到自动提交（仅保留监听通知）", Toast.LENGTH_SHORT).show()
+                } else {
+                    val delayOptions = arrayOf("延迟 5 秒", "延迟 10 秒 (推荐)", "延迟 15 秒", "延迟 20 秒", "延迟 25 秒", "延迟 30 秒")
+                    val delayValues = intArrayOf(5, 10, 15, 20, 25, 30)
+                    val selIdx = delayValues.indexOf(currentDelay).let { if (it >= 0) it else 1 }
+
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("选择自动签到时延 (5-30秒)")
+                        .setSingleChoiceItems(delayOptions, selIdx) { d, item ->
+                            val chosen = delayValues[item]
+                            prefs.setRollcallAutoSignDelaySeconds(chosen)
+                            Toast.makeText(ctx, "已设置自首次发现签到 $chosen 秒后尝试自动签到", Toast.LENGTH_SHORT).show()
+                            d.dismiss()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+            }
+            .setNegativeButton("返回", null)
             .show()
     }
 

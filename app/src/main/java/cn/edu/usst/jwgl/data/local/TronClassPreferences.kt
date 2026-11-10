@@ -81,6 +81,8 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_DDL_URGENT_ENABLED = "tc_ddl_urgent_enabled"
         private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
         private const val KEY_ROLLCALL_MONITOR_ENABLED = "tc_rollcall_monitor_enabled"
+        private const val KEY_ROLLCALL_AUTO_SIGN_ENABLED = "tc_rollcall_auto_sign_enabled"
+        private const val KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS = "tc_rollcall_auto_sign_delay_seconds"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
         private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
@@ -469,6 +471,25 @@ class TronClassPreferences(private val context: Context) {
 
     fun setRollcallMonitorEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ROLLCALL_MONITOR_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 课堂签到自动提交开关（需在后台监听开启的前提下生效）
+     */
+    fun isRollcallAutoSignEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_AUTO_SIGN_ENABLED, true)
+
+    fun setRollcallAutoSignEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ROLLCALL_AUTO_SIGN_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 自动签到延迟执行时长（秒）：自首次发现签到的 5-30 秒才开始尝试自动签到，默认 10 秒
+     */
+    fun getRollcallAutoSignDelaySeconds(): Int = prefs.getInt(KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS, 10).coerceIn(5, 30)
+
+    fun setRollcallAutoSignDelaySeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(5, 30)
+        prefs.edit().putInt(KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS, clamped).apply()
     }
 
     /**
