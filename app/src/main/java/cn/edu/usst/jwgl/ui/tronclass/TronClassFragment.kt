@@ -317,6 +317,12 @@ class TronClassFragment : Fragment() {
             b.viewTronClassHeaderSpacing.layoutParams = params
             b.viewTronClassHeaderSpacing.requestLayout()
         }
+        val pinParams = b.viewPinnedSpacing.layoutParams
+        if (pinParams.height != headerHeight) {
+            pinParams.height = headerHeight
+            b.viewPinnedSpacing.layoutParams = pinParams
+            b.viewPinnedSpacing.requestLayout()
+        }
         val density = resources.displayMetrics.density
         b.swipeRefreshTronClass.setProgressViewOffset(
             false,
@@ -955,6 +961,9 @@ class TronClassFragment : Fragment() {
         }
 
         binding.swipeRefreshTronClass.isEnabled = true
+        binding.appBarTronClass.addOnOffsetChangedListener { _, verticalOffset ->
+            binding.swipeRefreshTronClass.isEnabled = (verticalOffset == 0 || binding.swipeRefreshTronClass.isRefreshing)
+        }
         binding.swipeRefreshTronClass.setColorSchemeResources(
             R.color.primary,
             R.color.primary_container
