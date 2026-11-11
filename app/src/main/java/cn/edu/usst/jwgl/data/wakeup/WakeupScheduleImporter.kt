@@ -17,14 +17,18 @@ object WakeupScheduleImporter {
             "${data.academicYear}学年 第${data.semester}学期"
         }
 
-        val hasWeekend = data.courses.any { it.dayOfWeek == 6 || it.dayOfWeek == 7 }
-
         // Find or create table
         val existingTables = db.tableDao.getAllTables()
         var targetTable = existingTables.find { it.tableName == tableName }
         val isOldSemester = CourseUtils.isBefore2025_2026_2(tableName)
         val targetNodes = if (isOldSemester) 12 else 13
         val targetTimeTable = if (isOldSemester) 2 else 1
+
+        val existingBases = if (targetTable != null) db.courseBaseDao.getCourseBasesOfTable(targetTable.id) else emptyList()
+        val existingCourses = if (targetTable != null) db.courseBaseDao.getCourseOfTable(targetTable.id) else emptyList()
+
+        val showSat = data.courses.any { it.dayOfWeek == 6 } || existingCourses.any { it.isLocked && it.day == 6 }
+        val showSun = data.courses.any { it.dayOfWeek == 7 } || existingCourses.any { it.isLocked && it.day == 7 }
 
         if (targetTable == null) {
             val newTable = TableBean(
@@ -33,8 +37,8 @@ object WakeupScheduleImporter {
                 maxWeek = 20,
                 nodes = targetNodes,
                 timeTable = targetTimeTable,
-                showSat = hasWeekend,
-                showSun = hasWeekend,
+                showSat = showSat,
+                showSun = showSun,
                 type = if (setAsDefault) 1 else 0
             )
             val newId = db.tableDao.insertTable(newTable).toInt()
@@ -44,8 +48,8 @@ object WakeupScheduleImporter {
             targetTable.nodes = targetNodes
             targetTable.timeTable = targetTimeTable
             targetTable.maxWeek = 20
-            targetTable.showSat = hasWeekend
-            targetTable.showSun = hasWeekend
+            targetTable.showSat = showSat
+            targetTable.showSun = showSun
             db.tableDao.updateTable(targetTable)
         }
 
@@ -54,23 +58,22 @@ object WakeupScheduleImporter {
             db.tableDao.setDefaultTable(targetTable.id)
         }
 
-        // Clear existing courses in this table to sync fresh data
-        val existingCourses = db.courseBaseDao.getCourseOfTable(targetTable.id)
-        for (c in existingCourses) {
-            db.courseBaseDao.deleteCourseBase(c.id, targetTable.id)
+        val plan = computeMergePlan(existingBases, data.courses)
+
+        // Clear existing UNLOCKED courses in this table; preserve LOCKED courses
+        for (idToDelete in plan.courseIdsToDelete) {
+            db.courseBaseDao.deleteCourseBase(idToDelete, targetTable.id)
         }
 
-        // Group courses by course name to reuse CourseBaseBean
-        val grouped = data.courses.groupBy { it.name.trim() }
-        var currentCourseId = 1
-
-        for ((courseName, itemList) in grouped) {
+        for ((currentCourseId, entry) in plan.newCourseAssignments) {
+            val (courseName, itemList) = entry
             val color = CourseUtils.getColorHex(currentCourseId - 1)
             val baseBean = CourseBaseBean(
                 id = currentCourseId,
                 courseName = courseName,
                 color = color,
-                tableId = targetTable.id
+                tableId = targetTable.id,
+                isLocked = false
             )
             db.courseBaseDao.insertCourseBase(baseBean)
 
@@ -105,10 +108,48 @@ object WakeupScheduleImporter {
             }
 
             db.courseDetailDao.insertList(detailsToInsert)
-            currentCourseId++
         }
 
         return targetTable
+    }
+
+    data class MergePlan(
+        val courseIdsToDelete: List<Int>,
+        val preservedCourseNames: Set<String>,
+        val newCourseAssignments: List<Pair<Int, Pair<String, List<CourseItem>>>>
+    )
+
+    fun computeMergePlan(
+        existingBases: List<CourseBaseBean>,
+        networkCourses: List<CourseItem>
+    ): MergePlan {
+        val lockedBases = existingBases.filter { it.isLocked }
+        val lockedIds = lockedBases.map { it.id }.toSet()
+        val lockedNames = lockedBases.map { it.courseName.trim() }.toSet()
+        val idsToDelete = existingBases.filter { !it.isLocked }.map { it.id }
+
+        var nextCourseId = 1
+        fun allocateCourseId(): Int {
+            while (lockedIds.contains(nextCourseId)) {
+                nextCourseId++
+            }
+            return nextCourseId++
+        }
+
+        val grouped = networkCourses.groupBy { it.name.trim() }
+        val assignments = mutableListOf<Pair<Int, Pair<String, List<CourseItem>>>>()
+        for ((courseName, itemList) in grouped) {
+            if (lockedNames.contains(courseName)) {
+                continue
+            }
+            assignments.add(allocateCourseId() to (courseName to itemList))
+        }
+
+        return MergePlan(
+            courseIdsToDelete = idsToDelete,
+            preservedCourseNames = lockedNames,
+            newCourseAssignments = assignments
+        )
     }
 
     private fun parseRawWeeks(raw: String): List<WeekBean> {

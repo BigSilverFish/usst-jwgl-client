@@ -522,7 +522,8 @@ class ScheduleWeekFragment : Fragment() {
                     }
                     background = bgDrawable
 
-                    val textBuilder = StringBuilder(course.courseName)
+                    val lockPrefix = if (course.isLocked) "🔒 " else ""
+                    val textBuilder = StringBuilder("$lockPrefix${course.courseName}")
                     val teacher = course.teacher?.trim()
                     if (!teacher.isNullOrBlank()) {
                         textBuilder.append("\n$teacher")

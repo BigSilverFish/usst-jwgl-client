@@ -69,7 +69,8 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             endWeek = args.getInt("endWeek"),
             type = args.getInt("type"),
             color = args.getString("color") ?: "#4A90E2",
-            tableId = args.getInt("tableId")
+            tableId = args.getInt("tableId"),
+            isLocked = args.getBoolean("isLocked", false)
         )
     }
 
@@ -140,6 +141,22 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             else -> " (全周)"
         }
         tvDetailWeeks.text = "第 ${course.startWeek} - ${course.endWeek} 周$typeStr"
+
+        val rowDetailLock = view.findViewById<View>(R.id.rowDetailLock)
+        val switchDetailLock = view.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.switchDetailLock)
+        val initialLocked = db.courseBaseDao.getCourseBaseById(course.id, course.tableId)?.isLocked ?: course.isLocked
+        course.isLocked = initialLocked
+        switchDetailLock.isChecked = initialLocked
+        rowDetailLock.setOnClickListener {
+            switchDetailLock.toggle()
+        }
+        switchDetailLock.setOnCheckedChangeListener { _, isChecked ->
+            db.courseBaseDao.setCourseLocked(course.id, course.tableId, isChecked)
+            course.isLocked = isChecked
+            val msg = if (isChecked) "已锁定《${course.courseName}》，刷新课表时将保留" else "已解锁《${course.courseName}》"
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            onCourseChangedListener?.invoke()
+        }
 
         // --- 一网畅学 (TronClass) 深度联动 ---
         val cardTronClassLink = view.findViewById<MaterialCardView>(R.id.cardTronClassLink)
@@ -356,6 +373,7 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                     putInt("type", course.type)
                     putString("color", course.color)
                     putInt("tableId", course.tableId)
+                    putBoolean("isLocked", course.isLocked)
                     if (targetDate != null) {
                         putString("targetDate", targetDate)
                     }

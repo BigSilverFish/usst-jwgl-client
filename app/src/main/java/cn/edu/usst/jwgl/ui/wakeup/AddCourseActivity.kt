@@ -14,7 +14,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -31,6 +33,7 @@ class AddCourseActivity : AppCompatActivity() {
     private lateinit var etCourseName: TextInputEditText
     private lateinit var llColorPalette: LinearLayout
     private lateinit var llSlotsContainer: LinearLayout
+    private lateinit var switchLockCourse: MaterialSwitch
 
     private val slotViews = mutableListOf<View>()
 
@@ -59,6 +62,10 @@ class AddCourseActivity : AppCompatActivity() {
         etCourseName = findViewById(R.id.etCourseName)
         llColorPalette = findViewById(R.id.llColorPalette)
         llSlotsContainer = findViewById(R.id.llSlotsContainer)
+        switchLockCourse = findViewById(R.id.switchLockCourse)
+        findViewById<MaterialCardView>(R.id.cardLockCourse).setOnClickListener {
+            switchLockCourse.toggle()
+        }
 
         val btnAddSlot = findViewById<MaterialButton>(R.id.btnAddSlot)
         btnAddSlot.setOnClickListener { addSlotView(null) }
@@ -71,6 +78,7 @@ class AddCourseActivity : AppCompatActivity() {
             if (baseBean != null) {
                 etCourseName.setText(baseBean.courseName)
                 selectedColor = baseBean.color
+                switchLockCourse.isChecked = baseBean.isLocked
                 initColorPalette()
             }
             val details = db.courseDetailDao.getDetailByIdOfTable(courseId, tableId)
@@ -82,7 +90,8 @@ class AddCourseActivity : AppCompatActivity() {
                 addSlotView(null)
             }
         } else {
-            // New course
+            // New course: default locked so manual entries survive network sync
+            switchLockCourse.isChecked = true
             val nextId = db.courseBaseDao.getLastIdOfTable(tableId) + 1
             courseId = nextId
             selectedColor = CourseUtils.getColorHex(courseId - 1)
@@ -262,7 +271,8 @@ class AddCourseActivity : AppCompatActivity() {
             id = courseId,
             courseName = courseName,
             color = selectedColor,
-            tableId = tableId
+            tableId = tableId,
+            isLocked = switchLockCourse.isChecked
         )
 
         db.courseBaseDao.insertCourseBase(baseBean)
