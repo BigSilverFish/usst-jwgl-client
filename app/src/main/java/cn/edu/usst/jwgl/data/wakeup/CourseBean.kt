@@ -13,5 +13,7 @@ data class CourseBean(
     var type: Int = 0, // 0=all, 1=odd, 2=even
     var color: String = "#4A90E2",
     var tableId: Int = 1,
-    var isLocked: Boolean = false
+    var isLocked: Boolean = false,
+    var classCode: String = "",
+    var examType: String = ""
 )

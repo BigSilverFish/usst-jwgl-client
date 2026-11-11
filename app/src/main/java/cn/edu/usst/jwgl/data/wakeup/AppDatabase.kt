@@ -14,7 +14,7 @@ class AppDatabase private constructor(context: Context) {
     companion object {
         const val LAB_RESERVATION_PREFIX = "[实验预约] "
         private const val DATABASE_NAME = "wakeup.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
@@ -92,6 +92,8 @@ class AppDatabase private constructor(context: Context) {
                     color TEXT NOT NULL,
                     tableId INTEGER NOT NULL,
                     isLocked INTEGER NOT NULL DEFAULT 0,
+                    classCode TEXT NOT NULL DEFAULT '',
+                    examType TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (id, tableId),
                     FOREIGN KEY (tableId) REFERENCES TableBean (id) ON DELETE CASCADE ON UPDATE CASCADE
                 )
@@ -213,6 +215,14 @@ class AppDatabase private constructor(context: Context) {
                 } catch (_: Exception) {
                     // Column might already exist
                 }
+            }
+            if (oldVersion < 4) {
+                try {
+                    db.execSQL("ALTER TABLE CourseBaseBean ADD COLUMN classCode TEXT NOT NULL DEFAULT '';")
+                } catch (_: Exception) {}
+                try {
+                    db.execSQL("ALTER TABLE CourseBaseBean ADD COLUMN examType TEXT NOT NULL DEFAULT '';")
+                } catch (_: Exception) {}
             }
         }
     }
@@ -401,11 +411,13 @@ class AppDatabase private constructor(context: Context) {
         val table = tableDao.getTableById(tableId) ?: tableDao.getDefaultTable()
         val nextId = courseBaseDao.getLastIdOfTable(table.id) + 1
         val color = CourseUtils.getColorHex(nextId - 1)
+        val classCode = mergedCourse.bjmc.ifBlank { mergedCourse.bjdm }.ifBlank { mergedCourse.kcdm }
         val baseBean = CourseBaseBean(
             id = nextId,
             courseName = mergedCourse.kcmc.ifBlank { "未命名课程" },
             color = color,
-            tableId = table.id
+            tableId = table.id,
+            classCode = classCode
         )
         courseBaseDao.insertCourseBase(baseBean)
 
@@ -777,6 +789,8 @@ class AppDatabase private constructor(context: Context) {
                 put("color", course.color)
                 put("tableId", course.tableId)
                 put("isLocked", if (course.isLocked) 1 else 0)
+                put("classCode", course.classCode)
+                put("examType", course.examType)
             }
             db.insertWithOnConflict(
                 "CourseBaseBean",
@@ -793,6 +807,8 @@ class AppDatabase private constructor(context: Context) {
                 put("courseName", course.courseName)
                 put("color", course.color)
                 put("isLocked", if (course.isLocked) 1 else 0)
+                put("classCode", course.classCode)
+                put("examType", course.examType)
             }
             db.update(
                 "CourseBaseBean",
@@ -845,17 +861,24 @@ class AppDatabase private constructor(context: Context) {
             )
             return cursor.use {
                 if (it.moveToFirst()) {
-                    val lockedIdx = it.getColumnIndex("isLocked")
-                    val isLocked = if (lockedIdx >= 0) it.getInt(lockedIdx) == 1 else false
-                    CourseBaseBean(
-                        id = it.getInt(it.getColumnIndexOrThrow("id")),
-                        courseName = it.getString(it.getColumnIndexOrThrow("courseName")),
-                        color = it.getString(it.getColumnIndexOrThrow("color")),
-                        tableId = it.getInt(it.getColumnIndexOrThrow("tableId")),
-                        isLocked = isLocked
-                    )
+                    cursorToCourseBaseBean(it)
                 } else null
             }
+        }
+
+        private fun cursorToCourseBaseBean(c: Cursor): CourseBaseBean {
+            val lockedIdx = c.getColumnIndex("isLocked")
+            val classIdx = c.getColumnIndex("classCode")
+            val examIdx = c.getColumnIndex("examType")
+            return CourseBaseBean(
+                id = c.getInt(c.getColumnIndexOrThrow("id")),
+                courseName = c.getString(c.getColumnIndexOrThrow("courseName")),
+                color = c.getString(c.getColumnIndexOrThrow("color")),
+                tableId = c.getInt(c.getColumnIndexOrThrow("tableId")),
+                isLocked = if (lockedIdx >= 0) c.getInt(lockedIdx) == 1 else false,
+                classCode = if (classIdx >= 0) c.getString(classIdx).orEmpty() else "",
+                examType = if (examIdx >= 0) c.getString(examIdx).orEmpty() else ""
+            )
         }
 
         @Synchronized
@@ -873,17 +896,7 @@ class AppDatabase private constructor(context: Context) {
             )
             cursor.use {
                 while (it.moveToNext()) {
-                    val lockedIdx = it.getColumnIndex("isLocked")
-                    val isLocked = if (lockedIdx >= 0) it.getInt(lockedIdx) == 1 else false
-                    list.add(
-                        CourseBaseBean(
-                            id = it.getInt(it.getColumnIndexOrThrow("id")),
-                            courseName = it.getString(it.getColumnIndexOrThrow("courseName")),
-                            color = it.getString(it.getColumnIndexOrThrow("color")),
-                            tableId = it.getInt(it.getColumnIndexOrThrow("tableId")),
-                            isLocked = isLocked
-                        )
-                    )
+                    list.add(cursorToCourseBaseBean(it))
                 }
             }
             return list
@@ -908,7 +921,8 @@ class AppDatabase private constructor(context: Context) {
             val cursor = db.rawQuery(
                 """
                 SELECT b.id, b.courseName, d.day, d.room, d.teacher, d.startNode, d.step,
-                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked
+                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked,
+                       b.classCode, b.examType
                 FROM CourseBaseBean b
                 INNER JOIN CourseDetailBean d ON b.id = d.id AND b.tableId = d.tableId
                 WHERE b.tableId = ?
@@ -931,7 +945,8 @@ class AppDatabase private constructor(context: Context) {
             val cursor = db.rawQuery(
                 """
                 SELECT b.id, b.courseName, d.day, d.room, d.teacher, d.startNode, d.step,
-                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked
+                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked,
+                       b.classCode, b.examType
                 FROM CourseBaseBean b
                 INNER JOIN CourseDetailBean d ON b.id = d.id AND b.tableId = d.tableId
                 WHERE d.day = ? AND b.tableId = ?
@@ -954,7 +969,8 @@ class AppDatabase private constructor(context: Context) {
             val cursor = db.rawQuery(
                 """
                 SELECT b.id, b.courseName, d.day, d.room, d.teacher, d.startNode, d.step,
-                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked
+                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked,
+                       b.classCode, b.examType
                 FROM CourseBaseBean b
                 INNER JOIN CourseDetailBean d ON b.id = d.id AND b.tableId = d.tableId
                 WHERE d.day = ? AND b.tableId = ? AND d.startWeek <= ? AND d.endWeek >= ?
@@ -973,6 +989,8 @@ class AppDatabase private constructor(context: Context) {
 
         private fun cursorToCourseBean(c: Cursor): CourseBean {
             val isLocked = if (c.columnCount > 12) (c.getInt(12) == 1) else false
+            val classCode = if (c.columnCount > 13) c.getString(13).orEmpty() else ""
+            val examType = if (c.columnCount > 14) c.getString(14).orEmpty() else ""
             return CourseBean(
                 id = c.getInt(0),
                 courseName = c.getString(1),
@@ -986,7 +1004,9 @@ class AppDatabase private constructor(context: Context) {
                 type = c.getInt(9),
                 color = c.getString(10),
                 tableId = c.getInt(11),
-                isLocked = isLocked
+                isLocked = isLocked,
+                classCode = classCode,
+                examType = examType
             )
         }
     }

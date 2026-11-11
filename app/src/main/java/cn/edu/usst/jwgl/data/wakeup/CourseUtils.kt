@@ -254,7 +254,10 @@ object CourseUtils {
             id = c.id,
             courseName = c.courseName,
             color = c.color,
-            tableId = c.tableId
+            tableId = c.tableId,
+            isLocked = c.isLocked,
+            classCode = c.classCode,
+            examType = c.examType
         )
     }
 

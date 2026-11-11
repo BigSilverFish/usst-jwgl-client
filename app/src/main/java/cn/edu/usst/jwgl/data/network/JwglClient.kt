@@ -612,6 +612,14 @@ object JwglClient {
             val className = cachedProfile?.className.orEmpty()
             val currentWeek = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getCurrentWeek()
 
+            try {
+                val rootObj = com.google.gson.JsonParser.parseString(body).asJsonObject
+                val firstItem = rootObj.getAsJsonArray("items")?.firstOrNull()?.asJsonObject
+                if (firstItem != null) {
+                    Log.d(TAG, "Fast timetable sample keys: ${firstItem.keySet()}, jxbmc=${firstItem.optStr("jxbmc")}, jxb=${firstItem.optStr("jxb")}, khfs=${firstItem.optStr("khfs")}")
+                }
+            } catch (_: Exception) {}
+
             val timetableData = parseFastTimetableJson(body, xnm, xqm, studentName, className, currentWeek)
             Log.d(TAG, "Successfully parsed ${timetableData.courses.size} fast timetable courses for ${timetableData.semesterTitle}")
             Result.success(timetableData)
@@ -671,8 +679,11 @@ object JwglClient {
             val credit = item.optStr("xf").toDoubleOrNull() ?: 0.0
             val courseType = item.optStr("kcxz")
             val courseCode = item.optStr("kch")
+            val classCode = item.optStr("jxbmc")
+                .ifEmpty { item.optStr("jxb") }
+                .ifEmpty { item.optStr("jxb_id") }
 
-            var examType = item.optStr("khfs")
+            var examType = item.optStr("khfsmc").ifEmpty { item.optStr("khfs") }
             if (examType.isEmpty()) {
                 examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
             }
@@ -737,7 +748,8 @@ object JwglClient {
                             courseType = courseType,
                             colorIndex = colorIdx,
                             courseCode = courseCode,
-                            examType = examType
+                            examType = examType,
+                            classCode = classCode
                         )
                     )
                 }
@@ -818,6 +830,7 @@ object JwglClient {
                 val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
                 val courseType = item.optString("kcxz", "").trim()
                 val courseCode = item.optString("kch", item.optString("kch_id", "")).trim()
+                val classCode = item.optString("jxbmc", item.optString("jxb", "")).trim()
 
                 var examType = item.optString("khfsmc", item.optString("khfs", "")).trim()
                 if (examType.isEmpty()) {
@@ -861,7 +874,8 @@ object JwglClient {
                         courseType = courseType,
                         colorIndex = colorIdx,
                         courseCode = courseCode,
-                        examType = examType
+                        examType = examType,
+                        classCode = classCode
                     )
                 )
             }

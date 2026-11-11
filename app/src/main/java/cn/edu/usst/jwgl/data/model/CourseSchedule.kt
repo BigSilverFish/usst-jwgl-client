@@ -17,7 +17,8 @@ data class CourseItem(
     val courseType: String = "",
     var colorIndex: Int = 0,
     val courseCode: String = "", // 课程代码 (如 12004546)
-    val examType: String = "" // 考察形式 (考试 / 考查)
+    val examType: String = "", // 考察形式 (考试 / 考查)
+    val classCode: String = "" // 班级号 / 教学班编号 (如 (2026-2027-1)-12003550-01)
 ) : Serializable {
     fun isInWeek(week: Int): Boolean = weeks.isEmpty() || weeks.contains(week)
 }
