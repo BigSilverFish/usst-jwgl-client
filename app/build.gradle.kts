@@ -45,6 +45,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
