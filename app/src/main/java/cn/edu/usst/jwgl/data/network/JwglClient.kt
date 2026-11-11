@@ -21,7 +21,9 @@ object JwglClient {
     private const val PROFILE_URL = "https://jwgl.usst.edu.cn/jwglxt/xsxxxggl/xsgrxxwh_cxXsgrxx.html?gnmkdm=N100801"
     private const val QUICK_INFO_URL = "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_cxYhxxIndex.html?xt=jw&localeKey=zh_CN&gnmkdm=index"
     private const val GRADE_URL = "https://jwgl.usst.edu.cn/jwglxt/cjcx/cjcx_cxXsfxcjIndex.html?doType=query"
-    private const val TIMETABLE_URL = "https://jwgl.usst.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151"
+    private const val TIMETABLE_URL = "https://jwgl.usst.edu.cn/jwglxt/kbcx/xskbcx_cxXsgrkb.html"
+    private const val FAST_TIMETABLE_URL = "https://jwgl.usst.edu.cn/jwglxt/design/funcData_cxFuncDataList.html?func_widget_guid=9E9DD19148A270AFE0550113465EF1CF"
+    private const val FAST_TIMETABLE_REFERER = "https://jwgl.usst.edu.cn/jwglxt/design/viewFunc_cxDesignFuncPageIndex.html?gnmkdm=N255077&layout=default"
     private const val EXAM_URL = "https://jwgl.usst.edu.cn/jwglxt/kwgl/kscx_cxXsksxxIndex.html?doType=query&gnmkdm=N358105"
 
     private val cookieJar = MemoryCookieJar()
@@ -553,11 +555,217 @@ object JwglClient {
         xqm: String = "3",
         context: android.content.Context? = null
     ): Result<cn.edu.usst.jwgl.data.model.TimetableData> = withContext(Dispatchers.IO) {
+        Log.d(TAG, "Fetching timetable for xnm=$xnm, xqm=$xqm. Attempting fast timetable API first...")
+        val fastResult = fetchTimetableFast(xnm, xqm, context)
+        if (fastResult.isSuccess) {
+            val data = fastResult.getOrNull()
+            if (data != null && data.courses.isNotEmpty()) {
+                Log.d(TAG, "Fast timetable succeeded with ${data.courses.size} courses.")
+                return@withContext fastResult
+            }
+        }
+        val err = fastResult.exceptionOrNull()?.message
+        Log.w(TAG, "Fast timetable returned empty or failed: $err. Falling back to standard timetable API...")
+        fetchTimetableStandard(xnm, xqm, context)
+    }
+
+    suspend fun fetchTimetableFast(
+        xnm: String = "2025",
+        xqm: String = "3",
+        context: android.content.Context? = null
+    ): Result<cn.edu.usst.jwgl.data.model.TimetableData> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Fetching timetable for xnm=$xnm, xqm=$xqm from $TIMETABLE_URL...")
+            Log.d(TAG, "Fetching fast timetable for xnm=$xnm, xqm=$xqm from $FAST_TIMETABLE_URL...")
+            val formBody = FormBody.Builder()
+                .add("_search", "false")
+                .add("nd", System.currentTimeMillis().toString())
+                .add("queryModel.showCount", "500")
+                .add("queryModel.currentPage", "1")
+                .add("time", "0")
+                .add("xnm", xnm)
+                .add("xqm", xqm)
+                .build()
+
+            val req = Request.Builder()
+                .url(FAST_TIMETABLE_URL)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", FAST_TIMETABLE_REFERER)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .post(formBody)
+                .build()
+
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            Log.d(TAG, "Fast timetable response status: ${resp.code}, len: ${body.length}")
+
+            if (!body.trimStart().startsWith("{")) {
+                if (context != null && ensureSession(context)) {
+                    return@withContext fetchTimetableFast(xnm, xqm, null)
+                }
+                return@withContext Result.failure(IOException("未获取到有效的课表数据，会话可能已失效"))
+            }
+
+            val cachedProfile = context?.let {
+                try { cn.edu.usst.jwgl.data.local.DataCacheManager(it).getProfile() } catch (e: Exception) { null }
+            }
+            val studentName = cachedProfile?.name.orEmpty()
+            val className = cachedProfile?.className.orEmpty()
+            val currentWeek = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getCurrentWeek()
+
+            val timetableData = parseFastTimetableJson(body, xnm, xqm, studentName, className, currentWeek)
+            Log.d(TAG, "Successfully parsed ${timetableData.courses.size} fast timetable courses for ${timetableData.semesterTitle}")
+            Result.success(timetableData)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching fast timetable", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun com.google.gson.JsonObject.optStr(key: String): String {
+        val el = this.get(key) ?: return ""
+        return if (el.isJsonNull) "" else el.asString.trim()
+    }
+
+    fun parseFastTimetableJson(
+        body: String,
+        xnm: String,
+        xqm: String,
+        studentName: String = "",
+        className: String = "",
+        currentWeek: Int = 1
+    ): cn.edu.usst.jwgl.data.model.TimetableData {
+        val root = com.google.gson.JsonParser.parseString(body).asJsonObject
+        val items = if (root.has("items") && root.get("items").isJsonArray) {
+            root.getAsJsonArray("items")
+        } else {
+            com.google.gson.JsonArray()
+        }
+
+        val yearName = "$xnm-${(xnm.toIntOrNull() ?: 2025) + 1}"
+        val semName = if (xqm == "3") "1" else if (xqm == "12") "2" else xqm
+        val semTitle = "${yearName}学年 第${semName}学期"
+
+        val courses = mutableListOf<cn.edu.usst.jwgl.data.model.CourseItem>()
+        val courseColorMap = mutableMapOf<String, Int>()
+        var nextColor = 0
+
+        val sectionRegex = Regex("""(?:第)?([0-9]+)(?:-([0-9]+))?节""")
+        val weekRegex = Regex("""\{([^}]+)\}""")
+
+        for (el in items) {
+            if (!el.isJsonObject) continue
+            val item = el.asJsonObject
+            val courseName = item.optStr("kcmc")
+            if (courseName.isEmpty()) continue
+
+            val sksj = item.optStr("sksj")
+            if (sksj.isEmpty() || sksj == "null") continue
+
+            val jxdd = item.optStr("jxdd")
+            val jsxx = item.optStr("jsxx")
+            val teacher = if (jsxx.contains("/")) {
+                val p = jsxx.split("/")
+                if (p.size >= 2) p[1].trim() else jsxx
+            } else jsxx
+
+            val credit = item.optStr("xf").toDoubleOrNull() ?: 0.0
+            val courseType = item.optStr("kcxz")
+            val courseCode = item.optStr("kch")
+
+            var examType = item.optStr("khfs")
+            if (examType.isEmpty()) {
+                examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
+            }
+
+            val sksjParts = sksj.split(";", "；", "\n").map { it.trim() }.filter { it.isNotEmpty() }
+            val jxddParts = if (jxdd.isNotEmpty() && jxdd != "null") {
+                jxdd.split(";", "；", "\n").map { it.trim() }
+            } else emptyList()
+
+            for ((idx, sp) in sksjParts.withIndex()) {
+                val dayOfWeek = when {
+                    sp.contains("星期一") || sp.contains("周一") -> 1
+                    sp.contains("星期二") || sp.contains("周二") -> 2
+                    sp.contains("星期三") || sp.contains("周三") -> 3
+                    sp.contains("星期四") || sp.contains("周四") -> 4
+                    sp.contains("星期五") || sp.contains("周五") -> 5
+                    sp.contains("星期六") || sp.contains("周六") -> 6
+                    sp.contains("星期日") || sp.contains("星期天") || sp.contains("周日") -> 7
+                    else -> 1
+                }
+
+                val secMatch = sectionRegex.find(sp)
+                val startSection = secMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
+                val endSection = secMatch?.groupValues?.get(2)?.toIntOrNull() ?: startSection
+                val step = (endSection - startSection + 1).coerceIn(1, 6)
+                val rawSections = "$startSection-$endSection"
+
+                val weekMatch = weekRegex.find(sp)
+                val rawWeeks = weekMatch?.groupValues?.get(1)?.trim() ?: ""
+                val weeks = parseWeeks(rawWeeks)
+
+                val classroom = if (jxddParts.isNotEmpty()) {
+                    if (idx < jxddParts.size) jxddParts[idx] else jxddParts[0]
+                } else ""
+
+                val slotId = if (courseCode.isNotEmpty()) {
+                    "${courseCode}_${dayOfWeek}_${startSection}_${step}"
+                } else {
+                    "slot_${courseName.hashCode().let { kotlin.math.abs(it) }}_${dayOfWeek}_${startSection}_${step}"
+                }
+
+                val colorIdx = courseColorMap.getOrPut(courseName) {
+                    val c = nextColor
+                    nextColor++
+                    c
+                }
+
+                if (courses.none { it.id == slotId }) {
+                    courses.add(
+                        cn.edu.usst.jwgl.data.model.CourseItem(
+                            id = slotId,
+                            name = courseName,
+                            teacher = teacher,
+                            classroom = classroom,
+                            dayOfWeek = dayOfWeek,
+                            startSection = startSection,
+                            step = step,
+                            rawSections = rawSections,
+                            weeks = weeks,
+                            rawWeeks = rawWeeks,
+                            credit = credit,
+                            courseType = courseType,
+                            colorIndex = colorIdx,
+                            courseCode = courseCode,
+                            examType = examType
+                        )
+                    )
+                }
+            }
+        }
+
+        return cn.edu.usst.jwgl.data.model.TimetableData(
+            academicYear = xnm,
+            semester = xqm,
+            semesterTitle = semTitle,
+            studentName = studentName,
+            className = className,
+            courses = courses,
+            currentWeek = currentWeek
+        )
+    }
+
+    suspend fun fetchTimetableStandard(
+        xnm: String = "2025",
+        xqm: String = "3",
+        context: android.content.Context? = null
+    ): Result<cn.edu.usst.jwgl.data.model.TimetableData> = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Fetching standard timetable for xnm=$xnm, xqm=$xqm from $TIMETABLE_URL...")
             val formBody = FormBody.Builder()
                 .add("xnm", xnm)
                 .add("xqm", xqm)
+                .add("kzlx", "ck")
                 .build()
 
             val req = Request.Builder()
@@ -567,13 +775,18 @@ object JwglClient {
                 .post(formBody)
                 .build()
 
-            val resp = client.newCall(req).execute()
+            // Extended readTimeout to 180 seconds for slow backend queries
+            val timetableClient = client.newBuilder()
+                .readTimeout(180, TimeUnit.SECONDS)
+                .build()
+
+            val resp = timetableClient.newCall(req).execute()
             val body = resp.body?.string() ?: ""
             Log.d(TAG, "Timetable response status: ${resp.code}, len: ${body.length}")
 
             if (!body.trimStart().startsWith("{")) {
                 if (context != null && ensureSession(context)) {
-                    return@withContext fetchTimetable(xnm, xqm, null)
+                    return@withContext fetchTimetableStandard(xnm, xqm, null)
                 }
                 return@withContext Result.failure(IOException("未获取到有效的课表数据，会话可能已失效"))
             }
