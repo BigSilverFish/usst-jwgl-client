@@ -14,7 +14,7 @@ class AppDatabase private constructor(context: Context) {
     companion object {
         const val LAB_RESERVATION_PREFIX = "[实验预约] "
         private const val DATABASE_NAME = "wakeup.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
@@ -91,6 +91,7 @@ class AppDatabase private constructor(context: Context) {
                     courseName TEXT NOT NULL,
                     color TEXT NOT NULL,
                     tableId INTEGER NOT NULL,
+                    isLocked INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (id, tableId),
                     FOREIGN KEY (tableId) REFERENCES TableBean (id) ON DELETE CASCADE ON UPDATE CASCADE
                 )
@@ -205,6 +206,13 @@ class AppDatabase private constructor(context: Context) {
                     db.insert("TimeDetailBean", null, cv)
                 }
                 db.execSQL("UPDATE TableBean SET maxWeek = 20 WHERE maxWeek = 25;")
+            }
+            if (oldVersion < 3) {
+                try {
+                    db.execSQL("ALTER TABLE CourseBaseBean ADD COLUMN isLocked INTEGER NOT NULL DEFAULT 0;")
+                } catch (_: Exception) {
+                    // Column might already exist
+                }
             }
         }
     }
@@ -768,6 +776,7 @@ class AppDatabase private constructor(context: Context) {
                 put("courseName", course.courseName)
                 put("color", course.color)
                 put("tableId", course.tableId)
+                put("isLocked", if (course.isLocked) 1 else 0)
             }
             db.insertWithOnConflict(
                 "CourseBaseBean",
@@ -783,12 +792,27 @@ class AppDatabase private constructor(context: Context) {
             val cv = ContentValues().apply {
                 put("courseName", course.courseName)
                 put("color", course.color)
+                put("isLocked", if (course.isLocked) 1 else 0)
             }
             db.update(
                 "CourseBaseBean",
                 cv,
                 "id = ? AND tableId = ?",
                 arrayOf(course.id.toString(), course.tableId.toString())
+            )
+        }
+
+        @Synchronized
+        fun setCourseLocked(id: Int, tableId: Int, isLocked: Boolean) {
+            val db = dbHelper.writableDatabase
+            val cv = ContentValues().apply {
+                put("isLocked", if (isLocked) 1 else 0)
+            }
+            db.update(
+                "CourseBaseBean",
+                cv,
+                "id = ? AND tableId = ?",
+                arrayOf(id.toString(), tableId.toString())
             )
         }
 
@@ -821,14 +845,48 @@ class AppDatabase private constructor(context: Context) {
             )
             return cursor.use {
                 if (it.moveToFirst()) {
+                    val lockedIdx = it.getColumnIndex("isLocked")
+                    val isLocked = if (lockedIdx >= 0) it.getInt(lockedIdx) == 1 else false
                     CourseBaseBean(
                         id = it.getInt(it.getColumnIndexOrThrow("id")),
                         courseName = it.getString(it.getColumnIndexOrThrow("courseName")),
                         color = it.getString(it.getColumnIndexOrThrow("color")),
-                        tableId = it.getInt(it.getColumnIndexOrThrow("tableId"))
+                        tableId = it.getInt(it.getColumnIndexOrThrow("tableId")),
+                        isLocked = isLocked
                     )
                 } else null
             }
+        }
+
+        @Synchronized
+        fun getCourseBasesOfTable(tableId: Int): List<CourseBaseBean> {
+            val list = mutableListOf<CourseBaseBean>()
+            val db = dbHelper.readableDatabase
+            val cursor = db.query(
+                "CourseBaseBean",
+                null,
+                "tableId = ?",
+                arrayOf(tableId.toString()),
+                null,
+                null,
+                "id ASC"
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    val lockedIdx = it.getColumnIndex("isLocked")
+                    val isLocked = if (lockedIdx >= 0) it.getInt(lockedIdx) == 1 else false
+                    list.add(
+                        CourseBaseBean(
+                            id = it.getInt(it.getColumnIndexOrThrow("id")),
+                            courseName = it.getString(it.getColumnIndexOrThrow("courseName")),
+                            color = it.getString(it.getColumnIndexOrThrow("color")),
+                            tableId = it.getInt(it.getColumnIndexOrThrow("tableId")),
+                            isLocked = isLocked
+                        )
+                    )
+                }
+            }
+            return list
         }
 
         @Synchronized
@@ -850,7 +908,7 @@ class AppDatabase private constructor(context: Context) {
             val cursor = db.rawQuery(
                 """
                 SELECT b.id, b.courseName, d.day, d.room, d.teacher, d.startNode, d.step,
-                       d.startWeek, d.endWeek, d.type, b.color, b.tableId
+                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked
                 FROM CourseBaseBean b
                 INNER JOIN CourseDetailBean d ON b.id = d.id AND b.tableId = d.tableId
                 WHERE b.tableId = ?
@@ -873,7 +931,7 @@ class AppDatabase private constructor(context: Context) {
             val cursor = db.rawQuery(
                 """
                 SELECT b.id, b.courseName, d.day, d.room, d.teacher, d.startNode, d.step,
-                       d.startWeek, d.endWeek, d.type, b.color, b.tableId
+                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked
                 FROM CourseBaseBean b
                 INNER JOIN CourseDetailBean d ON b.id = d.id AND b.tableId = d.tableId
                 WHERE d.day = ? AND b.tableId = ?
@@ -896,7 +954,7 @@ class AppDatabase private constructor(context: Context) {
             val cursor = db.rawQuery(
                 """
                 SELECT b.id, b.courseName, d.day, d.room, d.teacher, d.startNode, d.step,
-                       d.startWeek, d.endWeek, d.type, b.color, b.tableId
+                       d.startWeek, d.endWeek, d.type, b.color, b.tableId, b.isLocked
                 FROM CourseBaseBean b
                 INNER JOIN CourseDetailBean d ON b.id = d.id AND b.tableId = d.tableId
                 WHERE d.day = ? AND b.tableId = ? AND d.startWeek <= ? AND d.endWeek >= ?
@@ -914,6 +972,7 @@ class AppDatabase private constructor(context: Context) {
         }
 
         private fun cursorToCourseBean(c: Cursor): CourseBean {
+            val isLocked = if (c.columnCount > 12) (c.getInt(12) == 1) else false
             return CourseBean(
                 id = c.getInt(0),
                 courseName = c.getString(1),
@@ -926,7 +985,8 @@ class AppDatabase private constructor(context: Context) {
                 endWeek = c.getInt(8),
                 type = c.getInt(9),
                 color = c.getString(10),
-                tableId = c.getInt(11)
+                tableId = c.getInt(11),
+                isLocked = isLocked
             )
         }
     }
