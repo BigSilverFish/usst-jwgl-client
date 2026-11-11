@@ -68,12 +68,18 @@ object WakeupScheduleImporter {
         for ((currentCourseId, entry) in plan.newCourseAssignments) {
             val (courseName, itemList) = entry
             val color = CourseUtils.getColorHex(currentCourseId - 1)
+            val resolvedClassCode = itemList.firstNotNullOfOrNull { it.classCode.takeIf { c -> c.isNotBlank() } }
+                ?: itemList.firstNotNullOfOrNull { it.courseCode.takeIf { c -> c.isNotBlank() } }
+                ?: ""
+            val resolvedExamType = itemList.firstNotNullOfOrNull { it.examType.takeIf { e -> e.isNotBlank() } } ?: ""
             val baseBean = CourseBaseBean(
                 id = currentCourseId,
                 courseName = courseName,
                 color = color,
                 tableId = targetTable.id,
-                isLocked = false
+                isLocked = false,
+                classCode = resolvedClassCode,
+                examType = resolvedExamType
             )
             db.courseBaseDao.insertCourseBase(baseBean)
 

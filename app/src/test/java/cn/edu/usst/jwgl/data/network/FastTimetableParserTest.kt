@@ -16,6 +16,7 @@ class FastTimetableParserTest {
                 {
                     "kcmc": "Web应用开发",
                     "kch": "12003550",
+                    "jxbmc": "(2026-2027-1)-12003550-01",
                     "xf": "3.0",
                     "kcxz": "专业课程",
                     "khfs": "考试",
@@ -70,6 +71,7 @@ class FastTimetableParserTest {
         val web = data.courses.find { it.name == "Web应用开发" }
         assertNotNull(web)
         assertEquals("12003550", web!!.courseCode)
+        assertEquals("(2026-2027-1)-12003550-01", web.classCode)
         assertEquals("李锐", web.teacher)
         assertEquals("一教132", web.classroom)
         assertEquals(3, web.dayOfWeek)

@@ -17,7 +17,9 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.TronClassTodo
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -70,7 +72,9 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
             type = args.getInt("type"),
             color = args.getString("color") ?: "#4A90E2",
             tableId = args.getInt("tableId"),
-            isLocked = args.getBoolean("isLocked", false)
+            isLocked = args.getBoolean("isLocked", false),
+            classCode = args.getString("classCode") ?: "",
+            examType = args.getString("examType") ?: ""
         )
     }
 
@@ -92,10 +96,14 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
 
         val viewCourseColor = view.findViewById<View>(R.id.viewCourseColor)
         val tvCourseTitle = view.findViewById<TextView>(R.id.tvCourseTitle)
+        val tvDetailExamType = view.findViewById<TextView>(R.id.tvDetailExamType)
         val tvDetailTime = view.findViewById<TextView>(R.id.tvDetailTime)
         val tvDetailRoom = view.findViewById<TextView>(R.id.tvDetailRoom)
         val tvDetailTeacher = view.findViewById<TextView>(R.id.tvDetailTeacher)
         val tvDetailWeeks = view.findViewById<TextView>(R.id.tvDetailWeeks)
+        val dividerDetailClassCode = view.findViewById<View>(R.id.dividerDetailClassCode)
+        val rowDetailClassCode = view.findViewById<View>(R.id.rowDetailClassCode)
+        val tvDetailClassCode = view.findViewById<TextView>(R.id.tvDetailClassCode)
         val btnClose = view.findViewById<MaterialButton>(R.id.btnClose)
         val btnOpenCourseLive = view.findViewById<MaterialButton>(R.id.btnOpenCourseLive)
         val btnEditCourse = view.findViewById<MaterialButton>(R.id.btnEditCourse)
@@ -142,20 +150,54 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         }
         tvDetailWeeks.text = "第 ${course.startWeek} - ${course.endWeek} 周$typeStr"
 
-        val rowDetailLock = view.findViewById<View>(R.id.rowDetailLock)
-        val switchDetailLock = view.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.switchDetailLock)
-        val initialLocked = db.courseBaseDao.getCourseBaseById(course.id, course.tableId)?.isLocked ?: course.isLocked
-        course.isLocked = initialLocked
-        switchDetailLock.isChecked = initialLocked
-        rowDetailLock.setOnClickListener {
-            switchDetailLock.toggle()
+        val baseBean = db.courseBaseDao.getCourseBaseById(course.id, course.tableId)
+        val cacheMgr = try { TronClassDataCacheManager.getInstance(context) } catch (_: Exception) { null }
+        val matchedCourse: TronClassCourse? = try {
+            val cachedCourses = cacheMgr?.getCachedCourses().orEmpty()
+            TronClassDataCacheManager.findMatchingCourse(course.courseName, cachedCourses)
+        } catch (_: Exception) {
+            null
         }
-        switchDetailLock.setOnCheckedChangeListener { _, isChecked ->
-            db.courseBaseDao.setCourseLocked(course.id, course.tableId, isChecked)
-            course.isLocked = isChecked
-            val msg = if (isChecked) "已锁定《${course.courseName}》，刷新课表时将保留" else "已解锁《${course.courseName}》"
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            onCourseChangedListener?.invoke()
+
+        val (resolvedClassCode, resolvedExamType) = resolveCourseMetadata(
+            context = context,
+            baseClassCode = baseBean?.classCode.orEmpty().ifBlank { course.classCode },
+            baseExamType = baseBean?.examType.orEmpty().ifBlank { course.examType },
+            matchedTronClassCode = matchedCourse?.courseCode.orEmpty()
+        )
+
+        if (resolvedExamType.isNotBlank()) {
+            tvDetailExamType.text = resolvedExamType
+            tvDetailExamType.visibility = View.VISIBLE
+            val (bgRes, textRes) = when {
+                resolvedExamType.contains("考试") -> R.color.grade_red_bg to R.color.grade_red_text
+                resolvedExamType.contains("考查") -> R.color.grade_blue_bg to R.color.grade_blue_text
+                else -> R.color.surface_container to R.color.text_secondary
+            }
+            val badgeBg = GradientDrawable().apply {
+                setColor(context.getColor(bgRes))
+                cornerRadius = 6f * context.resources.displayMetrics.density
+            }
+            tvDetailExamType.background = badgeBg
+            tvDetailExamType.setTextColor(context.getColor(textRes))
+        } else {
+            tvDetailExamType.visibility = View.GONE
+        }
+
+        if (resolvedClassCode.isNotBlank()) {
+            dividerDetailClassCode.visibility = View.VISIBLE
+            rowDetailClassCode.visibility = View.VISIBLE
+            tvDetailClassCode.text = resolvedClassCode
+            rowDetailClassCode.setOnClickListener {
+                try {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("ClassCode", resolvedClassCode))
+                    Toast.makeText(context, "已复制班级号：$resolvedClassCode", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {}
+            }
+        } else {
+            dividerDetailClassCode.visibility = View.GONE
+            rowDetailClassCode.visibility = View.GONE
         }
 
         // --- 一网畅学 (TronClass) 深度联动 ---
@@ -164,11 +206,7 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         val tvTronClassLinkSub = view.findViewById<TextView>(R.id.tvTronClassLinkSub)
 
         try {
-            val cacheMgr = TronClassDataCacheManager.getInstance(context)
-            val cachedCourses = cacheMgr.getCachedCourses()
-            val matchedCourse = TronClassDataCacheManager.findMatchingCourse(course.courseName, cachedCourses)
-
-            if (matchedCourse != null) {
+            if (cacheMgr != null && matchedCourse != null) {
                 cardTronClassLink.visibility = View.VISIBLE
 
                 fun updateLinkContent(percent: Int, todos: List<TronClassTodo>) {
@@ -352,6 +390,57 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
         }
     }
 
+    private fun resolveCourseMetadata(
+        context: Context,
+        baseClassCode: String,
+        baseExamType: String,
+        matchedTronClassCode: String
+    ): Pair<String, String> {
+        var resolvedClassCode = baseClassCode.trim()
+        var resolvedExamType = baseExamType.trim()
+
+        val tronCode = matchedTronClassCode.trim()
+        if (tronCode.isNotBlank() && (resolvedClassCode.isBlank() || !resolvedClassCode.contains("-"))) {
+            resolvedClassCode = tronCode
+        }
+
+        if (resolvedClassCode.isBlank() || resolvedExamType.isBlank()) {
+            try {
+                val dataCache = DataCacheManager(context)
+                val targetName = course.courseName.trim()
+                val targetTeacher = course.teacher?.trim().orEmpty()
+                val cachedItems = dataCache.getAllCachedTimetables()
+                    .flatMap { it.courses }
+                    .filter { it.name.trim().equals(targetName, ignoreCase = true) }
+                val bestItem = cachedItems.firstOrNull {
+                    targetTeacher.isNotBlank() && it.teacher.trim() == targetTeacher
+                } ?: cachedItems.firstOrNull()
+
+                if (bestItem != null) {
+                    if (resolvedClassCode.isBlank()) {
+                        resolvedClassCode = bestItem.classCode.ifBlank { bestItem.courseCode }.trim()
+                    }
+                    if (resolvedExamType.isBlank()) {
+                        resolvedExamType = bestItem.examType.trim()
+                    }
+                }
+
+                if (resolvedExamType.isBlank()) {
+                    val gradeCourse = dataCache.getGrades()
+                        ?.semesters
+                        ?.asSequence()
+                        ?.flatMap { it.courses.asSequence() }
+                        ?.firstOrNull { it.courseName.trim().equals(targetName, ignoreCase = true) }
+                    if (gradeCourse != null && gradeCourse.examType.isNotBlank()) {
+                        resolvedExamType = gradeCourse.examType.trim()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        return resolvedClassCode to resolvedExamType
+    }
+
     companion object {
         fun newInstance(
             course: CourseBean,
@@ -374,6 +463,8 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
                     putString("color", course.color)
                     putInt("tableId", course.tableId)
                     putBoolean("isLocked", course.isLocked)
+                    putString("classCode", course.classCode)
+                    putString("examType", course.examType)
                     if (targetDate != null) {
                         putString("targetDate", targetDate)
                     }

@@ -29,6 +29,8 @@ class AddCourseActivity : AppCompatActivity() {
     private var courseId: Int = -1
     private var tableId: Int = 1
     private var selectedColor: String = CourseUtils.getColorHex(0)
+    private var existingClassCode: String = ""
+    private var existingExamType: String = ""
 
     private lateinit var etCourseName: TextInputEditText
     private lateinit var llColorPalette: LinearLayout
@@ -79,6 +81,8 @@ class AddCourseActivity : AppCompatActivity() {
                 etCourseName.setText(baseBean.courseName)
                 selectedColor = baseBean.color
                 switchLockCourse.isChecked = baseBean.isLocked
+                existingClassCode = baseBean.classCode
+                existingExamType = baseBean.examType
                 initColorPalette()
             }
             val details = db.courseDetailDao.getDetailByIdOfTable(courseId, tableId)
@@ -272,7 +276,9 @@ class AddCourseActivity : AppCompatActivity() {
             courseName = courseName,
             color = selectedColor,
             tableId = tableId,
-            isLocked = switchLockCourse.isChecked
+            isLocked = switchLockCourse.isChecked,
+            classCode = existingClassCode,
+            examType = existingExamType
         )
 
         db.courseBaseDao.insertCourseBase(baseBean)

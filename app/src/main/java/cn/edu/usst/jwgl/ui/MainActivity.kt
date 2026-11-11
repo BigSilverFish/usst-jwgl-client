@@ -1893,6 +1893,7 @@ class MainActivity : AppCompatActivity() {
                     startDate = startDate,
                     setAsDefault = true
                 )
+                cacheManager.saveTimetable(xnm, xqm, data)
                 withContext(Dispatchers.IO) {
                     db.tableDao.setDefaultTable(importedTable.id)
                 }

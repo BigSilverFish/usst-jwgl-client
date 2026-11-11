@@ -5,5 +5,7 @@ data class CourseBaseBean(
     var courseName: String = "",
     var color: String = "#4A90E2",
     var tableId: Int = 1,
-    var isLocked: Boolean = false
+    var isLocked: Boolean = false,
+    var classCode: String = "",
+    var examType: String = ""
 )

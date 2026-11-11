@@ -39,6 +39,20 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
+        <TextView
+            android:id="@+id/tvDetailExamType"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="4dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="考试"
+            android:textColor="@color/badge_text"
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnClose"
             style="@style/Widget.Material3.Button.IconButton"
@@ -184,49 +198,40 @@
             </LinearLayout>
 
             <View
+                android:id="@+id/dividerDetailClassCode"
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="@color/border" />
+                android:background="@color/border"
+                android:visibility="gone" />
 
-            <!-- Lock Status Row -->
+            <!-- Class Code Row (班级号) -->
             <LinearLayout
-                android:id="@+id/rowDetailLock"
+                android:id="@+id/rowDetailClassCode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingTop="6dp"
-                android:paddingBottom="2dp">
+                android:paddingVertical="6dp"
+                android:visibility="gone">
 
-                <LinearLayout
+                <TextView
+                    android:layout_width="76dp"
+                    android:layout_height="wrap_content"
+                    android:text="班级号"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13.5sp" />
+
+                <TextView
+                    android:id="@+id/tvDetailClassCode"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/tvDetailLockTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🔒 锁定课程"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13.5sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvDetailLockDesc"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="1dp"
-                        android:text="开启后刷新课表时保留此课程"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11.5sp" />
-                </LinearLayout>
-
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchDetailLock"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:text="(2026-2027-1)-12003550-01"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13.5sp" />
             </LinearLayout>
 
         </LinearLayout>
