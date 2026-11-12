@@ -53,8 +53,12 @@ object UnscheduledCourseHelper {
 
         val collectedLowerNames = collected.map { it.name.lowercase() }.toSet()
         for (tc in tronClassCourses) {
+            val classCode = tc.courseCode?.trim().orEmpty()
+            if (classCode.startsWith("_uuid_", ignoreCase = true)) {
+                continue
+            }
             val semCode = tc.extractSemesterCode()
-            if (!expectedSemesterCode.isNullOrBlank() && !semCode.isNullOrBlank() && semCode != expectedSemesterCode) {
+            if (!expectedSemesterCode.isNullOrBlank() && semCode != expectedSemesterCode) {
                 continue
             }
             val cleanName = tc.getCleanName().trim()
@@ -63,7 +67,6 @@ object UnscheduledCourseHelper {
             if (lower in scheduledNames || lower in collectedLowerNames || lower in existingNames) {
                 continue
             }
-            val classCode = tc.courseCode?.trim().orEmpty()
             val dedupKey = "$lower|$classCode"
             if (!seenKeys.add(dedupKey)) continue
 

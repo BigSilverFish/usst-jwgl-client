@@ -67,6 +67,13 @@ class UnscheduledCourseHelperTest {
                 courseCode = "(2025-2026-1)-12002050-01",
                 teacher = "吴世青"
             ),
+            // Non-semester _uuid_ activity -> should filter out
+            TronClassCourse(
+                id = 104L,
+                name = "大学物理先修课",
+                courseCode = "_uuid_223c926e-515e-46f9-b1b4-ca6b32ac007b",
+                teacher = "李小丹"
+            ),
             // Same semester, neither scheduled nor in table -> should appear as fallback
             TronClassCourse(
                 id = 103L,
