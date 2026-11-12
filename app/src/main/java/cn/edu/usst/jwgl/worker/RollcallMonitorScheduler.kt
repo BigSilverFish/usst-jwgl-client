@@ -37,7 +37,8 @@ object RollcallMonitorScheduler {
 
     fun checkAndSchedule(context: Context) {
         val prefs = TronClassPreferences.getInstance(context)
-        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
+        val cxLoggedIn = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(context).isLoggedIn()
+        if (!prefs.isRollcallMonitorEnabled() || (!prefs.isLoggedIn() && !cxLoggedIn)) {
             cancel(context)
             return
         }
@@ -65,7 +66,8 @@ object RollcallMonitorScheduler {
      */
     fun scheduleNext(context: Context) {
         val prefs = TronClassPreferences.getInstance(context)
-        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
+        val cxLoggedIn = cn.edu.usst.jwgl.data.local.ChaoXingPreferences(context).isLoggedIn()
+        if (!prefs.isRollcallMonitorEnabled() || (!prefs.isLoggedIn() && !cxLoggedIn)) {
             cancel(context)
             return
         }

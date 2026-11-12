@@ -520,4 +520,56 @@ object RollcallNotificationHelper {
         } catch (_: SecurityException) {
         }
     }
+
+    /**
+     * 超星位置签到自动提交结果通知
+     */
+    fun notifyChaoXingLocationResult(
+        context: Context,
+        activeId: Long,
+        courseName: String?,
+        locationLabel: String,
+        success: Boolean,
+        message: String
+    ) {
+        createChannels(context)
+
+        val notifId = ((activeId % 100000L).toInt() + 70000)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TAB, 8)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        val title = if (success) "🎉 超星位置签到已自动完成" else "⚠️ 超星位置自动签到需手动确认"
+        val body = if (success) {
+            "【${courseName ?: "课堂"}】已使用 [$locationLabel] 自动完成学习通位置签到 ($message)"
+        } else {
+            "【${courseName ?: "课堂"}】尝试使用 [$locationLabel] 自动签到未确认 ($message)，点击进入课程门户手动选点或定位"
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSound(defaultSound)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        try {
+            NotificationManagerCompat.from(context).notify(notifId, builder.build())
+        } catch (_: SecurityException) {
+        }
+    }
 }

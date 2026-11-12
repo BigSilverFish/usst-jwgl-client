@@ -26,10 +26,18 @@ class RollcallMonitorService : Service() {
     private var pollJob: Job? = null
     private val inFlightRollcalls = ConcurrentHashMap.newKeySet<Long>()
     private val retryAttempts = ConcurrentHashMap<Long, Int>()
+    private val inFlightChaoXingSigns = ConcurrentHashMap.newKeySet<Long>()
+    private val chaoXingRetryAttempts = ConcurrentHashMap<Long, Int>()
 
     private val tronClassClient by lazy { TronClassClient(this) }
+    private val chaoXingClient by lazy { cn.edu.usst.jwgl.data.network.ChaoXingClient(this) }
     private val prefs by lazy { TronClassPreferences.getInstance(this) }
     private val smartLiveQrManager by lazy { cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager(this) }
+
+    @Volatile
+    private var cachedChaoXingCourses: List<cn.edu.usst.jwgl.data.model.ChaoXingCourse> = emptyList()
+    @Volatile
+    private var lastChaoXingCourseFetchMs: Long = 0L
 
     companion object {
         private const val TAG = "RollcallMonitorService"
@@ -39,6 +47,7 @@ class RollcallMonitorService : Service() {
 
         private const val POLL_INTERVAL_MS = 20_000L // 20 秒轮询一次
         private const val MAX_AUTO_SIGN_ATTEMPTS = 3
+        private const val CHAOXING_COURSE_CACHE_TTL_MS = 30 * 60 * 1000L
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -49,8 +58,8 @@ class RollcallMonitorService : Service() {
             return START_NOT_STICKY
         }
 
-        // 校验开关与登录状态
-        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
+        // 校验开关与登录状态（畅课或超星任一已登录即可运行）
+        if (!prefs.isRollcallMonitorEnabled() || (!prefs.isLoggedIn() && !chaoXingClient.isLoggedIn())) {
             Log.i(TAG, "Monitor disabled or not logged in, stopping service.")
             stopMonitoringAndSelf()
             return START_NOT_STICKY
@@ -141,6 +150,15 @@ class RollcallMonitorService : Service() {
     }
 
     private suspend fun checkRollcallsOnce(session: ScheduledClassSession) {
+        if (prefs.isLoggedIn()) {
+            checkTronClassRollcalls(session)
+        }
+        if (chaoXingClient.isLoggedIn()) {
+            checkChaoXingLocationSigns(session)
+        }
+    }
+
+    private suspend fun checkTronClassRollcalls(session: ScheduledClassSession) {
         val res = tronClassClient.fetchOngoingRollcalls()
         if (!res.isSuccess) {
             Log.d(TAG, "fetchOngoingRollcalls returned failure: ${res.exceptionOrNull()?.message}")
@@ -519,6 +537,170 @@ class RollcallMonitorService : Service() {
             updateForegroundNotification(
                 currentSession,
                 "已自动自主签到【$courseName】"
+            )
+        }
+        return isTerminal
+    }
+
+    /**
+     * 轮询超星学习通进行中的“位置签到”，在后台自动按教师要求坐标或匹配教学楼坐标提交。
+     */
+    private suspend fun checkChaoXingLocationSigns(session: ScheduledClassSession) {
+        val now = System.currentTimeMillis()
+        if (cachedChaoXingCourses.isEmpty() || now - lastChaoXingCourseFetchMs > CHAOXING_COURSE_CACHE_TTL_MS) {
+            val fetched = chaoXingClient.fetchCourses().getOrNull()
+            if (!fetched.isNullOrEmpty()) {
+                cachedChaoXingCourses = fetched
+                lastChaoXingCourseFetchMs = now
+            }
+        }
+        if (cachedChaoXingCourses.isEmpty()) return
+
+        val activePairs = chaoXingClient.fetchActiveSignsForCourses(cachedChaoXingCourses).getOrNull() ?: return
+        val account = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
+        val store = cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this, "chaoxing")
+
+        for ((course, item) in activePairs) {
+            if (item.resolvedSignTypeName != "位置签到") continue
+            val activeId = item.id
+            if (activeId <= 0L) continue
+            if (prefs.isRollcallHandled(activeId)) continue
+            if (account.isNotBlank() && store.state(account, activeId) != null) {
+                prefs.markRollcallHandled(activeId)
+                continue
+            }
+
+            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
+            val delaySeconds = prefs.getRollcallAutoSignDelaySeconds().coerceIn(5, 30)
+
+            if (!isAutoSignEnabled) {
+                prefs.markRollcallHandled(activeId)
+                RollcallNotificationHelper.notifyGenericRollcall(
+                    this,
+                    activeId,
+                    course.courseName,
+                    "超星位置签到"
+                )
+                continue
+            }
+
+            if (!inFlightChaoXingSigns.add(activeId)) continue
+            val attempt = chaoXingRetryAttempts[activeId] ?: 0
+            val waitSec = if (attempt == 0) delaySeconds else 0
+
+            Log.i(TAG, "Detected ChaoXing location sign: activeId=$activeId, course=${course.courseName}, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS")
+            if (attempt == 0) {
+                updateForegroundNotification(
+                    session,
+                    "检测到超星【${course.courseName}】位置签到，将在 ${delaySeconds} 秒后尝试自动提交"
+                )
+            }
+
+            serviceScope.launch {
+                try {
+                    if (waitSec > 0) {
+                        delay(waitSec * 1000L)
+                    }
+                    if (!isActive) return@launch
+
+                    val isFinalAttempt = attempt + 1 >= MAX_AUTO_SIGN_ATTEMPTS
+                    val isTerminal = handleChaoXingLocationAutoSign(course, item, session, isFinalAttempt)
+                    if (isTerminal || isFinalAttempt) {
+                        prefs.markRollcallHandled(activeId)
+                        chaoXingRetryAttempts.remove(activeId)
+                    } else {
+                        chaoXingRetryAttempts[activeId] = attempt + 1
+                    }
+                } finally {
+                    inFlightChaoXingSigns.remove(activeId)
+                }
+            }
+        }
+    }
+
+    private suspend fun handleChaoXingLocationAutoSign(
+        course: cn.edu.usst.jwgl.data.model.ChaoXingCourse,
+        item: cn.edu.usst.jwgl.data.model.ChaoXingActiveItem,
+        currentSession: ScheduledClassSession,
+        isFinalAttempt: Boolean
+    ): Boolean {
+        val activeId = item.id
+        val hintName = "${item.nameOne.orEmpty()} ${item.nameTwo.orEmpty()}".trim()
+        val detail = chaoXingClient.fetchSignDetail(
+            activeId = activeId,
+            courseId = course.courseId,
+            classId = course.classId,
+            initialOtherId = item.otherId,
+            initialHintName = hintName
+        ).getOrNull()
+
+        if (detail?.isAlreadySigned == true || detail?.isExpired == true) {
+            return true
+        }
+
+        val hasTeacherCoords = detail?.latitude != null && detail.longitude != null &&
+            detail.latitude != 0.0 && detail.longitude != 0.0
+        val matchedSession = RollcallScheduleHelper.findMatchingClassSession(this, course.courseName) ?: currentSession
+
+        val targetLat: Double
+        val targetLng: Double
+        val targetAddress: String
+        val locationLabel: String
+
+        if (hasTeacherCoords) {
+            val jitterLat = (Math.random() - 0.5) * 0.00003
+            val jitterLng = (Math.random() - 0.5) * 0.00003
+            targetLat = detail!!.latitude!! + jitterLat
+            targetLng = detail.longitude!! + jitterLng
+            targetAddress = detail.locationText?.takeIf { it.isNotBlank() } ?: "上海理工大学"
+            locationLabel = "教师指定位置 ($targetAddress)"
+        } else {
+            val room = matchedSession.room
+            val building = CoordinateUtils.findMatchingBuilding(room)
+                ?: CoordinateUtils.findMatchingBuilding(course.courseName)
+                ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" }
+                ?: CoordinateUtils.USST_BUILDINGS.first()
+            targetLat = building.latitude
+            targetLng = building.longitude
+            targetAddress = detail?.locationText?.takeIf { it.isNotBlank() } ?: "上海理工大学 ${building.name}"
+            locationLabel = "${building.name} (${building.campus})"
+        }
+
+        val submitRes = chaoXingClient.submitSign(
+            courseId = course.courseId,
+            classId = course.classId,
+            activeId = activeId,
+            signType = "位置签到",
+            latitude = targetLat,
+            longitude = targetLng,
+            address = targetAddress,
+            allowRejectedRetry = false
+        )
+
+        val result = submitRes.getOrNull()
+        val success = result?.isSuccess == true
+        val message = result?.message ?: submitRes.exceptionOrNull()?.message ?: "提交失败"
+        val account = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
+        val storeState = if (account.isNotBlank()) {
+            cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this, "chaoxing").state(account, activeId)
+        } else null
+        val isTerminal = success || storeState == "rejected" || isFinalAttempt
+
+        if (isTerminal) {
+            RollcallNotificationHelper.notifyChaoXingLocationResult(
+                context = this,
+                activeId = activeId,
+                courseName = course.courseName,
+                locationLabel = locationLabel,
+                success = success,
+                message = message
+            )
+        }
+
+        if (success) {
+            updateForegroundNotification(
+                matchedSession,
+                "已自动超星位置签到【${course.courseName}】"
             )
         }
         return isTerminal

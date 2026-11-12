@@ -805,15 +805,23 @@ class TronClassFragment : Fragment() {
                 }
 
                 "位置签到" -> {
-                    val locText = signDetail?.locationText ?: "上海理工大学"
-                    MaterialAlertDialogBuilder(ctx)
-                        .setTitle("超星签到 · 位置签到")
-                        .setMessage("课程：${course.courseName}\n签到要求位置：$locText\n\n是否立即以该位置提交签到？")
-                        .setPositiveButton("立即签到") { _, _ ->
-                            executeSubmitChaoXingSign(course, activeItem, signDetail = signDetail)
-                        }
-                        .setNegativeButton("取消", null)
-                        .show()
+                    val matchedRoom = cn.edu.usst.jwgl.util.RollcallScheduleHelper
+                        .findMatchingClassSession(ctx, course.courseName)?.room
+                    val dialog = RadarRollcallBottomSheetDialog.newChaoXingLocationInstance(
+                        activeId = activeItem.id,
+                        courseId = course.courseId,
+                        classId = course.classId,
+                        courseName = course.courseName,
+                        classroom = matchedRoom,
+                        teacherLat = signDetail?.latitude,
+                        teacherLng = signDetail?.longitude,
+                        locationAddress = signDetail?.locationText
+                    )
+                    dialog.setOnSignSuccessListener {
+                        markRollcallCompleted(activeItem.id)
+                        loadTronClassData(forceRefresh = true)
+                    }
+                    dialog.show(childFragmentManager, "ChaoXingLocationRollcallDialog")
                 }
 
                 "二维码签到" -> {

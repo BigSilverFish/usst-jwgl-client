@@ -1310,7 +1310,8 @@ class ChaoXingClient(private val context: Context) {
         latitude: Double? = null,
         longitude: Double? = null,
         address: String? = null,
-        studentId: String? = null
+        studentId: String? = null,
+        allowRejectedRetry: Boolean = false
     ): Result<ChaoXingSignResult> {
         val account = studentId ?: AuthPreferences(context).getStudentId()
         return withContext(Dispatchers.IO) {
@@ -1325,7 +1326,7 @@ class ChaoXingClient(private val context: Context) {
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         if (studentId == null && account != AuthPreferences(context).getStudentId()) throw kotlinx.coroutines.CancellationException("Account changed before attendance write")
         val store = RollcallSubmissionStore(context, "chaoxing")
-        if (!store.claim(account, activeId)) {
+        if (!store.claim(account, activeId, allowRejectedRetry)) {
             val state = store.state(account, activeId)
             if (state == null) return@withContext Result.failure(Exception("无法持久化签到保护记录，本次未发送"))
             return@withContext Result.success(ChaoXingSignResult(state == "confirmed",

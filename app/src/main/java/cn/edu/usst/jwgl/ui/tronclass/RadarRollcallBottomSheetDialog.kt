@@ -43,11 +43,18 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var teacherLat: Double? = null
     private var teacherLng: Double? = null
     private var teacherScope: Double? = null
+    private var chaoXingCourseId: String? = null
+    private var chaoXingClassId: String? = null
+    private var locationAddress: String? = null
     private var teacherRadioButtonId: Int? = null
+
+    private val isChaoXingMode: Boolean
+        get() = !chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()
 
     private var selectedLatitude: Double = 31.292508
     private var selectedLongitude: Double = 121.557765
     private var selectedAccuracy: Double = 15.0
+    private var selectedAddress: String = "上海理工大学"
 
     private var onSignSuccessListener: (() -> Unit)? = null
     private var activeLocationListener: LocationListener? = null
@@ -82,6 +89,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             if (it.containsKey(ARG_TEACHER_SCOPE)) {
                 teacherScope = it.getDouble(ARG_TEACHER_SCOPE)
             }
+            chaoXingCourseId = it.getString(ARG_CHAOXING_COURSE_ID)
+            chaoXingClassId = it.getString(ARG_CHAOXING_CLASS_ID)
+            locationAddress = it.getString(ARG_LOCATION_ADDRESS)
         }
     }
 
@@ -110,8 +120,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     private fun setupViews() {
         val cName = courseName ?: "当前教学课程"
-        binding.tvRadarCourseInfo.text = "$cName · 正在雷达点名中"
+        binding.tvRadarCourseInfo.text = if (isChaoXingMode) "$cName · 超星位置签到" else "$cName · 正在雷达点名中"
         binding.tvRadarRollcallIdBadge.text = "ID: $rollcallId"
+        binding.btnSubmitRadar.text = if (isChaoXingMode) "立即位置签到" else "立即雷达签到"
 
         // 1. 初始化教学楼下拉框（适配深色与浅色模式文字与背景）
         val buildings = CoordinateUtils.USST_BUILDINGS
@@ -170,18 +181,22 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             trySilentAutoSnapToNearestBuilding()
         }
 
-        // 4. 多账号签到支持
-        try {
-            val accounts = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(requireContext()).getAccounts()
-            if (accounts.size > 1) {
-                binding.cbRadarSignAll.visibility = View.VISIBLE
-                binding.cbRadarSignAll.isChecked = true
-                binding.cbRadarSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
-            } else {
+        // 4. 多账号签到支持（仅畅课雷达点名启用）
+        if (isChaoXingMode) {
+            binding.cbRadarSignAll.visibility = View.GONE
+        } else {
+            try {
+                val accounts = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(requireContext()).getAccounts()
+                if (accounts.size > 1) {
+                    binding.cbRadarSignAll.visibility = View.VISIBLE
+                    binding.cbRadarSignAll.isChecked = true
+                    binding.cbRadarSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
+                } else {
+                    binding.cbRadarSignAll.visibility = View.GONE
+                }
+            } catch (_: Exception) {
                 binding.cbRadarSignAll.visibility = View.GONE
             }
-        } catch (_: Exception) {
-            binding.cbRadarSignAll.visibility = View.GONE
         }
 
         updateModeVisibility()
@@ -247,6 +262,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         selectedLatitude = baseLat + jitterLat
         selectedLongitude = baseLng + jitterLng
         selectedAccuracy = 5.0
+        selectedAddress = locationAddress?.takeIf { it.isNotBlank() } ?: "上海理工大学"
 
         binding.tvCoordinatesDisplay.text = String.format(
             Locale.CHINA,
@@ -306,6 +322,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         selectedLatitude = building.latitude
         selectedLongitude = building.longitude
         selectedAccuracy = 15.0
+        selectedAddress = "上海理工大学 ${building.name}"
 
         binding.tvCoordinatesDisplay.text = String.format(
             Locale.CHINA,
@@ -418,6 +435,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         selectedLatitude = finalLat
         selectedLongitude = finalLng
         selectedAccuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 15.0
+        selectedAddress = locationAddress?.takeIf { it.isNotBlank() } ?: "上海理工大学"
 
         val providerName = when (loc.provider) {
             LocationManager.GPS_PROVIDER -> "卫星高精GPS"
@@ -456,9 +474,50 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.btnCancelRadar.isEnabled = false
 
         val client = TronClassClient(requireContext().applicationContext)
-        val isBatch = binding.cbRadarSignAll.visibility == View.VISIBLE && binding.cbRadarSignAll.isChecked
+        val isBatch = !isChaoXingMode && binding.cbRadarSignAll.visibility == View.VISIBLE && binding.cbRadarSignAll.isChecked
 
         lifecycleScope.launch {
+            if (isChaoXingMode) {
+                val cxClient = cn.edu.usst.jwgl.data.network.ChaoXingClient(requireContext().applicationContext)
+                val result = cxClient.submitSign(
+                    courseId = chaoXingCourseId!!,
+                    classId = chaoXingClassId!!,
+                    activeId = rollcallId,
+                    signType = "位置签到",
+                    latitude = selectedLatitude,
+                    longitude = selectedLongitude,
+                    address = selectedAddress,
+                    allowRejectedRetry = true
+                )
+
+                if (!isAdded) return@launch
+                val b = _binding ?: return@launch
+                b.btnSubmitRadar.isEnabled = true
+                b.btnSubmitRadar.text = "立即位置签到"
+                b.progressRadarSubmitting.visibility = View.GONE
+                b.btnCancelRadar.isEnabled = true
+
+                val res = result.getOrNull()
+                if (res != null && res.isSuccess) {
+                    onSignSuccessListener?.invoke()
+                    dismiss()
+                    MaterialAlertDialogBuilder(requireActivity())
+                        .setTitle("🎉 位置签到成功！")
+                        .setMessage(res.message)
+                        .setPositiveButton("完成", null)
+                        .show()
+                } else {
+                    val errMsg = res?.message ?: result.exceptionOrNull()?.message ?: "未知网络错误"
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("位置签到未通过")
+                        .setMessage(errMsg)
+                        .setPositiveButton("调整基准重试", null)
+                        .setNegativeButton("放弃", null)
+                        .show()
+                }
+                return@launch
+            }
+
             if (isBatch) {
                 val results = client.batchAnswerRadarRollcall(
                     rollcallId = rollcallId,
@@ -568,6 +627,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         private const val ARG_TEACHER_LAT = "arg_teacher_lat"
         private const val ARG_TEACHER_LNG = "arg_teacher_lng"
         private const val ARG_TEACHER_SCOPE = "arg_teacher_scope"
+        private const val ARG_CHAOXING_COURSE_ID = "arg_chaoxing_course_id"
+        private const val ARG_CHAOXING_CLASS_ID = "arg_chaoxing_class_id"
+        private const val ARG_LOCATION_ADDRESS = "arg_location_address"
 
         fun newInstance(
             rollcallId: Long,
@@ -585,6 +647,30 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                     if (teacherLat != null) putDouble(ARG_TEACHER_LAT, teacherLat)
                     if (teacherLng != null) putDouble(ARG_TEACHER_LNG, teacherLng)
                     if (teacherScope != null) putDouble(ARG_TEACHER_SCOPE, teacherScope)
+                }
+            }
+        }
+
+        fun newChaoXingLocationInstance(
+            activeId: Long,
+            courseId: String,
+            classId: String,
+            courseName: String? = null,
+            classroom: String? = null,
+            teacherLat: Double? = null,
+            teacherLng: Double? = null,
+            locationAddress: String? = null
+        ): RadarRollcallBottomSheetDialog {
+            return RadarRollcallBottomSheetDialog().apply {
+                arguments = Bundle().apply {
+                    putLong(ARG_ROLLCALL_ID, activeId)
+                    putString(ARG_COURSE_NAME, courseName)
+                    putString(ARG_CLASSROOM, classroom)
+                    putString(ARG_CHAOXING_COURSE_ID, courseId)
+                    putString(ARG_CHAOXING_CLASS_ID, classId)
+                    putString(ARG_LOCATION_ADDRESS, locationAddress)
+                    if (teacherLat != null) putDouble(ARG_TEACHER_LAT, teacherLat)
+                    if (teacherLng != null) putDouble(ARG_TEACHER_LNG, teacherLng)
                 }
             }
         }
