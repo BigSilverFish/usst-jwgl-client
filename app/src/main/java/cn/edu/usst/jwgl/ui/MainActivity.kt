@@ -107,6 +107,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     internal var isTabletLandscapeMode: Boolean = false
+    private var timetableLandscapeExtraPadPx: Int = 0
     private var isGuestMode: Boolean = false
     private lateinit var cacheManager: DataCacheManager
     private lateinit var db: AppDatabase
@@ -302,14 +303,20 @@ class MainActivity : AppCompatActivity() {
             val density = resources.displayMetrics.density
 
             // Extend frosted top bar into status bar while keeping control items nicely positioned below
+            val baseTopPad = statusBarInsets.top + (8 * density).toInt()
+            val baseBottomPad = (6 * density).toInt()
+            if (!isTabletLandscapeMode) {
+                timetableLandscapeExtraPadPx = 0
+            }
             binding.headerTimetable.setPadding(
                 binding.headerTimetable.paddingLeft,
-                statusBarInsets.top + (8 * density).toInt(),
+                baseTopPad,
                 binding.headerTimetable.paddingRight,
-                (6 * density).toInt()
+                baseBottomPad + timetableLandscapeExtraPadPx
             )
             binding.headerTimetableContainer.post {
                 topBarHeightPx = binding.headerTimetableContainer.height
+                alignLandscapeTimetableTopBarWithSidebar()
             }
 
             // Dynamic bottom safe spacer for full screen gesture bar / 3-button navigation
@@ -729,6 +736,71 @@ class MainActivity : AppCompatActivity() {
             0.58f
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
+
+        binding.headerTimetableContainer.post {
+            alignLandscapeTimetableTopBarWithSidebar()
+        }
+    }
+
+    /**
+     * 将横屏平板模式下课表顶栏底部边界对齐至左侧栏用户信息下方分割线。
+     */
+    private fun alignLandscapeTimetableTopBarWithSidebar() {
+        val density = resources.displayMetrics.density
+        val baseTopPad = lastStatusBarTopPx + (8 * density).toInt()
+        val baseBottomPad = (6 * density).toInt()
+
+        if (!isTabletLandscapeMode ||
+            binding.layoutDrawer.cardDrawerProfileHeader.visibility != View.VISIBLE ||
+            binding.layoutDrawer.dividerDrawerProfileHeader.visibility != View.VISIBLE
+        ) {
+            if (timetableLandscapeExtraPadPx != 0) {
+                timetableLandscapeExtraPadPx = 0
+                binding.headerTimetable.setPadding(
+                    binding.headerTimetable.paddingLeft,
+                    baseTopPad,
+                    binding.headerTimetable.paddingRight,
+                    baseBottomPad
+                )
+            }
+            return
+        }
+
+        val sidebarDividerBottom = binding.layoutDrawer.dividerDrawerProfileHeader.bottom
+        val currentHeaderHeight = binding.headerTimetableContainer.height
+        if (sidebarDividerBottom <= 0 || currentHeaderHeight <= 0) return
+
+        val naturalHeaderHeight = currentHeaderHeight - timetableLandscapeExtraPadPx
+        val desiredExtra = (sidebarDividerBottom - naturalHeaderHeight).coerceAtLeast(0)
+        if (desiredExtra != timetableLandscapeExtraPadPx ||
+            binding.headerTimetable.paddingBottom != baseBottomPad + desiredExtra
+        ) {
+            timetableLandscapeExtraPadPx = desiredExtra
+            binding.headerTimetable.setPadding(
+                binding.headerTimetable.paddingLeft,
+                baseTopPad,
+                binding.headerTimetable.paddingRight,
+                baseBottomPad + desiredExtra
+            )
+        }
+    }
+
+    /**
+     * 屏幕旋转或侧栏显隐导致 ViewPager2 宽度变化时，强制将内部 RecyclerView 精准对齐当前周页，避免卡在半页位置。
+     */
+    private fun snapSchedulePagerToCurrentItem(targetPos: Int = binding.vpSchedule.currentItem) {
+        val pager = binding.vpSchedule
+        if (pager.adapter == null || pager.width <= 0) return
+        val count = pager.adapter?.itemCount ?: 0
+        if (count <= 0) return
+        val clampedPos = targetPos.coerceIn(0, count - 1)
+        if (pager.currentItem != clampedPos) {
+            pager.setCurrentItem(clampedPos, false)
+        }
+        val rv = pager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        val lm = rv.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return
+        lm.scrollToPositionWithOffset(clampedPos, 0)
+        pager.requestTransform()
     }
 
     private fun restorePortraitLayout() {
@@ -805,9 +877,22 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
+        timetableLandscapeExtraPadPx = 0
+        val density = resources.displayMetrics.density
+        binding.headerTimetable.setPadding(
+            binding.headerTimetable.paddingLeft,
+            lastStatusBarTopPx + (8 * density).toInt(),
+            binding.headerTimetable.paddingRight,
+            (6 * density).toInt()
+        )
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
+        val preservedSchedulePos = if (isInitialWeekLocated && binding.vpSchedule.adapter != null) {
+            binding.vpSchedule.currentItem
+        } else {
+            -1
+        }
         super.onConfigurationChanged(newConfig)
 
         val isTabletLandscape = TabletLayoutHelper.isTabletLandscape(this, newConfig)
@@ -846,6 +931,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 刷新课表周页面排版与内边距
+        binding.vpSchedule.post {
+            if (preservedSchedulePos >= 0) {
+                snapSchedulePagerToCurrentItem(preservedSchedulePos)
+            } else {
+                snapSchedulePagerToCurrentItem()
+            }
+        }
+        binding.headerTimetableContainer.post { alignLandscapeTimetableTopBarWithSidebar() }
         supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
             .forEach {
                 it.applyContentPadding()
@@ -1560,8 +1653,26 @@ class MainActivity : AppCompatActivity() {
 
         binding.headerTimetableContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
             val h = bottom - top
-            if (h > 0) {
+            if (h > 0 && h != topBarHeightPx) {
                 topBarHeightPx = h
+                supportFragmentManager.fragments
+                    .filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
+                    .forEach { it.applyContentPadding() }
+            }
+            if (isTabletLandscapeMode) {
+                binding.headerTimetableContainer.post { alignLandscapeTimetableTopBarWithSidebar() }
+            }
+        }
+
+        binding.layoutDrawer.dividerDrawerProfileHeader.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (isTabletLandscapeMode) {
+                binding.headerTimetableContainer.post { alignLandscapeTimetableTopBarWithSidebar() }
+            }
+        }
+
+        binding.vpSchedule.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft && right - left > 0) {
+                binding.vpSchedule.post { snapSchedulePagerToCurrentItem() }
             }
         }
 
