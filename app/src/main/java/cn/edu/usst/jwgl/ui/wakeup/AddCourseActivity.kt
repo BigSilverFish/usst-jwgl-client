@@ -43,6 +43,7 @@ class AddCourseActivity : AppCompatActivity() {
     private var selectedColor: String = CourseUtils.getColorHex(0)
     private var prefilledTeacher: String = ""
     private var selectedCandidateKey: String? = null
+    private var isUnscheduledExpanded: Boolean = false
 
     private lateinit var etCourseName: TextInputEditText
     private lateinit var etClassCode: TextInputEditText
@@ -414,7 +415,13 @@ class AddCourseActivity : AppCompatActivity() {
         }
         tvUnscheduledEmpty.visibility = View.GONE
 
-        for (candidate in candidates) {
+        val visibleCandidates = if (isUnscheduledExpanded || candidates.size <= 3) {
+            candidates
+        } else {
+            candidates.take(3)
+        }
+
+        for (candidate in visibleCandidates) {
             val key = "${candidate.name}|${candidate.classCode}"
             val isSelected = selectedCandidateKey == key
 
@@ -524,6 +531,33 @@ class AddCourseActivity : AppCompatActivity() {
                 applyCandidateSelection(candidate, key, candidates)
             }
             llUnscheduledList.addView(itemCard)
+        }
+
+        if (candidates.size > 3) {
+            val toggleBtn = MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dpToPx(38f)
+                ).apply { topMargin = dpToPx(8f) }
+                text = if (isUnscheduledExpanded) {
+                    "收起（仅显示前 3 门）"
+                } else {
+                    "展开全部 ${candidates.size} 门未上课表课程"
+                }
+                textSize = 12.5f
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dpToPx(10f)
+                setOnClickListener {
+                    isUnscheduledExpanded = !isUnscheduledExpanded
+                    renderUnscheduledCandidates(candidates)
+                }
+            }
+            llUnscheduledList.addView(toggleBtn)
         }
     }
 
