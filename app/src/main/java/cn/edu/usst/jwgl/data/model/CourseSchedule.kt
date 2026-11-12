@@ -23,6 +23,16 @@ data class CourseItem(
     fun isInWeek(week: Int): Boolean = weeks.isEmpty() || weeks.contains(week)
 }
 
+data class UnscheduledCourseItem(
+    val name: String,
+    val teacher: String = "",
+    val classCode: String = "",
+    val courseCode: String = "",
+    val examType: String = "",
+    val credit: Double = 0.0,
+    val courseType: String = ""
+) : Serializable
+
 data class TimetableData(
     val academicYear: String,
     val semester: String,
@@ -30,5 +40,6 @@ data class TimetableData(
     val studentName: String,
     val className: String,
     val courses: List<CourseItem>,
-    val currentWeek: Int = 3
+    val currentWeek: Int = 3,
+    val unscheduledCourses: List<UnscheduledCourseItem>? = emptyList()
 ) : Serializable

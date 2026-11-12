@@ -45,6 +45,92 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- Quick-pick Unscheduled Courses Card (only visible when adding a course) -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardQuickPickUnscheduled"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/border"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="快速选择未上课表课程"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvUnscheduledHint"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="点击一键填入课程名、教师与班级号"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <ProgressBar
+                            android:id="@+id/progressUnscheduled"
+                            style="?android:attr/progressBarStyleSmall"
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_marginEnd="6dp"
+                            android:visibility="gone" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRefreshUnscheduled"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="34dp"
+                            android:minWidth="0dp"
+                            android:paddingHorizontal="10dp"
+                            android:text="刷新"
+                            android:textSize="12.5sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvUnscheduledEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="本学期暂无未上课表的课程，可手动填写"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:id="@+id/llUnscheduledList"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- Course Name -->
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -59,6 +145,45 @@
                     android:singleLine="true"
                     android:textSize="16sp" />
             </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Class Code & Exam Type (Optional) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:hint="班级号 (选填)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etClassCode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:singleLine="true"
+                        android:textSize="14sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    android:layout_width="116dp"
+                    android:layout_height="wrap_content"
+                    android:hint="考核方式">
+
+                    <AutoCompleteTextView
+                        android:id="@+id/actvExamType"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="none"
+                        android:text="不设置"
+                        android:textSize="13.5sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
 
             <!-- Color Picker -->
             <TextView
