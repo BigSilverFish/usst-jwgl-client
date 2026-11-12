@@ -304,14 +304,18 @@ data class ChaoXingActiveItem(
             val d = signDetail?.signTypeDisplayName
             if (!d.isNullOrBlank()) return d
             val n1 = nameOne?.trim()
-            if (!n1.isNullOrBlank() && n1.contains("签到") && n1 != "签到") return n1
+            if (!n1.isNullOrBlank() && n1.contains("签到") && n1 != "签到") {
+                return if (n1.contains("扫码") || n1.contains("二维码")) "二维码签到" else n1
+            }
             val n2 = nameTwo?.replace("[", "")?.replace("]", "")?.trim()
-            if (!n2.isNullOrBlank()) return n2
+            if (!n2.isNullOrBlank() && n2 != "签到") {
+                return if (n2.contains("扫码") || n2.contains("二维码")) "二维码签到" else n2
+            }
             return when (otherId) {
                 2 -> "二维码签到"
                 3 -> "手势签到"
                 4 -> "位置签到"
-                5 -> "拍照签到"
+                5 -> "口令签到"
                 else -> "普通签到"
             }
         }

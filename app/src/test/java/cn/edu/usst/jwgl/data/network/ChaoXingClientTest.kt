@@ -249,4 +249,104 @@ class ChaoXingClientTest {
         val unescaped = ChaoXingSsoClient.unescapeJs(raw)
         assertEquals("https://i.chaoxing.com/base&query=1", unescaped)
     }
+
+    @Test
+    fun testResolveSignTypeDisplayName_qrNotMisclassifiedAsPhoto() {
+        val templateHtml = """
+            <html>
+              <head><script>var photoMode = "photo"; function uploadPhoto() {}</script></head>
+              <body>
+                <input type="hidden" id="ifPhoto" value="0" />
+                <div class="main">扫码签到</div>
+              </body>
+            </html>
+        """.trimIndent()
+
+        // otherId=2 时即使 HTML 脚本里存在 "photo" 也必须判定为二维码签到
+        assertEquals(
+            "二维码签到",
+            ChaoXingClient.resolveSignTypeDisplayName(
+                otherId = 2,
+                initialHintName = "扫码签到",
+                ifPhoto = false,
+                preHtml = templateHtml,
+                cleanBody = "扫码签到",
+                finalUrl = "https://mobilelearn.chaoxing.com/widget/sign/pcStuSignController/preSign?activeId=1"
+            )
+        )
+
+        // 即使 otherId 暂时未拿到，initialHintName 包含“扫码”且仅模板脚本含 photo，也必须判定为二维码签到
+        assertEquals(
+            "二维码签到",
+            ChaoXingClient.resolveSignTypeDisplayName(
+                otherId = -1,
+                initialHintName = "扫码签到",
+                ifPhoto = false,
+                preHtml = templateHtml,
+                cleanBody = "扫码签到",
+                finalUrl = "https://mobilelearn.chaoxing.com/widget/sign/pcStuSignController/preSign?activeId=1"
+            )
+        )
+    }
+
+    @Test
+    fun testResolveSignTypeDisplayName_allTypes() {
+        // 真实拍照签到：ifPhoto=true 或隐藏表单 ifPhoto=1
+        assertEquals(
+            "拍照签到",
+            ChaoXingClient.resolveSignTypeDisplayName(
+                otherId = 0,
+                ifPhoto = true,
+                cleanBody = "请拍照签到"
+            )
+        )
+        assertEquals(
+            "拍照签到",
+            ChaoXingClient.resolveSignTypeDisplayName(
+                otherId = 0,
+                ifPhoto = false,
+                preHtml = """<input type="hidden" value="1" id="ifPhoto">""",
+                cleanBody = "签到"
+            )
+        )
+
+        // 手势、位置
+        assertEquals("手势签到", ChaoXingClient.resolveSignTypeDisplayName(otherId = 3))
+        assertEquals("位置签到", ChaoXingClient.resolveSignTypeDisplayName(otherId = 4))
+
+        // otherId=5 默认是口令签到；仅当可见正文或 URL 明确是拍照时才为拍照签到
+        assertEquals(
+            "口令签到",
+            ChaoXingClient.resolveSignTypeDisplayName(otherId = 5, cleanBody = "请输入签到码")
+        )
+        assertEquals(
+            "拍照签到",
+            ChaoXingClient.resolveSignTypeDisplayName(otherId = 5, cleanBody = "请拍照")
+        )
+
+        // 普通签到不被脚本里残留的 photo 字样误伤
+        assertEquals(
+            "普通签到",
+            ChaoXingClient.resolveSignTypeDisplayName(
+                otherId = 0,
+                preHtml = """<script>const hasPhoto = false;</script><input id="ifPhoto" value="0">""",
+                cleanBody = "点击签到"
+            )
+        )
+    }
+
+    @Test
+    fun testChaoXingActiveItemResolvedSignTypeName() {
+        val qrJson = """{"id": 1, "activeType": 2, "status": 1, "otherId": 2, "nameOne": "扫码签到", "nameTwo": "签到"}"""
+        val qrItem = gson.fromJson(qrJson, cn.edu.usst.jwgl.data.model.ChaoXingActiveItem::class.java)
+        assertEquals("二维码签到", qrItem.resolvedSignTypeName)
+
+        val qrByIdJson = """{"id": 2, "activeType": 2, "status": 1, "otherId": 2, "nameTwo": "签到"}"""
+        val qrByIdItem = gson.fromJson(qrByIdJson, cn.edu.usst.jwgl.data.model.ChaoXingActiveItem::class.java)
+        assertEquals("二维码签到", qrByIdItem.resolvedSignTypeName)
+
+        val codeJson = """{"id": 3, "activeType": 2, "status": 1, "otherId": 5, "nameTwo": "签到"}"""
+        val codeItem = gson.fromJson(codeJson, cn.edu.usst.jwgl.data.model.ChaoXingActiveItem::class.java)
+        assertEquals("口令签到", codeItem.resolvedSignTypeName)
+    }
 }

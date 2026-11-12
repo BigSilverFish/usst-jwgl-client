@@ -181,6 +181,45 @@ class ChaoXingClient(private val context: Context) {
                 bytes.toByteString().base64()
             }
         }
+
+        internal fun hasHiddenPhotoFlag(preHtml: String): Boolean =
+            Regex("""<input[^>]*id=["']ifPhoto["'][^>]*value=["']1["']|<input[^>]*value=["']1["'][^>]*id=["']ifPhoto["']""")
+                .containsMatchIn(preHtml)
+
+        /**
+         * 综合结构化字段、名称提示、预签到隐藏表单标志、最终 URL 与可见正文判定签到类型，
+         * 避免直接扫描原始 HTML 脚本模板中的 "photo" 导致扫码/二维码签到被误判为拍照签到。
+         */
+        internal fun resolveSignTypeDisplayName(
+            otherId: Int,
+            initialHintName: String = "",
+            ifPhoto: Boolean = false,
+            preHtml: String = "",
+            signCode: String? = null,
+            cleanBody: String = "",
+            finalUrl: String = "",
+            locationText: String? = null,
+            lat: Double? = null
+        ): String {
+            val isPhotoByConfig = ifPhoto || hasHiddenPhotoFlag(preHtml)
+
+            return when {
+                otherId == 2 || initialHintName.contains("二维码") || initialHintName.contains("扫码") -> "二维码签到"
+                otherId == 3 || initialHintName.contains("手势") -> "手势签到"
+                otherId == 4 || initialHintName.contains("位置") -> "位置签到"
+                isPhotoByConfig || initialHintName.contains("拍照") -> "拍照签到"
+                !signCode.isNullOrBlank() || initialHintName.contains("签到码") || initialHintName.contains("口令") -> "口令签到"
+                otherId == 5 -> {
+                    if (cleanBody.contains("拍照") || finalUrl.contains("photo", ignoreCase = true)) "拍照签到" else "口令签到"
+                }
+                finalUrl.contains("gesture", ignoreCase = true) || cleanBody.contains("手势") -> "手势签到"
+                finalUrl.contains("qr", ignoreCase = true) || cleanBody.contains("二维码") || cleanBody.contains("扫码") -> "二维码签到"
+                finalUrl.contains("pcForCode", ignoreCase = true) || cleanBody.contains("签到码") || cleanBody.contains("口令") -> "口令签到"
+                !locationText.isNullOrBlank() || lat != null || finalUrl.contains("location", ignoreCase = true) || cleanBody.contains("位置签到") || cleanBody.contains("获取位置") -> "位置签到"
+                finalUrl.contains("photo", ignoreCase = true) || cleanBody.contains("拍照") || cleanBody.contains("上传照片") -> "拍照签到"
+                else -> "普通签到"
+            }
+        }
     }
 
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
@@ -1047,12 +1086,14 @@ class ChaoXingClient(private val context: Context) {
                     async {
                         val course = pair.first
                         val item = pair.second
+                        val hintName = "${item.nameOne.orEmpty()} ${item.nameTwo.orEmpty()}".trim()
                         val detailRes = fetchSignDetail(
                             courseId = course.courseId,
                             classId = course.classId,
                             activeId = item.id,
                             studentId = account,
-                            initialOtherId = item.otherId
+                            initialOtherId = item.otherId,
+                            initialHintName = hintName
                         )
                         if (detailRes.isSuccess) {
                             item.signDetail = detailRes.getOrNull()
@@ -1071,12 +1112,12 @@ class ChaoXingClient(private val context: Context) {
 
     /**
      * 8.1 深度探测超星签到活动配置与真实签到类型
-     * 双通道聚合 getPPTActiveInfo 与 preSign 判定：
-     * 3 -> 手势签到 (自动获取手势密码 signcode)
-     * 5 / ifPhoto -> 拍照签到
-     * 带有 signcode / 签到码 -> 口令签到
-     * 4 / 位置配置 -> 位置签到
+     * 双通道聚合 getPPTActiveInfo、activeList 原始标签与 preSign 可见 DOM 判定：
      * 2 -> 二维码签到
+     * 3 -> 手势签到 (自动获取手势密码 signcode)
+     * 4 / 位置配置 -> 位置签到
+     * ifPhoto == 1 -> 拍照签到
+     * 5 / 带有 signcode / 签到码 -> 口令签到
      * 普通签到
      */
     suspend fun fetchSignDetail(
@@ -1085,7 +1126,8 @@ class ChaoXingClient(private val context: Context) {
         activeId: Long,
         studentId: String? = null,
         needConfigProbe: Boolean = true,
-        initialOtherId: Int = -1
+        initialOtherId: Int = -1,
+        initialHintName: String = ""
     ): Result<cn.edu.usst.jwgl.data.model.ChaoXingSignDetail> = withContext(Dispatchers.IO) {
         val account = studentId ?: AuthPreferences(context).getStudentId()
         val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
@@ -1119,10 +1161,15 @@ class ChaoXingClient(private val context: Context) {
                         val data = json.optJSONObject("data")
                         if (data != null) {
                             signCode = data.optString("signcode", data.optString("signCode", "")).trim().takeIf { it.isNotBlank() }
-                            otherId = data.optInt("otherId", -1).let {
+                            val parsedOtherId = data.optInt("otherId", -1).let {
                                 if (it == -1) data.optString("otherId").toIntOrNull() ?: -1 else it
                             }
-                            ifPhoto = data.optInt("ifPhoto", 0) == 1 || data.optString("ifPhoto") == "1"
+                            if (parsedOtherId > 0 || (parsedOtherId == 0 && otherId < 0)) {
+                                otherId = parsedOtherId
+                            }
+                            ifPhoto = data.optInt("ifPhoto", 0) == 1 ||
+                                    data.optString("ifPhoto") == "1" ||
+                                    data.optBoolean("ifPhoto", false)
                             locationText = data.optString("locationText", "").trim().takeIf { it.isNotBlank() }
                             val latVal = data.optDouble("locationLatitude", Double.NaN)
                             if (!latVal.isNaN()) lat = latVal
@@ -1142,6 +1189,7 @@ class ChaoXingClient(private val context: Context) {
             var isExpired = false
             var statusText: String? = null
             var preHtml = ""
+            var cleanBody = ""
             var finalUrl = ""
 
             try {
@@ -1157,9 +1205,18 @@ class ChaoXingClient(private val context: Context) {
                 finalUrl = preResp.request.url.toString()
                 preHtml = preResp.body?.string().orEmpty()
 
-                // 使用 Jsoup 提取超星预签到落地页中向学生真实渲染的文本（过滤掉模板隐藏的 DOM/CSS）
+                // 使用 Jsoup 提取超星预签到落地页中向学生真实渲染的文本（过滤掉模板隐藏的 DOM/CSS/脚本）
                 val bodyText = if (preHtml.contains("<body")) preHtml.substringAfter("<body").substringBefore("</body>") else preHtml
-                val cleanBody = Jsoup.parse(bodyText).text()
+                cleanBody = Jsoup.parse(bodyText).text()
+
+                // 若 otherId 仍未确定，尝试从 preSign 隐藏表单中读取 otherId
+                if (otherId <= 0) {
+                    val htmlOtherId = Regex("""<input[^>]*id=["']otherId["'][^>]*value=["'](\d+)["']|<input[^>]*value=["'](\d+)["'][^>]*id=["']otherId["']""")
+                        .find(preHtml)?.let { m -> (m.groupValues[1].ifBlank { m.groupValues[2] }).toIntOrNull() }
+                    if (htmlOtherId != null && htmlOtherId > 0) {
+                        otherId = htmlOtherId
+                    }
+                }
 
                 // 超星预签到页面的多维度状态权威判据:
                 // 1. 缺勤 / 未参与: 页面可见文本明确包含 "缺勤" 或 "已过教师设置的截止时间" 等
@@ -1198,22 +1255,27 @@ class ChaoXingClient(private val context: Context) {
                 Log.w(TAG, "preSign probe failed: ${e.message}")
             }
 
-            // 3. 综合多维度精确判定签到类型 (结合 activeList.otherId 与 preSign 页面特征)
-            val typeDisplayName = when {
-                otherId == 3 || preHtml.contains("gesture") || preHtml.contains("手势") || finalUrl.contains("gesture") -> "手势签到"
-                otherId == 5 || ifPhoto || preHtml.contains("photo") || preHtml.contains("拍照") || preHtml.contains("照片") || finalUrl.contains("photo") -> "拍照签到"
-                !signCode.isNullOrBlank() || preHtml.contains("pcForCode") || preHtml.contains("签到码") || preHtml.contains("口令") || finalUrl.contains("pcForCode") -> "口令签到"
-                otherId == 2 || preHtml.contains("二维码") || finalUrl.contains("qr") -> "二维码签到"
-                otherId == 4 || !locationText.isNullOrBlank() || lat != null || preHtml.contains("map.baidu.com") || preHtml.contains("BMap") || preHtml.contains("位置") || finalUrl.contains("location") -> "位置签到"
-                else -> "普通签到"
-            }
+            // 3. 综合多维度精确判定签到类型
+            // 优先采信权威结构化字段与 activeList 名称提示，再回退到可见正文 cleanBody / finalUrl，避免被原始 HTML 模板脚本中的 photo 等字样误伤
+            val isPhotoByConfig = ifPhoto || hasHiddenPhotoFlag(preHtml)
+            val typeDisplayName = resolveSignTypeDisplayName(
+                otherId = otherId,
+                initialHintName = initialHintName,
+                ifPhoto = isPhotoByConfig,
+                preHtml = preHtml,
+                signCode = signCode,
+                cleanBody = cleanBody,
+                finalUrl = finalUrl,
+                locationText = locationText,
+                lat = lat
+            )
 
             val detail = cn.edu.usst.jwgl.data.model.ChaoXingSignDetail(
                 activeId = activeId,
                 otherId = if (otherId >= 0) otherId else 0,
                 signTypeDisplayName = typeDisplayName,
                 signCode = signCode,
-                ifPhoto = ifPhoto,
+                ifPhoto = isPhotoByConfig,
                 locationText = locationText,
                 latitude = lat,
                 longitude = lng,
@@ -1225,7 +1287,7 @@ class ChaoXingClient(private val context: Context) {
                 rawJson = rawJson
             )
 
-            Log.i(TAG, "fetchSignDetail activeId=$activeId -> type: $typeDisplayName, signCode: $signCode, isAlreadySigned: $isAlreadySigned")
+            Log.i(TAG, "fetchSignDetail activeId=$activeId -> otherId=$otherId, ifPhoto=$isPhotoByConfig, type=$typeDisplayName, signCode=$signCode, isAlreadySigned=$isAlreadySigned")
             Result.success(detail)
         } catch (e: Exception) {
             Log.e(TAG, "fetchSignDetail unexpected error", e)
@@ -1529,13 +1591,15 @@ class ChaoXingClient(private val context: Context) {
             coroutineScope {
                 val rollcallList = allSignActivities.map { item ->
                     async {
+                        val hintName = "${item.nameOne.orEmpty()} ${item.nameTwo.orEmpty()}".trim()
                         val detail = fetchSignDetail(
                             courseId = courseId,
                             classId = classId,
                             activeId = item.id,
                             studentId = account,
                             needConfigProbe = item.isActive(),
-                            initialOtherId = item.otherId
+                            initialOtherId = item.otherId,
+                            initialHintName = hintName
                         ).getOrNull()
                         UnifiedStudentRollcall.fromChaoXing(item, detail)
                     }
