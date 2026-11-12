@@ -706,7 +706,8 @@ class TronClassClient(context: Context) {
         if (account.isBlank() || (!customSessionId.isNullOrBlank() && customAccountKey.isNullOrBlank())) {
             return Result.failure(IllegalArgumentException("无法确认本次签到账号"))
         }
-        val session = customSessionId ?: prefs.getSessionId(account)
+        val session = customSessionId ?: prefs.getSessionId(account)?.takeIf { it.isNotBlank() }
+            ?: ensureSessionForAccount(account).getOrNull()
         if (session.isNullOrBlank()) return Result.failure(AppAuthExpiredException())
         val body = request.body ?: return Result.failure(IllegalArgumentException("缺少签到内容"))
         val authenticated = request.newBuilder().header("x-session-id", session)
@@ -722,7 +723,33 @@ class TronClassClient(context: Context) {
                 if (confirmed) "本机已保存本活动的确认签到结果" else "本活动已有提交记录，请查询官方状态；为避免消耗错误次数不会再次发送")))
         }
         val result = try {
-            val response = executeRequest(authenticated)
+            var response = executeRequest(authenticated)
+            if (response.code == 401) {
+                response.close()
+                val refreshedSession = if (customAccountKey == null) {
+                    if (refreshSessionOnce(account, session).getOrDefault(false)) {
+                        prefs.getSessionId(account)?.takeIf { it.isNotBlank() && it != session }
+                    } else null
+                } else {
+                    refreshSession(account)
+                    prefs.getSessionId(account)?.takeIf { it.isNotBlank() && it != session }
+                }
+                if (!refreshedSession.isNullOrBlank()) {
+                    val retriedReq = request.newBuilder()
+                        .header("x-session-id", refreshedSession)
+                        .apply {
+                            if (request.header("Cookie") != null) {
+                                header("Cookie", "session_id=$refreshedSession")
+                            }
+                        }
+                        .method(request.method, SingleAttemptRequestBody(body))
+                        .build()
+                    response = executeRequest(retriedReq)
+                } else {
+                    store.record(account, rollcallId, "rejected")
+                    return Result.success(RollcallSubmitResult(false, "一网畅学登录已失效，请重新授权登录"))
+                }
+            }
             val parsed = response.use { parseRollcallWriteResult(it.code, it.body?.string().orEmpty()) }
             store.record(account, rollcallId, parsed.state)
             Result.success(parsed.result)
@@ -736,17 +763,26 @@ class TronClassClient(context: Context) {
     }
 
     private suspend fun recoverUnknownRollcall(
-        account: String, rollcallId: Long, result: Result<RollcallSubmitResult>
+        account: String, rollcallId: Long, result: Result<RollcallSubmitResult>,
+        retryDelayMs: Long = 1200L
     ): Result<RollcallSubmitResult> {
         if (result.getOrNull()?.success == true || account != accountKey() ||
             RollcallSubmissionStore(context).state(account, rollcallId) != "unknown") return result
         val target = fetchOngoingRollcalls(account).getOrNull()?.singleOrNull {
             it.getEffectiveId() == rollcallId && it.courseId > 0L
         } ?: return result
-        val record = queryRollcallAttendance(target, account).getOrNull()
-        return if (record?.isAttended() == true || record?.isLateOrEarly() == true) {
-            Result.success(RollcallSubmitResult(true, "官方记录已确认：${record.getStatusDisplayName()}"))
-        } else result
+        val firstRecord = queryRollcallAttendance(target, account).getOrNull()
+        if (firstRecord?.isAttended() == true || firstRecord?.isLateOrEarly() == true) {
+            return Result.success(RollcallSubmitResult(true, "官方记录已确认：${firstRecord.getStatusDisplayName()}"))
+        }
+        if (retryDelayMs > 0L) {
+            kotlinx.coroutines.delay(retryDelayMs)
+            val secondRecord = queryRollcallAttendance(target, account).getOrNull()
+            if (secondRecord?.isAttended() == true || secondRecord?.isLateOrEarly() == true) {
+                return Result.success(RollcallSubmitResult(true, "官方记录已确认：${secondRecord.getStatusDisplayName()}"))
+            }
+        }
+        return result
     }
 
     /** Reads the known target only. A returned candidate is never submitted by this method. */
