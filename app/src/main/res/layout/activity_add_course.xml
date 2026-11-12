@@ -21,10 +21,19 @@
             android:id="@+id/btnSaveCourse"
             style="@style/Widget.Material3.Button"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:layout_gravity="end"
+            android:layout_height="34dp"
+            android:layout_gravity="end|center_vertical"
             android:layout_marginEnd="16dp"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="64dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="0dp"
             android:text="保存"
+            android:textSize="14sp"
             app:cornerRadius="10dp" />
     </com.google.android.material.appbar.MaterialToolbar>
 
@@ -106,10 +115,16 @@
                             style="@style/Widget.Material3.Button.TextButton"
                             android:layout_width="wrap_content"
                             android:layout_height="34dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
                             android:minWidth="0dp"
+                            android:minHeight="0dp"
                             android:paddingHorizontal="10dp"
+                            android:paddingVertical="0dp"
                             android:text="刷新"
-                            android:textSize="12.5sp" />
+                            android:textSize="13sp" />
                     </LinearLayout>
 
                     <TextView
@@ -283,7 +298,14 @@
                     android:id="@+id/btnAddSlot"
                     style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="wrap_content"
-                    android:layout_height="36dp"
+                    android:layout_height="32dp"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="0dp"
                     android:text="添加时间段"
                     android:textSize="12sp"
                     app:cornerRadius="10dp"
