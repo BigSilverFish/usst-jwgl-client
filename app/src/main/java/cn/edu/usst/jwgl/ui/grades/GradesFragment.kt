@@ -65,6 +65,14 @@ class GradesFragment : Fragment() {
     private var selectedGradeSemesterTitle: String = ""
     private var lastHeaderHeightPx: Int = 0
     private var lastBottomPaddingPx: Int = 0
+    private var lastMasterReport: GradeReport? = null
+    private data class MasterRowHolder(
+        val semesterKey: String,
+        val card: com.google.android.material.card.MaterialCardView,
+        val tvTitle: TextView,
+        val tvGpa: TextView
+    )
+    private val masterRowHolders = mutableListOf<MasterRowHolder>()
     private var isTabletLandscapeMode: Boolean = false
     private var gridSpacingDecoration: RecyclerView.ItemDecoration? = null
 
@@ -100,6 +108,7 @@ class GradesFragment : Fragment() {
     private fun initViews() {
         // RecyclerView 基础配置
         binding.rvGrades.adapter = gradeAdapter
+        binding.rvGrades.itemAnimator = null
         updateRecyclerViewLayoutManager(getOptimalSpanCount())
 
         // 下拉刷新
@@ -107,7 +116,7 @@ class GradesFragment : Fragment() {
         binding.swipeRefreshGrades.setOnChildScrollUpCallback { _, _ ->
             if (isTabletLandscapeMode) {
                 binding.scrollGradesLeft.canScrollVertically(-1) ||
-                    binding.scrollGradesRight.canScrollVertically(-1)
+                    binding.rvGrades.canScrollVertically(-1)
             } else {
                 binding.scrollGrades.canScrollVertically(-1)
             }
@@ -209,7 +218,7 @@ class GradesFragment : Fragment() {
             val topPad = (if (lastHeaderHeightPx > 0) lastHeaderHeightPx else (115 * density).toInt()) + (12 * density).toInt()
             val bottomPad = lastBottomPaddingPx + (16 * density).toInt()
             binding.scrollGradesLeft.setPadding(0, topPad, 0, bottomPad)
-            binding.scrollGradesRight.setPadding(0, topPad, 0, bottomPad)
+            binding.rvGrades.setPadding(0, topPad, 0, bottomPad)
         } else {
             binding.flGradesSwipeContainer.setPadding(0, 0, 0, 0)
             binding.viewGradesHeaderSpacing.visibility = View.VISIBLE
@@ -219,7 +228,7 @@ class GradesFragment : Fragment() {
             }
             binding.scrollGrades.setPadding(horizontalPad, (12 * density).toInt(), horizontalPad, lastBottomPaddingPx)
             binding.scrollGradesLeft.setPadding(0, 0, 0, 0)
-            binding.scrollGradesRight.setPadding(0, 0, 0, 0)
+            binding.rvGrades.setPadding(0, 0, 0, 0)
         }
     }
 
@@ -304,7 +313,11 @@ class GradesFragment : Fragment() {
             binding.tvCumulativeGpa.text = String.format("%.2f", report.cumulativeGpa)
 
             val allCourses = report.semesters.flatMap { it.courses }
-            gradeAdapter.submitList(allCourses)
+            gradeAdapter.submitList(allCourses) {
+                if (_binding != null && isTabletLandscapeMode) {
+                    binding.rvGrades.scrollToPosition(0)
+                }
+            }
             binding.tvGradesCountSummary.text = "共 ${allCourses.size} 门课程"
         } else {
             val sem = report.semesters.find { it.semesterTitle == selectedGradeSemesterTitle }
@@ -317,7 +330,11 @@ class GradesFragment : Fragment() {
                 binding.tvCumulativeAvgScore.text = String.format("%.2f", sem.weightedAverageScore)
                 binding.tvCumulativeGpa.text = String.format("%.2f", sem.weightedGpa)
 
-                gradeAdapter.submitList(sem.courses)
+                gradeAdapter.submitList(sem.courses) {
+                    if (_binding != null && isTabletLandscapeMode) {
+                        binding.rvGrades.scrollToPosition(0)
+                    }
+                }
                 binding.tvGradesCountSummary.text = "本学期 ${sem.courses.size} 门课程"
             } else {
                 selectedGradeSemesterTitle = ""
@@ -480,13 +497,20 @@ class GradesFragment : Fragment() {
                 marginEnd = (18 * density).toInt()
             }
             binding.scrollGradesLeft.isNestedScrollingEnabled = true
-            binding.scrollGradesRight.layoutParams = LinearLayout.LayoutParams(
+            binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 1f
             )
-            binding.scrollGradesRight.isNestedScrollingEnabled = true
-            (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
+            binding.rvGrades.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply {
+                topMargin = 0
+            }
+            binding.rvGrades.isNestedScrollingEnabled = true
+            binding.tvGradesWatermark.visibility = View.GONE
             binding.cardGradesSemesterMaster.visibility = View.VISIBLE
             binding.ivGradeSemesterDropdown.visibility = View.GONE
             binding.btnSelectGradeSemester.isClickable = false
@@ -518,12 +542,18 @@ class GradesFragment : Fragment() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             binding.scrollGradesLeft.isNestedScrollingEnabled = false
-            binding.scrollGradesRight.layoutParams = LinearLayout.LayoutParams(
+            binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            binding.scrollGradesRight.isNestedScrollingEnabled = false
-            (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = (8 * density).toInt()
+            binding.rvGrades.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (8 * density).toInt()
+            }
+            binding.rvGrades.isNestedScrollingEnabled = false
+            binding.tvGradesWatermark.visibility = View.VISIBLE
             binding.cardGradesSemesterMaster.visibility = View.GONE
             binding.ivGradeSemesterDropdown.visibility = View.VISIBLE
             binding.btnSelectGradeSemester.isClickable = true
@@ -577,31 +607,27 @@ class GradesFragment : Fragment() {
     private fun populateGradesSemesterMasterList(report: GradeReport) {
         if (_binding == null) return
         val container = binding.llGradesSemesterMasterList
+        if (lastMasterReport === report && masterRowHolders.size == report.semesters.size + 1) {
+            updateMasterRowSelectionStyles()
+            return
+        }
+
         container.removeAllViews()
+        masterRowHolders.clear()
+        lastMasterReport = report
         val density = resources.displayMetrics.density
 
         fun addMasterRow(
+            semesterKey: String,
             title: String,
             subtitle: String,
             gpaBadge: String,
-            isSelected: Boolean,
-            onClick: () -> Unit
+            isSelected: Boolean
         ) {
             val ctx = requireContext()
             val rowCard = com.google.android.material.card.MaterialCardView(ctx).apply {
                 radius = 12 * density
                 cardElevation = 0f
-                strokeWidth = ((if (isSelected) 1.5f else 0.8f) * density).toInt()
-                strokeColor = ContextCompat.getColor(
-                    ctx,
-                    if (isSelected) R.color.primary else R.color.border
-                )
-                setCardBackgroundColor(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (isSelected) R.color.primary_container else R.color.surface_variant
-                    )
-                )
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -611,7 +637,11 @@ class GradesFragment : Fragment() {
                 layoutParams = lp
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { onClick() }
+                setOnClickListener {
+                    if (selectedGradeSemesterTitle == semesterKey) return@setOnClickListener
+                    selectedGradeSemesterTitle = semesterKey
+                    updateGradesUI(report)
+                }
             }
 
             val rowInner = LinearLayout(ctx).apply {
@@ -631,12 +661,6 @@ class GradesFragment : Fragment() {
                 text = title
                 textSize = 13f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (isSelected) R.color.primary else R.color.text_primary
-                    )
-                )
             }
 
             val tvSub = TextView(ctx).apply {
@@ -654,41 +678,71 @@ class GradesFragment : Fragment() {
                 text = gpaBadge
                 textSize = 13f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (isSelected) R.color.primary else R.color.text_primary
-                    )
-                )
             }
             rowInner.addView(tvGpa)
             rowCard.addView(rowInner)
             container.addView(rowCard)
+            masterRowHolders.add(MasterRowHolder(semesterKey, rowCard, tvTitle, tvGpa))
+            applyMasterRowStyle(rowCard, tvTitle, tvGpa, isSelected)
         }
 
         val allCount = report.semesters.sumOf { it.courses.size }
         addMasterRow(
+            semesterKey = "",
             title = "全部学期 (汇总)",
             subtitle = "$allCount 门 · ${String.format("%.1f", report.totalCredits)} 学分 · 均分 ${String.format("%.2f", report.cumulativeWeightedScore)}",
             gpaBadge = "GPA ${String.format("%.2f", report.cumulativeGpa)}",
             isSelected = selectedGradeSemesterTitle.isEmpty()
-        ) {
-            selectedGradeSemesterTitle = ""
-            updateGradesUI(report)
-        }
+        )
 
         for (sem in report.semesters) {
             val formatted = formatSemesterTitle(sem.semesterTitle)
             addMasterRow(
+                semesterKey = sem.semesterTitle,
                 title = formatted,
                 subtitle = "${sem.courses.size} 门 · ${String.format("%.1f", sem.totalCredits)} 学分 · 均分 ${String.format("%.2f", sem.weightedAverageScore)}",
                 gpaBadge = "GPA ${String.format("%.2f", sem.weightedGpa)}",
                 isSelected = selectedGradeSemesterTitle == sem.semesterTitle
-            ) {
-                selectedGradeSemesterTitle = sem.semesterTitle
-                updateGradesUI(report)
-            }
+            )
         }
+    }
+
+    private fun updateMasterRowSelectionStyles() {
+        for (holder in masterRowHolders) {
+            applyMasterRowStyle(
+                holder.card,
+                holder.tvTitle,
+                holder.tvGpa,
+                selectedGradeSemesterTitle == holder.semesterKey
+            )
+        }
+    }
+
+    private fun applyMasterRowStyle(
+        rowCard: com.google.android.material.card.MaterialCardView,
+        tvTitle: TextView,
+        tvGpa: TextView,
+        isSelected: Boolean
+    ) {
+        val ctx = context ?: return
+        val density = resources.displayMetrics.density
+        rowCard.strokeWidth = ((if (isSelected) 1.5f else 0.8f) * density).toInt()
+        rowCard.strokeColor = ContextCompat.getColor(
+            ctx,
+            if (isSelected) R.color.primary else R.color.border
+        )
+        rowCard.setCardBackgroundColor(
+            ContextCompat.getColor(
+                ctx,
+                if (isSelected) R.color.primary_container else R.color.surface_variant
+            )
+        )
+        val textColor = ContextCompat.getColor(
+            ctx,
+            if (isSelected) R.color.primary else R.color.text_primary
+        )
+        tvTitle.setTextColor(textColor)
+        tvGpa.setTextColor(textColor)
     }
 
     /**

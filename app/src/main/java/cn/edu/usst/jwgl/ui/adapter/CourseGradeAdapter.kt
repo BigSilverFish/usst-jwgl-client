@@ -5,19 +5,27 @@ import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.model.CourseGrade
 import cn.edu.usst.jwgl.databinding.ItemCourseGradeBinding
 
-class CourseGradeAdapter : RecyclerView.Adapter<CourseGradeAdapter.ViewHolder>() {
+class CourseGradeAdapter : ListAdapter<CourseGrade, CourseGradeAdapter.ViewHolder>(DIFF_CALLBACK) {
 
-    private val items = mutableListOf<CourseGrade>()
+    companion object {
+        private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<CourseGrade>() {
+            override fun areItemsTheSame(oldItem: CourseGrade, newItem: CourseGrade): Boolean {
+                return oldItem.courseId == newItem.courseId &&
+                    oldItem.semesterTitle == newItem.semesterTitle &&
+                    oldItem.courseName == newItem.courseName
+            }
 
-    fun submitList(newItems: List<CourseGrade>) {
-        items.clear()
-        items.addAll(newItems)
-        notifyDataSetChanged()
+            override fun areContentsTheSame(oldItem: CourseGrade, newItem: CourseGrade): Boolean {
+                return oldItem == newItem
+            }
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -26,10 +34,8 @@ class CourseGradeAdapter : RecyclerView.Adapter<CourseGradeAdapter.ViewHolder>()
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(items[position])
+        holder.bind(getItem(position))
     }
-
-    override fun getItemCount(): Int = items.size
 
     class ViewHolder(private val binding: ItemCourseGradeBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: CourseGrade) {
