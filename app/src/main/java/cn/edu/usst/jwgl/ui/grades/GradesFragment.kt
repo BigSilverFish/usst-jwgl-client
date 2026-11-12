@@ -205,13 +205,13 @@ class GradesFragment : Fragment() {
         val density = resources.displayMetrics.density
         val horizontalPad = (16 * density).toInt()
         if (isTabletLandscapeMode) {
-            binding.viewGradesHeaderSpacing.visibility = View.GONE
-            binding.scrollGrades.setPadding(horizontalPad, 0, horizontalPad, 0)
+            binding.flGradesSwipeContainer.setPadding(horizontalPad, 0, horizontalPad, 0)
             val topPad = (if (lastHeaderHeightPx > 0) lastHeaderHeightPx else (115 * density).toInt()) + (12 * density).toInt()
             val bottomPad = lastBottomPaddingPx + (16 * density).toInt()
             binding.scrollGradesLeft.setPadding(0, topPad, 0, bottomPad)
             binding.scrollGradesRight.setPadding(0, topPad, 0, bottomPad)
         } else {
+            binding.flGradesSwipeContainer.setPadding(0, 0, 0, 0)
             binding.viewGradesHeaderSpacing.visibility = View.VISIBLE
             if (lastHeaderHeightPx > 0 && binding.viewGradesHeaderSpacing.layoutParams.height != lastHeaderHeightPx) {
                 binding.viewGradesHeaderSpacing.layoutParams.height = lastHeaderHeightPx
@@ -456,14 +456,22 @@ class GradesFragment : Fragment() {
 
         if (isTabletLandscape) {
             val leftPaneWidthDp = if (screenWidthDp < 960) 260 else 290
-            binding.llGradesContent.layoutParams = android.widget.FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            binding.llGradesBody.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            )
+            binding.scrollGrades.visibility = View.GONE
+            if (binding.llGradesBody.parent !== binding.flGradesSwipeContainer) {
+                (binding.llGradesBody.parent as? ViewGroup)?.removeView(binding.llGradesBody)
+                binding.flGradesSwipeContainer.addView(
+                    binding.llGradesBody,
+                    android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                )
+            } else {
+                binding.llGradesBody.layoutParams = android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
             binding.llGradesBody.orientation = LinearLayout.HORIZONTAL
             binding.scrollGradesLeft.layoutParams = LinearLayout.LayoutParams(
                 (leftPaneWidthDp * density).toInt(),
@@ -488,14 +496,22 @@ class GradesFragment : Fragment() {
             updateRecyclerViewLayoutManager(getOptimalSpanCount())
             gradeReport?.let { populateGradesSemesterMasterList(it) }
         } else {
-            binding.llGradesContent.layoutParams = android.widget.FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            binding.llGradesBody.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            binding.scrollGrades.visibility = View.VISIBLE
+            if (binding.llGradesBody.parent !== binding.llGradesContent) {
+                (binding.llGradesBody.parent as? ViewGroup)?.removeView(binding.llGradesBody)
+                binding.llGradesContent.addView(
+                    binding.llGradesBody,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            } else {
+                binding.llGradesBody.layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
             binding.llGradesBody.orientation = LinearLayout.VERTICAL
             binding.scrollGradesLeft.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
