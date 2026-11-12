@@ -37,6 +37,7 @@ class FastTimetableParserTest {
                 {
                     "kcmc": "Web应用开发实验",
                     "kch": "12102090",
+                    "jxbmc": "(2026-2027-1)-12102090-01",
                     "xf": "1.0",
                     "kcxz": "实践必修",
                     "khfs": "考查",
@@ -103,6 +104,17 @@ class FastTimetableParserTest {
         assertNotNull(friSlot)
         assertEquals(1, friSlot!!.startSection)
         assertEquals(2, friSlot.step)
+
+        // Check unscheduled course (Web应用开发实验)
+        val unscheduled = data.unscheduledCourses.orEmpty()
+        assertEquals(1, unscheduled.size)
+        val lab = unscheduled[0]
+        assertEquals("Web应用开发实验", lab.name)
+        assertEquals("李锐", lab.teacher)
+        assertEquals("(2026-2027-1)-12102090-01", lab.classCode)
+        assertEquals("12102090", lab.courseCode)
+        assertEquals("考查", lab.examType)
+        assertEquals(1.0, lab.credit, 0.01)
     }
 
     @Test

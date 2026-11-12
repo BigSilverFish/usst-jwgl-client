@@ -654,6 +654,8 @@ object JwglClient {
         val semTitle = "${yearName}学年 第${semName}学期"
 
         val courses = mutableListOf<cn.edu.usst.jwgl.data.model.CourseItem>()
+        val unscheduledCourses = mutableListOf<cn.edu.usst.jwgl.data.model.UnscheduledCourseItem>()
+        val seenUnscheduledKeys = mutableSetOf<String>()
         val courseColorMap = mutableMapOf<String, Int>()
         var nextColor = 0
 
@@ -667,8 +669,6 @@ object JwglClient {
             if (courseName.isEmpty()) continue
 
             val sksj = item.optStr("sksj")
-            if (sksj.isEmpty() || sksj == "null") continue
-
             val jxdd = item.optStr("jxdd")
             val jsxx = item.optStr("jsxx")
             val teacher = if (jsxx.contains("/")) {
@@ -688,7 +688,33 @@ object JwglClient {
                 examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
             }
 
+            fun recordUnscheduled() {
+                val key = "${courseName}_${classCode.ifBlank { courseCode }}_$teacher"
+                if (seenUnscheduledKeys.add(key)) {
+                    unscheduledCourses.add(
+                        cn.edu.usst.jwgl.data.model.UnscheduledCourseItem(
+                            name = courseName,
+                            teacher = teacher,
+                            classCode = classCode,
+                            courseCode = courseCode,
+                            examType = examType,
+                            credit = credit,
+                            courseType = courseType
+                        )
+                    )
+                }
+            }
+
+            if (sksj.isEmpty() || sksj == "null") {
+                recordUnscheduled()
+                continue
+            }
+
             val sksjParts = sksj.split(";", "；", "\n").map { it.trim() }.filter { it.isNotEmpty() }
+            if (sksjParts.isEmpty()) {
+                recordUnscheduled()
+                continue
+            }
             val jxddParts = if (jxdd.isNotEmpty() && jxdd != "null") {
                 jxdd.split(";", "；", "\n").map { it.trim() }
             } else emptyList()
@@ -756,6 +782,9 @@ object JwglClient {
             }
         }
 
+        val scheduledNames = courses.map { it.name.trim() }.toSet()
+        val filteredUnscheduled = unscheduledCourses.filter { it.name.trim() !in scheduledNames }
+
         return cn.edu.usst.jwgl.data.model.TimetableData(
             academicYear = xnm,
             semester = xqm,
@@ -763,7 +792,8 @@ object JwglClient {
             studentName = studentName,
             className = className,
             courses = courses,
-            currentWeek = currentWeek
+            currentWeek = currentWeek,
+            unscheduledCourses = filteredUnscheduled
         )
     }
 
@@ -805,6 +835,7 @@ object JwglClient {
 
             val json = org.json.JSONObject(body)
             val kbList = json.optJSONArray("kbList") ?: org.json.JSONArray()
+            val sjkList = json.optJSONArray("sjkList") ?: org.json.JSONArray()
             val xsxx = json.optJSONObject("xsxx")
 
             val studentName = xsxx?.optString("XM", "") ?: ""
@@ -814,6 +845,8 @@ object JwglClient {
             val semTitle = "${yearName}学年 第${semName}学期"
 
             val courses = mutableListOf<cn.edu.usst.jwgl.data.model.CourseItem>()
+            val unscheduledCourses = mutableListOf<cn.edu.usst.jwgl.data.model.UnscheduledCourseItem>()
+            val seenUnscheduledKeys = mutableSetOf<String>()
             val courseColorMap = mutableMapOf<String, Int>()
             var nextColor = 0
 
@@ -824,8 +857,9 @@ object JwglClient {
 
                 val teacher = item.optString("xm", "").trim()
                 val classroom = item.optString("cdmc", "").trim()
-                val dayOfWeek = item.optString("xqj", "1").toIntOrNull() ?: 1
-                val jcs = item.optString("jcs", "1-2").trim()
+                val dayRaw = item.optString("xqj", "").trim()
+                val dayOfWeek = dayRaw.toIntOrNull() ?: 1
+                val jcs = item.optString("jcs", "").trim()
                 val zcd = item.optString("zcd", "").trim()
                 val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
                 val courseType = item.optString("kcxz", "").trim()
@@ -835,6 +869,24 @@ object JwglClient {
                 var examType = item.optString("khfsmc", item.optString("khfs", "")).trim()
                 if (examType.isEmpty()) {
                     examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
+                }
+
+                if (jcs.isEmpty() || dayRaw.isEmpty()) {
+                    val key = "${courseName}_${classCode.ifBlank { courseCode }}_$teacher"
+                    if (seenUnscheduledKeys.add(key)) {
+                        unscheduledCourses.add(
+                            cn.edu.usst.jwgl.data.model.UnscheduledCourseItem(
+                                name = courseName,
+                                teacher = teacher,
+                                classCode = classCode,
+                                courseCode = courseCode,
+                                examType = examType,
+                                credit = credit,
+                                courseType = courseType
+                            )
+                        )
+                    }
+                    continue
                 }
 
                 // Parse sections (e.g. "6-7" -> start=6, step=2; "6-8" -> start=6, step=3)
@@ -880,6 +932,41 @@ object JwglClient {
                 )
             }
 
+            for (i in 0 until sjkList.length()) {
+                val item = sjkList.optJSONObject(i) ?: continue
+                val courseName = item.optString("kcmc", "").trim()
+                if (courseName.isEmpty()) continue
+
+                val teacher = item.optString("xm", item.optString("jsmc", "")).trim()
+                val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
+                val courseType = item.optString("kcxz", "").trim()
+                val courseCode = item.optString("kch", item.optString("kch_id", "")).trim()
+                val classCode = item.optString("jxbmc", item.optString("jxb", "")).trim()
+
+                var examType = item.optString("khfsmc", item.optString("khfs", "")).trim()
+                if (examType.isEmpty()) {
+                    examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
+                }
+
+                val key = "${courseName}_${classCode.ifBlank { courseCode }}_$teacher"
+                if (seenUnscheduledKeys.add(key)) {
+                    unscheduledCourses.add(
+                        cn.edu.usst.jwgl.data.model.UnscheduledCourseItem(
+                            name = courseName,
+                            teacher = teacher,
+                            classCode = classCode,
+                            courseCode = courseCode,
+                            examType = examType,
+                            credit = credit,
+                            courseType = courseType
+                        )
+                    )
+                }
+            }
+
+            val scheduledNames = courses.map { it.name.trim() }.toSet()
+            val filteredUnscheduled = unscheduledCourses.filter { it.name.trim() !in scheduledNames }
+
             val timetableData = cn.edu.usst.jwgl.data.model.TimetableData(
                 academicYear = xnm,
                 semester = xqm,
@@ -887,7 +974,8 @@ object JwglClient {
                 studentName = studentName,
                 className = className,
                 courses = courses,
-                currentWeek = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getCurrentWeek()
+                currentWeek = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getCurrentWeek(),
+                unscheduledCourses = filteredUnscheduled
             )
             Log.d(TAG, "Successfully parsed ${courses.size} timetable courses for $semTitle")
             Result.success(timetableData)
