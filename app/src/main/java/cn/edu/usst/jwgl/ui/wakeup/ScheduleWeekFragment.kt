@@ -483,7 +483,8 @@ class ScheduleWeekFragment : Fragment() {
                     setLineSpacing(0f, 1.0f)
                     includeFontPadding = false
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    maxLines = if (course.step >= 3) 8 else (course.step * 2).coerceAtLeast(2)
+                    val singleLineHeight = lineHeight.coerceAtLeast(paint.getFontMetricsInt(null))
+                    maxLines = computeCardMaxLines(cardHeight, vPad, singleLineHeight)
 
                     val bgDrawable = (ContextCompat.getDrawable(context, R.drawable.course_item_bg)!!.mutate()) as GradientDrawable
                     bgDrawable.setStroke(dpToPx(1.5f), table.strokeColor)
@@ -777,6 +778,17 @@ class ScheduleWeekFragment : Fragment() {
     companion object {
         const val ARG_WEEK = "arg_week"
         const val ARG_TABLE_ID = "arg_table_id"
+
+        /**
+         * Compute maximum lines fitting inside a course card based on its height,
+         * vertical padding, and single-line text height so multi-line locations aren't
+         * prematurely ellipsized while vertical space remains.
+         */
+        fun computeCardMaxLines(cardHeight: Int, verticalPadding: Int, lineHeightPx: Int): Int {
+            val availableHeight = (cardHeight - verticalPadding * 2).coerceAtLeast(1)
+            val safeLineHeight = lineHeightPx.coerceAtLeast(1)
+            return (availableHeight / safeLineHeight).coerceAtLeast(2)
+        }
 
         fun newInstance(week: Int, tableId: Int = -1): ScheduleWeekFragment {
             return ScheduleWeekFragment().apply {
