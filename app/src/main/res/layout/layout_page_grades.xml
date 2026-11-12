@@ -40,11 +40,20 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
-                        android:id="@+id/llGradesLeftPane"
+                    <androidx.core.widget.NestedScrollView
+                        android:id="@+id/scrollGradesLeft"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
+                        android:clipToPadding="false"
+                        android:fillViewport="true"
+                        android:nestedScrollingEnabled="false"
+                        android:overScrollMode="never">
+
+                        <LinearLayout
+                            android:id="@+id/llGradesLeftPane"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
 
                         <com.google.android.material.card.MaterialCardView
                             android:id="@+id/cardStatisticsOverview"
@@ -194,13 +203,23 @@
                             </LinearLayout>
                         </com.google.android.material.card.MaterialCardView>
 
-                    </LinearLayout>
+                        </LinearLayout>
+                    </androidx.core.widget.NestedScrollView>
 
-                    <LinearLayout
-                        android:id="@+id/llGradesRightPane"
+                    <androidx.core.widget.NestedScrollView
+                        android:id="@+id/scrollGradesRight"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
+                        android:clipToPadding="false"
+                        android:fillViewport="true"
+                        android:nestedScrollingEnabled="false"
+                        android:overScrollMode="never">
+
+                        <LinearLayout
+                            android:id="@+id/llGradesRightPane"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
 
                         <ProgressBar
                             android:id="@+id/gradesProgressBar"
@@ -230,7 +249,8 @@
                             android:textColor="#C0C0C0"
                             android:textSize="11sp" />
 
-                    </LinearLayout>
+                        </LinearLayout>
+                    </androidx.core.widget.NestedScrollView>
                 </LinearLayout>
 
             </LinearLayout>
@@ -315,6 +335,7 @@
                                 android:textStyle="bold" />
 
                             <ImageView
+                                android:id="@+id/ivGradeSemesterDropdown"
                                 android:layout_width="18dp"
                                 android:layout_height="18dp"
                                 android:layout_marginStart="2dp"

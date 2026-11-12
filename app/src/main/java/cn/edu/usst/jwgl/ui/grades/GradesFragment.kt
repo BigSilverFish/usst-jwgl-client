@@ -63,6 +63,8 @@ class GradesFragment : Fragment() {
     private val gradeAdapter = CourseGradeAdapter()
     private var gradeReport: GradeReport? = null
     private var selectedGradeSemesterTitle: String = ""
+    private var lastHeaderHeightPx: Int = 0
+    private var lastBottomPaddingPx: Int = 0
     private var isTabletLandscapeMode: Boolean = false
     private var gridSpacingDecoration: RecyclerView.ItemDecoration? = null
 
@@ -102,6 +104,14 @@ class GradesFragment : Fragment() {
 
         // 下拉刷新
         binding.swipeRefreshGrades.setColorSchemeResources(R.color.primary)
+        binding.swipeRefreshGrades.setOnChildScrollUpCallback { _, _ ->
+            if (isTabletLandscapeMode) {
+                binding.scrollGradesLeft.canScrollVertically(-1) ||
+                    binding.scrollGradesRight.canScrollVertically(-1)
+            } else {
+                binding.scrollGrades.canScrollVertically(-1)
+            }
+        }
         binding.swipeRefreshGrades.setOnRefreshListener {
             loadGrades(isManual = true)
         }
@@ -180,16 +190,37 @@ class GradesFragment : Fragment() {
 
     private fun updateGradesHeaderSpacing(headerHeightPx: Int) {
         if (headerHeightPx <= 0 || _binding == null) return
-        if (binding.viewGradesHeaderSpacing.layoutParams.height != headerHeightPx) {
-            binding.viewGradesHeaderSpacing.layoutParams.height = headerHeightPx
-            binding.viewGradesHeaderSpacing.requestLayout()
-        }
+        lastHeaderHeightPx = headerHeightPx
+        applyPanePaddings()
         val density = resources.displayMetrics.density
         binding.swipeRefreshGrades.setProgressViewOffset(
             false,
             headerHeightPx,
             headerHeightPx + (56 * density).toInt()
         )
+    }
+
+    private fun applyPanePaddings() {
+        if (_binding == null) return
+        val density = resources.displayMetrics.density
+        val horizontalPad = (16 * density).toInt()
+        if (isTabletLandscapeMode) {
+            binding.viewGradesHeaderSpacing.visibility = View.GONE
+            binding.scrollGrades.setPadding(horizontalPad, 0, horizontalPad, 0)
+            val topPad = (if (lastHeaderHeightPx > 0) lastHeaderHeightPx else (115 * density).toInt()) + (12 * density).toInt()
+            val bottomPad = lastBottomPaddingPx + (16 * density).toInt()
+            binding.scrollGradesLeft.setPadding(0, topPad, 0, bottomPad)
+            binding.scrollGradesRight.setPadding(0, topPad, 0, bottomPad)
+        } else {
+            binding.viewGradesHeaderSpacing.visibility = View.VISIBLE
+            if (lastHeaderHeightPx > 0 && binding.viewGradesHeaderSpacing.layoutParams.height != lastHeaderHeightPx) {
+                binding.viewGradesHeaderSpacing.layoutParams.height = lastHeaderHeightPx
+                binding.viewGradesHeaderSpacing.requestLayout()
+            }
+            binding.scrollGrades.setPadding(horizontalPad, (12 * density).toInt(), horizontalPad, lastBottomPaddingPx)
+            binding.scrollGradesLeft.setPadding(0, 0, 0, 0)
+            binding.scrollGradesRight.setPadding(0, 0, 0, 0)
+        }
     }
 
     /**
@@ -425,34 +456,64 @@ class GradesFragment : Fragment() {
 
         if (isTabletLandscape) {
             val leftPaneWidthDp = if (screenWidthDp < 960) 260 else 290
-            binding.llGradesBody.orientation = LinearLayout.HORIZONTAL
-            binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
-                (leftPaneWidthDp * density).toInt(),
+            binding.llGradesContent.layoutParams = android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            binding.llGradesBody.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
-            binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
+            binding.llGradesBody.orientation = LinearLayout.HORIZONTAL
+            binding.scrollGradesLeft.layoutParams = LinearLayout.LayoutParams(
+                (leftPaneWidthDp * density).toInt(),
+                LinearLayout.LayoutParams.MATCH_PARENT
+            ).apply {
+                marginEnd = (18 * density).toInt()
+            }
+            binding.scrollGradesLeft.isNestedScrollingEnabled = true
+            binding.scrollGradesRight.layoutParams = LinearLayout.LayoutParams(
                 0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 1f
             )
+            binding.scrollGradesRight.isNestedScrollingEnabled = true
             (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
             binding.cardGradesSemesterMaster.visibility = View.VISIBLE
+            binding.ivGradeSemesterDropdown.visibility = View.GONE
+            binding.btnSelectGradeSemester.isClickable = false
+            binding.btnSelectGradeSemester.isFocusable = false
 
+            applyPanePaddings()
             updateRecyclerViewLayoutManager(getOptimalSpanCount())
             gradeReport?.let { populateGradesSemesterMasterList(it) }
         } else {
+            binding.llGradesContent.layoutParams = android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            binding.llGradesBody.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             binding.llGradesBody.orientation = LinearLayout.VERTICAL
-            binding.llGradesLeftPane.layoutParams = LinearLayout.LayoutParams(
+            binding.scrollGradesLeft.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            binding.llGradesRightPane.layoutParams = LinearLayout.LayoutParams(
+            binding.scrollGradesLeft.isNestedScrollingEnabled = false
+            binding.scrollGradesRight.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
+            binding.scrollGradesRight.isNestedScrollingEnabled = false
             (binding.rvGrades.layoutParams as? LinearLayout.LayoutParams)?.topMargin = (8 * density).toInt()
             binding.cardGradesSemesterMaster.visibility = View.GONE
+            binding.ivGradeSemesterDropdown.visibility = View.VISIBLE
+            binding.btnSelectGradeSemester.isClickable = true
+            binding.btnSelectGradeSemester.isFocusable = true
 
+            applyPanePaddings()
             updateRecyclerViewLayoutManager(getOptimalSpanCount())
         }
     }
@@ -468,13 +529,9 @@ class GradesFragment : Fragment() {
      * 适配底部导航栏 Padding 避让
      */
     fun applyBottomPadding(bottomPaddingPx: Int) {
+        lastBottomPaddingPx = bottomPaddingPx
         if (_binding == null) return
-        binding.scrollGrades.setPadding(
-            binding.scrollGrades.paddingLeft,
-            binding.scrollGrades.paddingTop,
-            binding.scrollGrades.paddingRight,
-            bottomPaddingPx
-        )
+        applyPanePaddings()
     }
 
     /**
