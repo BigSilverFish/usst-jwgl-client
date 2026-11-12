@@ -52,3 +52,12 @@ usst-jwgl-client-improved/
 *.docx
 *.pptx
 *.zip
+
+# Local workspace docs, debug data & archives (keep locally, do not upload)
+/GEMINI.md
+/LAB-IMPORT.md
+/MEMORY.md
+/menu_list.json
+/usst_buildings.csv
+/walkthrough.md
+/docs/
