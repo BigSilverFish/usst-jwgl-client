@@ -331,6 +331,12 @@ class TronClassFragment : Fragment() {
             b.viewTronClassHeaderSpacing.layoutParams = params
             b.viewTronClassHeaderSpacing.requestLayout()
         }
+        val pinParams = b.viewPinnedSpacing.layoutParams
+        if (pinParams.height != headerHeight) {
+            pinParams.height = headerHeight
+            b.viewPinnedSpacing.layoutParams = pinParams
+            b.viewPinnedSpacing.requestLayout()
+        }
         val density = resources.displayMetrics.density
         b.swipeRefreshTronClass.setProgressViewOffset(
             false,
@@ -696,7 +702,7 @@ class TronClassFragment : Fragment() {
                     setCancelable(false)
                     show()
                 }
-                val res = chaoXingClient.fetchSignDetail(course.courseId, course.classId, activeItem.id)
+                val res = chaoXingClient.fetchSignDetail(course.courseId, course.classId, activeItem.id, initialOtherId = activeItem.otherId, initialHintName = "${activeItem.nameOne.orEmpty()} ${activeItem.nameTwo.orEmpty()}".trim())
                 progress.dismiss()
                 val detail = res.getOrNull()
                 activeItem.signDetail = detail
