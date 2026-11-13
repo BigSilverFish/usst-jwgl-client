@@ -27,12 +27,16 @@ import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
+import cn.edu.usst.jwgl.data.model.AcademicCourse
+import cn.edu.usst.jwgl.data.model.AcademicProgress
+import cn.edu.usst.jwgl.data.model.CreditCategory
 import cn.edu.usst.jwgl.data.model.GradeDocumentType
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentRankingInfo
 import cn.edu.usst.jwgl.databinding.LayoutPageGradesBinding
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.ui.MainActivity
+import cn.edu.usst.jwgl.ui.adapter.AcademicCourseAdapter
 import cn.edu.usst.jwgl.ui.adapter.CourseGradeAdapter
 import cn.edu.usst.jwgl.util.AppException
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
@@ -61,16 +65,23 @@ class GradesFragment : Fragment() {
     val binding get() = _binding!!
 
     private val gradeAdapter = CourseGradeAdapter()
+    private val academicCourseAdapter = AcademicCourseAdapter()
     private var gradeReport: GradeReport? = null
+    private var academicProgress: AcademicProgress? = null
     private var selectedGradeSemesterTitle: String = ""
+    private var selectedCategoryId: String = ""
+    private var isCreditNodeMode: Boolean = false
     private var lastHeaderHeightPx: Int = 0
     private var lastBottomPaddingPx: Int = 0
     private var lastMasterReport: GradeReport? = null
+    private var lastMasterProgress: AcademicProgress? = null
+    private val categoryCoursesMap = mutableMapOf<String, List<AcademicCourse>>()
+    private val categoryLoadingSet = mutableSetOf<String>()
     private data class MasterRowHolder(
-        val semesterKey: String,
+        val itemKey: String,
         val card: com.google.android.material.card.MaterialCardView,
         val tvTitle: TextView,
-        val tvGpa: TextView
+        val tvBadge: TextView
     )
     private val masterRowHolders = mutableListOf<MasterRowHolder>()
     private var isTabletLandscapeMode: Boolean = false
@@ -122,16 +133,37 @@ class GradesFragment : Fragment() {
             }
         }
         binding.swipeRefreshGrades.setOnRefreshListener {
-            loadGrades(isManual = true)
+            if (isCreditNodeMode) {
+                loadAcademicProgress(isManual = true)
+            } else {
+                loadGrades(isManual = true)
+            }
         }
+
+        // 模式切换: 按学期 | 按学分节点
+        binding.tvModeSemester.setOnClickListener {
+            switchGradeMode(creditNodeMode = false)
+        }
+        binding.tvModeCreditNode.setOnClickListener {
+            switchGradeMode(creditNodeMode = true)
+        }
+        updateModeToggleStyles()
 
         // 顶栏操作按钮
         binding.btnRefreshGrades.setOnClickListener {
-            loadGrades(isManual = true)
+            if (isCreditNodeMode) {
+                loadAcademicProgress(isManual = true)
+            } else {
+                loadGrades(isManual = true)
+            }
         }
 
         binding.btnSelectGradeSemester.setOnClickListener {
-            showGradeSemesterPicker()
+            if (isCreditNodeMode) {
+                showCreditCategoryPicker()
+            } else {
+                showGradeSemesterPicker()
+            }
         }
 
         binding.btnQueryRanking.setOnClickListener {
@@ -209,6 +241,43 @@ class GradesFragment : Fragment() {
         )
     }
 
+    private fun switchGradeMode(creditNodeMode: Boolean) {
+        if (isCreditNodeMode == creditNodeMode) return
+        isCreditNodeMode = creditNodeMode
+        updateModeToggleStyles()
+
+        if (isCreditNodeMode) {
+            binding.rvGrades.adapter = academicCourseAdapter
+            binding.tvSemesterMasterHeader.text = "培养方案学分节点 · 点击筛选"
+            showOrLoadAcademicProgress()
+        } else {
+            binding.rvGrades.adapter = gradeAdapter
+            binding.tvSemesterMasterHeader.text = "历年学期绩点总览 · 点击筛选"
+            showOrLoadGrades()
+        }
+    }
+
+    private fun updateModeToggleStyles() {
+        if (_binding == null) return
+        val ctx = requireContext()
+        if (isCreditNodeMode) {
+            binding.tvModeSemester.background = null
+            binding.tvModeSemester.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            binding.tvModeSemester.setTypeface(null, android.graphics.Typeface.NORMAL)
+
+            binding.tvModeCreditNode.setBackgroundResource(R.drawable.badge_bg_clickable)
+            binding.tvModeCreditNode.setTextColor(ContextCompat.getColor(ctx, R.color.primary))
+            binding.tvModeCreditNode.setTypeface(null, android.graphics.Typeface.BOLD)
+        } else {
+            binding.tvModeSemester.setBackgroundResource(R.drawable.badge_bg_clickable)
+            binding.tvModeSemester.setTextColor(ContextCompat.getColor(ctx, R.color.primary))
+            binding.tvModeSemester.setTypeface(null, android.graphics.Typeface.BOLD)
+
+            binding.tvModeCreditNode.background = null
+            binding.tvModeCreditNode.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            binding.tvModeCreditNode.setTypeface(null, android.graphics.Typeface.NORMAL)
+        }
+    }
     private fun applyPanePaddings() {
         if (_binding == null) return
         val density = resources.displayMetrics.density
@@ -230,6 +299,184 @@ class GradesFragment : Fragment() {
             binding.scrollGradesLeft.setPadding(0, 0, 0, 0)
             binding.rvGrades.setPadding(0, 0, 0, 0)
         }
+    }
+
+    /**
+     * 加载缓存学业情况或联网拉取
+     */
+    fun showOrLoadAcademicProgress() {
+        val inMemory = academicProgress
+        if (inMemory != null) {
+            displayAcademicProgress(inMemory)
+            val updateTime = cacheManager.getAcademicProgressUpdateTime()
+            binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
+            return
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val cached = withContext(Dispatchers.IO) {
+                cacheManager.getAcademicProgress()
+            }
+            if (_binding == null) return@launch
+            if (cached != null) {
+                academicProgress = cached
+                displayAcademicProgress(cached)
+                val updateTime = cacheManager.getAcademicProgressUpdateTime()
+                binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
+            } else {
+                loadAcademicProgress(isManual = false)
+            }
+        }
+    }
+
+    /**
+     * 联网刷新学业情况
+     */
+    fun loadAcademicProgress(isManual: Boolean = false) {
+        if (_binding == null) return
+
+        if (isManual) {
+            binding.swipeRefreshGrades.isRefreshing = true
+        } else if (academicProgress == null) {
+            binding.gradesProgressBar.visibility = View.VISIBLE
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = JwglClient.fetchAcademicProgress(context = requireContext())
+            if (_binding == null) return@launch
+
+            binding.gradesProgressBar.visibility = View.GONE
+            binding.swipeRefreshGrades.isRefreshing = false
+
+            result.onSuccess { progress ->
+                academicProgress = progress
+                cacheManager.saveAcademicProgress(progress)
+                displayAcademicProgress(progress)
+                val updateTime = System.currentTimeMillis()
+                binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
+                if (isManual && isAdded) {
+                    Toast.makeText(requireContext(), "学分节点已联网刷新", Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure { error ->
+                if (!isAdded) return@launch
+                val reason = error.getFriendlyErrorMessage("未知网络异常")
+                Toast.makeText(requireContext(), "学分节点刷新失败: $reason", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun displayAcademicProgress(progress: AcademicProgress) {
+        updateAcademicUI(progress)
+    }
+
+    private fun updateAcademicUI(progress: AcademicProgress) {
+        if (_binding == null) return
+
+        binding.tvCreditsTitle.text = "方案要求学分"
+        binding.tvAvgScoreTitle.text = "已修读学分"
+        binding.tvGpaTitle.text = "尚缺学分"
+
+        binding.tvCumulativeCredits.text = String.format("%.1f", progress.required)
+        binding.tvCumulativeAvgScore.text = String.format("%.1f", progress.earned)
+        binding.tvCumulativeGpa.text = String.format("%.1f", progress.missing)
+
+        val flattenedCategories = flattenCreditCategories(progress.categories)
+        if (selectedCategoryId.isEmpty() && flattenedCategories.isNotEmpty()) {
+            selectedCategoryId = flattenedCategories.first().id
+        }
+
+        val currentCat = flattenedCategories.find { it.id == selectedCategoryId }
+        binding.tvGradeSemester.text = currentCat?.name ?: "全部分类"
+
+        if (currentCat != null) {
+            loadCategoryCourses(currentCat.id)
+        } else {
+            academicCourseAdapter.submitList(emptyList())
+            binding.tvGradesCountSummary.text = "共 0 门课程"
+        }
+
+        if (isTabletLandscapeMode) {
+            populateCreditNodeMasterList(progress)
+        }
+    }
+
+    private fun flattenCreditCategories(categories: List<CreditCategory>): List<CreditCategory> {
+        val out = mutableListOf<CreditCategory>()
+        fun collect(cat: CreditCategory) {
+            if (cat.isLeaf) {
+                out.add(cat)
+            } else {
+                cat.children.forEach { collect(it) }
+            }
+        }
+        categories.forEach { collect(it) }
+        return out
+    }
+
+    private fun loadCategoryCourses(categoryId: String) {
+        val cached = categoryCoursesMap[categoryId]
+        if (cached != null) {
+            academicCourseAdapter.submitList(cached) {
+                if (_binding != null && isTabletLandscapeMode) {
+                    binding.rvGrades.scrollToPosition(0)
+                }
+            }
+            binding.tvGradesCountSummary.text = "本节点 ${cached.size} 门课程"
+            return
+        }
+
+        if (categoryLoadingSet.contains(categoryId)) return
+        categoryLoadingSet.add(categoryId)
+        binding.gradesProgressBar.visibility = View.VISIBLE
+
+        val studentId = AuthPreferences(requireContext()).getStudentId()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = JwglClient.fetchCreditCategoryCourses(categoryId, studentId, context = requireContext())
+            if (_binding == null) return@launch
+            categoryLoadingSet.remove(categoryId)
+            binding.gradesProgressBar.visibility = View.GONE
+
+            result.onSuccess { courses ->
+                categoryCoursesMap[categoryId] = courses
+                if (isCreditNodeMode && selectedCategoryId == categoryId) {
+                    academicCourseAdapter.submitList(courses) {
+                        if (_binding != null && isTabletLandscapeMode) {
+                            binding.rvGrades.scrollToPosition(0)
+                        }
+                    }
+                    binding.tvGradesCountSummary.text = "本节点 ${courses.size} 门课程"
+                }
+            }.onFailure { err ->
+                if (isAdded) {
+                    Toast.makeText(requireContext(), "课程明细拉取失败: ${err.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * 弹出学分节点选择对话框（竖屏手机模式下点击顶栏触发）
+     */
+    fun showCreditCategoryPicker() {
+        val progress = academicProgress ?: return
+        val list = flattenCreditCategories(progress.categories)
+        if (list.isEmpty()) {
+            if (isAdded) Toast.makeText(requireContext(), "暂无学分节点数据", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val names = list.map { "${it.name} (${String.format("%.1f", it.earned)}/${String.format("%.1f", it.required)})" }
+        val checkedIndex = list.indexOfFirst { it.id == selectedCategoryId }.coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("选择培养方案节点")
+            .setSingleChoiceItems(names.toTypedArray(), checkedIndex) { dialog, which ->
+                selectedCategoryId = list[which].id
+                updateAcademicUI(progress)
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
     }
 
     /**
@@ -518,7 +765,11 @@ class GradesFragment : Fragment() {
 
             applyPanePaddings()
             updateRecyclerViewLayoutManager(getOptimalSpanCount())
-            gradeReport?.let { populateGradesSemesterMasterList(it) }
+            if (isCreditNodeMode) {
+                academicProgress?.let { populateCreditNodeMasterList(it) }
+            } else {
+                gradeReport?.let { populateGradesSemesterMasterList(it) }
+            }
         } else {
             binding.scrollGrades.visibility = View.VISIBLE
             if (binding.llGradesBody.parent !== binding.llGradesContent) {
@@ -708,13 +959,96 @@ class GradesFragment : Fragment() {
     }
 
     private fun updateMasterRowSelectionStyles() {
+        val currentKey = if (isCreditNodeMode) selectedCategoryId else selectedGradeSemesterTitle
         for (holder in masterRowHolders) {
             applyMasterRowStyle(
                 holder.card,
                 holder.tvTitle,
-                holder.tvGpa,
-                selectedGradeSemesterTitle == holder.semesterKey
+                holder.tvBadge,
+                currentKey == holder.itemKey
             )
+        }
+    }
+
+    /**
+     * 平板横屏左侧学分节点列表填充
+     */
+    private fun populateCreditNodeMasterList(progress: AcademicProgress) {
+        if (_binding == null) return
+        val container = binding.llGradesSemesterMasterList
+        val flatList = flattenCreditCategories(progress.categories)
+        if (lastMasterProgress === progress && masterRowHolders.size == flatList.size) {
+            updateMasterRowSelectionStyles()
+            return
+        }
+
+        container.removeAllViews()
+        masterRowHolders.clear()
+        lastMasterProgress = progress
+        lastMasterReport = null
+        val density = resources.displayMetrics.density
+
+        for (cat in flatList) {
+            val ctx = requireContext()
+            val rowCard = com.google.android.material.card.MaterialCardView(ctx).apply {
+                radius = 12 * density
+                cardElevation = 0f
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
+                layoutParams = lp
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (selectedCategoryId == cat.id) return@setOnClickListener
+                    selectedCategoryId = cat.id
+                    updateAcademicUI(progress)
+                }
+            }
+
+            val rowInner = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                val hPad = (12 * density).toInt()
+                val vPad = (10 * density).toInt()
+                setPadding(hPad, vPad, hPad, vPad)
+            }
+
+            val textCol = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val tvTitle = TextView(ctx).apply {
+                text = cat.name
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+
+            val tvSub = TextView(ctx).apply {
+                text = "已修 ${String.format("%.1f", cat.earned)} / 要求 ${String.format("%.1f", cat.required)} 学分"
+                textSize = 11f
+                setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                setPadding(0, (2 * density).toInt(), 0, 0)
+            }
+
+            textCol.addView(tvTitle)
+            textCol.addView(tvSub)
+            rowInner.addView(textCol)
+
+            val tvBadge = TextView(ctx).apply {
+                text = if (cat.passed) "达标" else if (cat.missing > 0) "缺${String.format("%.1f", cat.missing)}" else "进行中"
+                textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            rowInner.addView(tvBadge)
+            rowCard.addView(rowInner)
+            container.addView(rowCard)
+            masterRowHolders.add(MasterRowHolder(cat.id, rowCard, tvTitle, tvBadge))
+            applyMasterRowStyle(rowCard, tvTitle, tvBadge, selectedCategoryId == cat.id)
         }
     }
 

@@ -10,6 +10,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import com.google.gson.Gson
 import org.jsoup.Jsoup
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -26,6 +27,7 @@ object JwglClient {
     private const val FAST_TIMETABLE_REFERER = "https://jwgl.usst.edu.cn/jwglxt/design/viewFunc_cxDesignFuncPageIndex.html?gnmkdm=N255077&layout=default"
     private const val EXAM_URL = "https://jwgl.usst.edu.cn/jwglxt/kwgl/kscx_cxXsksxxIndex.html?doType=query&gnmkdm=N358105"
 
+    private val gson = Gson()
     private val cookieJar = MemoryCookieJar()
 
     // Deterministic redirect handler for CAS SSO multi-domain chains
@@ -548,6 +550,199 @@ object JwglClient {
             Log.e(TAG, "Error fetching grades", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * 拉取「学业情况 / 学分节点培养方案进展」
+     * 对应正方教务系统功能 N105515: xsxyqk_cxXsxyqkIndex.html
+     */
+    suspend fun fetchAcademicProgress(context: android.content.Context? = null): Result<cn.edu.usst.jwgl.data.model.AcademicProgress> = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default"
+            Log.d(TAG, "Fetching academic progress from $url...")
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html")
+                .get()
+                .build()
+
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            Log.d(TAG, "Academic progress response code: ${resp.code}, len: ${body.length}")
+
+            if (body.contains("authserver") || !body.contains("xsxyqk_cxXsxyqkIndex")) {
+                if (context != null && ensureSession(context)) {
+                    return@withContext fetchAcademicProgress(null)
+                }
+                return@withContext Result.failure(IOException("未获取到有效的学业情况数据，会话可能已失效"))
+            }
+
+            val progress = parseAcademicProgress(body)
+            Result.success(progress)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching academic progress", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 解析培养方案树形节点
+     */
+    internal fun parseAcademicProgress(html: String): cn.edu.usst.jwgl.data.model.AcademicProgress {
+        val pattern = java.util.regex.Pattern.compile(
+            "<p class='title1' id='p([0-9A-Za-z_-]+)' yxxf='([0-9.]*)' yqzdxf='([0-9.]*)' sftg='(\\d*)'>\"\\s*\\+\\s*\"([^\"&]+)&nbsp;"
+        )
+        val matcher = pattern.matcher(html)
+        val nodes = linkedMapOf<String, cn.edu.usst.jwgl.data.model.CreditCategory>()
+
+        while (matcher.find()) {
+            val id = matcher.group(1) ?: continue
+            val name = (matcher.group(5) ?: "").trim()
+            if (name.isEmpty() || nodes.containsKey(id)) continue
+
+            val earned = matcher.group(2)?.toDoubleOrNull() ?: 0.0
+            val required = matcher.group(3)?.toDoubleOrNull() ?: 0.0
+            val passed = matcher.group(4) == "1"
+            val parentId = findParentCategoryId(html, matcher.start())
+
+            nodes[id] = cn.edu.usst.jwgl.data.model.CreditCategory(
+                id = id,
+                parentId = parentId,
+                name = name,
+                earned = earned,
+                required = required,
+                passed = passed
+            )
+        }
+
+        if (nodes.isEmpty()) {
+            return cn.edu.usst.jwgl.data.model.AcademicProgress()
+        }
+
+        val ordered = nodes.values.toList()
+        // 根节点即培养方案要求总学分最大的节点
+        val root = ordered.maxByOrNull { it.required } ?: ordered.first()
+
+        val childMap = mutableMapOf<String, MutableList<cn.edu.usst.jwgl.data.model.CreditCategory>>()
+        for (node in ordered) {
+            if (node.id == root.id) continue
+            val parentId = if (nodes.containsKey(node.parentId)) node.parentId else root.id
+            childMap.getOrPut(parentId) { mutableListOf() }.add(node)
+        }
+
+        fun attach(node: cn.edu.usst.jwgl.data.model.CreditCategory): cn.edu.usst.jwgl.data.model.CreditCategory {
+            val children = (childMap[node.id] ?: emptyList()).map { attach(it) }
+            return node.copy(children = children)
+        }
+
+        val rootNode = attach(root)
+        return cn.edu.usst.jwgl.data.model.AcademicProgress(
+            majorName = root.name,
+            earned = root.earned,
+            required = root.required,
+            categories = rootNode.children,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    private fun findParentCategoryId(html: String, nodeStart: Int): String {
+        val start = if (nodeStart > 3000) nodeStart - 3000 else 0
+        val window = html.substring(start, nodeStart)
+        val p = java.util.regex.Pattern.compile("fxfyqjd_id='([0-9A-Za-z_-]*)'")
+        val m = p.matcher(window)
+        var lastParent = ""
+        while (m.find()) {
+            lastParent = m.group(1) ?: ""
+        }
+        return lastParent
+    }
+
+    /**
+     * 拉取指定学分节点下的课程明细（双接口自动回退：优先 Kcxx，为空时回退至 FKcxx）
+     */
+    suspend fun fetchCreditCategoryCourses(
+        categoryId: String,
+        studentId: String,
+        context: android.content.Context? = null
+    ): Result<List<cn.edu.usst.jwgl.data.model.AcademicCourse>> = withContext(Dispatchers.IO) {
+        try {
+            if (categoryId.isBlank()) return@withContext Result.success(emptyList())
+            var courses = fetchCategoryCourseList("/jwglxt/xsxy/xsxyqk_cxJxzxjhxfyqKcxx.html", categoryId, studentId, context)
+            if (courses.isEmpty()) {
+                courses = fetchCategoryCourseList("/jwglxt/xsxy/xsxyqk_cxJxzxjhxfyqFKcxx.html", categoryId, studentId, context)
+            }
+            Result.success(courses)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching category courses for $categoryId", e)
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun fetchCategoryCourseList(
+        path: String,
+        categoryId: String,
+        studentId: String,
+        context: android.content.Context?
+    ): List<cn.edu.usst.jwgl.data.model.AcademicCourse> {
+        val formBody = FormBody.Builder()
+            .add("fromXh_id", "")
+            .add("xfyqjd_id", categoryId)
+            .add("xh_id", studentId)
+            .build()
+
+        val req = Request.Builder()
+            .url("https://jwgl.usst.edu.cn$path")
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default")
+            .post(formBody)
+            .build()
+
+        val resp = client.newCall(req).execute()
+        val raw = resp.body?.string() ?: ""
+        val trimmed = raw.trim()
+        if (trimmed.isNotEmpty() && !trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+            if (context != null && ensureSession(context)) {
+                return fetchCategoryCourseList(path, categoryId, studentId, null)
+            }
+            throw IOException("登录会话已失效")
+        }
+        return parseAcademicCourses(raw)
+    }
+
+    internal fun parseAcademicCourses(raw: String): List<cn.edu.usst.jwgl.data.model.AcademicCourse> {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("[")) return emptyList()
+        val listType = object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
+        val rawList: List<Map<String, Any?>> = try {
+            gson.fromJson(trimmed, listType) ?: emptyList()
+        } catch (e: Exception) {
+            return emptyList()
+        }
+
+        val out = mutableListOf<cn.edu.usst.jwgl.data.model.AcademicCourse>()
+        for (item in rawList) {
+            val name = (item["KCMC"]?.toString() ?: "").trim()
+            if (name.isEmpty()) continue
+            val code = (item["KCH"]?.toString() ?: "").trim()
+            val credits = item["XF"]?.toString()?.toDoubleOrNull() ?: 0.0
+            val xnm = (item["XNMC"]?.toString() ?: "").trim()
+            val xqm = (item["XQMMC"]?.toString() ?: "").trim()
+            val term = "$xnm $xqm".trim()
+            val score = (item["CJ"]?.toString() ?: item["MAXCJ"]?.toString() ?: "").trim()
+            val xdzt = (item["XDZT"]?.toString() ?: "").trim()
+            out.add(
+                cn.edu.usst.jwgl.data.model.AcademicCourse(
+                    name = name,
+                    code = code,
+                    credits = credits,
+                    term = term,
+                    score = score,
+                    status = cn.edu.usst.jwgl.data.model.AcademicCourse.statusOf(xdzt)
+                )
+            )
+        }
+        return out
     }
 
     suspend fun fetchTimetable(

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import cn.edu.usst.jwgl.data.model.AcademicProgress
 import cn.edu.usst.jwgl.data.model.ExamItem
 import cn.edu.usst.jwgl.data.model.GradeReport
 import cn.edu.usst.jwgl.data.model.StudentProfile
@@ -37,6 +38,9 @@ class DataCacheManager(private val context: Context) {
 
         private const val KEY_GRADES_JSON = "cache_grades_json"
         private const val KEY_GRADES_TIME = "cache_grades_time"
+
+        private const val KEY_ACADEMIC_PROGRESS_JSON = "cache_academic_progress_json"
+        private const val KEY_ACADEMIC_PROGRESS_TIME = "cache_academic_progress_time"
 
         @Volatile
         private var cachedSecurePrefs: SharedPreferences? = null
@@ -361,6 +365,39 @@ class DataCacheManager(private val context: Context) {
         val oldT = securePrefs.getLong(KEY_GRADES_TIME, 0L)
         if (oldT > 0L) return oldT
         return prefs.getLong(KEY_GRADES_TIME, 0L)
+    }
+
+    // --- Academic Progress / Credit Nodes Cache ---
+    fun saveAcademicProgress(progress: AcademicProgress, studentId: String? = null) {
+        val prefix = getAccountPrefix(studentId)
+        val keyJson = prefix + KEY_ACADEMIC_PROGRESS_JSON
+        val keyTime = prefix + KEY_ACADEMIC_PROGRESS_TIME
+        val json = gson.toJson(progress)
+        securePrefs.edit()
+            .putString(keyJson, json)
+            .putLong(keyTime, progress.updatedAt)
+            .apply()
+    }
+
+    fun getAcademicProgress(studentId: String? = null): AcademicProgress? {
+        val prefix = getAccountPrefix(studentId)
+        val keyJson = prefix + KEY_ACADEMIC_PROGRESS_JSON
+        val json = securePrefs.getString(keyJson, null) ?: prefs.getString(keyJson, null)
+        if (json.isNullOrEmpty()) return null
+        return try {
+            gson.fromJson(json, AcademicProgress::class.java)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached AcademicProgress", e)
+            null
+        }
+    }
+
+    fun getAcademicProgressUpdateTime(studentId: String? = null): Long {
+        val prefix = getAccountPrefix(studentId)
+        val keyTime = prefix + KEY_ACADEMIC_PROGRESS_TIME
+        val t = securePrefs.getLong(keyTime, 0L)
+        if (t > 0L) return t
+        return prefs.getLong(keyTime, 0L)
     }
 
     // --- Exams Cache ---
