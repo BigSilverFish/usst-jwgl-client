@@ -694,6 +694,8 @@ object JwglClient {
         val req = Request.Builder()
             .url("https://jwgl.usst.edu.cn$path")
             .header("User-Agent", USER_AGENT)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Accept", "application/json, text/plain, */*")
             .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default")
             .post(formBody)
             .build()

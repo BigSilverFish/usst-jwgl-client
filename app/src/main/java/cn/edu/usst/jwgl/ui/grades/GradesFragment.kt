@@ -140,12 +140,9 @@ class GradesFragment : Fragment() {
             }
         }
 
-        // 模式切换: 按学期 | 按学分节点
-        binding.tvModeSemester.setOnClickListener {
-            switchGradeMode(creditNodeMode = false)
-        }
-        binding.tvModeCreditNode.setOnClickListener {
-            switchGradeMode(creditNodeMode = true)
+        // 模式切换圆形按键: 按学期 <-> 按学分节点
+        binding.btnToggleGradeMode.setOnClickListener {
+            switchGradeMode(creditNodeMode = !isCreditNodeMode)
         }
         updateModeToggleStyles()
 
@@ -277,21 +274,19 @@ class GradesFragment : Fragment() {
         if (_binding == null) return
         val ctx = requireContext()
         if (isCreditNodeMode) {
-            binding.tvModeSemester.background = null
-            binding.tvModeSemester.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            binding.tvModeSemester.setTypeface(null, android.graphics.Typeface.NORMAL)
-
-            binding.tvModeCreditNode.setBackgroundResource(R.drawable.badge_bg_clickable)
-            binding.tvModeCreditNode.setTextColor(ContextCompat.getColor(ctx, R.color.primary))
-            binding.tvModeCreditNode.setTypeface(null, android.graphics.Typeface.BOLD)
+            // 当前为学分节点视图，按键高亮提示点击可切回学期成绩
+            binding.btnToggleGradeMode.setIconResource(R.drawable.ic_nav_grades)
+            binding.btnToggleGradeMode.contentDescription = "当前为学分节点视图，点击切换为按学期成绩"
+            binding.btnToggleGradeMode.iconTint = android.content.res.ColorStateList.valueOf(
+                ContextCompat.getColor(ctx, R.color.primary)
+            )
         } else {
-            binding.tvModeSemester.setBackgroundResource(R.drawable.badge_bg_clickable)
-            binding.tvModeSemester.setTextColor(ContextCompat.getColor(ctx, R.color.primary))
-            binding.tvModeSemester.setTypeface(null, android.graphics.Typeface.BOLD)
-
-            binding.tvModeCreditNode.background = null
-            binding.tvModeCreditNode.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            binding.tvModeCreditNode.setTypeface(null, android.graphics.Typeface.NORMAL)
+            // 当前为学期成绩视图，按键提示点击可切换到树状学分节点
+            binding.btnToggleGradeMode.setIconResource(R.drawable.ic_account_tree)
+            binding.btnToggleGradeMode.contentDescription = "当前为学期成绩视图，点击切换为学分节点"
+            binding.btnToggleGradeMode.iconTint = android.content.res.ColorStateList.valueOf(
+                ContextCompat.getColor(ctx, R.color.text_secondary)
+            )
         }
     }
     private fun applyPanePaddings() {
@@ -336,6 +331,9 @@ class GradesFragment : Fragment() {
             if (_binding == null) return@launch
             if (cached != null) {
                 academicProgress = cached
+                if (cached.coursesByCategory.isNotEmpty()) {
+                    categoryCoursesMap.putAll(cached.coursesByCategory)
+                }
                 displayAcademicProgress(cached)
                 val updateTime = cacheManager.getAcademicProgressUpdateTime()
                 binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
@@ -365,9 +363,10 @@ class GradesFragment : Fragment() {
             binding.swipeRefreshGrades.isRefreshing = false
 
             result.onSuccess { progress ->
-                academicProgress = progress
-                cacheManager.saveAcademicProgress(progress)
-                displayAcademicProgress(progress)
+                val fullProgress = progress.copy(coursesByCategory = categoryCoursesMap)
+                academicProgress = fullProgress
+                cacheManager.saveAcademicProgress(fullProgress)
+                displayAcademicProgress(fullProgress)
                 val updateTime = System.currentTimeMillis()
                 binding.tvGradesSyncTime.text = cacheManager.formatUpdateTime(updateTime)
                 if (isManual && isAdded) {
@@ -735,13 +734,22 @@ class GradesFragment : Fragment() {
 
             result.onSuccess { courses ->
                 categoryCoursesMap[categoryId] = courses
-                if (isCreditNodeMode && selectedCategoryId == categoryId) {
-                    academicCourseAdapter.submitList(courses) {
-                        if (_binding != null && isTabletLandscapeMode) {
-                            binding.rvGrades.scrollToPosition(0)
+                academicProgress?.let { prog ->
+                    val updated = prog.copy(coursesByCategory = categoryCoursesMap)
+                    academicProgress = updated
+                    cacheManager.saveAcademicProgress(updated)
+                }
+                if (isCreditNodeMode) {
+                    if (isTabletLandscapeMode && selectedCategoryId == categoryId) {
+                        academicCourseAdapter.submitList(courses) {
+                            if (_binding != null && isTabletLandscapeMode) {
+                                binding.rvGrades.scrollToPosition(0)
+                            }
                         }
+                        binding.tvGradesCountSummary.text = "本节点 ${courses.size} 门课程"
+                    } else if (!isTabletLandscapeMode) {
+                        academicProgress?.let { renderAcademicTree(it) }
                     }
-                    binding.tvGradesCountSummary.text = "本节点 ${courses.size} 门课程"
                 }
             }.onFailure { err ->
                 if (isAdded) {
@@ -1309,41 +1317,66 @@ class GradesFragment : Fragment() {
             }
 
             val rowInner = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
+                orientation = LinearLayout.VERTICAL
                 val hPad = (12 * density).toInt()
                 val vPad = (10 * density).toInt()
                 setPadding(hPad, vPad, hPad, vPad)
             }
 
-            val textCol = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            val topRow = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
 
             val tvTitle = TextView(ctx).apply {
                 text = cat.name
                 textSize = 13f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            topRow.addView(tvTitle)
+
+            val tvBadge = TextView(ctx).apply {
+                text = if (cat.passed) "达标" else if (cat.missing > 0) "缺${String.format("%.1f", cat.missing)}" else "进行中"
+                textSize = 11.5f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(
+                    ContextCompat.getColor(
+                        ctx,
+                        if (cat.passed) R.color.grade_green_text else R.color.primary
+                    )
+                )
+            }
+            topRow.addView(tvBadge)
+            rowInner.addView(topRow)
+
+            // 模块修读进度条
+            val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (4 * density).toInt()
+                ).apply {
+                    topMargin = (6 * density).toInt()
+                }
+                max = 100
+                setProgress((cat.progress * 100).toInt())
+                progressTintList = android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        ctx,
+                        if (cat.passed) R.color.grade_green_text else R.color.primary
+                    )
+                )
+            }
+            rowInner.addView(pb)
 
             val tvSub = TextView(ctx).apply {
                 text = "已修 ${String.format("%.1f", cat.earned)} / 要求 ${String.format("%.1f", cat.required)} 学分"
                 textSize = 11f
                 setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-                setPadding(0, (2 * density).toInt(), 0, 0)
+                setPadding(0, (4 * density).toInt(), 0, 0)
             }
+            rowInner.addView(tvSub)
 
-            textCol.addView(tvTitle)
-            textCol.addView(tvSub)
-            rowInner.addView(textCol)
-
-            val tvBadge = TextView(ctx).apply {
-                text = if (cat.passed) "达标" else if (cat.missing > 0) "缺${String.format("%.1f", cat.missing)}" else "进行中"
-                textSize = 12f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-            rowInner.addView(tvBadge)
             rowCard.addView(rowInner)
             container.addView(rowCard)
             masterRowHolders.add(MasterRowHolder(cat.id, rowCard, tvTitle, tvBadge))
