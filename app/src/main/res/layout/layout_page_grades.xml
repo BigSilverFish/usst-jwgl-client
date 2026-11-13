@@ -235,6 +235,15 @@
                             android:nestedScrollingEnabled="false"
                             android:overScrollMode="never" />
 
+                        <!-- Credit Node Hierarchical Tree Container (For phone portrait expandable tree view) -->
+                        <LinearLayout
+                            android:id="@+id/llAcademicTreeContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="vertical"
+                            android:visibility="gone" />
+
                         <TextView
                             android:id="@+id/tvGradesWatermark"
                             android:layout_width="match_parent"
@@ -341,6 +350,41 @@
                                 app:tint="@color/text_secondary" />
                         </LinearLayout>
 
+                        <!-- Mode Switch Tabs: 按学期 | 按学分节点 (移动到三个圆形操作按钮左侧，高度一致为 36dp) -->
+                        <LinearLayout
+                            android:id="@+id/llGradeModeToggle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/badge_bg"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:padding="3dp">
+
+                            <TextView
+                                android:id="@+id/tvModeSemester"
+                                android:layout_width="wrap_content"
+                                android:layout_height="match_parent"
+                                android:background="@drawable/badge_bg_clickable"
+                                android:gravity="center"
+                                android:paddingHorizontal="10dp"
+                                android:text="按学期"
+                                android:textColor="@color/primary"
+                                android:textSize="12sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvModeCreditNode"
+                                android:layout_width="wrap_content"
+                                android:layout_height="match_parent"
+                                android:background="@android:color/transparent"
+                                android:gravity="center"
+                                android:paddingHorizontal="10dp"
+                                android:text="按学分节点"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
                         <!-- Query Ranking Button -->
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnQueryRanking"
@@ -387,48 +431,13 @@
                             app:iconTint="@color/primary" />
                     </LinearLayout>
 
-                    <!-- Row 2: Mode Toggle & Sync status & Course count summary -->
+                    <!-- Row 2: Sync status & Course count summary -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:orientation="horizontal"
                         android:gravity="center_vertical">
-
-                        <!-- Mode Switch Tabs: 按学期 | 按学分节点 -->
-                        <LinearLayout
-                            android:id="@+id/llGradeModeToggle"
-                            android:layout_width="wrap_content"
-                            android:layout_height="24dp"
-                            android:background="@drawable/badge_bg"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:padding="2dp"
-                            android:layout_marginEnd="8dp">
-
-                            <TextView
-                                android:id="@+id/tvModeSemester"
-                                android:layout_width="wrap_content"
-                                android:layout_height="match_parent"
-                                android:background="@drawable/badge_bg_clickable"
-                                android:gravity="center"
-                                android:paddingHorizontal="8dp"
-                                android:text="按学期"
-                                android:textColor="@color/primary"
-                                android:textSize="11sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvModeCreditNode"
-                                android:layout_width="wrap_content"
-                                android:layout_height="match_parent"
-                                android:background="@android:color/transparent"
-                                android:gravity="center"
-                                android:paddingHorizontal="8dp"
-                                android:text="按学分节点"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="11sp" />
-                        </LinearLayout>
 
                         <TextView
                             android:id="@+id/tvGradesSyncTime"
