@@ -176,14 +176,15 @@ class GradesFragment : Fragment() {
         }
 
         // 动态计算毛玻璃 Header 高度并避让
-        binding.llGradesHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+        binding.llGradesHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
             val h = bottom - top
-            if (h > 0) updateGradesHeaderSpacing(h)
+            val oldH = oldBottom - oldTop
+            if (h > 0 && h != oldH && h != lastHeaderHeightPx) updateGradesHeaderSpacing(h)
         }
         binding.llGradesHeaderContainer.post {
             if (_binding != null) {
                 val h = binding.llGradesHeaderContainer.height
-                if (h > 0) updateGradesHeaderSpacing(h)
+                if (h > 0 && h != lastHeaderHeightPx) updateGradesHeaderSpacing(h)
             }
         }
 
@@ -228,6 +229,7 @@ class GradesFragment : Fragment() {
 
     private fun updateGradesHeaderSpacing(headerHeightPx: Int) {
         if (headerHeightPx <= 0 || _binding == null) return
+        if (lastHeaderHeightPx == headerHeightPx) return
         lastHeaderHeightPx = headerHeightPx
         applyPanePaddings()
         val density = resources.displayMetrics.density
@@ -260,13 +262,19 @@ class GradesFragment : Fragment() {
 
     private fun updateCreditNodeVisibility() {
         if (_binding == null) return
-        if (isTabletLandscapeMode) {
-            binding.rvGrades.adapter = academicCourseAdapter
+        if (isCreditNodeMode) {
+            if (isTabletLandscapeMode) {
+                binding.rvGrades.adapter = academicCourseAdapter
+                binding.rvGrades.visibility = View.VISIBLE
+                binding.llAcademicTreeContainer.visibility = View.GONE
+            } else {
+                binding.rvGrades.visibility = View.GONE
+                binding.llAcademicTreeContainer.visibility = View.VISIBLE
+            }
+        } else {
+            binding.rvGrades.adapter = gradeAdapter
             binding.rvGrades.visibility = View.VISIBLE
             binding.llAcademicTreeContainer.visibility = View.GONE
-        } else {
-            binding.rvGrades.visibility = View.GONE
-            binding.llAcademicTreeContainer.visibility = View.VISIBLE
         }
     }
 
@@ -332,7 +340,7 @@ class GradesFragment : Fragment() {
             if (cached != null) {
                 academicProgress = cached
                 if (cached.coursesByCategory.isNotEmpty()) {
-                    categoryCoursesMap.putAll(cached.coursesByCategory)
+                    categoryCoursesMap.putAll(cached.coursesByCategory.filterValues { it.isNotEmpty() })
                 }
                 displayAcademicProgress(cached)
                 val updateTime = cacheManager.getAcademicProgressUpdateTime()
@@ -350,6 +358,7 @@ class GradesFragment : Fragment() {
         if (_binding == null) return
 
         if (isManual) {
+            categoryCoursesMap.clear()
             binding.swipeRefreshGrades.isRefreshing = true
         } else if (academicProgress == null) {
             binding.gradesProgressBar.visibility = View.VISIBLE
@@ -363,7 +372,8 @@ class GradesFragment : Fragment() {
             binding.swipeRefreshGrades.isRefreshing = false
 
             result.onSuccess { progress ->
-                val fullProgress = progress.copy(coursesByCategory = categoryCoursesMap)
+                val validCoursesMap = categoryCoursesMap.filterValues { it.isNotEmpty() }
+                val fullProgress = progress.copy(coursesByCategory = validCoursesMap)
                 academicProgress = fullProgress
                 cacheManager.saveAcademicProgress(fullProgress)
                 displayAcademicProgress(fullProgress)
@@ -425,14 +435,17 @@ class GradesFragment : Fragment() {
     /**
      * 手机竖屏模式：一级一级可展开/折叠的培养方案树状图
      */
+    private val treeNodeViewsMap = mutableMapOf<String, LinearLayout>()
+
     private fun renderAcademicTree(progress: AcademicProgress) {
         if (_binding == null) return
         val container = binding.llAcademicTreeContainer
         container.removeAllViews()
+        treeNodeViewsMap.clear()
         val ctx = requireContext()
         val density = resources.displayMetrics.density
 
-        // 默认若没有任何展开项，默认展开第一层大类
+        // 默认展开顶层大类
         if (expandedCategoryIds.isEmpty()) {
             progress.categories.forEach { expandedCategoryIds.add(it.id) }
         }
@@ -513,7 +526,7 @@ class GradesFragment : Fragment() {
 
             val ivArrow = android.widget.ImageView(ctx).apply {
                 val isExp = expandedCategoryIds.contains(cat.id)
-                setImageResource(if (isExp) R.drawable.ic_arrow_drop_down else R.drawable.ic_arrow_drop_down)
+                setImageResource(R.drawable.ic_arrow_drop_down)
                 rotation = if (isExp) 180f else 0f
                 layoutParams = LinearLayout.LayoutParams((22 * density).toInt(), (22 * density).toInt()).apply {
                     marginStart = (4 * density).toInt()
@@ -553,6 +566,7 @@ class GradesFragment : Fragment() {
             if (cat.isLeaf && cat.id.isNotEmpty()) {
                 val isExp = expandedCategoryIds.contains(cat.id)
                 val tvLeafAction = TextView(ctx).apply {
+                    tag = "action_${cat.id}"
                     text = if (isExp) "收起课程明细" else "展开课程明细"
                     textSize = 11f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -565,60 +579,47 @@ class GradesFragment : Fragment() {
             card.addView(cardInner)
             nodeLayout.addView(card)
 
-            val isExpanded = expandedCategoryIds.contains(cat.id)
-            if (isExpanded) {
-                if (!cat.isLeaf) {
-                    val childContainer = LinearLayout(ctx).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding((12 * density).toInt(), 0, 0, 0)
-                    }
-                    for (child in cat.children) {
-                        childContainer.addView(buildNodeView(child, depth + 1))
-                    }
-                    nodeLayout.addView(childContainer)
-                } else if (cat.id.isNotEmpty()) {
-                    val coursesContainer = LinearLayout(ctx).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
-                    }
-                    val courses = categoryCoursesMap[cat.id]
-                    if (courses == null) {
-                        val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
-                            layoutParams = LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.WRAP_CONTENT,
-                                LinearLayout.LayoutParams.WRAP_CONTENT
-                            ).apply {
-                                gravity = android.view.Gravity.CENTER_HORIZONTAL
-                                topMargin = (8 * density).toInt()
-                                bottomMargin = (8 * density).toInt()
-                            }
-                        }
-                        coursesContainer.addView(pb)
-                        loadCategoryCourses(cat.id)
-                    } else if (courses.isEmpty()) {
-                        val emptyTv = TextView(ctx).apply {
-                            text = "该分类下暂无课程明细"
-                            textSize = 11.5f
-                            setTextColor(ContextCompat.getColor(ctx, R.color.text_tertiary))
-                            setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
-                        }
-                        coursesContainer.addView(emptyTv)
-                    } else {
-                        for (course in courses) {
-                            coursesContainer.addView(buildTreeCourseRow(ctx, course, density))
-                        }
-                    }
-                    nodeLayout.addView(coursesContainer)
+            val contentContainer = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                tag = "content_${cat.id}"
+            }
+            nodeLayout.addView(contentContainer)
+            treeNodeViewsMap[cat.id] = contentContainer
+
+            if (!cat.isLeaf) {
+                contentContainer.setPadding((12 * density).toInt(), 0, 0, 0)
+                for (child in cat.children) {
+                    contentContainer.addView(buildNodeView(child, depth + 1))
+                }
+            } else if (cat.id.isNotEmpty()) {
+                contentContainer.setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                if (expandedCategoryIds.contains(cat.id)) {
+                    populateLeafCoursesContainer(contentContainer, cat.id, density)
                 }
             }
 
+            contentContainer.visibility = if (expandedCategoryIds.contains(cat.id)) View.VISIBLE else View.GONE
+
             card.setOnClickListener {
-                if (expandedCategoryIds.contains(cat.id)) {
+                val wasExpanded = expandedCategoryIds.contains(cat.id)
+                if (wasExpanded) {
                     expandedCategoryIds.remove(cat.id)
+                    ivArrow.rotation = 0f
+                    contentContainer.visibility = View.GONE
+                    if (cat.isLeaf) {
+                        cardInner.findViewWithTag<TextView>("action_${cat.id}")?.text = "展开课程明细"
+                    }
                 } else {
                     expandedCategoryIds.add(cat.id)
+                    ivArrow.rotation = 180f
+                    contentContainer.visibility = View.VISIBLE
+                    if (cat.isLeaf) {
+                        cardInner.findViewWithTag<TextView>("action_${cat.id}")?.text = "收起课程明细"
+                        if (contentContainer.childCount == 0 || categoryCoursesMap[cat.id].isNullOrEmpty()) {
+                            populateLeafCoursesContainer(contentContainer, cat.id, density)
+                        }
+                    }
                 }
-                renderAcademicTree(progress)
             }
 
             return nodeLayout
@@ -626,6 +627,56 @@ class GradesFragment : Fragment() {
 
         for (category in progress.categories) {
             container.addView(buildNodeView(category, depth = 0))
+        }
+    }
+
+    private fun populateLeafCoursesContainer(container: LinearLayout, categoryId: String, density: Float) {
+        val ctx = container.context
+        container.removeAllViews()
+        val courses = categoryCoursesMap[categoryId]
+        if (courses.isNullOrEmpty()) {
+            if (categoryLoadingSet.contains(categoryId)) {
+                val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        gravity = android.view.Gravity.CENTER_HORIZONTAL
+                        topMargin = (8 * density).toInt()
+                        bottomMargin = (8 * density).toInt()
+                    }
+                }
+                container.addView(pb)
+            } else if (courses != null && courses.isEmpty()) {
+                val emptyTv = TextView(ctx).apply {
+                    text = "该分类下暂无课程明细（点击重新拉取）"
+                    textSize = 11.5f
+                    setTextColor(ContextCompat.getColor(ctx, R.color.primary))
+                    setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
+                    setOnClickListener {
+                        categoryCoursesMap.remove(categoryId)
+                        populateLeafCoursesContainer(container, categoryId, density)
+                    }
+                }
+                container.addView(emptyTv)
+            } else {
+                val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        gravity = android.view.Gravity.CENTER_HORIZONTAL
+                        topMargin = (8 * density).toInt()
+                        bottomMargin = (8 * density).toInt()
+                    }
+                }
+                container.addView(pb)
+                loadCategoryCourses(categoryId)
+            }
+        } else {
+            for (course in courses) {
+                container.addView(buildTreeCourseRow(ctx, course, density))
+            }
         }
     }
 
@@ -711,7 +762,7 @@ class GradesFragment : Fragment() {
 
     private fun loadCategoryCourses(categoryId: String) {
         val cached = categoryCoursesMap[categoryId]
-        if (cached != null) {
+        if (!cached.isNullOrEmpty()) {
             academicCourseAdapter.submitList(cached) {
                 if (_binding != null && isTabletLandscapeMode) {
                     binding.rvGrades.scrollToPosition(0)
@@ -734,10 +785,12 @@ class GradesFragment : Fragment() {
 
             result.onSuccess { courses ->
                 categoryCoursesMap[categoryId] = courses
-                academicProgress?.let { prog ->
-                    val updated = prog.copy(coursesByCategory = categoryCoursesMap)
-                    academicProgress = updated
-                    cacheManager.saveAcademicProgress(updated)
+                if (courses.isNotEmpty()) {
+                    academicProgress?.let { prog ->
+                        val updated = prog.copy(coursesByCategory = categoryCoursesMap.filterValues { it.isNotEmpty() })
+                        academicProgress = updated
+                        cacheManager.saveAcademicProgress(updated)
+                    }
                 }
                 if (isCreditNodeMode) {
                     if (isTabletLandscapeMode && selectedCategoryId == categoryId) {
@@ -748,10 +801,24 @@ class GradesFragment : Fragment() {
                         }
                         binding.tvGradesCountSummary.text = "本节点 ${courses.size} 门课程"
                     } else if (!isTabletLandscapeMode) {
-                        academicProgress?.let { renderAcademicTree(it) }
+                        val container = treeNodeViewsMap[categoryId]
+                        if (container != null) {
+                            val density = resources.displayMetrics.density
+                            populateLeafCoursesContainer(container, categoryId, density)
+                        } else {
+                            academicProgress?.let { renderAcademicTree(it) }
+                        }
                     }
                 }
             }.onFailure { err ->
+                categoryCoursesMap.remove(categoryId)
+                if (!isTabletLandscapeMode) {
+                    val container = treeNodeViewsMap[categoryId]
+                    if (container != null) {
+                        val density = resources.displayMetrics.density
+                        populateLeafCoursesContainer(container, categoryId, density)
+                    }
+                }
                 if (isAdded) {
                     Toast.makeText(requireContext(), "课程明细拉取失败: ${err.message}", Toast.LENGTH_SHORT).show()
                 }
@@ -854,6 +921,7 @@ class GradesFragment : Fragment() {
 
     private fun updateGradesUI(report: GradeReport) {
         if (_binding == null) return
+        updateCreditNodeVisibility()
 
         if (selectedGradeSemesterTitle.isEmpty()) {
             binding.tvGradeSemester.text = "全部学期"

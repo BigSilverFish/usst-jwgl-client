@@ -668,9 +668,9 @@ object JwglClient {
     ): Result<List<cn.edu.usst.jwgl.data.model.AcademicCourse>> = withContext(Dispatchers.IO) {
         try {
             if (categoryId.isBlank()) return@withContext Result.success(emptyList())
-            var courses = fetchCategoryCourseList("/jwglxt/xsxy/xsxyqk_cxJxzxjhxfyqKcxx.html", categoryId, studentId, context)
+            var courses = fetchCategoryCourseList("/jwglxt/xsxy/xsxyqk_cxJxzxjhxfyqKcxx.html?gnmkdm=N105515", categoryId, studentId, context)
             if (courses.isEmpty()) {
-                courses = fetchCategoryCourseList("/jwglxt/xsxy/xsxyqk_cxJxzxjhxfyqFKcxx.html", categoryId, studentId, context)
+                courses = fetchCategoryCourseList("/jwglxt/xsxy/xsxyqk_cxJxzxjhxfyqFKcxx.html?gnmkdm=N105515", categoryId, studentId, context)
             }
             Result.success(courses)
         } catch (e: Exception) {
@@ -695,20 +695,36 @@ object JwglClient {
             .url("https://jwgl.usst.edu.cn$path")
             .header("User-Agent", USER_AGENT)
             .header("X-Requested-With", "XMLHttpRequest")
-            .header("Accept", "application/json, text/plain, */*")
-            .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default")
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header("Referer", "https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?echarts=1&gnmkdm=N105515&layout=default")
             .post(formBody)
             .build()
 
         val resp = client.newCall(req).execute()
         val raw = resp.body?.string() ?: ""
         val trimmed = raw.trim()
-        if (trimmed.isNotEmpty() && !trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+        Log.d(TAG, "Category $categoryId courses from $path: HTTP ${resp.code}, length ${raw.length}, preview: ${trimmed.take(120)}")
+
+        val isSessionExpired = resp.code == 901 ||
+                trimmed.contains("authserver") ||
+                trimmed.contains("统一身份认证") ||
+                trimmed.contains("login_slogin.html")
+
+        if (isSessionExpired || (resp.code != 200 && trimmed.isEmpty())) {
             if (context != null && ensureSession(context)) {
                 return fetchCategoryCourseList(path, categoryId, studentId, null)
             }
             throw IOException("登录会话已失效")
         }
+
+        if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+            return emptyList()
+        }
+
+        if (trimmed.startsWith("{") && (trimmed.contains("\"error\"") || trimmed.contains("\"status\":false"))) {
+            return emptyList()
+        }
+
         return parseAcademicCourses(raw)
     }
 
@@ -722,17 +738,29 @@ object JwglClient {
             return emptyList()
         }
 
+        fun Map<String, Any?>.getVal(vararg keys: String): String {
+            for (key in keys) {
+                val v = this[key] ?: this[key.lowercase()] ?: this[key.uppercase()]
+                if (v != null) {
+                    val s = v.toString().trim()
+                    if (s.isNotEmpty()) return s
+                }
+            }
+            return ""
+        }
+
         val out = mutableListOf<cn.edu.usst.jwgl.data.model.AcademicCourse>()
         for (item in rawList) {
-            val name = (item["KCMC"]?.toString() ?: "").trim()
+            val name = item.getVal("KCMC", "kcmc")
             if (name.isEmpty()) continue
-            val code = (item["KCH"]?.toString() ?: "").trim()
-            val credits = item["XF"]?.toString()?.toDoubleOrNull() ?: 0.0
-            val xnm = (item["XNMC"]?.toString() ?: "").trim()
-            val xqm = (item["XQMMC"]?.toString() ?: "").trim()
+            val code = item.getVal("KCH", "kch", "KCH_ID", "kch_id")
+            val creditsStr = item.getVal("XF", "xf", "JHXF", "jhxf")
+            val credits = creditsStr.toDoubleOrNull() ?: 0.0
+            val xnm = item.getVal("XNMC", "xnmmc", "JYXDXNMC", "jyxdxnmmc", "CJXNMC", "cjxnmc")
+            val xqm = item.getVal("XQMMC", "xqmmc", "JYXDXQMC", "jyxdxqmc", "CJXQMC", "cjxqmc")
             val term = "$xnm $xqm".trim()
-            val score = (item["CJ"]?.toString() ?: item["MAXCJ"]?.toString() ?: "").trim()
-            val xdzt = (item["XDZT"]?.toString() ?: "").trim()
+            val score = item.getVal("CJ", "cj", "MAXCJ", "maxcj", "BFZCJ", "bfzcj")
+            val xdzt = item.getVal("XDZT", "xdzt")
             out.add(
                 cn.edu.usst.jwgl.data.model.AcademicCourse(
                     name = name,
