@@ -15,7 +15,8 @@ data class CourseGrade(
     val yearName: String = "",
     val semesterName: String = "",
     val semesterTitle: String = "",
-    val examType: String = "" // 考核方式: 考试 / 考查
+    val examType: String = "", // 考核方式: 考试 / 考查
+    val ksxz: String = "" // 考试性质: 正常考试 / 补考 / 重修
 ) : Serializable
 
 data class SemesterGradeSummary(

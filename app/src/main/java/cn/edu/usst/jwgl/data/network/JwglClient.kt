@@ -456,11 +456,6 @@ object JwglClient {
             val itemsArray = json.optJSONArray("items") ?: org.json.JSONArray()
 
             val allCourses = mutableListOf<cn.edu.usst.jwgl.data.model.CourseGrade>()
-            var totalCredit = 0.0
-            var totalScoreWeighted = 0.0
-            var totalGpaWeighted = 0.0
-            var validScoreCredits = 0.0
-
             val semesterGroups = linkedMapOf<String, MutableList<cn.edu.usst.jwgl.data.model.CourseGrade>>()
 
             for (i in 0 until itemsArray.length()) {
@@ -468,6 +463,7 @@ object JwglClient {
                 val courseName = item.optString("kcmc", "")
                 val courseId = item.optString("kch", "")
                 val examType = item.optString("khfsmc", "").trim()
+                val ksxz = item.optString("ksxz", item.optString("ksxzmc", "")).trim()
                 val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
                 val regularScore = item.optString("pscj", "")
                 val regularRatio = item.optString("psbl", "")
@@ -483,14 +479,6 @@ object JwglClient {
                     "其他学期"
                 }
 
-                val scoreVal = overallScore.toDoubleOrNull() ?: 0.0
-                totalCredit += credit
-                if (credit > 0.0) {
-                    totalScoreWeighted += scoreVal * credit
-                    totalGpaWeighted += gpa * credit
-                    validScoreCredits += credit
-                }
-
                 val courseGrade = cn.edu.usst.jwgl.data.model.CourseGrade(
                     courseId = courseId,
                     courseName = courseName,
@@ -504,7 +492,8 @@ object JwglClient {
                     yearName = yearName,
                     semesterName = semesterName,
                     semesterTitle = semTitle,
-                    examType = examType
+                    examType = examType,
+                    ksxz = ksxz
                 )
                 allCourses.add(courseGrade)
 
@@ -512,8 +501,7 @@ object JwglClient {
                 semList.add(courseGrade)
             }
 
-            val cumulativeWeightedScore = if (validScoreCredits > 0) totalScoreWeighted / validScoreCredits else 0.0
-            val cumulativeGpa = if (validScoreCredits > 0) totalGpaWeighted / validScoreCredits else 0.0
+            val (totalCredit, cumulativeWeightedScore, cumulativeGpa) = calculateCumulativeGrades(allCourses)
 
             val semesterSummaries = semesterGroups.map { (semTitle, courses) ->
                 var semCredits = 0.0
@@ -550,6 +538,60 @@ object JwglClient {
             Log.e(TAG, "Error fetching grades", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * 计算累计修读学分、加权平均分与累计平均学分绩点（GPA）。
+     * 针对同一门课程可能存在首修挂科、补考、重修等多次记录的情况：
+     * 1. 同一门课程（以 courseId 或 courseName 标识）仅计入一次，避免学分重复累加与挂科拖拽。
+     * 2. 优先选取重修通过/最高成绩的有效记录作为计算依据。
+     */
+    internal fun calculateCumulativeGrades(
+        allCourses: List<cn.edu.usst.jwgl.data.model.CourseGrade>
+    ): Triple<Double, Double, Double> {
+        val coursesByKey = linkedMapOf<String, MutableList<cn.edu.usst.jwgl.data.model.CourseGrade>>()
+        for (c in allCourses) {
+            val key = c.courseId.ifBlank { c.courseName }
+            if (key.isNotBlank()) {
+                coursesByKey.getOrPut(key) { mutableListOf() }.add(c)
+            }
+        }
+
+        var totalCredit = 0.0
+        var totalScoreWeighted = 0.0
+        var totalGpaWeighted = 0.0
+        var validScoreCredits = 0.0
+
+        for ((_, records) in coursesByKey) {
+            val passedRecords = records.filter { it.gpa > 0.0 || (it.overallScore.toDoubleOrNull() ?: 0.0) >= 60.0 }
+            val effective = if (passedRecords.isNotEmpty()) {
+                passedRecords.maxWithOrNull(
+                    compareBy<cn.edu.usst.jwgl.data.model.CourseGrade> { it.ksxz.contains("重修") }
+                        .thenBy { it.gpa }
+                        .thenBy { it.overallScore.toDoubleOrNull() ?: 0.0 }
+                ) ?: passedRecords.last()
+            } else {
+                records.maxByOrNull { it.overallScore.toDoubleOrNull() ?: 0.0 } ?: records.last()
+            }
+
+            val scoreVal = effective.overallScore.toDoubleOrNull() ?: 0.0
+            val isEffectivePassed = effective.gpa > 0.0 || scoreVal >= 60.0
+
+            if (isEffectivePassed) {
+                totalCredit += effective.credit
+            }
+
+            if (effective.credit > 0.0) {
+                totalScoreWeighted += scoreVal * effective.credit
+                totalGpaWeighted += effective.gpa * effective.credit
+                validScoreCredits += effective.credit
+            }
+        }
+
+        val cumulativeWeightedScore = if (validScoreCredits > 0) totalScoreWeighted / validScoreCredits else 0.0
+        val cumulativeGpa = if (validScoreCredits > 0) totalGpaWeighted / validScoreCredits else 0.0
+
+        return Triple(totalCredit, cumulativeWeightedScore, cumulativeGpa)
     }
 
     /**

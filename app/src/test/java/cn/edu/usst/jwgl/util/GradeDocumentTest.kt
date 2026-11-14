@@ -80,4 +80,54 @@ class GradeDocumentTest {
         assertEquals(3.625, selectedSem.weightedGpa, 0.01)
         assertEquals(2, selectedSem.courses.size)
     }
+
+    @Test
+    fun testDeduplicationForRetakeAndResitCourses() {
+        // 模拟用户提出的一门课首修挂科、补考挂科、重修通过，生成 3 条记录的场景
+        val physics1 = CourseGrade(
+            courseId = "PHYS1001",
+            courseName = "大学物理B",
+            credit = 4.0,
+            overallScore = "42",
+            gpa = 0.0,
+            ksxz = "正常考试"
+        )
+        val physics2 = CourseGrade(
+            courseId = "PHYS1001",
+            courseName = "大学物理B",
+            credit = 4.0,
+            overallScore = "53",
+            gpa = 0.0,
+            ksxz = "补考"
+        )
+        val physics3 = CourseGrade(
+            courseId = "PHYS1001",
+            courseName = "大学物理B",
+            credit = 4.0,
+            overallScore = "84",
+            gpa = 3.4,
+            ksxz = "重修"
+        )
+        val math = CourseGrade(
+            courseId = "MATH1001",
+            courseName = "高等数学A(1)",
+            credit = 5.0,
+            overallScore = "90",
+            gpa = 4.0,
+            ksxz = "正常考试"
+        )
+
+        val allCourses = listOf(physics1, physics2, physics3, math)
+        val (totalCredits, avgScore, gpa) = cn.edu.usst.jwgl.data.network.JwglClient.calculateCumulativeGrades(allCourses)
+
+        // 验证学分只计入一次（4.0 + 5.0 = 9.0），而非 4+4+4+5=17
+        assertEquals(9.0, totalCredits, 0.001)
+
+        // 验证只取重修通过的 84 分与 3.4 绩点参与加权计算
+        // 期望加权均分: (84 * 4.0 + 90 * 5.0) / 9.0 = 786 / 9.0 ≈ 87.333
+        assertEquals((84 * 4.0 + 90 * 5.0) / 9.0, avgScore, 0.001)
+
+        // 期望平均 GPA: (3.4 * 4.0 + 4.0 * 5.0) / 9.0 = 33.6 / 9.0 ≈ 3.733
+        assertEquals((3.4 * 4.0 + 4.0 * 5.0) / 9.0, gpa, 0.001)
+    }
 }

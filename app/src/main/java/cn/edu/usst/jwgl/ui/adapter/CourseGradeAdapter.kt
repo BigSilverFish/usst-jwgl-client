@@ -43,7 +43,11 @@ class CourseGradeAdapter : ListAdapter<CourseGrade, CourseGradeAdapter.ViewHolde
 
             binding.tvCourseName.text = item.courseName.ifEmpty { "未命名课程" }
             binding.tvCourseCode.text = if (item.courseId.isNotEmpty()) item.courseId else "未知代码"
-            binding.tvExamType.text = if (item.examType.isNotEmpty()) item.examType else "考试"
+            val examTypeText = when {
+                item.ksxz.isNotEmpty() && item.ksxz != "正常考试" -> "${item.ksxz} · ${item.examType.ifEmpty { "考试" }}"
+                else -> item.examType.ifEmpty { "考试" }
+            }
+            binding.tvExamType.text = examTypeText
             binding.tvCourseCredit.text = "${item.credit} 学分"
             binding.tvSemesterTitle.text = item.semesterTitle.ifEmpty { "其他学期" }
 
