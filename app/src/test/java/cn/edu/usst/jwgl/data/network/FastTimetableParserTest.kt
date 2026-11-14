@@ -128,4 +128,171 @@ class FastTimetableParserTest {
         assertEquals("2025-2026学年 第2学期", data.semesterTitle)
         assertTrue(data.courses.isEmpty())
     }
+
+    @Test
+    fun testParseFastTimetableJson_adjustedWeekFirst() {
+        val sampleJson = """
+        {
+            "totalCount": 2,
+            "items": [
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{6周}",
+                    "jxdd": "新教室 101"
+                },
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{1-5,7-18周}",
+                    "jxdd": "三教 209"
+                }
+            ]
+        }
+        """.trimIndent()
+
+        val data = JwglClient.parseFastTimetableJson(
+            body = sampleJson,
+            xnm = "2026",
+            xqm = "3"
+        )
+
+        assertEquals(2, data.courses.size)
+
+        for (week in 1..18) {
+            val coursesInWeek = data.courses.filter { it.isInWeek(week) }
+            assertEquals("Week $week should have exactly 1 course segment", 1, coursesInWeek.size)
+            val course = coursesInWeek.first()
+            assertEquals("马克思主义基本原理", course.name)
+            assertEquals(5, course.dayOfWeek)
+            assertEquals(11, course.startSection)
+            assertEquals(3, course.step)
+            if (week == 6) {
+                assertEquals("新教室 101", course.classroom)
+            } else {
+                assertEquals("三教 209", course.classroom)
+            }
+        }
+    }
+
+    @Test
+    fun testParseFastTimetableJson_adjustedWeekLast() {
+        val sampleJson = """
+        {
+            "totalCount": 2,
+            "items": [
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{1-5,7-18周}",
+                    "jxdd": "三教 209"
+                },
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{6周}",
+                    "jxdd": "新教室 101"
+                }
+            ]
+        }
+        """.trimIndent()
+
+        val data = JwglClient.parseFastTimetableJson(
+            body = sampleJson,
+            xnm = "2026",
+            xqm = "3"
+        )
+
+        assertEquals(2, data.courses.size)
+
+        for (week in 1..18) {
+            val coursesInWeek = data.courses.filter { it.isInWeek(week) }
+            assertEquals("Week $week should have exactly 1 course segment", 1, coursesInWeek.size)
+            val course = coursesInWeek.first()
+            assertEquals("马克思主义基本原理", course.name)
+            assertEquals(5, course.dayOfWeek)
+            assertEquals(11, course.startSection)
+            assertEquals(3, course.step)
+            if (week == 6) {
+                assertEquals("新教室 101", course.classroom)
+            } else {
+                assertEquals("三教 209", course.classroom)
+            }
+        }
+    }
+
+    @Test
+    fun testParseFastTimetableJson_duplicateRecordsDeduplication() {
+        val sampleJson = """
+        {
+            "totalCount": 3,
+            "items": [
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{6周}",
+                    "jxdd": "新教室 101"
+                },
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{6周}",
+                    "jxdd": "新教室 101"
+                },
+                {
+                    "kcmc": "马克思主义基本原理",
+                    "kch": "MKS001",
+                    "jxbmc": "(2026-2027-1)-MKS001-01",
+                    "xf": "3.0",
+                    "kcxz": "通识必修",
+                    "khfs": "考试",
+                    "jsxx": "01234/王老师/教授",
+                    "sksj": "星期五第11-13节{1-5,7-18周}",
+                    "jxdd": "三教 209"
+                }
+            ]
+        }
+        """.trimIndent()
+
+        val data = JwglClient.parseFastTimetableJson(
+            body = sampleJson,
+            xnm = "2026",
+            xqm = "3"
+        )
+
+        // The duplicate week 6 record should be removed, leaving 2 distinct segments
+        assertEquals(2, data.courses.size)
+        assertTrue(data.courses.any { it.classroom == "新教室 101" && it.weeks == listOf(6) })
+        assertTrue(data.courses.any { it.classroom == "三教 209" && it.weeks == (1..5).toList() + (7..18).toList() })
+    }
 }

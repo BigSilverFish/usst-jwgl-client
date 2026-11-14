@@ -1024,28 +1024,26 @@ object JwglClient {
                     c
                 }
 
-                if (courses.none { it.id == slotId }) {
-                    courses.add(
-                        cn.edu.usst.jwgl.data.model.CourseItem(
-                            id = slotId,
-                            name = courseName,
-                            teacher = teacher,
-                            classroom = classroom,
-                            dayOfWeek = dayOfWeek,
-                            startSection = startSection,
-                            step = step,
-                            rawSections = rawSections,
-                            weeks = weeks,
-                            rawWeeks = rawWeeks,
-                            credit = credit,
-                            courseType = courseType,
-                            colorIndex = colorIdx,
-                            courseCode = courseCode,
-                            examType = examType,
-                            classCode = classCode
-                        )
+                courses.add(
+                    cn.edu.usst.jwgl.data.model.CourseItem(
+                        id = slotId,
+                        name = courseName,
+                        teacher = teacher,
+                        classroom = classroom,
+                        dayOfWeek = dayOfWeek,
+                        startSection = startSection,
+                        step = step,
+                        rawSections = rawSections,
+                        weeks = weeks,
+                        rawWeeks = rawWeeks,
+                        credit = credit,
+                        courseType = courseType,
+                        colorIndex = colorIdx,
+                        courseCode = courseCode,
+                        examType = examType,
+                        classCode = classCode
                     )
-                }
+                )
             }
         }
 
@@ -1058,7 +1056,7 @@ object JwglClient {
             semesterTitle = semTitle,
             studentName = studentName,
             className = className,
-            courses = courses,
+            courses = courses.distinct(),
             currentWeek = currentWeek,
             unscheduledCourses = filteredUnscheduled
         )
