@@ -104,10 +104,16 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
                 "魅族 Flyme：请在手机管家 -> 权限管理中开启自启动，并将掌上理工加入后台保活白名单。"
             NotificationDiagnosticHelper.Manufacturer.SAMSUNG ->
                 "三星 One UI：请进入电池和设备维护 -> 电池 -> 后台使用限制，将掌上理工添加到【从不休眠的应用程序】中。"
+            NotificationDiagnosticHelper.Manufacturer.AOSP ->
+                "类原生 Android / AOSP 系统：遵循原生 Android 规范，无国产厂商特定后台拦截。建议在设置中将电池优化设为【无限制】，并开启横幅悬浮与锁屏通知即可。"
             NotificationDiagnosticHelper.Manufacturer.OTHER ->
                 "请确保开启横幅悬浮通知、锁屏通知，并允许后台无限制电池策略，以保证提醒 100% 准时送达。"
         }
         tvDeviceSpecificTips.text = tips
+
+        val isAosp = NotificationDiagnosticHelper.getDeviceManufacturer() == NotificationDiagnosticHelper.Manufacturer.AOSP ||
+                NotificationDiagnosticHelper.getDeviceManufacturer() == NotificationDiagnosticHelper.Manufacturer.OTHER
+        btnOpenManufacturerSettings.text = if (isAosp) "配置原生电池优化策略" else "前往厂商后台与自启动管理"
     }
 
     private fun setupListeners() {

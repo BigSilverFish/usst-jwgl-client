@@ -274,7 +274,24 @@ object NotificationDiagnosticHelper {
     }
 
     /**
-     * 获取当前设备的品牌类型
+     * 系统定制 ROM 类型枚举
+     */
+    enum class RomType {
+        HYPEROS,        // 小米澎湃 OS (Xiaomi HyperOS)
+        MIUI,           // 小米 MIUI
+        HARMONYOS,      // 华为鸿蒙 HarmonyOS
+        EMUI,           // 华为 EMUI
+        MAGICOS,        // 荣耀 MagicOS
+        COLOROS,        // OPPO / 一加 / Realme ColorOS
+        ORIGINOS,       // vivo / iQOO OriginOS
+        FLYME,          // 魅族 Flyme
+        ONE_UI,         // 三星 One UI
+        AOSP_CUSTOM,    // 类原生系统 (LineageOS, PixelOS, crDroid, EvolutionX 等)
+        STOCK_ANDROID   // 谷歌 Pixel / 原生 Android
+    }
+
+    /**
+     * 获取当前设备的品牌/厂商类型
      */
     enum class Manufacturer {
         XIAOMI,      // 小米 / 红米 (HyperOS / MIUI)
@@ -284,21 +301,134 @@ object NotificationDiagnosticHelper {
         VIVO,        // vivo / iQOO (OriginOS / FuntouchOS)
         MEIZU,       // 魅族 (Flyme)
         SAMSUNG,     // 三星 (One UI)
+        AOSP,        // 类原生系统 (LineageOS, PixelOS 等)
         OTHER
     }
 
-    fun getDeviceManufacturer(): Manufacturer {
+    /**
+     * 反射读取系统属性 (System Properties)
+     */
+    fun getSystemProperty(key: String, defaultValue: String = ""): String {
+        return try {
+            val clazz = Class.forName("android.os.SystemProperties")
+            val getMethod = clazz.getMethod("get", String::class.java, String::class.java)
+            getMethod.invoke(null, key, defaultValue) as? String ?: defaultValue
+        } catch (_: Exception) {
+            defaultValue
+        }
+    }
+
+    fun getFirstNonEmptyProperty(vararg keys: String): String {
+        for (key in keys) {
+            val value = getSystemProperty(key).trim()
+            if (value.isNotEmpty()) return value
+        }
+        return ""
+    }
+
+    /**
+     * 识别类原生系统发行版名称（如 LineageOS, crDroid 等）
+     */
+    fun detectCustomRomName(): String {
+        val lineage = getSystemProperty("ro.lineage.version")
+        if (lineage.isNotBlank()) return "LineageOS ($lineage)"
+        val crdroid = getSystemProperty("ro.crdroid.version")
+        if (crdroid.isNotBlank()) return "crDroid ($crdroid)"
+        val pixel = getFirstNonEmptyProperty("ro.pixel.build.version", "ro.pixelexperience.version")
+        if (pixel.isNotBlank()) return "PixelExperience / PixelOS"
+        val evo = getSystemProperty("ro.evolution.version")
+        if (evo.isNotBlank()) return "Evolution X ($evo)"
+        val pa = getSystemProperty("ro.pa.version")
+        if (pa.isNotBlank()) return "Paranoid Android"
+        val mod = getSystemProperty("ro.modversion")
+        if (mod.isNotBlank()) return mod
+        return "类原生 Android (AOSP)"
+    }
+
+    /**
+     * 精准探测当前运行的 ROM 类型（通过底层系统属性而非单纯依赖硬件厂商）
+     */
+    fun detectRomType(): RomType {
+        // 1. 小米 HyperOS / MIUI
+        val hyperOsVer = getFirstNonEmptyProperty("ro.mi.os.version.name")
+        if (hyperOsVer.isNotEmpty()) return RomType.HYPEROS
+        val miuiVer = getFirstNonEmptyProperty("ro.miui.ui.version.name", "ro.miui.version.code_time")
+        if (miuiVer.isNotEmpty()) return RomType.MIUI
+
+        // 2. 华为 HarmonyOS / EMUI
+        val harmonyVer = getFirstNonEmptyProperty("hw_sc.build.platform.version")
+        if (harmonyVer.isNotEmpty()) return RomType.HARMONYOS
+        val emuiVer = getFirstNonEmptyProperty("ro.build.version.emui")
+        if (emuiVer.isNotEmpty()) return RomType.EMUI
+
+        // 3. 荣耀 MagicOS
+        val magicVer = getFirstNonEmptyProperty("ro.build.version.magic", "msc.config.magic.version")
+        if (magicVer.isNotEmpty()) return RomType.MAGICOS
+
+        // 4. OPPO / 一加 / Realme (ColorOS)
+        val colorVer = getFirstNonEmptyProperty("ro.build.version.opporom", "ro.build.version.oplusrom", "ro.coloros.version")
+        if (colorVer.isNotEmpty()) return RomType.COLOROS
+
+        // 5. vivo / iQOO (OriginOS / FuntouchOS)
+        val vivoVer = getFirstNonEmptyProperty("ro.vivo.os.version", "ro.vivo.os.name")
+        if (vivoVer.isNotEmpty()) return RomType.ORIGINOS
+
+        // 6. 魅族 Flyme
+        val flymeVer = getFirstNonEmptyProperty("ro.flyme.version.id", "ro.build.display.id")
+        if (flymeVer.lowercase().contains("flyme")) return RomType.FLYME
+
+        // 7. 三星 One UI
+        val oneUiVer = getFirstNonEmptyProperty("ro.build.version.oneui")
         val brand = Build.BRAND.lowercase()
         val manufacturer = Build.MANUFACTURER.lowercase()
-        return when {
-            brand.contains("xiaomi") || brand.contains("redmi") || manufacturer.contains("xiaomi") -> Manufacturer.XIAOMI
-            brand.contains("huawei") || manufacturer.contains("huawei") -> Manufacturer.HUAWEI
-            brand.contains("honor") || manufacturer.contains("honor") -> Manufacturer.HONOR
-            brand.contains("oppo") || brand.contains("oneplus") || brand.contains("realme") || manufacturer.contains("oppo") -> Manufacturer.OPPO
-            brand.contains("vivo") || brand.contains("iqoo") || manufacturer.contains("vivo") -> Manufacturer.VIVO
-            brand.contains("meizu") || manufacturer.contains("meizu") -> Manufacturer.MEIZU
-            brand.contains("samsung") || manufacturer.contains("samsung") -> Manufacturer.SAMSUNG
-            else -> Manufacturer.OTHER
+        if (oneUiVer.isNotEmpty() || brand.contains("samsung") || manufacturer.contains("samsung")) {
+            return RomType.ONE_UI
+        }
+
+        // 8. 类原生特征检测
+        val customRomProps = listOf(
+            "ro.lineage.version",
+            "ro.lineage.build.version",
+            "ro.crdroid.version",
+            "ro.pixel.build.version",
+            "ro.pixelexperience.version",
+            "ro.evolution.version",
+            "ro.pa.version",
+            "ro.arrow.version",
+            "ro.havoc.version",
+            "ro.bliss.version",
+            "ro.modversion",
+            "ro.custom.build.version"
+        )
+        for (prop in customRomProps) {
+            if (getSystemProperty(prop).isNotBlank()) {
+                return RomType.AOSP_CUSTOM
+            }
+        }
+
+        // 9. 如果底层硬件是国内厂商，但没有任何定制系统Property，说明刷了类原生！
+        if (brand.contains("xiaomi") || brand.contains("redmi") ||
+            brand.contains("huawei") || brand.contains("honor") ||
+            brand.contains("oppo") || brand.contains("oneplus") || brand.contains("realme") ||
+            brand.contains("vivo") || brand.contains("iqoo") ||
+            brand.contains("meizu")) {
+            return RomType.AOSP_CUSTOM
+        }
+
+        return RomType.STOCK_ANDROID
+    }
+
+    fun getDeviceManufacturer(): Manufacturer {
+        return when (detectRomType()) {
+            RomType.HYPEROS, RomType.MIUI -> Manufacturer.XIAOMI
+            RomType.HARMONYOS, RomType.EMUI -> Manufacturer.HUAWEI
+            RomType.MAGICOS -> Manufacturer.HONOR
+            RomType.COLOROS -> Manufacturer.OPPO
+            RomType.ORIGINOS -> Manufacturer.VIVO
+            RomType.FLYME -> Manufacturer.MEIZU
+            RomType.ONE_UI -> Manufacturer.SAMSUNG
+            RomType.AOSP_CUSTOM -> Manufacturer.AOSP
+            RomType.STOCK_ANDROID -> Manufacturer.OTHER
         }
     }
 
@@ -306,15 +436,39 @@ object NotificationDiagnosticHelper {
      * 获取厂商对应的名称和定制 UI 名称
      */
     fun getManufacturerFriendlyName(): Pair<String, String> {
-        return when (getDeviceManufacturer()) {
-            Manufacturer.XIAOMI -> "小米 / 红米" to "Xiaomi HyperOS (澎湃 OS)"
-            Manufacturer.HUAWEI -> "华为" to "HarmonyOS (鸿蒙)"
-            Manufacturer.HONOR -> "荣耀" to "MagicOS (灵动胶囊)"
-            Manufacturer.OPPO -> "OPPO / 一加" to "ColorOS (流体云)"
-            Manufacturer.VIVO -> "vivo / iQOO" to "OriginOS (原子通知)"
-            Manufacturer.MEIZU -> "魅族" to "Flyme (灵动灵感)"
-            Manufacturer.SAMSUNG -> "三星" to "One UI"
-            Manufacturer.OTHER -> Build.BRAND.replaceFirstChar { it.uppercase() } to "原生 Android"
+        val brand = Build.BRAND.replaceFirstChar { it.uppercase() }
+        val romType = detectRomType()
+
+        return when (romType) {
+            RomType.HYPEROS -> {
+                val ver = getSystemProperty("ro.mi.os.version.name")
+                val detail = if (ver.isNotBlank()) "Xiaomi HyperOS ($ver)" else "Xiaomi HyperOS (澎湃 OS)"
+                "小米 / 红米" to detail
+            }
+            RomType.MIUI -> {
+                val ver = getSystemProperty("ro.miui.ui.version.name")
+                val detail = if (ver.isNotBlank()) "MIUI $ver" else "Xiaomi MIUI"
+                "小米 / 红米" to detail
+            }
+            RomType.HARMONYOS -> {
+                val ver = getSystemProperty("hw_sc.build.platform.version")
+                val detail = if (ver.isNotBlank()) "HarmonyOS $ver" else "Huawei HarmonyOS (鸿蒙)"
+                "华为" to detail
+            }
+            RomType.EMUI -> "华为" to "Huawei EMUI"
+            RomType.MAGICOS -> "荣耀" to "Honor MagicOS (灵动胶囊)"
+            RomType.COLOROS -> "OPPO / 一加" to "ColorOS (流体云)"
+            RomType.ORIGINOS -> "vivo / iQOO" to "OriginOS (原子通知)"
+            RomType.FLYME -> "魅族" to "Flyme (灵动灵感)"
+            RomType.ONE_UI -> "三星" to "One UI"
+            RomType.AOSP_CUSTOM -> {
+                val customName = detectCustomRomName()
+                val hardwareTag = if (brand.isNotBlank() && !brand.equals("Unknown", ignoreCase = true)) " ($brand 硬件)" else ""
+                "类原生系统$hardwareTag" to (customName.ifBlank { "类原生 Android (AOSP)" })
+            }
+            RomType.STOCK_ANDROID -> {
+                "$brand 设备" to "原生 Android"
+            }
         }
     }
 
@@ -417,10 +571,16 @@ object NotificationDiagnosticHelper {
      * 尝试跳转各大厂商的自启动/后台管家页面
      */
     fun openManufacturerAutoStartSettings(context: Context): Boolean {
+        val manufacturer = getDeviceManufacturer()
+        if (manufacturer == Manufacturer.AOSP || manufacturer == Manufacturer.OTHER) {
+            requestIgnoreBatteryOptimizations(context)
+            return true
+        }
+
         val intents = mutableListOf<Intent>()
         val pkg = context.packageName
 
-        when (getDeviceManufacturer()) {
+        when (manufacturer) {
             Manufacturer.XIAOMI -> {
                 // 小米自启动管理页
                 intents.add(Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")))
