@@ -160,6 +160,15 @@
             android:name=".receiver.TronClassDdlReceiver"
             android:exported="false" />
 
+        <!-- Notification Action Dismiss Receiver -->
+        <receiver
+            android:name=".receiver.NotificationDismissReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="cn.edu.usst.jwgl.action.NOTIFICATION_DISMISS" />
+            </intent-filter>
+        </receiver>
+
         <!-- TronClass Classroom Rollcall Alarm Receiver -->
         <receiver
             android:name=".receiver.RollcallAlarmReceiver"

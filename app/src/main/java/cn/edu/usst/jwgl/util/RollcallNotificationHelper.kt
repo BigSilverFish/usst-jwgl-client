@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -146,6 +147,7 @@ object RollcallNotificationHelper {
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
         }
+        applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "选择点位签到" else "查看详情")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -158,7 +160,6 @@ object RollcallNotificationHelper {
      */
     fun notifyNumberRollcall(context: Context, rollcallId: Long, courseName: String?) {
         createChannels(context)
-        NotificationDiagnosticHelper.wakeScreenBriefly(context, 5000L)
 
         val notifId = ((rollcallId % 100000L).toInt() + 30000)
 
@@ -178,21 +179,11 @@ object RollcallNotificationHelper {
         )
 
         val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-        val alertColor = 0xFFD32F2F.toInt()
-        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(
-            context,
-            R.drawable.ic_radar,
-            alertColor
-        )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-            .setSmallIcon(R.drawable.ic_radar)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("📢 收到数字签到通知")
             .setContentText("【${courseName ?: "课堂"}】教师已发起数字口令签到，点击输入4位签到码")
-            .setSubText("签到进行中")
-            .setLargeIcon(largeIcon)
-            .setColor(alertColor)
-            .setColorized(true)
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "课程：${courseName ?: "课堂"}\n" +
                 "当前正在进行数字签到！请向任课教师或投影仪获取4位数字签到码，点击此通知即可快速输入并提交。"
@@ -204,7 +195,7 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .addAction(R.drawable.ic_radar, "立即输入签到码", pendingIntent)
+        applyAlertStyling(context, builder, true, notifId, pendingIntent, "输入签到码")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -280,6 +271,7 @@ object RollcallNotificationHelper {
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
         }
+        applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "输入签到码" else "查看详情")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -327,6 +319,7 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+        applyAlertStyling(context, builder, true, notifId, pendingIntent, "打开扫码相机")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -404,6 +397,7 @@ object RollcallNotificationHelper {
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
         }
+        applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "手动扫码" else "查看详情")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -442,6 +436,7 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+        applyAlertStyling(context, builder, true, notifId, pendingIntent, "前往处理")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -490,6 +485,7 @@ object RollcallNotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+        applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "手动签到" else "查看详情")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -542,10 +538,43 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+        applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "前往签到" else "查看详情")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
         } catch (_: SecurityException) {
         }
+    }
+
+    private fun applyAlertStyling(
+        context: Context,
+        builder: NotificationCompat.Builder,
+        isWarningOrActionNeeded: Boolean,
+        notifId: Int,
+        actionPendingIntent: PendingIntent? = null,
+        actionLabel: String = "立即处理"
+    ) {
+        NotificationDiagnosticHelper.wakeScreenBriefly(context, 5000L)
+        val alertColor = if (isWarningOrActionNeeded) {
+            Color.parseColor("#E53935") // 鲜艳警示红
+        } else {
+            Color.parseColor("#2E7D32") // 绿色成功
+        }
+        val iconRes = if (isWarningOrActionNeeded) R.drawable.ic_radar else R.drawable.ic_check_circle
+        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(context, iconRes, alertColor)
+
+        builder.setColor(alertColor)
+            .setColorized(true)
+            .setPriority(if (isWarningOrActionNeeded) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
+            .setVibrate(if (isWarningOrActionNeeded) longArrayOf(0, 400, 120, 400, 120, 400) else longArrayOf(0, 250, 100, 250))
+            .apply {
+                if (largeIcon != null) setLargeIcon(largeIcon)
+            }
+
+        if (actionPendingIntent != null && isWarningOrActionNeeded) {
+            builder.addAction(iconRes, actionLabel, actionPendingIntent)
+        }
+        val dismissPendingIntent = NotificationUiHelper.createDismissPendingIntent(context, notifId)
+        builder.addAction(R.drawable.ic_check_circle, "我知道了", dismissPendingIntent)
     }
 }

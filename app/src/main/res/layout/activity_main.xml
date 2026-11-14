@@ -861,6 +861,53 @@
                             android:layout_marginVertical="8dp"
                             android:background="@color/border" />
 
+                        <!-- Notification & Heads-up Settings Row -->
+                        <LinearLayout
+                            android:id="@+id/rowNotificationChannelSettings"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="6dp"
+                            android:background="?attr/selectableItemBackground">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingEnd="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="通知横幅与锁屏显示设置"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="开启系统悬浮通知(横幅)、锁屏显示与铃声震动防漏看"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12.5sp" />
+                            </LinearLayout>
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:src="@drawable/ic_chevron_right"
+                                app:tint="@color/text_tertiary" />
+                        </LinearLayout>
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="8dp"
+                            android:background="@color/border" />
+
                         <!-- Battery Optimization & Anti-miss Guide Row -->
                         <LinearLayout
                             android:id="@+id/rowBatteryOptimizationGuide"
@@ -881,7 +928,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="🔔 通知权限诊断与灵动岛引导"
+                                    android:text="防漏提醒与保活自检指南"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
@@ -890,7 +937,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="自检横幅悬浮、锁屏显示、状态栏胶囊与电池保活"
+                                    android:text="查看小米、华为、OPPO、vivo自启动与电池设置指引"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="12.5sp" />
                             </LinearLayout>

@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -15,6 +16,8 @@ import cn.edu.usst.jwgl.data.model.TronClassTodo
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.receiver.TronClassDdlReceiver
 import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity
+import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.NotificationUiHelper
 import java.util.concurrent.TimeUnit
 
 class TronClassDdlWorker(
@@ -141,6 +144,7 @@ class TronClassDdlWorker(
 
     private fun showChaoXingDdlNotification(todo: cn.edu.usst.jwgl.data.model.UnifiedTodo, remainingMillis: Long, isUrgent: Boolean) {
         TronClassDdlReceiver.createNotificationChannel(appContext)
+        NotificationDiagnosticHelper.wakeScreenBriefly(appContext, 4000L)
 
         val hoursLeft = TimeUnit.MILLISECONDS.toHours(remainingMillis)
         val minutesLeft = (remainingMillis % TimeUnit.HOURS.toMillis(1)) / TimeUnit.MINUTES.toMillis(1)
@@ -150,7 +154,7 @@ class TronClassDdlWorker(
         val title = if (isUrgent) {
             "⚠️【学习通】作业紧急临期提醒 (仅剩$timeLeftStr)"
         } else {
-            "【学习通】作业截止预警 (剩$timeLeftStr)"
+            "⏰【学习通】作业截止预警 (剩$timeLeftStr)"
         }
 
         val content = if (isUrgent) {
@@ -170,36 +174,49 @@ class TronClassDdlWorker(
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
+        val notifId = todo.unifiedId.hashCode()
         val pendingIntent = PendingIntent.getActivity(
             appContext,
-            todo.unifiedId.hashCode(),
+            notifId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
+        val dismissPendingIntent = NotificationUiHelper.createDismissPendingIntent(appContext, notifId)
         val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+
+        val alertColor = if (isUrgent) Color.parseColor("#D32F2F") else Color.parseColor("#E65100")
+        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(appContext, R.drawable.ic_homework, alertColor)
 
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .apply { if (largeIcon != null) setLargeIcon(largeIcon) }
+            .setColor(alertColor)
+            .setColorized(true)
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(defaultSound)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVibrate(longArrayOf(0, 350, 150, 350))
+            .setTicker(title)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_homework, "前往作业", pendingIntent)
+            .addAction(R.drawable.ic_check_circle, "我知道了", dismissPendingIntent)
             .build()
 
         val notificationManager =
             appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(todo.unifiedId.hashCode(), notification)
+        notificationManager.notify(notifId, notification)
     }
 
     private fun showDdlNotification(todo: TronClassTodo, remainingMillis: Long, isUrgent: Boolean) {
         TronClassDdlReceiver.createNotificationChannel(appContext)
+        NotificationDiagnosticHelper.wakeScreenBriefly(appContext, 4000L)
 
         val hoursLeft = TimeUnit.MILLISECONDS.toHours(remainingMillis)
         val minutesLeft = (remainingMillis % TimeUnit.HOURS.toMillis(1)) / TimeUnit.MINUTES.toMillis(1)
@@ -209,7 +226,7 @@ class TronClassDdlWorker(
         val title = if (isUrgent) {
             "⚠️【一网畅学】作业紧急临期提醒 (仅剩$timeLeftStr)"
         } else {
-            "【一网畅学】作业截止预警 (剩$timeLeftStr)"
+            "⏰【一网畅学】作业截止预警 (剩$timeLeftStr)"
         }
 
         val content = if (isUrgent) {
@@ -227,31 +244,43 @@ class TronClassDdlWorker(
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
+        val notifId = todo.id.hashCode()
         val pendingIntent = PendingIntent.getActivity(
             appContext,
-            todo.id.hashCode(),
+            notifId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
+        val dismissPendingIntent = NotificationUiHelper.createDismissPendingIntent(appContext, notifId)
         val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+
+        val alertColor = if (isUrgent) Color.parseColor("#D32F2F") else Color.parseColor("#E65100")
+        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(appContext, R.drawable.ic_homework, alertColor)
 
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .apply { if (largeIcon != null) setLargeIcon(largeIcon) }
+            .setColor(alertColor)
+            .setColorized(true)
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(defaultSound)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVibrate(longArrayOf(0, 350, 150, 350))
+            .setTicker(title)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_homework, "前往作业", pendingIntent)
+            .addAction(R.drawable.ic_check_circle, "我知道了", dismissPendingIntent)
             .build()
 
         val notificationManager =
             appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(todo.id.hashCode(), notification)
+        notificationManager.notify(notifId, notification)
     }
 }

@@ -1,19 +1,18 @@
 package cn.edu.usst.jwgl.receiver
 
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.RingtoneManager
+import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
-import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.NotificationUiHelper
 import java.util.concurrent.TimeUnit
 
 class TronClassDdlReceiver : BroadcastReceiver() {
@@ -67,7 +66,7 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         val timeLeftStr = if (hoursLeft > 0) "${hoursLeft}小时${minutesLeft}分钟" else "${minutesLeft}分钟"
 
         val title = if (isUrgent) {
-            "⚠️【一网畅学】作业紧急临期提醒 (剩$timeLeftStr)"
+            "⚠️【一网畅学】作业紧急临期提醒 (仅剩$timeLeftStr)"
         } else {
             "⏰【一网畅学】作业截止预警 (剩$timeLeftStr)"
         }
@@ -80,7 +79,7 @@ class TronClassDdlReceiver : BroadcastReceiver() {
 
         createNotificationChannel(context)
 
-        // 息屏亮屏
+        // 熄屏时自动点亮屏幕 4 秒
         NotificationDiagnosticHelper.wakeScreenBriefly(context, 4000L)
 
         val openIntent = Intent(context, TronClassHomeworkActivity::class.java).apply {
@@ -91,50 +90,49 @@ class TronClassDdlReceiver : BroadcastReceiver() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
+        val notifId = todoId.hashCode()
         val pendingIntent = PendingIntent.getActivity(
             context,
-            todoId.hashCode(),
+            notifId,
             openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
-        val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val ddlColor = if (isUrgent) 0xFFD32F2F.toInt() else 0xFFF57C00.toInt()
-        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(
-            context,
-            R.drawable.ic_homework,
-            ddlColor
-        )
+        val dismissPendingIntent = NotificationUiHelper.createDismissPendingIntent(context, notifId)
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_homework)
+        val alertColor = if (isUrgent) {
+            Color.parseColor("#D32F2F") // 鲜艳警示红
+        } else {
+            Color.parseColor("#E65100") // 琥珀深橙
+        }
+        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(context, R.drawable.ic_homework, alertColor)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .apply { if (largeIcon != null) setLargeIcon(largeIcon) }
+            .setColor(alertColor)
+            .setColorized(true)
             .setContentTitle(title)
             .setContentText(content)
-            .setSubText("作业倒计时")
-            .setLargeIcon(largeIcon)
-            .setColor(ddlColor)
-            .setColorized(true)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setWhen(deadlineMillis)
-            .setShowWhen(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(defaultSound)
-            .setVibrate(longArrayOf(0, 350, 150, 350))
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVibrate(longArrayOf(0, 300, 150, 300))
+            .setTicker(title)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .addAction(R.drawable.ic_homework, "前往提交作业", pendingIntent)
+            .addAction(R.drawable.ic_homework, "前往作业", pendingIntent)
+            .addAction(R.drawable.ic_check_circle, "我知道了", dismissPendingIntent)
+            .build()
 
-        val notificationManager = NotificationManagerCompat.from(context)
-        try {
-            notificationManager.notify(todoId.hashCode(), builder.build())
-            sp.edit().putBoolean(notifyKey, true).apply()
-        } catch (e: SecurityException) {
-            // Android 13+ missing POST_NOTIFICATIONS
-        }
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(notifId, notification)
+
+        sp.edit().putBoolean(notifyKey, true).apply()
     }
 }
