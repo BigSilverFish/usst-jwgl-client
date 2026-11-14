@@ -979,6 +979,14 @@ class MainActivity : AppCompatActivity() {
         if (TronClassPreferences.getInstance(this).isRollcallMonitorEnabled()) {
             RollcallMonitorScheduler.checkAndSchedule(this)
         }
+        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this)
+        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this)
+        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -1379,6 +1387,7 @@ class MainActivity : AppCompatActivity() {
 
             scheduleAdapter?.refreshAllFragments()
             cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this@MainActivity)
+            cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this@MainActivity)
         }
     }
 
@@ -2750,6 +2759,10 @@ class MainActivity : AppCompatActivity() {
         binding.pageMoreFeatures.rowMoreWidgetPin.setOnClickListener {
             handleWidgetPinRequest()
         }
+        binding.pageMoreFeatures.rowMoreWidgetConfig.setOnClickListener {
+            val intent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetConfigActivity::class.java)
+            startActivity(intent)
+        }
 
         binding.pageMoreFeatures.rowMoreJwglWeb.setOnClickListener {
             JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
@@ -3126,13 +3139,37 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun handleWidgetPinRequest() {
+        val options = arrayOf(
+            "今日课表 (4×2 列表型，全天课程速览)",
+            "下一节课 (2×2 聚焦型，倒计时与教室提醒)"
+        )
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("选择要添加的桌面小组件")
+            .setItems(options) { _, which ->
+                val providerClass = if (which == 0) {
+                    cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java
+                } else {
+                    cn.edu.usst.jwgl.widget.NextCourseWidgetProvider::class.java
+                }
+                val widgetName = if (which == 0) "今日课表" else "下一节课"
+                pinSpecificWidget(providerClass, widgetName)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun pinSpecificWidget(providerClass: Class<*>, widgetName: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val appWidgetManager = getSystemService(android.appwidget.AppWidgetManager::class.java)
-            val provider = android.content.ComponentName(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java)
+            val provider = android.content.ComponentName(this, providerClass)
             var pinSent = false
             if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
-                val successIntent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java).apply {
-                    action = cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                val successIntent = Intent(this, providerClass).apply {
+                    action = if (providerClass == cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java) {
+                        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                    } else {
+                        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.ACTION_REFRESH_NEXT_COURSE
+                    }
                 }
                 val successPendingIntent = android.app.PendingIntent.getBroadcast(
                     this,
@@ -3142,16 +3179,20 @@ class MainActivity : AppCompatActivity() {
                 )
                 pinSent = appWidgetManager.requestPinAppWidget(provider, null, successPendingIntent)
             }
-            showWidgetPinGuidanceDialog(pinSent)
+            showWidgetPinGuidanceDialog(pinSent, widgetName, providerClass)
         } else {
-            showWidgetPinGuidanceDialog(false)
+            showWidgetPinGuidanceDialog(false, widgetName, providerClass)
         }
     }
 
-    private fun showWidgetPinGuidanceDialog(autoPinTriggered: Boolean) {
+    private fun showWidgetPinGuidanceDialog(
+        autoPinTriggered: Boolean,
+        widgetName: String = "今日课表",
+        providerClass: Class<*>? = null
+    ) {
         val msg = StringBuilder()
         if (autoPinTriggered) {
-            msg.append("已向系统发送添加桌面微件请求！\n\n")
+            msg.append("已向系统发送添加【$widgetName】桌面微件请求！\n\n")
         } else {
             msg.append("当前手机桌面启动器未支持自动添加微件。\n\n")
         }
@@ -3159,22 +3200,26 @@ class MainActivity : AppCompatActivity() {
             .append("1. 国产系统为保障桌面安全，默认会静默拦截第三方 App 的微件添加请求，常表现为点击后界面没有任何反应。\n")
             .append("2. 如未弹出系统添加确认框，请点击下方【前往权限设置】开启本应用的“桌面快捷方式”或“添加桌面小部件”权限。\n\n")
             .append("💡【最推荐：桌面手动捏合添加（100%成功）】\n")
-            .append("👉 返回手机桌面 -> 双指捏合或长按空白处 -> 点击底部【微件 / 小组件 / 插件】 -> 搜索或下滑找到【上理教务】的【今日课表】拖拽到桌面即可！")
+            .append("👉 返回手机桌面 -> 双指捏合或长按空白处 -> 点击底部【微件 / 小组件 / 插件】 -> 搜索或下滑找到【上理教务】的【$widgetName】拖拽到桌面即可！")
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("添加今日课表小组件")
+            .setTitle("添加${widgetName}小组件")
             .setMessage(msg.toString())
             .setPositiveButton("我知道了", null)
             .setNeutralButton("前往权限设置") { _, _ ->
                 openAppPermissionSettings()
             }
             .setNegativeButton("再次尝试自动添加") { _, _ ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && providerClass != null) {
                     val appWidgetManager = getSystemService(android.appwidget.AppWidgetManager::class.java)
-                    val provider = android.content.ComponentName(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java)
+                    val provider = android.content.ComponentName(this, providerClass)
                     if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
-                        val successIntent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java).apply {
-                            action = cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                        val successIntent = Intent(this, providerClass).apply {
+                            action = if (providerClass == cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider::class.java) {
+                                cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                            } else {
+                                cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.ACTION_REFRESH_NEXT_COURSE
+                            }
                         }
                         val successPendingIntent = android.app.PendingIntent.getBroadcast(
                             this,

@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.ui.wakeup
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,12 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
         val rvScheduleList = view.findViewById<RecyclerView>(R.id.rvScheduleList)
         val btnCreateBlankTable = view.findViewById<MaterialButton>(R.id.btnCreateBlankTable)
+        val btnOpenWidgetConfig = view.findViewById<MaterialButton>(R.id.btnOpenWidgetConfig)
+
+        btnOpenWidgetConfig?.setOnClickListener {
+            val intent = Intent(requireContext(), cn.edu.usst.jwgl.widget.TodayScheduleWidgetConfigActivity::class.java)
+            startActivity(intent)
+        }
 
         rvScheduleList.layoutManager = LinearLayoutManager(context)
 
