@@ -881,7 +881,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="防漏提醒与保活自检指南"
+                                    android:text="🔔 通知权限诊断与灵动岛引导"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
@@ -890,7 +890,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="查看小米、华为、OPPO、vivo自启动与电池设置指引"
+                                    android:text="自检横幅悬浮、锁屏显示、状态栏胶囊与电池保活"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="12.5sp" />
                             </LinearLayout>

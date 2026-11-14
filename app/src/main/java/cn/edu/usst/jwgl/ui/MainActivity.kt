@@ -47,6 +47,8 @@ import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.data.wakeup.TableBean
+import cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet
+import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
 import cn.edu.usst.jwgl.databinding.ActivityMainBinding
 import cn.edu.usst.jwgl.ui.grades.GradesFragment
@@ -266,6 +268,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 统一初始化/升级所有高优先级通知与灵动胶囊渠道
+        NotificationDiagnosticHelper.initNotificationChannels(this)
 
         // Enable edge-to-edge immersive transparent system bars
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -1796,6 +1801,9 @@ class MainActivity : AppCompatActivity() {
                 updateReminderSubtitles()
                 val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getCourseReminderAdvanceMinutes(this))
                 Toast.makeText(this, "已开启课前 $text 提醒", Toast.LENGTH_SHORT).show()
+                if (!NotificationDiagnosticHelper.areNotificationsEnabled(this)) {
+                    showNotificationDiagnosticBottomSheet()
+                }
             } else {
                 CourseReminderManager.setReminderEnabled(this, false)
                 updateReminderSubtitles()
@@ -1820,6 +1828,9 @@ class MainActivity : AppCompatActivity() {
                 updateReminderSubtitles()
                 val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
                 Toast.makeText(this, "已开启考前 $text 提醒", Toast.LENGTH_SHORT).show()
+                if (!NotificationDiagnosticHelper.areNotificationsEnabled(this)) {
+                    showNotificationDiagnosticBottomSheet()
+                }
             } else {
                 CourseReminderManager.setExamReminderEnabled(this, false)
                 updateReminderSubtitles()
@@ -2547,47 +2558,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showBatteryOptimizationGuideDialog() {
-        val guideMsg = """
-            为避免手机灭屏休眠导致课前/考前提醒延迟或漏报，建议完成以下自检：
+        showNotificationDiagnosticBottomSheet()
+    }
 
-            1. 开启【允许自启动 / 后台运行】：
-            进入应用权限设置，允许“自启动”和“后台运行”。
-
-            2. 电池策略设为【无限制】：
-            在电池管理中将本应用设为“无限制”或“不进行耗电优化”，避免被系统强制冻结。
-
-            3. 开启【强力防漏模式】：
-            使用系统底层 AlarmClock 协议唤醒，穿透国产系统休眠，保障 100% 准时提醒。
-
-            4. 检查【通知与精确闹钟】权限：
-            确保系统的通知开关已开启，且提示音与震动正常生效。
-        """.trimIndent()
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("🔔 防漏提醒与保活自检指南")
-            .setMessage(guideMsg)
-            .setPositiveButton("前往应用详情") { _, _ ->
-                try {
-                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = android.net.Uri.fromParts("package", packageName, null)
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(this, "无法打开设置页: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNeutralButton("电池优化设置") { _, _ ->
-                try {
-                    val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    startActivity(intent)
-                } catch (_: Exception) {
-                    try {
-                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                    } catch (_: Exception) {}
-                }
-            }
-            .setNegativeButton("我知道了", null)
-            .safeShow()
+    private fun showNotificationDiagnosticBottomSheet() {
+        NotificationDiagnosticBottomSheet().show(
+            supportFragmentManager,
+            "NotificationDiagnosticBottomSheet"
+        )
     }
 
     private fun refreshProfile() {

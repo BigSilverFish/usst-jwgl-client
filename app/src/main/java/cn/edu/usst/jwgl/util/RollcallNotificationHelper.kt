@@ -14,49 +14,13 @@ import cn.edu.usst.jwgl.ui.MainActivity
 
 object RollcallNotificationHelper {
 
-    const val CHANNEL_ID_SERVICE = "tronclass_rollcall_service"
-    const val CHANNEL_ID_ALERT = "tronclass_rollcall_alert"
+    const val CHANNEL_ID_SERVICE = NotificationDiagnosticHelper.CHANNEL_ROLLCALL_SERVICE
+    const val CHANNEL_ID_ALERT = NotificationDiagnosticHelper.CHANNEL_ROLLCALL_ALERT
 
     const val NOTIFICATION_ID_FOREGROUND = 88001
 
     fun createChannels(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-            // 1. 低优先级保活守护通道（静默、不干扰用户）
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID_SERVICE,
-                "课堂签到后台守护",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "在上课时段驻留后台检测课堂签到的常驻通知"
-                setShowBadge(false)
-                enableLights(false)
-                enableVibration(false)
-            }
-            nm.createNotificationChannel(serviceChannel)
-
-            // 2. 高优先级签到提醒通道（声音、振动、悬浮横幅）
-            val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-            val audioAttributes = android.media.AudioAttributes.Builder()
-                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-
-            val alertChannel = NotificationChannel(
-                CHANNEL_ID_ALERT,
-                "课堂签到提醒与通知",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "检测到课堂点名或雷达自动签到完成时的通知提醒"
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 300, 150, 300, 150, 300)
-                setSound(defaultSound, audioAttributes)
-                enableLights(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-            nm.createNotificationChannel(alertChannel)
-        }
+        NotificationDiagnosticHelper.initNotificationChannels(context)
     }
 
     /**
@@ -194,6 +158,7 @@ object RollcallNotificationHelper {
      */
     fun notifyNumberRollcall(context: Context, rollcallId: Long, courseName: String?) {
         createChannels(context)
+        NotificationDiagnosticHelper.wakeScreenBriefly(context, 5000L)
 
         val notifId = ((rollcallId % 100000L).toInt() + 30000)
 
@@ -213,11 +178,21 @@ object RollcallNotificationHelper {
         )
 
         val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        val alertColor = 0xFFD32F2F.toInt()
+        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(
+            context,
+            R.drawable.ic_radar,
+            alertColor
+        )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_radar)
             .setContentTitle("📢 收到数字签到通知")
             .setContentText("【${courseName ?: "课堂"}】教师已发起数字口令签到，点击输入4位签到码")
+            .setSubText("签到进行中")
+            .setLargeIcon(largeIcon)
+            .setColor(alertColor)
+            .setColorized(true)
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "课程：${courseName ?: "课堂"}\n" +
                 "当前正在进行数字签到！请向任课教师或投影仪获取4位数字签到码，点击此通知即可快速输入并提交。"
@@ -229,6 +204,7 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_radar, "立即输入签到码", pendingIntent)
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())

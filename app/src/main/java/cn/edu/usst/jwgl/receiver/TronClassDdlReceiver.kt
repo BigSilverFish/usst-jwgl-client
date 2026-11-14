@@ -1,23 +1,26 @@
 package cn.edu.usst.jwgl.receiver
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity
+import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import java.util.concurrent.TimeUnit
 
 class TronClassDdlReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_TRONCLASS_DDL_ALARM = "cn.edu.usst.jwgl.action.TRONCLASS_DDL_ALARM"
-        const val CHANNEL_ID = "tronclass_ddl_channel"
+        const val CHANNEL_ID = NotificationDiagnosticHelper.CHANNEL_DDL
         const val PREF_DDL_NOTIFIED = "tronclass_ddl_notified"
 
         const val EXTRA_TODO_ID = "extra_todo_id"
@@ -28,29 +31,7 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         const val EXTRA_DEADLINE_MILLIS = "extra_deadline_millis"
 
         fun createNotificationChannel(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val notificationManager =
-                    context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-                val audioAttributes = android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    "一网畅学作业与测验截止预警",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "在作业或测验临近截止时间（24小时内及临近1-3小时）时发出提醒"
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 350, 150, 350)
-                    setSound(defaultSound, audioAttributes)
-                    enableLights(true)
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                }
-                notificationManager.createNotificationChannel(channel)
-            }
+            NotificationDiagnosticHelper.initNotificationChannels(context)
         }
     }
 
@@ -86,9 +67,9 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         val timeLeftStr = if (hoursLeft > 0) "${hoursLeft}小时${minutesLeft}分钟" else "${minutesLeft}分钟"
 
         val title = if (isUrgent) {
-            "⚠️【一网畅学】作业紧急临期提醒 (仅剩$timeLeftStr)"
+            "⚠️【一网畅学】作业紧急临期提醒 (剩$timeLeftStr)"
         } else {
-            "【一网畅学】作业截止预警 (剩$timeLeftStr)"
+            "⏰【一网畅学】作业截止预警 (剩$timeLeftStr)"
         }
 
         val content = if (isUrgent) {
@@ -98,6 +79,9 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         }
 
         createNotificationChannel(context)
+
+        // 息屏亮屏
+        NotificationDiagnosticHelper.wakeScreenBriefly(context, 4000L)
 
         val openIntent = Intent(context, TronClassHomeworkActivity::class.java).apply {
             putExtra("extra_activity_id", todoId)
@@ -111,29 +95,46 @@ class TronClassDdlReceiver : BroadcastReceiver() {
             context,
             todoId.hashCode(),
             openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val ddlColor = if (isUrgent) 0xFFD32F2F.toInt() else 0xFFF57C00.toInt()
+        val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(
+            context,
+            R.drawable.ic_homework,
+            ddlColor
+        )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_homework)
             .setContentTitle(title)
             .setContentText(content)
+            .setSubText("作业倒计时")
+            .setLargeIcon(largeIcon)
+            .setColor(ddlColor)
+            .setColorized(true)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(deadlineMillis)
+            .setShowWhen(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(defaultSound)
+            .setVibrate(longArrayOf(0, 350, 150, 350))
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .build()
+            .addAction(R.drawable.ic_homework, "前往提交作业", pendingIntent)
 
-        val notificationManager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(todoId.hashCode(), notification)
-
-        sp.edit().putBoolean(notifyKey, true).apply()
+        val notificationManager = NotificationManagerCompat.from(context)
+        try {
+            notificationManager.notify(todoId.hashCode(), builder.build())
+            sp.edit().putBoolean(notifyKey, true).apply()
+        } catch (e: SecurityException) {
+            // Android 13+ missing POST_NOTIFICATIONS
+        }
     }
 }

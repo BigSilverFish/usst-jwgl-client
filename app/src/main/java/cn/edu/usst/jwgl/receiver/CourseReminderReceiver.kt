@@ -1,23 +1,23 @@
 package cn.edu.usst.jwgl.receiver
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.ui.MainActivity
+import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import kotlinx.coroutines.launch
 
 class CourseReminderReceiver : BroadcastReceiver() {
 
     companion object {
-        const val CHANNEL_ID = "course_reminder"
-        const val EXAM_CHANNEL_ID = "exam_reminder"
+        const val CHANNEL_ID = NotificationDiagnosticHelper.CHANNEL_COURSE
+        const val EXAM_CHANNEL_ID = NotificationDiagnosticHelper.CHANNEL_EXAM
         const val EXTRA_IS_EXAM = "extra_is_exam"
         const val EXTRA_EXAM_NATURE = "extra_exam_nature"
         const val EXTRA_SEAT_NUMBER = "extra_seat_number"
@@ -30,44 +30,7 @@ class CourseReminderReceiver : BroadcastReceiver() {
         const val EXTRA_ADVANCE_MINUTES = "extra_advance_minutes"
 
         fun createNotificationChannel(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-                val audioAttributes = android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-
-                // Course Reminder Channel
-                val channelCourse = NotificationChannel(
-                    CHANNEL_ID,
-                    "上课前提醒",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "课程开始前根据设置自动提醒即将开始的课程"
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 350, 200, 350)
-                    setSound(defaultSound, audioAttributes)
-                    enableLights(true)
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                }
-                notificationManager.createNotificationChannel(channelCourse)
-
-                // Exam Reminder Channel
-                val channelExam = NotificationChannel(
-                    EXAM_CHANNEL_ID,
-                    "考试日程提醒",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "考试开始前提醒考场、座号与时间"
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
-                    setSound(defaultSound, audioAttributes)
-                    enableLights(true)
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                }
-                notificationManager.createNotificationChannel(channelExam)
-            }
+            NotificationDiagnosticHelper.initNotificationChannels(context)
         }
     }
 
@@ -84,11 +47,15 @@ class CourseReminderReceiver : BroadcastReceiver() {
         val advanceMins = intent.getIntExtra(EXTRA_ADVANCE_MINUTES, if (isExam) 30 else 15)
         val advanceText = cn.edu.usst.jwgl.util.CourseReminderManager.formatAdvanceMinutes(advanceMins)
 
+        // 统一初始化/升级渠道
         createNotificationChannel(context)
+
+        // 息屏唤醒：点亮屏幕 5 秒，避免放在课桌上完全察觉不到
+        NotificationDiagnosticHelper.wakeScreenBriefly(context, 5000L)
 
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("extra_tab", 1) // Switch to Timetable tab
+            putExtra("extra_tab", 1) // 切换到课表 Tab
             if (isExam) {
                 putExtra("extra_open_exam", true)
             }
@@ -100,42 +67,85 @@ class CourseReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val targetStartTimeMillis = System.currentTimeMillis() + advanceMins * 60 * 1000L
 
         val builder = if (isExam) {
             val roomText = if (classroom.isNotEmpty()) "考场：$classroom" else "考场待定"
             val seatText = if (seatNumber.isNotEmpty() && seatNumber != "未指定") " | 座号：$seatNumber" else ""
             val content = "${roomText}${seatText} | 时间：$startTime"
+            val examColor = 0xFFD32F2F.toInt() // 警示高亮红
+            val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(
+                context,
+                R.drawable.ic_exam,
+                examColor
+            )
+
             NotificationCompat.Builder(context, EXAM_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("📝 考试提醒：还有 $advanceText 开始【$courseName】")
+                .setSmallIcon(R.drawable.ic_exam)
+                .setContentTitle("📝 考试倒计时：还有 $advanceText【$courseName】")
                 .setContentText(content)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(
-                    "科目：$courseName ($examNature)\n考场地点：$classroom\n座位号：${seatNumber.ifEmpty { "见考场公布栏" }}\n考试时间：$startTime\n请备齐学生证/身份证与考试文具，提前到达考场签到！"
-                ))
+                .setSubText("期末/阶段考试")
+                .setLargeIcon(largeIcon)
+                .setColor(examColor)
+                .setColorized(true)
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "科目：$courseName ($examNature)\n考场地点：$classroom\n座位号：${seatNumber.ifEmpty { "见考场公布栏" }}\n考试时间：$startTime\n请备齐学生证/身份证与考试文具，提前到达考场签到！"
+                    )
+                )
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+                .setWhen(targetStartTimeMillis)
+                .setShowWhen(true)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setSound(defaultSound)
+                .setVibrate(longArrayOf(0, 450, 150, 450, 150, 450))
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
+                .addAction(R.drawable.ic_location, "查看考场与座号", pendingIntent)
+                .addAction(R.drawable.ic_check_circle, "我知道了", pendingIntent)
         } else {
             val roomText = if (classroom.isNotEmpty()) "@$classroom" else "未分配教室"
             val teacherText = if (teacher.isNotEmpty()) " · $teacher" else ""
             val content = "${startTime}开始 (${section}) | ${roomText}${teacherText}"
+            val courseColor = ContextCompat.getColor(context, R.color.primary)
+            val largeIcon = NotificationDiagnosticHelper.createCircleIconBitmap(
+                context,
+                R.drawable.ic_school,
+                courseColor
+            )
+
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_school)
                 .setContentTitle("🔔 还有 $advanceText 上课：$courseName")
                 .setContentText(content)
-                .setStyle(NotificationCompat.BigTextStyle().bigText("${content}\n请带齐课件与学习用品，准时到达教室。"))
+                .setSubText("上课提醒") // 适配 HyperOS / ColorOS 状态栏胶囊缩略标题
+                .setLargeIcon(largeIcon)
+                .setColor(courseColor)
+                .setColorized(true)
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "${content}\n请带齐课件与学习用品，准时到达教室。"
+                    )
+                )
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+                .setWhen(targetStartTimeMillis)
+                .setShowWhen(true)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setSound(defaultSound)
+                .setVibrate(longArrayOf(0, 350, 180, 350))
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
+                .addAction(R.drawable.ic_location, "查看教室路线", pendingIntent)
+                .addAction(R.drawable.ic_check_circle, "我知道了", pendingIntent)
         }
 
         try {
@@ -145,7 +155,7 @@ class CourseReminderReceiver : BroadcastReceiver() {
             // Android 13+ without POST_NOTIFICATIONS permission
         }
 
-        // Asynchronously advance the rolling schedule so future alarms stay fresh
+        // 异步滚动推进未来提醒计划
         val pendingResult = goAsync()
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
