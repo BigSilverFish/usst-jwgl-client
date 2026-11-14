@@ -5,12 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.databinding.ActivityTodayScheduleWidgetConfigBinding
 
@@ -51,6 +49,20 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
+        // 0. 预览形态切换 (今日课表 / 下一节课)
+        binding.btnPreviewToday.isChecked = true
+        binding.togglePreviewType.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                if (checkedId == R.id.btnPreviewNext) {
+                    binding.llPreviewWidgetCard.visibility = View.GONE
+                    binding.llPreviewNextCourseCard.visibility = View.VISIBLE
+                } else {
+                    binding.llPreviewWidgetCard.visibility = View.VISIBLE
+                    binding.llPreviewNextCourseCard.visibility = View.GONE
+                }
+            }
+        }
+
         // 1. 色彩风格 ToggleGroup
         when (currentConfig.themeMode) {
             WidgetConfig.THEME_LIGHT -> binding.btnThemeLight.isChecked = true
@@ -112,6 +124,12 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             updatePreview()
         }
 
+        binding.switchShowBorder.isChecked = currentConfig.showBorder
+        binding.switchShowBorder.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig = currentConfig.copy(showBorder = isChecked)
+            updatePreview()
+        }
+
         // 4. 保存按钮
         binding.btnSave.setOnClickListener {
             saveAndApply()
@@ -128,35 +146,17 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             else -> isSystemNight
         }
 
-        val isTransparent = currentConfig.themeMode == WidgetConfig.THEME_TRANSPARENT
-        val alphaPercent = if (isTransparent) 0 else currentConfig.bgAlpha
-        val alphaInt = (alphaPercent * 255 / 100).coerceIn(0, 255)
-
-        val cardBgColor = if (isDark) {
-            Color.argb(alphaInt, 30, 30, 30)
-        } else {
-            Color.argb(alphaInt, 255, 255, 255)
-        }
-
         val primaryTextColor = if (isDark) Color.parseColor("#F3F4F6") else Color.parseColor("#1D2939")
         val secondaryTextColor = if (isDark) Color.parseColor("#9CA3AF") else Color.parseColor("#667085")
         val tertiaryTextColor = if (isDark) Color.parseColor("#6B7280") else Color.parseColor("#98A2B3")
         val dividerColor = if (isDark) Color.parseColor("#374151") else Color.parseColor("#E4E7EC")
 
-        // 动态绘制带圆角卡片背景
-        val cornerRadiusPx = dpToPx(16f)
-        val bgDrawable = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = cornerRadiusPx
-            setColor(cardBgColor)
-            if (alphaPercent < 20 || isTransparent) {
-                // 当完全透明或接近透明时增加淡淡的白色微描边，防止在深浅壁纸上不可见
-                setStroke(dpToPx(1f).toInt(), Color.argb(40, 255, 255, 255))
-            }
-        }
-        binding.llPreviewWidgetCard.background = bgDrawable
+        // 动态加载带圆角与描边的预设 Shape Drawable
+        val bgResId = currentConfig.getBackgroundResId(isDark)
+        binding.llPreviewWidgetCard.setBackgroundResource(bgResId)
+        binding.llPreviewNextCourseCard.setBackgroundResource(bgResId)
 
-        // 更新文本颜色
+        // ===== 1. 今日课表形态预览 =====
         binding.tvPreviewHeaderDate.setTextColor(primaryTextColor)
         binding.viewPreviewDivider.setBackgroundColor(dividerColor)
 
@@ -170,7 +170,6 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         binding.tvPreviewCourse2Room.setTextColor(secondaryTextColor)
         binding.tvPreviewCourse2Teacher.setTextColor(tertiaryTextColor)
 
-        // 开关控制视图显隐
         binding.tvPreviewCourse1Teacher.visibility = if (currentConfig.showTeacher) View.VISIBLE else View.GONE
         binding.tvPreviewCourse2Teacher.visibility = if (currentConfig.showTeacher) View.VISIBLE else View.GONE
 
@@ -181,6 +180,16 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         binding.tvPreviewCourse2Time.visibility = if (currentConfig.showTimeRange) View.VISIBLE else View.GONE
 
         binding.llPreviewDateNav.visibility = if (currentConfig.allowDateSwitching) View.VISIBLE else View.GONE
+
+        // ===== 2. 下一节课形态预览 =====
+        binding.viewPreviewNextDivider.setBackgroundColor(dividerColor)
+        binding.tvPreviewNextCourseName.setTextColor(primaryTextColor)
+        binding.tvPreviewNextTime.setTextColor(secondaryTextColor)
+        binding.tvPreviewNextTeacher.setTextColor(tertiaryTextColor)
+
+        binding.llPreviewNextRoomRow.visibility = if (currentConfig.showRoom) View.VISIBLE else View.GONE
+        binding.tvPreviewNextTime.visibility = if (currentConfig.showTimeRange) View.VISIBLE else View.GONE
+        binding.tvPreviewNextTeacher.visibility = if (currentConfig.showTeacher) View.VISIBLE else View.GONE
     }
 
     private fun saveAndApply() {
@@ -201,9 +210,5 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             Toast.makeText(this, "设置已保存，桌面微件已同步更新", Toast.LENGTH_SHORT).show()
         }
         finish()
-    }
-
-    private fun dpToPx(dp: Float): Float {
-        return dp * resources.displayMetrics.density
     }
 }

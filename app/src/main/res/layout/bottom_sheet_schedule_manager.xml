@@ -49,4 +49,20 @@
         android:layout_marginTop="12dp"
         android:nestedScrollingEnabled="false" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnOpenWidgetConfig"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="16dp"
+        android:text="桌面小组件外观与个性化设置"
+        android:textColor="@color/primary"
+        android:textSize="13sp"
+        app:cornerRadius="10dp"
+        app:icon="@drawable/ic_palette"
+        app:iconGravity="textStart"
+        app:iconSize="18dp"
+        app:iconTint="@color/primary"
+        app:strokeColor="@color/border" />
+
 </LinearLayout>

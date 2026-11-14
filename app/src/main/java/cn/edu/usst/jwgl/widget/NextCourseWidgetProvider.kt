@@ -161,16 +161,8 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
                 else -> isSystemNight
             }
 
-            val isTransparent = config.themeMode == WidgetConfig.THEME_TRANSPARENT
-            val alphaPercent = if (isTransparent) 0 else config.bgAlpha
-            val alphaInt = (alphaPercent * 255 / 100).coerceIn(0, 255)
-
-            val finalBgColor = if (isDark) {
-                Color.argb(alphaInt, 30, 30, 30)
-            } else {
-                Color.argb(alphaInt, 255, 255, 255)
-            }
-            views.setInt(R.id.llNextWidgetRoot, "setBackgroundColor", finalBgColor)
+            val bgResId = config.getBackgroundResId(isDark)
+            views.setInt(R.id.llNextWidgetRoot, "setBackgroundResource", bgResId)
 
             val primaryTextColor = if (isDark) Color.parseColor("#F3F4F6") else Color.parseColor("#1D2939")
             val secondaryTextColor = if (isDark) Color.parseColor("#9CA3AF") else Color.parseColor("#667085")

@@ -983,6 +983,14 @@ class MainActivity : AppCompatActivity() {
         if (TronClassPreferences.getInstance(this).isRollcallMonitorEnabled()) {
             RollcallMonitorScheduler.checkAndSchedule(this)
         }
+        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this)
+        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this)
+        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this)
     }
 
     override fun onNewIntent(intent: Intent) {

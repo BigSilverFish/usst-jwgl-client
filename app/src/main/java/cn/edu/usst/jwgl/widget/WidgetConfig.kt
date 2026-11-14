@@ -1,6 +1,7 @@
 package cn.edu.usst.jwgl.widget
 
 import android.content.Context
+import cn.edu.usst.jwgl.R
 import com.google.gson.Gson
 
 data class WidgetConfig(
@@ -10,13 +11,55 @@ data class WidgetConfig(
     val showRoom: Boolean = true,           // 是否显示教室
     val showTimeRange: Boolean = true,      // 是否显示具体时间段(如 08:00-09:35)
     val hidePastCourses: Boolean = false,   // 是否隐藏已结束课程
-    val allowDateSwitching: Boolean = true  // 是否允许在微件上切换日期(前一天/后一天)
+    val allowDateSwitching: Boolean = true, // 是否允许在微件上切换日期(前一天/后一天)
+    val showBorder: Boolean = true          // 是否开启精致边缘描边(增强各壁纸下的辨识度)
 ) {
     companion object {
         const val THEME_AUTO = 0
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
         const val THEME_TRANSPARENT = 3
+    }
+
+    fun getBackgroundResId(isDark: Boolean): Int {
+        return when (themeMode) {
+            THEME_TRANSPARENT -> {
+                if (showBorder) R.drawable.bg_widget_clear_stroke else R.drawable.bg_widget_clear
+            }
+            THEME_DARK -> {
+                when {
+                    bgAlpha >= 95 -> R.drawable.bg_widget_dark_solid
+                    bgAlpha >= 60 -> R.drawable.bg_widget_dark_translucent
+                    bgAlpha >= 20 -> R.drawable.bg_widget_dark_half
+                    else -> if (showBorder) R.drawable.bg_widget_clear_stroke else R.drawable.bg_widget_clear
+                }
+            }
+            THEME_LIGHT -> {
+                when {
+                    bgAlpha >= 95 -> R.drawable.bg_widget_light_solid
+                    bgAlpha >= 60 -> R.drawable.bg_widget_light_translucent
+                    bgAlpha >= 20 -> R.drawable.bg_widget_light_half
+                    else -> if (showBorder) R.drawable.bg_widget_clear_stroke else R.drawable.bg_widget_clear
+                }
+            }
+            else -> { // THEME_AUTO
+                if (isDark) {
+                    when {
+                        bgAlpha >= 95 -> R.drawable.bg_widget_dark_solid
+                        bgAlpha >= 60 -> R.drawable.bg_widget_dark_translucent
+                        bgAlpha >= 20 -> R.drawable.bg_widget_dark_half
+                        else -> if (showBorder) R.drawable.bg_widget_clear_stroke else R.drawable.bg_widget_clear
+                    }
+                } else {
+                    when {
+                        bgAlpha >= 95 -> R.drawable.bg_widget_light_solid
+                        bgAlpha >= 60 -> R.drawable.bg_widget_light_translucent
+                        bgAlpha >= 20 -> R.drawable.bg_widget_light_half
+                        else -> if (showBorder) R.drawable.bg_widget_clear_stroke else R.drawable.bg_widget_clear
+                    }
+                }
+            }
+        }
     }
 }
 
