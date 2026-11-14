@@ -90,10 +90,33 @@
                             android:textSize="12sp"
                             android:textStyle="bold" />
 
+                        <LinearLayout
+                            android:id="@+id/llPreviewDateNav"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:id="@+id/ivPreviewPrevDay"
+                                android:layout_width="16dp"
+                                android:layout_height="16dp"
+                                android:src="@drawable/ic_chevron_left"
+                                app:tint="@color/text_secondary" />
+
+                            <ImageView
+                                android:id="@+id/ivPreviewNextDay"
+                                android:layout_width="16dp"
+                                android:layout_height="16dp"
+                                android:src="@drawable/ic_chevron_right"
+                                app:tint="@color/text_secondary" />
+                        </LinearLayout>
+
                         <TextView
                             android:id="@+id/tvPreviewStatusBadge"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
                             android:layout_marginEnd="8dp"
                             android:background="@drawable/bg_widget_badge"
                             android:paddingHorizontal="6dp"
@@ -416,6 +439,14 @@
                         android:layout_height="wrap_content"
                         android:checked="false"
                         android:text="自动隐藏今天已结束的课程"
+                        android:textColor="@color/text_primary" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAllowDateSwitching"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="在微件顶部显示翻页箭头 (切换前一天/后一天)"
                         android:textColor="@color/text_primary" />
 
                 </LinearLayout>

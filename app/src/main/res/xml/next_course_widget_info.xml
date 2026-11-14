@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="cn.edu.usst.jwgl.widget.TodayScheduleWidgetConfigActivity"
+    android:description="@string/widget_next_course_description"
+    android:initialKeyguardLayout="@layout/widget_next_course"
+    android:initialLayout="@layout/widget_next_course"
+    android:minWidth="140dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="130dp"
+    android:minResizeHeight="80dp"
+    android:previewLayout="@layout/widget_next_course"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

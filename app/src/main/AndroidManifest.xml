@@ -206,6 +206,9 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="cn.edu.usst.jwgl.widget.ACTION_REFRESH_WIDGET" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_PREV_DAY" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_NEXT_DAY" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_RESET_TODAY" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.DATE_CHANGED" />
@@ -213,6 +216,23 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/today_schedule_widget_info" />
+        </receiver>
+
+        <!-- Next Course AppWidget Provider (Focus Card) -->
+        <receiver
+            android:name=".widget.NextCourseWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_next_course_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_REFRESH_NEXT_COURSE" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/next_course_widget_info" />
         </receiver>
 
         <!-- Today Schedule AppWidget Service for ListView RemoteViews -->

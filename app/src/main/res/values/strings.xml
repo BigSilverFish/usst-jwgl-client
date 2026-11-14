@@ -11,4 +11,6 @@
     <string name="logout">退出登录</string>
     <string name="widget_today_schedule_name">今日课表</string>
     <string name="widget_today_schedule_description">在桌面快速查看当日课程、节次时间与教室地点</string>
+    <string name="widget_next_course_name">下一节课 (聚焦卡片)</string>
+    <string name="widget_next_course_description">桌面聚焦显示距离当前最近的一门课程、上课倒计时与教室地点</string>
 </resources>

@@ -37,11 +37,56 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
+        <!-- 日期翻页控件组 -->
+        <LinearLayout
+            android:id="@+id/llWidgetDateNav"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/btnWidgetPrevDay"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:padding="3dp"
+                android:src="@drawable/ic_chevron_left"
+                android:tint="@color/text_secondary"
+                tools:ignore="UseAppTint" />
+
+            <!-- 当非今天时显示“今”快捷返回按钮 -->
+            <TextView
+                android:id="@+id/btnWidgetResetToday"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="2dp"
+                android:background="@drawable/bg_widget_badge"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="1dp"
+                android:text="今"
+                android:textColor="@color/badge_text"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/btnWidgetNextDay"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:padding="3dp"
+                android:src="@drawable/ic_chevron_right"
+                android:tint="@color/text_secondary"
+                tools:ignore="UseAppTint" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tvWidgetStatusBadge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="6dp"
             android:background="@drawable/bg_widget_badge"
             android:paddingHorizontal="6dp"
             android:paddingVertical="2dp"
@@ -52,8 +97,8 @@
 
         <ImageView
             android:id="@+id/btnWidgetRefresh"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:padding="2dp"
             android:src="@drawable/ic_refresh"

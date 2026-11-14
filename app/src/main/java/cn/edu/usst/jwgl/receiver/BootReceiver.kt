@@ -33,6 +33,7 @@ class BootReceiver : BroadcastReceiver() {
 
                     // 3. Update home screen timetable widgets
                     cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(context)
+                    cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(context)
 
                     // 4. Reschedule TronClass DDL reminders
                     TronClassDdlScheduler.scheduleFromPreferences(context)

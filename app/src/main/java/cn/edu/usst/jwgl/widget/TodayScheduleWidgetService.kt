@@ -25,13 +25,15 @@ class TodayScheduleWidgetService : RemoteViewsService() {
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID
         )
-        return TodayScheduleRemoteViewsFactory(applicationContext, appWidgetId)
+        val dayOffset = intent.getIntExtra(TodayScheduleWidgetProvider.EXTRA_DAY_OFFSET, 0)
+        return TodayScheduleRemoteViewsFactory(applicationContext, appWidgetId, dayOffset)
     }
 }
 
 private class TodayScheduleRemoteViewsFactory(
     private val context: Context,
-    private val appWidgetId: Int
+    private val appWidgetId: Int,
+    private val dayOffset: Int
 ) : RemoteViewsService.RemoteViewsFactory {
 
     private data class DisplayCourse(
@@ -57,11 +59,13 @@ private class TodayScheduleRemoteViewsFactory(
         try {
             val db = AppDatabase.getDatabase(context)
             val activeTable = db.tableDao.getDefaultTable()
-            val todayCal = Calendar.getInstance()
-            val weekNum = CourseUtils.countWeek(activeTable.startDate, todayCal)
-            val dayOfWeek = todayCal.get(Calendar.DAY_OF_WEEK)
+            val targetCal = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, dayOffset)
+            }
+            val weekNum = CourseUtils.countWeek(activeTable.startDate, targetCal)
+            val dayOfWeek = targetCal.get(Calendar.DAY_OF_WEEK)
             val dayNumber = if (dayOfWeek == Calendar.SUNDAY) 7 else (dayOfWeek - 1)
-            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(todayCal.time)
+            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(targetCal.time)
 
             val allCourses = db.courseBaseDao.getCourseOfTable(activeTable.id)
             val resolved = CourseAdjustmentResolver.resolve(
@@ -88,8 +92,9 @@ private class TodayScheduleRemoteViewsFactory(
             }
 
             val timeDetails = db.timeDetailDao.getTimeDetails(activeTable.timeTable)
-            val currentHour = todayCal.get(Calendar.HOUR_OF_DAY)
-            val currentMinute = todayCal.get(Calendar.MINUTE)
+            val nowCal = Calendar.getInstance()
+            val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
+            val currentMinute = nowCal.get(Calendar.MINUTE)
             val currentTimeVal = currentHour * 60 + currentMinute
 
             for (c in dayCourses) {
@@ -109,9 +114,9 @@ private class TodayScheduleRemoteViewsFactory(
                     sectionStr
                 }
 
-                // 判断是否已结束
+                // 判断是否已结束 (仅对当天 dayOffset == 0 生效)
                 var isPassed = false
-                if (endTime.isNotEmpty()) {
+                if (dayOffset == 0 && endTime.isNotEmpty()) {
                     try {
                         val parts = endTime.split(":")
                         if (parts.size == 2) {
@@ -123,7 +128,7 @@ private class TodayScheduleRemoteViewsFactory(
                     } catch (_: Exception) {}
                 }
 
-                if (widgetConfig.hidePastCourses && isPassed) {
+                if (dayOffset == 0 && widgetConfig.hidePastCourses && isPassed) {
                     continue
                 }
 

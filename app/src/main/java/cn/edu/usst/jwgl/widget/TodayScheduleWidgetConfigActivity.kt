@@ -106,6 +106,12 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             updatePreview()
         }
 
+        binding.switchAllowDateSwitching.isChecked = currentConfig.allowDateSwitching
+        binding.switchAllowDateSwitching.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig = currentConfig.copy(allowDateSwitching = isChecked)
+            updatePreview()
+        }
+
         // 4. 保存按钮
         binding.btnSave.setOnClickListener {
             saveAndApply()
@@ -173,6 +179,8 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
 
         binding.tvPreviewCourse1Time.visibility = if (currentConfig.showTimeRange) View.VISIBLE else View.GONE
         binding.tvPreviewCourse2Time.visibility = if (currentConfig.showTimeRange) View.VISIBLE else View.GONE
+
+        binding.llPreviewDateNav.visibility = if (currentConfig.allowDateSwitching) View.VISIBLE else View.GONE
     }
 
     private fun saveAndApply() {
@@ -181,6 +189,7 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         val appWidgetManager = AppWidgetManager.getInstance(this)
         if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             TodayScheduleWidgetProvider.updateAppWidget(this, appWidgetManager, appWidgetId)
+            NextCourseWidgetProvider.updateAppWidget(this, appWidgetManager, appWidgetId)
             val resultValue = Intent().apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             }
@@ -188,6 +197,7 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         } else {
             // 全局设置生效：刷新所有桌面微件
             TodayScheduleWidgetProvider.updateAllWidgets(this)
+            NextCourseWidgetProvider.updateAllWidgets(this)
             Toast.makeText(this, "设置已保存，桌面微件已同步更新", Toast.LENGTH_SHORT).show()
         }
         finish()

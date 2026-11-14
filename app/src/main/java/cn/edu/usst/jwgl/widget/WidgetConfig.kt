@@ -9,7 +9,8 @@ data class WidgetConfig(
     val showTeacher: Boolean = true,        // 是否显示授课教师
     val showRoom: Boolean = true,           // 是否显示教室
     val showTimeRange: Boolean = true,      // 是否显示具体时间段(如 08:00-09:35)
-    val hidePastCourses: Boolean = false    // 是否隐藏已结束课程
+    val hidePastCourses: Boolean = false,   // 是否隐藏已结束课程
+    val allowDateSwitching: Boolean = true  // 是否允许在微件上切换日期(前一天/后一天)
 ) {
     companion object {
         const val THEME_AUTO = 0
@@ -22,6 +23,7 @@ data class WidgetConfig(
 object WidgetConfigManager {
     private const val PREF_NAME = "usst_widget_preferences"
     private const val KEY_PREFIX_WIDGET = "config_widget_"
+    private const val KEY_PREFIX_OFFSET = "offset_widget_"
     private const val KEY_GLOBAL_DEFAULT = "config_global_default"
     private val gson = Gson()
 
@@ -51,6 +53,30 @@ object WidgetConfigManager {
 
     fun deleteConfig(context: Context, appWidgetId: Int) {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        sp.edit().remove(KEY_PREFIX_WIDGET + appWidgetId).apply()
+        sp.edit()
+            .remove(KEY_PREFIX_WIDGET + appWidgetId)
+            .remove(KEY_PREFIX_OFFSET + appWidgetId)
+            .apply()
+    }
+
+    fun getDayOffset(context: Context, appWidgetId: Int): Int {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getInt(KEY_PREFIX_OFFSET + appWidgetId, 0)
+    }
+
+    fun setDayOffset(context: Context, appWidgetId: Int, offset: Int) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putInt(KEY_PREFIX_OFFSET + appWidgetId, offset).apply()
+    }
+
+    fun resetAllDayOffsets(context: Context) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val editor = sp.edit()
+        for (key in sp.all.keys) {
+            if (key.startsWith(KEY_PREFIX_OFFSET)) {
+                editor.putInt(key, 0)
+            }
+        }
+        editor.apply()
     }
 }

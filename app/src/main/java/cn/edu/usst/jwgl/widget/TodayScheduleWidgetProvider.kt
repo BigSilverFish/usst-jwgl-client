@@ -10,6 +10,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
+import android.view.View
 import android.widget.RemoteViews
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
@@ -25,8 +26,16 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_REFRESH_WIDGET = "cn.edu.usst.jwgl.widget.ACTION_REFRESH_WIDGET"
         const val ACTION_PIN_WIDGET = "cn.edu.usst.jwgl.widget.ACTION_PIN_WIDGET"
+        const val ACTION_PREV_DAY = "cn.edu.usst.jwgl.widget.ACTION_PREV_DAY"
+        const val ACTION_NEXT_DAY = "cn.edu.usst.jwgl.widget.ACTION_NEXT_DAY"
+        const val ACTION_RESET_TODAY = "cn.edu.usst.jwgl.widget.ACTION_RESET_TODAY"
+
+        const val EXTRA_DAY_OFFSET = "extra_day_offset"
         private const val REQUEST_CODE_OPEN_APP = 2001
         private const val REQUEST_CODE_REFRESH = 2002
+        private const val REQUEST_CODE_PREV = 2003
+        private const val REQUEST_CODE_NEXT = 2004
+        private const val REQUEST_CODE_RESET = 2005
 
         fun updateAllWidgets(context: Context) {
             val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
@@ -48,17 +57,20 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
         ) {
             val views = RemoteViews(context.packageName, R.layout.widget_today_schedule)
             val config = WidgetConfigManager.getConfig(context, appWidgetId)
+            val dayOffset = WidgetConfigManager.getDayOffset(context, appWidgetId)
 
-            // 1. Calculate today's date, week, and course info
-            val todayCal = Calendar.getInstance()
+            // 1. Calculate target date, week, and course info
+            val targetCal = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, dayOffset)
+            }
             val sdfDate = SimpleDateFormat("MM/dd", Locale.CHINA)
-            val dateDisplay = sdfDate.format(todayCal.time)
-            val dayOfWeek = todayCal.get(Calendar.DAY_OF_WEEK)
+            val dateDisplay = sdfDate.format(targetCal.time)
+            val dayOfWeek = targetCal.get(Calendar.DAY_OF_WEEK)
             val dayNumber = if (dayOfWeek == Calendar.SUNDAY) 7 else (dayOfWeek - 1)
             val dayStr = CourseUtils.getDayStr(dayNumber)
 
             var weekNum = 1
-            var badgeText = "今日无课"
+            var badgeText = "无课"
             var isHoliday = false
             var holidayName = ""
             var isSwapped = false
@@ -68,8 +80,8 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
             try {
                 val db = AppDatabase.getDatabase(context)
                 val activeTable = db.tableDao.getDefaultTable()
-                weekNum = CourseUtils.countWeek(activeTable.startDate, todayCal)
-                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(todayCal.time)
+                weekNum = CourseUtils.countWeek(activeTable.startDate, targetCal)
+                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(targetCal.time)
                 val allCourses = db.courseBaseDao.getCourseOfTable(activeTable.id)
 
                 val resolved = CourseAdjustmentResolver.resolve(
@@ -99,7 +111,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                         activeTable.id
                     )
                     courseCount = dayCourses.size
-                    badgeText = if (courseCount > 0) "共 $courseCount 门课" else "今日无课"
+                    badgeText = if (courseCount > 0) "共 $courseCount 门课" else "无课"
                 }
             } catch (e: Exception) {
                 // DB might be initializing
@@ -130,58 +142,114 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
             views.setTextColor(R.id.tvWidgetHeaderDate, primaryTextColor)
 
             // 3. Set Header Title & Badge
-            val headerTitle = "第 $weekNum 周 · $dayStr ($dateDisplay)"
+            val headerTitle = when (dayOffset) {
+                0 -> "第 $weekNum 周 · $dayStr ($dateDisplay)"
+                1 -> "明天 · 第 $weekNum 周 · $dayStr ($dateDisplay)"
+                -1 -> "昨天 · 第 $weekNum 周 · $dayStr ($dateDisplay)"
+                else -> "${if (dayOffset > 0) "+${dayOffset}天" else "${dayOffset}天"} · 第 $weekNum 周 · $dayStr ($dateDisplay)"
+            }
             views.setTextViewText(R.id.tvWidgetHeaderDate, headerTitle)
             views.setTextViewText(R.id.tvWidgetStatusBadge, badgeText)
 
             // Empty state subtitle customization
+            val emptyTitlePrefix = if (dayOffset == 0) "今日" else "该日"
             if (isHoliday) {
-                views.setTextViewText(R.id.tvWidgetEmptyTitle, "今日放假 ($holidayName)")
+                views.setTextViewText(R.id.tvWidgetEmptyTitle, "$emptyTitlePrefix 放假 ($holidayName)")
                 views.setTextViewText(R.id.tvWidgetEmptySubtitle, "假期愉快，尽情享受悠闲时光吧~")
             } else {
-                views.setTextViewText(R.id.tvWidgetEmptyTitle, "今日无课")
+                views.setTextViewText(R.id.tvWidgetEmptyTitle, "$emptyTitlePrefix 无课")
                 views.setTextViewText(R.id.tvWidgetEmptySubtitle, "好好休息，享受大学时光吧~")
             }
 
-            // 4. Connect RemoteViewsService for the ListView
+            // 4. Date Navigation controls visibility & PendingIntents
+            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+
+            if (config.allowDateSwitching) {
+                views.setViewVisibility(R.id.llWidgetDateNav, View.VISIBLE)
+                views.setViewVisibility(R.id.btnWidgetResetToday, if (dayOffset != 0) View.VISIBLE else View.GONE)
+
+                // Prev Day Intent
+                val prevIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
+                    action = ACTION_PREV_DAY
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                }
+                val prevPi = PendingIntent.getBroadcast(
+                    context,
+                    REQUEST_CODE_PREV + appWidgetId * 10,
+                    prevIntent,
+                    pendingFlags
+                )
+                views.setOnClickPendingIntent(R.id.btnWidgetPrevDay, prevPi)
+
+                // Next Day Intent
+                val nextIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
+                    action = ACTION_NEXT_DAY
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                }
+                val nextPi = PendingIntent.getBroadcast(
+                    context,
+                    REQUEST_CODE_NEXT + appWidgetId * 10,
+                    nextIntent,
+                    pendingFlags
+                )
+                views.setOnClickPendingIntent(R.id.btnWidgetNextDay, nextPi)
+
+                // Reset Today Intent
+                val resetIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
+                    action = ACTION_RESET_TODAY
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                }
+                val resetPi = PendingIntent.getBroadcast(
+                    context,
+                    REQUEST_CODE_RESET + appWidgetId * 10,
+                    resetIntent,
+                    pendingFlags
+                )
+                views.setOnClickPendingIntent(R.id.btnWidgetResetToday, resetPi)
+            } else {
+                views.setViewVisibility(R.id.llWidgetDateNav, View.GONE)
+            }
+
+            // 5. Connect RemoteViewsService for the ListView
             val serviceIntent = Intent(context, TodayScheduleWidgetService::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                data = Uri.parse("usst_widget://$appWidgetId")
+                putExtra(EXTRA_DAY_OFFSET, dayOffset)
+                data = Uri.parse("usst_widget://${appWidgetId}_offset_$dayOffset")
             }
             views.setRemoteAdapter(R.id.lvWidgetCourses, serviceIntent)
             views.setEmptyView(R.id.lvWidgetCourses, R.id.llWidgetEmpty)
 
-            // 5. Click Intent: Open MainActivity at Timetable Tab
+            // 6. Click Intent: Open MainActivity at Timetable Tab
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_TAB, 1)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             val openAppPendingIntent = PendingIntent.getActivity(
                 context,
                 REQUEST_CODE_OPEN_APP,
                 openAppIntent,
-                flags
+                pendingFlags
             )
             views.setOnClickPendingIntent(R.id.llWidgetHeader, openAppPendingIntent)
             views.setOnClickPendingIntent(R.id.llWidgetEmpty, openAppPendingIntent)
 
-            // 6. Item Click Template for ListView
+            // 7. Item Click Template for ListView
             views.setPendingIntentTemplate(R.id.lvWidgetCourses, openAppPendingIntent)
 
-            // 7. Refresh Button Intent
+            // 8. Refresh Button Intent
             val refreshIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
                 action = ACTION_REFRESH_WIDGET
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             }
             val refreshPendingIntent = PendingIntent.getBroadcast(
                 context,
-                REQUEST_CODE_REFRESH,
+                REQUEST_CODE_REFRESH + appWidgetId * 10,
                 refreshIntent,
-                flags
+                pendingFlags
             )
             views.setOnClickPendingIntent(R.id.btnWidgetRefresh, refreshPendingIntent)
 
@@ -210,12 +278,50 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+        val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
+
         when (intent.action) {
-            ACTION_REFRESH_WIDGET,
+            ACTION_PREV_DAY -> {
+                val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    val current = WidgetConfigManager.getDayOffset(context, widgetId)
+                    WidgetConfigManager.setDayOffset(context, widgetId, current - 1)
+                    updateAppWidget(context, appWidgetManager, widgetId)
+                }
+            }
+            ACTION_NEXT_DAY -> {
+                val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    val current = WidgetConfigManager.getDayOffset(context, widgetId)
+                    WidgetConfigManager.setDayOffset(context, widgetId, current + 1)
+                    updateAppWidget(context, appWidgetManager, widgetId)
+                }
+            }
+            ACTION_RESET_TODAY -> {
+                val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    WidgetConfigManager.setDayOffset(context, widgetId, 0)
+                    updateAppWidget(context, appWidgetManager, widgetId)
+                }
+            }
+            ACTION_REFRESH_WIDGET -> {
+                val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    appWidgetManager.notifyAppWidgetViewDataChanged(widgetId, R.id.lvWidgetCourses)
+                    updateAppWidget(context, appWidgetManager, widgetId)
+                } else {
+                    val componentName = ComponentName(context, TodayScheduleWidgetProvider::class.java)
+                    val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName) ?: return
+                    appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.lvWidgetCourses)
+                    for (id in appWidgetIds) {
+                        updateAppWidget(context, appWidgetManager, id)
+                    }
+                }
+            }
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_DATE_CHANGED -> {
-                val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
+                WidgetConfigManager.resetAllDayOffsets(context)
                 val componentName = ComponentName(context, TodayScheduleWidgetProvider::class.java)
                 val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName) ?: return
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.lvWidgetCourses)
@@ -225,7 +331,6 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
             }
             ACTION_PIN_WIDGET -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
                     val myProvider = ComponentName(context, TodayScheduleWidgetProvider::class.java)
                     if (appWidgetManager.isRequestPinAppWidgetSupported) {
                         appWidgetManager.requestPinAppWidget(myProvider, null, null)
