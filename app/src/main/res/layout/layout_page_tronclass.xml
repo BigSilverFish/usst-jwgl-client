@@ -23,13 +23,18 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@android:color/transparent"
-                app:elevation="0dp">
+                android:stateListAnimator="@null"
+                app:elevation="0dp"
+                app:liftOnScroll="false"
+                app:liftOnScrollColor="@android:color/transparent">
 
                 <com.google.android.material.appbar.CollapsingToolbarLayout
                     android:id="@+id/collapsingToolbarTronClass"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:layout_scrollFlags="scroll">
+                    android:minHeight="96dp"
+                    app:titleEnabled="false"
+                    app:layout_scrollFlags="scroll|exitUntilCollapsed">
 
                     <LinearLayout
                         android:id="@+id/llTronClassCollapsibleHeader"
@@ -211,8 +216,6 @@
                 </LinearLayout>
 
                     </LinearLayout>
-
-
 
                 </com.google.android.material.appbar.CollapsingToolbarLayout>
 

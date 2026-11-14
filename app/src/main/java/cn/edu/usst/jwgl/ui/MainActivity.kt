@@ -346,7 +346,8 @@ class MainActivity : AppCompatActivity() {
                 0
             )
             binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
-                updateMoreFeaturesHeaderSpacing(binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height)
+                val h = binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height
+                if (h > 0) updateMoreFeaturesHeaderSpacing(h)
             }
 
             binding.llProfileHeaderContainer.setPadding(
@@ -356,7 +357,8 @@ class MainActivity : AppCompatActivity() {
                 0
             )
             binding.llProfileHeaderContainer.post {
-                updateProfileHeaderSpacing(binding.llProfileHeaderContainer.height)
+                val h = binding.llProfileHeaderContainer.height
+                if (h > 0) updateProfileHeaderSpacing(h)
             }
 
             val drawerStatusTop = if (statusBarInsets.top > 0) statusBarInsets.top else (28 * density).toInt()
@@ -366,6 +368,16 @@ class MainActivity : AppCompatActivity() {
             }
 
             insets
+        }
+
+        // 动态监听顶栏尺寸变化（与 TronClassFragment 逻辑对齐，保证布局和尺寸变动时避让高度精准一致）
+        binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val h = bottom - top
+            if (h > 0) updateMoreFeaturesHeaderSpacing(h)
+        }
+        binding.llProfileHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val h = bottom - top
+            if (h > 0) updateProfileHeaderSpacing(h)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1468,7 +1480,8 @@ class MainActivity : AppCompatActivity() {
             MainTab.MORE_FEATURES -> {
                 ensureMoreFeaturesBlur()
                 binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.post {
-                    updateMoreFeaturesHeaderSpacing(binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height)
+                    val h = binding.pageMoreFeatures.llMoreFeaturesHeaderContainer.height
+                    if (h > 0) updateMoreFeaturesHeaderSpacing(h)
                 }
             }
             MainTab.COURSE_SEARCH -> {
@@ -1502,7 +1515,8 @@ class MainActivity : AppCompatActivity() {
             MainTab.PROFILE -> {
                 ensureProfileBlur()
                 binding.llProfileHeaderContainer.post {
-                    updateProfileHeaderSpacing(binding.llProfileHeaderContainer.height)
+                    val h = binding.llProfileHeaderContainer.height
+                    if (h > 0) updateProfileHeaderSpacing(h)
                 }
             }
         }
@@ -2999,18 +3013,22 @@ class MainActivity : AppCompatActivity() {
     // --- 9. TronClass Native Embedded Page ---
     // ==========================================
     private fun updateMoreFeaturesHeaderSpacing(headerHeight: Int) {
+        if (headerHeight <= 0) return
         val params = binding.pageMoreFeatures.viewMoreFeaturesHeaderSpacing.layoutParams
         if (params.height != headerHeight) {
             params.height = headerHeight
             binding.pageMoreFeatures.viewMoreFeaturesHeaderSpacing.layoutParams = params
+            binding.pageMoreFeatures.viewMoreFeaturesHeaderSpacing.requestLayout()
         }
     }
 
     private fun updateProfileHeaderSpacing(headerHeight: Int) {
+        if (headerHeight <= 0) return
         val params = binding.viewProfileHeaderSpacing.layoutParams
         if (params.height != headerHeight) {
             params.height = headerHeight
             binding.viewProfileHeaderSpacing.layoutParams = params
+            binding.viewProfileHeaderSpacing.requestLayout()
         }
     }
 
