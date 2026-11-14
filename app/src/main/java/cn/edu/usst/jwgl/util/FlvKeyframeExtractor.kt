@@ -1,6 +1,10 @@
 package cn.edu.usst.jwgl.util
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaCodec
@@ -18,13 +22,20 @@ import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 
 /**
- * 超轻量 HTTP-FLV 裸流首帧抽取器
- * 仅拉取首个 H.264 (AVC) IDR 关键帧，直接通过 MediaCodec + ImageReader 解码为 InputImage
- * 全程流量消耗 < 200KB，解码耗时 < 300ms，无需任何臃肿的第三方播放器
+ * 超轻量 HTTP-FLV 裸流关键帧抽取与解码器
+ * 1. 抓取首个或持续抓取 H.264 (AVC) IDR 关键帧
+ * 2. 通过 MediaCodec + ImageReader 解码为 ML Kit 的 InputImage 及用于可视化调试预览的 Bitmap
  */
 object FlvKeyframeExtractor {
 
     private const val TAG = "FlvKeyframeExtractor"
+
+    data class DecodedFrame(
+        val inputImage: InputImage,
+        val bitmap: Bitmap?,
+        val width: Int,
+        val height: Int
+    )
 
     private val flvHttpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -36,7 +47,14 @@ object FlvKeyframeExtractor {
      * @param flvUrl 完整的 FLV 播放地址 (带 token)
      * @return 解码后的 InputImage 或 null
      */
-    suspend fun extractFirstKeyframe(flvUrl: String): InputImage? = withContext(Dispatchers.IO) {
+    suspend fun extractFirstKeyframe(flvUrl: String): InputImage? {
+        return extractFirstKeyframeDetailed(flvUrl, needBitmap = false)?.inputImage
+    }
+
+    /**
+     * 从 HTTP-FLV 流中抓取首帧（支持同时解码 Bitmap 供可视化调试渲染）
+     */
+    suspend fun extractFirstKeyframeDetailed(flvUrl: String, needBitmap: Boolean = true): DecodedFrame? = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(flvUrl)
             .header("User-Agent", "Lavf/58.29.100")
@@ -62,7 +80,7 @@ object FlvKeyframeExtractor {
                 return@withContext null
             }
 
-            decodeAvcToInputImage(frameData.sps, frameData.pps, frameData.idrNalus)
+            decodeAvcToFrame(frameData.sps, frameData.pps, frameData.idrNalus, needBitmap = needBitmap)
         } catch (e: Exception) {
             Log.w(TAG, "Error extracting keyframe: ${e.message}")
             null
@@ -213,9 +231,14 @@ object FlvKeyframeExtractor {
     }
 
     /**
-     * 使用 MediaCodec + ImageReader 解码首帧并输出为 ML Kit 的 InputImage
+     * 使用 MediaCodec + ImageReader 解码首帧并输出为 ML Kit 的 InputImage（及可选 Bitmap）
      */
-    private fun decodeAvcToInputImage(sps: ByteArray, pps: ByteArray, idrNalus: ByteArray): InputImage? {
+    private fun decodeAvcToFrame(
+        sps: ByteArray,
+        pps: ByteArray,
+        idrNalus: ByteArray,
+        needBitmap: Boolean = false
+    ): DecodedFrame? {
         var codec: MediaCodec? = null
         var imageReader: ImageReader? = null
         try {
@@ -261,12 +284,15 @@ object FlvKeyframeExtractor {
             }
 
             if (decodedImage != null) {
+                val width = decodedImage.width
+                val height = decodedImage.height
                 val inputImage = InputImage.fromMediaImage(decodedImage, 0)
-                Log.i(TAG, "Successfully extracted InputImage: ${decodedImage.width}x${decodedImage.height}")
-                return inputImage
+                val bmp = if (needBitmap) yuv420888ToBitmap(decodedImage) else null
+                Log.i(TAG, "Successfully extracted frame: ${width}x${height}, hasBitmap=${bmp != null}")
+                return DecodedFrame(inputImage, bmp, width, height)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error in decodeAvcToInputImage: ${e.message}", e)
+            Log.e(TAG, "Error in decodeAvcToFrame: ${e.message}", e)
         } finally {
             try {
                 codec?.stop()
@@ -275,5 +301,74 @@ object FlvKeyframeExtractor {
             } catch (_: Exception) {}
         }
         return null
+    }
+
+    /**
+     * 将 ImageFormat.YUV_420_888 格式的 Image 转换为 NV21 字节数组并压缩为 Bitmap
+     */
+    private fun yuv420888ToBitmap(image: Image): Bitmap? {
+        return try {
+            val width = image.width
+            val height = image.height
+            val planes = image.planes
+            val yBuffer = planes[0].buffer
+            val uBuffer = planes[1].buffer
+            val vBuffer = planes[2].buffer
+
+            val ySize = yBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
+
+            val nv21 = ByteArray(ySize + (width * height / 2))
+
+            // Y plane
+            val yRowStride = planes[0].rowStride
+            val yPixelStride = planes[0].pixelStride
+            var pos = 0
+            if (yPixelStride == 1 && yRowStride == width) {
+                yBuffer.get(nv21, 0, ySize)
+                pos = ySize
+            } else {
+                for (row in 0 until height) {
+                    yBuffer.position(row * yRowStride)
+                    for (col in 0 until width) {
+                        nv21[pos++] = yBuffer.get()
+                        if (yPixelStride > 1 && col < width - 1) {
+                            yBuffer.position(yBuffer.position() + yPixelStride - 1)
+                        }
+                    }
+                }
+            }
+
+            // U and V planes -> interleaved V then U (NV21)
+            val vRowStride = planes[2].rowStride
+            val vPixelStride = planes[2].pixelStride
+            val uRowStride = planes[1].rowStride
+            val uPixelStride = planes[1].pixelStride
+
+            val chromaHeight = height / 2
+            val chromaWidth = width / 2
+
+            for (row in 0 until chromaHeight) {
+                val vRowStart = row * vRowStride
+                val uRowStart = row * uRowStride
+                for (col in 0 until chromaWidth) {
+                    val vVal = vBuffer.get(vRowStart + col * vPixelStride)
+                    val uVal = uBuffer.get(uRowStart + col * uPixelStride)
+                    nv21[pos++] = vVal
+                    nv21[pos++] = uVal
+                }
+            }
+
+            val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+            val out = ByteArrayOutputStream()
+            // 压缩为 JPEG 缩略图（针对 1080P，85% 品质肉眼极清晰且耗时极短）
+            yuvImage.compressToJpeg(Rect(0, 0, width, height), 85, out)
+            val jpegBytes = out.toByteArray()
+            BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+        } catch (e: Exception) {
+            Log.w(TAG, "yuv420888ToBitmap failed: ${e.message}")
+            null
+        }
     }
 }

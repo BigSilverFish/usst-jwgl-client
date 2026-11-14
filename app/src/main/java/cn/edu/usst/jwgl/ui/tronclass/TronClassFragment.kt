@@ -331,11 +331,8 @@ class TronClassFragment : Fragment() {
             b.viewTronClassHeaderSpacing.layoutParams = params
             b.viewTronClassHeaderSpacing.requestLayout()
         }
-        val pinParams = b.viewPinnedSpacing.layoutParams
-        if (pinParams.height != headerHeight) {
-            pinParams.height = headerHeight
-            b.viewPinnedSpacing.layoutParams = pinParams
-            b.viewPinnedSpacing.requestLayout()
+        if (b.collapsingToolbarTronClass.minimumHeight != headerHeight) {
+            b.collapsingToolbarTronClass.minimumHeight = headerHeight
         }
         val density = resources.displayMetrics.density
         b.swipeRefreshTronClass.setProgressViewOffset(
@@ -825,10 +822,15 @@ class TronClassFragment : Fragment() {
                 }
 
                 "二维码签到" -> {
+                    val matchedRoom = cn.edu.usst.jwgl.util.RollcallScheduleHelper
+                        .findMatchingClassSession(ctx, course.courseName)?.room
                     MaterialAlertDialogBuilder(ctx)
                         .setTitle("超星签到 · 二维码签到")
-                        .setMessage("课程：${course.courseName}\n此签到需要扫描教师屏幕出示的动态二维码。\n\n请准备好教师端二维码后点击开始扫码。")
-                        .setPositiveButton("扫码签到") { _, _ ->
+                        .setMessage("课程：${course.courseName}\n可选择通过教室大屏实时抓帧自动签到，或调起手机相机扫码：")
+                        .setPositiveButton("🎯 大屏实时抓帧") { _, _ ->
+                            showLiveQrRollcallDialog(activeItem.id, course.courseName, matchedRoom)
+                        }
+                        .setNeutralButton("📷 相机扫码") { _, _ ->
                             startTronClassQrScan()
                         }
                         .setNegativeButton("取消", null)
@@ -983,6 +985,9 @@ class TronClassFragment : Fragment() {
         }
 
         binding.swipeRefreshTronClass.isEnabled = true
+        binding.appBarTronClass.isLiftOnScroll = false
+        binding.appBarTronClass.background = null
+        binding.appBarTronClass.stateListAnimator = null
         binding.appBarTronClass.addOnOffsetChangedListener { _, verticalOffset ->
             binding.swipeRefreshTronClass.isEnabled = (verticalOffset == 0 || binding.swipeRefreshTronClass.isRefreshing)
         }
@@ -2401,7 +2406,7 @@ class TronClassFragment : Fragment() {
         when (rollcall.getNormalizedType()) {
             "radar" -> showTronClassRadarRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
             "number" -> showTronClassNumberRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            "qr_code" -> startTronClassQrScan()
+            "qr_code" -> showLiveQrRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName, rollcall.classroom)
             else -> showManualRollcallGuideDialog(rollcall.getEffectiveId(), rollcall.courseName)
         }
     }
@@ -2570,6 +2575,26 @@ class TronClassFragment : Fragment() {
             loadTronClassData(forceRefresh = true)
         }
         dialog.show(parentFragmentManager, "NumberRollcallBottomSheet")
+    }
+
+    private fun showLiveQrRollcallDialog(
+        rollcallId: Long,
+        courseName: String? = null,
+        classroom: String? = null
+    ) {
+        val dialog = LiveQrRollcallBottomSheetDialog.newInstance(
+            rollcallId = rollcallId,
+            courseName = courseName,
+            classroom = classroom
+        )
+        dialog.setOnSignSuccessListener {
+            markRollcallCompleted(rollcallId)
+            loadTronClassData(forceRefresh = true)
+        }
+        dialog.setOnFallbackCameraListener {
+            startTronClassQrScan()
+        }
+        dialog.show(parentFragmentManager, "LiveQrRollcallBottomSheet")
     }
 
     private fun showMultiAccountRollcallSummaryDialog(results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>) {
