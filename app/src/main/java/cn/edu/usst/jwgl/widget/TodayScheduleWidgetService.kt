@@ -1,8 +1,11 @@
 package cn.edu.usst.jwgl.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
+import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import cn.edu.usst.jwgl.R
@@ -18,21 +21,30 @@ import java.util.Locale
 
 class TodayScheduleWidgetService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
-        return TodayScheduleRemoteViewsFactory(applicationContext)
+        val appWidgetId = intent.getIntExtra(
+            AppWidgetManager.EXTRA_APPWIDGET_ID,
+            AppWidgetManager.INVALID_APPWIDGET_ID
+        )
+        return TodayScheduleRemoteViewsFactory(applicationContext, appWidgetId)
     }
 }
 
-private class TodayScheduleRemoteViewsFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
+private class TodayScheduleRemoteViewsFactory(
+    private val context: Context,
+    private val appWidgetId: Int
+) : RemoteViewsService.RemoteViewsFactory {
 
     private data class DisplayCourse(
         val name: String,
         val timeStr: String,
         val room: String,
         val teacher: String,
-        val colorHex: String
+        val colorHex: String,
+        val isPassed: Boolean = false
     )
 
     private val courseList = mutableListOf<DisplayCourse>()
+    private var widgetConfig = WidgetConfig()
 
     override fun onCreate() {
         // Initial setup
@@ -40,6 +52,8 @@ private class TodayScheduleRemoteViewsFactory(private val context: Context) : Re
 
     override fun onDataSetChanged() {
         courseList.clear()
+        widgetConfig = WidgetConfigManager.getConfig(context, appWidgetId)
+
         try {
             val db = AppDatabase.getDatabase(context)
             val activeTable = db.tableDao.getDefaultTable()
@@ -74,6 +88,9 @@ private class TodayScheduleRemoteViewsFactory(private val context: Context) : Re
             }
 
             val timeDetails = db.timeDetailDao.getTimeDetails(activeTable.timeTable)
+            val currentHour = todayCal.get(Calendar.HOUR_OF_DAY)
+            val currentMinute = todayCal.get(Calendar.MINUTE)
+            val currentTimeVal = currentHour * 60 + currentMinute
 
             for (c in dayCourses) {
                 val startNode = c.startNode
@@ -84,12 +101,30 @@ private class TodayScheduleRemoteViewsFactory(private val context: Context) : Re
                 val endTime = timeDetails.find { it.node == endNode }?.endTime ?: ""
 
                 val sectionStr = if (c.step > 1) "${startNode}-${endNode}节" else "${startNode}节"
-                val timeStr = if (startTime.isNotEmpty() && endTime.isNotEmpty()) {
+                val timeStr = if (widgetConfig.showTimeRange && startTime.isNotEmpty() && endTime.isNotEmpty()) {
                     "$sectionStr $startTime-$endTime"
-                } else if (startTime.isNotEmpty()) {
+                } else if (widgetConfig.showTimeRange && startTime.isNotEmpty()) {
                     "$sectionStr $startTime"
                 } else {
                     sectionStr
+                }
+
+                // 判断是否已结束
+                var isPassed = false
+                if (endTime.isNotEmpty()) {
+                    try {
+                        val parts = endTime.split(":")
+                        if (parts.size == 2) {
+                            val endVal = parts[0].trim().toInt() * 60 + parts[1].trim().toInt()
+                            if (currentTimeVal > endVal) {
+                                isPassed = true
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                if (widgetConfig.hidePastCourses && isPassed) {
+                    continue
                 }
 
                 val room = c.room?.ifEmpty { "未指定地点" } ?: "未指定地点"
@@ -102,7 +137,8 @@ private class TodayScheduleRemoteViewsFactory(private val context: Context) : Re
                         timeStr = timeStr,
                         room = room,
                         teacher = teacher,
-                        colorHex = colorHex
+                        colorHex = colorHex,
+                        isPassed = isPassed
                     )
                 )
             }
@@ -126,6 +162,29 @@ private class TodayScheduleRemoteViewsFactory(private val context: Context) : Re
         views.setTextViewText(R.id.tvCourseTime, item.timeStr)
         views.setTextViewText(R.id.tvCourseRoom, item.room)
         views.setTextViewText(R.id.tvCourseTeacher, item.teacher)
+
+        // 显隐控制
+        views.setViewVisibility(R.id.tvCourseTeacher, if (widgetConfig.showTeacher) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.tvCourseRoom, if (widgetConfig.showRoom) View.VISIBLE else View.GONE)
+
+        // 色彩模式计算
+        val isSystemNight = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        val isDark = when (widgetConfig.themeMode) {
+            WidgetConfig.THEME_DARK -> true
+            WidgetConfig.THEME_LIGHT -> false
+            WidgetConfig.THEME_TRANSPARENT -> false
+            else -> isSystemNight
+        }
+
+        val primaryTextColor = if (isDark) Color.parseColor("#F3F4F6") else Color.parseColor("#1D2939")
+        val secondaryTextColor = if (isDark) Color.parseColor("#9CA3AF") else Color.parseColor("#667085")
+        val tertiaryTextColor = if (isDark) Color.parseColor("#6B7280") else Color.parseColor("#98A2B3")
+
+        views.setTextColor(R.id.tvCourseName, primaryTextColor)
+        views.setTextColor(R.id.tvCourseTime, secondaryTextColor)
+        views.setTextColor(R.id.tvCourseRoom, secondaryTextColor)
+        views.setTextColor(R.id.tvCourseTeacher, tertiaryTextColor)
 
         val colorInt = try {
             Color.parseColor(item.colorHex)

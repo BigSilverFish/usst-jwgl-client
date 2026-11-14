@@ -6,6 +6,8 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.widget.RemoteViews
@@ -38,6 +40,155 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                 context.sendBroadcast(intent)
             }
         }
+
+        fun updateAppWidget(
+            context: Context,
+            appWidgetManager: AppWidgetManager,
+            appWidgetId: Int
+        ) {
+            val views = RemoteViews(context.packageName, R.layout.widget_today_schedule)
+            val config = WidgetConfigManager.getConfig(context, appWidgetId)
+
+            // 1. Calculate today's date, week, and course info
+            val todayCal = Calendar.getInstance()
+            val sdfDate = SimpleDateFormat("MM/dd", Locale.CHINA)
+            val dateDisplay = sdfDate.format(todayCal.time)
+            val dayOfWeek = todayCal.get(Calendar.DAY_OF_WEEK)
+            val dayNumber = if (dayOfWeek == Calendar.SUNDAY) 7 else (dayOfWeek - 1)
+            val dayStr = CourseUtils.getDayStr(dayNumber)
+
+            var weekNum = 1
+            var badgeText = "今日无课"
+            var isHoliday = false
+            var holidayName = ""
+            var isSwapped = false
+            var swapRemark = ""
+            var courseCount = 0
+
+            try {
+                val db = AppDatabase.getDatabase(context)
+                val activeTable = db.tableDao.getDefaultTable()
+                weekNum = CourseUtils.countWeek(activeTable.startDate, todayCal)
+                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(todayCal.time)
+                val allCourses = db.courseBaseDao.getCourseOfTable(activeTable.id)
+
+                val resolved = CourseAdjustmentResolver.resolve(
+                    db,
+                    activeTable.id,
+                    dateStr,
+                    weekNum,
+                    dayNumber,
+                    allCourses
+                )
+
+                if (resolved.isHolidayOff) {
+                    isHoliday = true
+                    holidayName = resolved.holidayName ?: "放假"
+                    badgeText = "放假: $holidayName"
+                } else if (resolved.isSwapped) {
+                    isSwapped = true
+                    swapRemark = resolved.swapRemark ?: "补课"
+                    courseCount = resolved.courses.size
+                    badgeText = "$swapRemark · ${courseCount}节课"
+                } else {
+                    val weekType = if (weekNum % 2 != 0) 1 else 2
+                    val dayCourses = db.courseBaseDao.getCourseByDayAndWeekOfTable(
+                        dayNumber,
+                        weekNum,
+                        weekType,
+                        activeTable.id
+                    )
+                    courseCount = dayCourses.size
+                    badgeText = if (courseCount > 0) "共 $courseCount 门课" else "今日无课"
+                }
+            } catch (e: Exception) {
+                // DB might be initializing
+            }
+
+            // 2. Apply Custom Background and Text Colors
+            val isSystemNight = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                    Configuration.UI_MODE_NIGHT_YES
+            val isDark = when (config.themeMode) {
+                WidgetConfig.THEME_DARK -> true
+                WidgetConfig.THEME_LIGHT -> false
+                WidgetConfig.THEME_TRANSPARENT -> false
+                else -> isSystemNight
+            }
+
+            val isTransparent = config.themeMode == WidgetConfig.THEME_TRANSPARENT
+            val alphaPercent = if (isTransparent) 0 else config.bgAlpha
+            val alphaInt = (alphaPercent * 255 / 100).coerceIn(0, 255)
+
+            val finalBgColor = if (isDark) {
+                Color.argb(alphaInt, 30, 30, 30)
+            } else {
+                Color.argb(alphaInt, 255, 255, 255)
+            }
+            views.setInt(R.id.llWidgetRoot, "setBackgroundColor", finalBgColor)
+
+            val primaryTextColor = if (isDark) Color.parseColor("#F3F4F6") else Color.parseColor("#1D2939")
+            views.setTextColor(R.id.tvWidgetHeaderDate, primaryTextColor)
+
+            // 3. Set Header Title & Badge
+            val headerTitle = "第 $weekNum 周 · $dayStr ($dateDisplay)"
+            views.setTextViewText(R.id.tvWidgetHeaderDate, headerTitle)
+            views.setTextViewText(R.id.tvWidgetStatusBadge, badgeText)
+
+            // Empty state subtitle customization
+            if (isHoliday) {
+                views.setTextViewText(R.id.tvWidgetEmptyTitle, "今日放假 ($holidayName)")
+                views.setTextViewText(R.id.tvWidgetEmptySubtitle, "假期愉快，尽情享受悠闲时光吧~")
+            } else {
+                views.setTextViewText(R.id.tvWidgetEmptyTitle, "今日无课")
+                views.setTextViewText(R.id.tvWidgetEmptySubtitle, "好好休息，享受大学时光吧~")
+            }
+
+            // 4. Connect RemoteViewsService for the ListView
+            val serviceIntent = Intent(context, TodayScheduleWidgetService::class.java).apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                data = Uri.parse("usst_widget://$appWidgetId")
+            }
+            views.setRemoteAdapter(R.id.lvWidgetCourses, serviceIntent)
+            views.setEmptyView(R.id.lvWidgetCourses, R.id.llWidgetEmpty)
+
+            // 5. Click Intent: Open MainActivity at Timetable Tab
+            val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_TAB, 1)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val openAppPendingIntent = PendingIntent.getActivity(
+                context,
+                REQUEST_CODE_OPEN_APP,
+                openAppIntent,
+                flags
+            )
+            views.setOnClickPendingIntent(R.id.llWidgetHeader, openAppPendingIntent)
+            views.setOnClickPendingIntent(R.id.llWidgetEmpty, openAppPendingIntent)
+
+            // 6. Item Click Template for ListView
+            views.setPendingIntentTemplate(R.id.lvWidgetCourses, openAppPendingIntent)
+
+            // 7. Refresh Button Intent
+            val refreshIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
+                action = ACTION_REFRESH_WIDGET
+            }
+            val refreshPendingIntent = PendingIntent.getBroadcast(
+                context,
+                REQUEST_CODE_REFRESH,
+                refreshIntent,
+                flags
+            )
+            views.setOnClickPendingIntent(R.id.btnWidgetRefresh, refreshPendingIntent)
+
+            // Notify data changed and update widget
+            appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.lvWidgetCourses)
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+        }
     }
 
     override fun onUpdate(
@@ -47,6 +198,13 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
     ) {
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
+        }
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        for (appWidgetId in appWidgetIds) {
+            WidgetConfigManager.deleteConfig(context, appWidgetId)
         }
     }
 
@@ -75,129 +233,5 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                 }
             }
         }
-    }
-
-    private fun updateAppWidget(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetId: Int
-    ) {
-        val views = RemoteViews(context.packageName, R.layout.widget_today_schedule)
-
-        // 1. Calculate today's date, week, and course info
-        val todayCal = Calendar.getInstance()
-        val sdfDate = SimpleDateFormat("MM/dd", Locale.CHINA)
-        val dateDisplay = sdfDate.format(todayCal.time)
-        val dayOfWeek = todayCal.get(Calendar.DAY_OF_WEEK)
-        val dayNumber = if (dayOfWeek == Calendar.SUNDAY) 7 else (dayOfWeek - 1)
-        val dayStr = CourseUtils.getDayStr(dayNumber)
-
-        var weekNum = 1
-        var badgeText = "今日无课"
-        var isHoliday = false
-        var holidayName = ""
-        var isSwapped = false
-        var swapRemark = ""
-        var courseCount = 0
-
-        try {
-            val db = AppDatabase.getDatabase(context)
-            val activeTable = db.tableDao.getDefaultTable()
-            weekNum = CourseUtils.countWeek(activeTable.startDate, todayCal)
-            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(todayCal.time)
-            val allCourses = db.courseBaseDao.getCourseOfTable(activeTable.id)
-
-            val resolved = CourseAdjustmentResolver.resolve(
-                db,
-                activeTable.id,
-                dateStr,
-                weekNum,
-                dayNumber,
-                allCourses
-            )
-
-            if (resolved.isHolidayOff) {
-                isHoliday = true
-                holidayName = resolved.holidayName ?: "放假"
-                badgeText = "放假: $holidayName"
-            } else if (resolved.isSwapped) {
-                isSwapped = true
-                swapRemark = resolved.swapRemark ?: "补课"
-                courseCount = resolved.courses.size
-                badgeText = "$swapRemark · ${courseCount}节课"
-            } else {
-                val weekType = if (weekNum % 2 != 0) 1 else 2
-                val dayCourses = db.courseBaseDao.getCourseByDayAndWeekOfTable(
-                    dayNumber,
-                    weekNum,
-                    weekType,
-                    activeTable.id
-                )
-                courseCount = dayCourses.size
-                badgeText = if (courseCount > 0) "共 $courseCount 门课" else "今日无课"
-            }
-        } catch (e: Exception) {
-            // DB might be initializing
-        }
-
-        // 2. Set Header Title & Badge
-        val headerTitle = "第 $weekNum 周 · $dayStr ($dateDisplay)"
-        views.setTextViewText(R.id.tvWidgetHeaderDate, headerTitle)
-        views.setTextViewText(R.id.tvWidgetStatusBadge, badgeText)
-
-        // Empty state subtitle customization
-        if (isHoliday) {
-            views.setTextViewText(R.id.tvWidgetEmptyTitle, "今日放假 ($holidayName)")
-            views.setTextViewText(R.id.tvWidgetEmptySubtitle, "假期愉快，尽情享受悠闲时光吧~")
-        } else {
-            views.setTextViewText(R.id.tvWidgetEmptyTitle, "今日无课")
-            views.setTextViewText(R.id.tvWidgetEmptySubtitle, "好好休息，享受大学时光吧~")
-        }
-
-        // 3. Connect RemoteViewsService for the ListView
-        val serviceIntent = Intent(context, TodayScheduleWidgetService::class.java).apply {
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-            data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
-        }
-        views.setRemoteAdapter(R.id.lvWidgetCourses, serviceIntent)
-        views.setEmptyView(R.id.lvWidgetCourses, R.id.llWidgetEmpty)
-
-        // 4. Click Intent: Open MainActivity at Timetable Tab
-        val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_TAB, 1)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        val openAppPendingIntent = PendingIntent.getActivity(
-            context,
-            REQUEST_CODE_OPEN_APP,
-            openAppIntent,
-            flags
-        )
-        views.setOnClickPendingIntent(R.id.llWidgetHeader, openAppPendingIntent)
-        views.setOnClickPendingIntent(R.id.llWidgetEmpty, openAppPendingIntent)
-
-        // 5. Item Click Template for ListView
-        views.setPendingIntentTemplate(R.id.lvWidgetCourses, openAppPendingIntent)
-
-        // 6. Refresh Button Intent
-        val refreshIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
-            action = ACTION_REFRESH_WIDGET
-        }
-        val refreshPendingIntent = PendingIntent.getBroadcast(
-            context,
-            REQUEST_CODE_REFRESH,
-            refreshIntent,
-            flags
-        )
-        views.setOnClickPendingIntent(R.id.btnWidgetRefresh, refreshPendingIntent)
-
-        // Notify data changed and update widget
-        appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.lvWidgetCourses)
-        appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 }

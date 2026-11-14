@@ -188,6 +188,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Today Schedule AppWidget Configuration Activity -->
+        <activity
+            android:name=".widget.TodayScheduleWidgetConfigActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UsstJwgl">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- Today Schedule AppWidget Provider -->
         <receiver
             android:name=".widget.TodayScheduleWidgetProvider"

@@ -2717,6 +2717,10 @@ class MainActivity : AppCompatActivity() {
         binding.pageMoreFeatures.rowMoreWidgetPin.setOnClickListener {
             handleWidgetPinRequest()
         }
+        binding.pageMoreFeatures.rowMoreWidgetConfig.setOnClickListener {
+            val intent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetConfigActivity::class.java)
+            startActivity(intent)
+        }
 
         binding.pageMoreFeatures.rowMoreJwglWeb.setOnClickListener {
             JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
