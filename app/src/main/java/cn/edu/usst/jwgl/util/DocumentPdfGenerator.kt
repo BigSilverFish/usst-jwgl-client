@@ -27,6 +27,10 @@ object DocumentPdfGenerator {
         grades: GradeReport?,
         destinationFile: File
     ): File {
+        require(docType != GradeDocumentType.RANKING_CERTIFICATE) {
+            "专业排名证明须由教务处官方系统权威出具，不支持离线本地生成"
+        }
+
         val pdfDocument = PdfDocument()
         val pageWidth = 595 // Standard A4 width in points (72 dpi)
         val pageHeight = 842 // Standard A4 height in points
@@ -139,99 +143,65 @@ object DocumentPdfGenerator {
 
         y += boxHeight + 14f
 
-        // If Ranking Certificate
-        if (docType == GradeDocumentType.RANKING_CERTIFICATE) {
-            val studentRank = 82
-            val totalStudents = 97
-            val certText = """
-                兹证明学生 ${profile.name.ifEmpty { "周智轩" }}（学号：${profile.studentId.ifEmpty { "2435055230" }}），系我校 ${profile.college.ifEmpty { "光电信息与计算机工程学院" }} ${profile.major.ifEmpty { "计算机科学与技术" }} 专业 ${profile.grade.ifEmpty { "2024" }} 级全日制在读本科生。
+        // Course Table
+        val rowHeight = 16f
+        val c1Width = 40f
+        val c2Width = 240f
+        val c3Width = 45f
+        val c4Width = 55f
+        val c5Width = 50f
+        val c6Width = right - left - (c1Width + c2Width + c3Width + c4Width + c5Width)
 
-                截至目前，该生已修读总学分 ${String.format(Locale.CHINA, "%.1f", grades?.totalCredits ?: 0.0)} 学分，加权平均分为 ${String.format(Locale.CHINA, "%.2f", grades?.cumulativeWeightedScore ?: 0.0)} 分，平均学分绩点（GPA）为 ${String.format(Locale.CHINA, "%.2f", grades?.cumulativeGpa ?: 0.0)}。在 ${profile.major.ifEmpty { "计算机科学与技术" }} 专业 ${profile.grade.ifEmpty { "2024" }} 级共 $totalStudents 人中，综合成绩排名第 $studentRank 名。
+        // Table Header Background
+        canvas.drawRect(left, y, right, y + rowHeight, headerPaint)
+        canvas.drawRect(left, y, right, y + rowHeight, borderPaint)
 
-                特此证明。
-            """.trimIndent()
+        canvas.drawText(if (isEnglish) "No." else "序号", left + 8f, y + 12f, boldTextPaint)
+        canvas.drawText(if (isEnglish) "Course Name" else "课程名称", left + c1Width + 6f, y + 12f, boldTextPaint)
+        canvas.drawText(if (isEnglish) "Credit" else "学分", left + c1Width + c2Width + 6f, y + 12f, boldTextPaint)
+        canvas.drawText(if (isEnglish) "Score" else "总评成绩", left + c1Width + c2Width + c3Width + 6f, y + 12f, boldTextPaint)
+        canvas.drawText(if (isEnglish) "GPA" else "绩点", left + c1Width + c2Width + c3Width + c4Width + 6f, y + 12f, boldTextPaint)
+        canvas.drawText(if (isEnglish) "Semester" else "修读学期", left + c1Width + c2Width + c3Width + c4Width + c5Width + 6f, y + 12f, boldTextPaint)
+        y += rowHeight
 
-            val textPaintWrap = android.text.TextPaint().apply {
-                color = Color.parseColor("#222222")
-                textSize = 12f
-                typeface = Typeface.DEFAULT
-                isAntiAlias = true
-            }
-            val contentWidth = (right - left - 20f).toInt()
+        val allCourses = grades?.semesters?.flatMap { it.courses } ?: emptyList()
+        var index = 1
 
-            canvas.save()
-            canvas.translate(left + 10f, y + 10f)
-            val staticLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                android.text.StaticLayout.Builder.obtain(certText, 0, certText.length, textPaintWrap, contentWidth)
-                    .setLineSpacing(8f, 1.2f)
-                    .build()
-            } else {
-                @Suppress("DEPRECATION")
-                android.text.StaticLayout(certText, textPaintWrap, contentWidth, android.text.Layout.Alignment.ALIGN_NORMAL, 1.2f, 8f, false)
-            }
-            staticLayout.draw(canvas)
-            canvas.restore()
-        } else {
-            // Course Table
-            val rowHeight = 16f
-            val c1Width = 40f
-            val c2Width = 240f
-            val c3Width = 45f
-            val c4Width = 55f
-            val c5Width = 50f
-            val c6Width = right - left - (c1Width + c2Width + c3Width + c4Width + c5Width)
+        for (course in allCourses) {
+            if (y + rowHeight > pageHeight - 60f) {
+                pdfDocument.finishPage(page)
+                pageNumber++
+                pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                page = pdfDocument.startPage(pageInfo)
+                canvas = page.canvas
+                y = 40f
 
-            // Table Header Background
-            canvas.drawRect(left, y, right, y + rowHeight, headerPaint)
-            canvas.drawRect(left, y, right, y + rowHeight, borderPaint)
-
-            canvas.drawText(if (isEnglish) "No." else "序号", left + 8f, y + 12f, boldTextPaint)
-            canvas.drawText(if (isEnglish) "Course Name" else "课程名称", left + c1Width + 6f, y + 12f, boldTextPaint)
-            canvas.drawText(if (isEnglish) "Credit" else "学分", left + c1Width + c2Width + 6f, y + 12f, boldTextPaint)
-            canvas.drawText(if (isEnglish) "Score" else "总评成绩", left + c1Width + c2Width + c3Width + 6f, y + 12f, boldTextPaint)
-            canvas.drawText(if (isEnglish) "GPA" else "绩点", left + c1Width + c2Width + c3Width + c4Width + 6f, y + 12f, boldTextPaint)
-            canvas.drawText(if (isEnglish) "Semester" else "修读学期", left + c1Width + c2Width + c3Width + c4Width + c5Width + 6f, y + 12f, boldTextPaint)
-            y += rowHeight
-
-            val allCourses = grades?.semesters?.flatMap { it.courses } ?: emptyList()
-            var index = 1
-
-            for (course in allCourses) {
-                if (y + rowHeight > pageHeight - 60f) {
-                    pdfDocument.finishPage(page)
-                    pageNumber++
-                    pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
-                    page = pdfDocument.startPage(pageInfo)
-                    canvas = page.canvas
-                    y = 40f
-
-                    // Repeat Header on new page
-                    canvas.drawRect(left, y, right, y + rowHeight, headerPaint)
-                    canvas.drawRect(left, y, right, y + rowHeight, borderPaint)
-                    canvas.drawText(if (isEnglish) "No." else "序号", left + 8f, y + 12f, boldTextPaint)
-                    canvas.drawText(if (isEnglish) "Course Name" else "课程名称", left + c1Width + 6f, y + 12f, boldTextPaint)
-                    canvas.drawText(if (isEnglish) "Credit" else "学分", left + c1Width + c2Width + 6f, y + 12f, boldTextPaint)
-                    canvas.drawText(if (isEnglish) "Score" else "总评成绩", left + c1Width + c2Width + c3Width + 6f, y + 12f, boldTextPaint)
-                    canvas.drawText(if (isEnglish) "GPA" else "绩点", left + c1Width + c2Width + c3Width + c4Width + 6f, y + 12f, boldTextPaint)
-                    canvas.drawText(if (isEnglish) "Semester" else "修读学期", left + c1Width + c2Width + c3Width + c4Width + c5Width + 6f, y + 12f, boldTextPaint)
-                    y += rowHeight
-                }
-
+                // Repeat Header on new page
+                canvas.drawRect(left, y, right, y + rowHeight, headerPaint)
                 canvas.drawRect(left, y, right, y + rowHeight, borderPaint)
-                canvas.drawText(index.toString(), left + 8f, y + 12f, textPaint)
-
-                val cName = if (course.courseName.length > 18) course.courseName.take(17) + "…" else course.courseName
-                canvas.drawText(cName, left + c1Width + 6f, y + 12f, textPaint)
-                canvas.drawText(String.format(Locale.US, "%.1f", course.credit), left + c1Width + c2Width + 6f, y + 12f, textPaint)
-                canvas.drawText(course.overallScore, left + c1Width + c2Width + c3Width + 6f, y + 12f, boldTextPaint)
-                canvas.drawText(String.format(Locale.US, "%.2f", course.gpa), left + c1Width + c2Width + c3Width + c4Width + 6f, y + 12f, textPaint)
-
-                val semShort = course.semesterTitle.replace("学年", "").replace("第", "").replace("学期", "").trim()
-                canvas.drawText(semShort, left + c1Width + c2Width + c3Width + c4Width + c5Width + 6f, y + 12f, textPaint)
-
+                canvas.drawText(if (isEnglish) "No." else "序号", left + 8f, y + 12f, boldTextPaint)
+                canvas.drawText(if (isEnglish) "Course Name" else "课程名称", left + c1Width + 6f, y + 12f, boldTextPaint)
+                canvas.drawText(if (isEnglish) "Credit" else "学分", left + c1Width + c2Width + 6f, y + 12f, boldTextPaint)
+                canvas.drawText(if (isEnglish) "Score" else "总评成绩", left + c1Width + c2Width + c3Width + 6f, y + 12f, boldTextPaint)
+                canvas.drawText(if (isEnglish) "GPA" else "绩点", left + c1Width + c2Width + c3Width + c4Width + 6f, y + 12f, boldTextPaint)
+                canvas.drawText(if (isEnglish) "Semester" else "修读学期", left + c1Width + c2Width + c3Width + c4Width + c5Width + 6f, y + 12f, boldTextPaint)
                 y += rowHeight
-                index++
             }
+
+            canvas.drawRect(left, y, right, y + rowHeight, borderPaint)
+            canvas.drawText(index.toString(), left + 8f, y + 12f, textPaint)
+
+            val cName = if (course.courseName.length > 18) course.courseName.take(17) + "…" else course.courseName
+            canvas.drawText(cName, left + c1Width + 6f, y + 12f, textPaint)
+            canvas.drawText(String.format(Locale.US, "%.1f", course.credit), left + c1Width + c2Width + 6f, y + 12f, textPaint)
+            canvas.drawText(course.overallScore, left + c1Width + c2Width + c3Width + 6f, y + 12f, boldTextPaint)
+            canvas.drawText(String.format(Locale.US, "%.2f", course.gpa), left + c1Width + c2Width + c3Width + c4Width + 6f, y + 12f, textPaint)
+
+            val semShort = course.semesterTitle.replace("学年", "").replace("第", "").replace("学期", "").trim()
+            canvas.drawText(semShort, left + c1Width + c2Width + c3Width + c4Width + c5Width + 6f, y + 12f, textPaint)
+
+            y += rowHeight
+            index++
         }
 
         // Stamp and Date Footer
@@ -255,12 +225,6 @@ object DocumentPdfGenerator {
         destinationFile.parentFile?.mkdirs()
         FileOutputStream(destinationFile).use { out ->
             pdfDocument.writeTo(out)
-            if (docType == GradeDocumentType.RANKING_CERTIFICATE) {
-                val sMajor = profile.major.ifEmpty { "计算机科学与技术" }
-                val sGrade = profile.grade.ifEmpty { "2024" }
-                val metaComment = "\n%USST_RANK:major=$sMajor;grade=${sGrade}级;rank=82;total=97;percentile=85%\n"
-                out.write(metaComment.toByteArray(Charsets.UTF_8))
-            }
         }
         pdfDocument.close()
 

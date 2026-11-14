@@ -37,12 +37,11 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:gravity="center"
-            android:text="计算机科学与技术 2024级"
             android:textColor="@color/text_secondary"
             android:textSize="14sp"
             tools:text="计算机科学与技术 2024级" />
 
-        <!-- Main Ranking Display: 82 /97 in UI primary theme red -->
+        <!-- Main Ranking Display in UI primary theme red -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -55,7 +54,6 @@
                 android:id="@+id/tvRankingNum"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="82"
                 android:textColor="@color/primary"
                 android:textSize="44sp"
                 android:textStyle="bold"
@@ -68,7 +66,6 @@
                 android:layout_marginStart="3dp"
                 android:layout_marginBottom="4dp"
                 android:gravity="bottom"
-                android:text="/97"
                 android:textColor="@color/primary"
                 android:textSize="20sp"
                 android:textStyle="bold"

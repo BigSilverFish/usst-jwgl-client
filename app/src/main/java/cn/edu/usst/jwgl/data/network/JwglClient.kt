@@ -1561,6 +1561,10 @@ object JwglClient {
 
             // Fallback: If server did not directly output raw PDF binary (e.g. outside campus network or print window closed),
             // generate standard PDF document using Android's native PdfDocument
+            if (docType == cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE) {
+                return@withContext Result.failure(java.io.IOException("教务系统暂未生成您的专业排名证明或当前不在开放期"))
+            }
+
             val cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(context)
             val profile = cacheManager.getProfile() ?: cn.edu.usst.jwgl.data.model.StudentProfile(studentId = effectiveStudentId)
             val grades = cacheManager.getGrades() ?: fetchGrades(context).getOrNull()
