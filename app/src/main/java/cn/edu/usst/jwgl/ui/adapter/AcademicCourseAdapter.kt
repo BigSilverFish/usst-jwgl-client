@@ -73,20 +73,24 @@ class AcademicCourseAdapter : ListAdapter<AcademicCourse, AcademicCourseAdapter.
         }
 
         private fun getStatusColors(context: Context, item: AcademicCourse): Pair<Int, Int> {
-            return when (item.status) {
-                "passed" -> Pair(
+            return when {
+                item.isPassed -> Pair(
                     ContextCompat.getColor(context, R.color.grade_green_bg),
                     ContextCompat.getColor(context, R.color.grade_green_text)
                 )
-                "inProgress" -> Pair(
+                item.isInProgress -> Pair(
                     ContextCompat.getColor(context, R.color.primary_container),
                     ContextCompat.getColor(context, R.color.primary)
                 )
-                "failed" -> Pair(
+                item.isFailed -> Pair(
                     ContextCompat.getColor(context, R.color.grade_red_bg),
                     ContextCompat.getColor(context, R.color.grade_red_text)
                 )
-                "notStarted" -> Pair(
+                item.isSubstituted -> Pair(
+                    ContextCompat.getColor(context, R.color.grade_blue_bg),
+                    ContextCompat.getColor(context, R.color.grade_blue_text)
+                )
+                item.isNotStarted -> Pair(
                     ContextCompat.getColor(context, R.color.surface_variant),
                     ContextCompat.getColor(context, R.color.text_secondary)
                 )

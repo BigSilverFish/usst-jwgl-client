@@ -729,10 +729,11 @@ class GradesFragment : Fragment() {
             text = course.statusLabel
             textSize = 10.5f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            val (bgColor, textColor) = when (course.status) {
-                "passed" -> Pair(ContextCompat.getColor(ctx, R.color.grade_green_bg), ContextCompat.getColor(ctx, R.color.grade_green_text))
-                "inProgress" -> Pair(ContextCompat.getColor(ctx, R.color.primary_container), ContextCompat.getColor(ctx, R.color.primary))
-                "failed" -> Pair(ContextCompat.getColor(ctx, R.color.grade_red_bg), ContextCompat.getColor(ctx, R.color.grade_red_text))
+            val (bgColor, textColor) = when {
+                course.isPassed -> Pair(ContextCompat.getColor(ctx, R.color.grade_green_bg), ContextCompat.getColor(ctx, R.color.grade_green_text))
+                course.isInProgress -> Pair(ContextCompat.getColor(ctx, R.color.primary_container), ContextCompat.getColor(ctx, R.color.primary))
+                course.isFailed -> Pair(ContextCompat.getColor(ctx, R.color.grade_red_bg), ContextCompat.getColor(ctx, R.color.grade_red_text))
+                course.isSubstituted -> Pair(ContextCompat.getColor(ctx, R.color.grade_blue_bg), ContextCompat.getColor(ctx, R.color.grade_blue_text))
                 else -> Pair(ContextCompat.getColor(ctx, R.color.surface_variant), ContextCompat.getColor(ctx, R.color.text_secondary))
             }
             val d = android.graphics.drawable.GradientDrawable().apply {

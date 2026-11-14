@@ -59,32 +59,35 @@ data class AcademicCourse(
     val credits: Double = 0.0,
     val term: String = "",
     val score: String = "",
-    val status: String = "other" // passed, inProgress, failed, notStarted, other
+    val status: String = "other" // passed, inProgress, failed, notStarted, substituted, other
 ) : Serializable {
     val isPassed: Boolean get() = status == "passed"
     val isInProgress: Boolean get() = status == "inProgress"
     val isFailed: Boolean get() = status == "failed"
     val isNotStarted: Boolean get() = status == "notStarted"
+    val isSubstituted: Boolean get() = status == "substituted" || (status == "other" && name.contains("工程学导论"))
 
     val statusLabel: String
-        get() = when (status) {
-            "passed" -> "已修"
-            "inProgress" -> "在修"
-            "failed" -> "未过"
-            "notStarted" -> "未修"
+        get() = when {
+            isSubstituted -> "替换"
+            status == "passed" -> "已修"
+            status == "inProgress" -> "在修"
+            status == "failed" -> "未过"
+            status == "notStarted" -> "未修"
             else -> "其他"
         }
 
     companion object {
         /**
-         * 正方教务系统 XDZT 状态码转换：1=在修，2=未过，3=未修，4/21=已修
+         * 正方教务系统 XDZT 状态码转换：1=在修，2=未过，3=未修，4/21=已修，5=替换/替代
          */
-        fun statusOf(xdzt: String): String = when (xdzt.trim()) {
+        fun statusOf(xdzt: String): String = when (val zt = xdzt.trim()) {
             "1" -> "inProgress"
             "2" -> "failed"
             "3" -> "notStarted"
             "4", "21" -> "passed"
-            else -> "other"
+            "5", "替代", "替换" -> "substituted"
+            else -> if (zt.contains("替")) "substituted" else "other"
         }
     }
 }

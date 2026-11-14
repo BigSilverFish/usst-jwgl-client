@@ -50,12 +50,13 @@ class AcademicProgressParserTest {
                 {"KCMC":"高等数学(1)","KCH":"MATH1001","XF":"5.0","XDZT":"4","CJ":"92","XNMC":"2025-2026","XQMMC":"1"},
                 {"KCMC":"大学物理","KCH":"PHYS1001","XF":"3","XDZT":"1","XNMC":"2026-2027","XQMMC":"1"},
                 {"KCMC":"电路原理","KCH":"EE2001","XF":"4","XDZT":"2","MAXCJ":"55"},
-                {"KCMC":"数字逻辑","KCH":"CS2001","XF":"3.5","XDZT":"3"}
+                {"KCMC":"数字逻辑","KCH":"CS2001","XF":"3.5","XDZT":"3"},
+                {"KCMC":"工程学导论(2组)","KCH":"12004460","XF":"1.0","XDZT":"5","CJ":"90"}
             ]
         """.trimIndent()
 
         val list = JwglClient.parseAcademicCourses(json)
-        assertEquals(4, list.size)
+        assertEquals(5, list.size)
 
         assertEquals("高等数学(1)", list[0].name)
         assertEquals(5.0, list[0].credits, 0.001)
@@ -72,5 +73,11 @@ class AcademicProgressParserTest {
 
         assertEquals("未修", list[3].statusLabel)
         assertTrue(list[3].isNotStarted)
+
+        assertEquals("工程学导论(2组)", list[4].name)
+        assertEquals(1.0, list[4].credits, 0.001)
+        assertEquals("替换", list[4].statusLabel)
+        assertEquals("90", list[4].score)
+        assertTrue(list[4].isSubstituted)
     }
 }
