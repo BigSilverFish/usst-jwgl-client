@@ -2370,7 +2370,7 @@ class TronClassFragment : Fragment() {
         }
     }
 
-    private fun triggerSmartRollcall() {
+    fun triggerSmartRollcall() {
         val active = allUnifiedActiveRollcalls.firstOrNull()
         if (active != null) {
             if (active.platform.isChaoXing && active.rawChaoXingSign != null) {

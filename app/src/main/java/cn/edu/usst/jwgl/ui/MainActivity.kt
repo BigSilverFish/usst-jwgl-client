@@ -1076,6 +1076,13 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity::class.java))
         }
 
+        if (intent.getBooleanExtra("extra_trigger_smart_rollcall", false)) {
+            switchTab(MainTab.TRONCLASS)
+            binding.root.postDelayed({
+                getTronClassFragment()?.triggerSmartRollcall()
+            }, 300)
+        }
+
         val week = intent.getIntExtra("extra_week", -1)
         if (week > 0) {
             val maxW = currentTable?.maxWeek ?: 25

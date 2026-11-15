@@ -130,6 +130,18 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             updatePreview()
         }
 
+        binding.switchShowPortalTodos.isChecked = currentConfig.showPortalTodos
+        binding.switchShowPortalTodos.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig = currentConfig.copy(showPortalTodos = isChecked)
+            updatePreview()
+        }
+
+        binding.switchShowQuickSign.isChecked = currentConfig.showQuickSign
+        binding.switchShowQuickSign.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig = currentConfig.copy(showQuickSign = isChecked)
+            updatePreview()
+        }
+
         // 4. 保存按钮
         binding.btnSave.setOnClickListener {
             saveAndApply()
@@ -180,6 +192,8 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         binding.tvPreviewCourse2Time.visibility = if (currentConfig.showTimeRange) View.VISIBLE else View.GONE
 
         binding.llPreviewDateNav.visibility = if (currentConfig.allowDateSwitching) View.VISIBLE else View.GONE
+        binding.tvPreviewQuickSign.visibility = if (currentConfig.showQuickSign) View.VISIBLE else View.GONE
+        binding.tvPreviewCourse1TodoBadge.visibility = if (currentConfig.showPortalTodos) View.VISIBLE else View.GONE
 
         // ===== 2. 下一节课形态预览 =====
         binding.viewPreviewNextDivider.setBackgroundColor(dividerColor)
@@ -190,6 +204,8 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         binding.llPreviewNextRoomRow.visibility = if (currentConfig.showRoom) View.VISIBLE else View.GONE
         binding.tvPreviewNextTime.visibility = if (currentConfig.showTimeRange) View.VISIBLE else View.GONE
         binding.tvPreviewNextTeacher.visibility = if (currentConfig.showTeacher) View.VISIBLE else View.GONE
+        binding.tvPreviewNextQuickSign.visibility = if (currentConfig.showQuickSign) View.VISIBLE else View.GONE
+        binding.llPreviewNextTodoRow.visibility = if (currentConfig.showPortalTodos) View.VISIBLE else View.GONE
     }
 
     private fun saveAndApply() {

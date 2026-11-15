@@ -152,12 +152,25 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginStart="4dp"
-                            android:layout_marginEnd="8dp"
+                            android:layout_marginEnd="6dp"
                             android:background="@drawable/bg_widget_badge"
                             android:paddingHorizontal="6dp"
                             android:paddingVertical="2dp"
                             android:text="共 2 门课"
                             android:textColor="@color/badge_text"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvPreviewQuickSign"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="6dp"
+                            android:background="@drawable/bg_widget_sign_pill"
+                            android:paddingHorizontal="6dp"
+                            android:paddingVertical="2dp"
+                            android:text="⚡ 签到"
+                            android:textColor="@color/on_primary"
                             android:textSize="10sp"
                             android:textStyle="bold" />
 
@@ -239,6 +252,19 @@
                                 android:text="张教授"
                                 android:textColor="@color/text_tertiary"
                                 android:textSize="10sp" />
+
+                            <TextView
+                                android:id="@+id/tvPreviewCourse1TodoBadge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:background="@drawable/bg_widget_urgent_badge"
+                                android:paddingHorizontal="4dp"
+                                android:paddingVertical="1dp"
+                                android:text="📝 待办"
+                                android:textColor="#B91C1C"
+                                android:textSize="9sp"
+                                android:textStyle="bold" />
                         </LinearLayout>
                     </LinearLayout>
 
@@ -336,6 +362,19 @@
                             android:textSize="11sp"
                             android:textStyle="bold" />
 
+                        <TextView
+                            android:id="@+id/tvPreviewNextQuickSign"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="6dp"
+                            android:background="@drawable/bg_widget_sign_pill"
+                            android:paddingHorizontal="6dp"
+                            android:paddingVertical="2dp"
+                            android:text="⚡ 签到"
+                            android:textColor="@color/on_primary"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+
                         <ImageView
                             android:layout_width="18dp"
                             android:layout_height="18dp"
@@ -402,6 +441,29 @@
                         android:text="主讲: 张教授"
                         android:textColor="@color/text_tertiary"
                         android:textSize="10sp" />
+
+                    <LinearLayout
+                        android:id="@+id/llPreviewNextTodoRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_widget_urgent_badge"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="6dp"
+                        android:paddingVertical="3dp">
+
+                        <TextView
+                            android:id="@+id/tvPreviewNextTodo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="📝 待办: 习题册第三章作业 · 还有 5小时截止"
+                            android:textColor="#B91C1C"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
                 </LinearLayout>
 
@@ -585,6 +647,22 @@
                         android:layout_height="wrap_content"
                         android:checked="true"
                         android:text="开启微件精致描边 (增强各种桌面壁纸辨识度)"
+                        android:textColor="@color/text_primary" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchShowPortalTodos"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="显示课程待交作业提示 (关联畅课/超星)"
+                        android:textColor="@color/text_primary" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchShowQuickSign"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="显示顶部课堂快速签到入口 (一键签到)"
                         android:textColor="@color/text_primary" />
 
                 </LinearLayout>

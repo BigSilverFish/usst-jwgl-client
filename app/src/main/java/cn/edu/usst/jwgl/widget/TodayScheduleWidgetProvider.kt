@@ -36,6 +36,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
         private const val REQUEST_CODE_PREV = 2003
         private const val REQUEST_CODE_NEXT = 2004
         private const val REQUEST_CODE_RESET = 2005
+        private const val REQUEST_CODE_SIGN = 2006
 
         fun updateAllWidgets(context: Context) {
             val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
@@ -244,6 +245,24 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                 pendingFlags
             )
             views.setOnClickPendingIntent(R.id.btnWidgetRefresh, refreshPendingIntent)
+
+            // 9. 课程门户：快速签到入口
+            if (config.showQuickSign) {
+                views.setViewVisibility(R.id.btnWidgetQuickSign, View.VISIBLE)
+                val signIntent = Intent(context, MainActivity::class.java).apply {
+                    putExtra("extra_trigger_smart_rollcall", true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                val signPendingIntent = PendingIntent.getActivity(
+                    context,
+                    REQUEST_CODE_SIGN + appWidgetId * 10,
+                    signIntent,
+                    pendingFlags
+                )
+                views.setOnClickPendingIntent(R.id.btnWidgetQuickSign, signPendingIntent)
+            } else {
+                views.setViewVisibility(R.id.btnWidgetQuickSign, View.GONE)
+            }
 
             // Notify data changed and update widget
             appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.lvWidgetCourses)

@@ -28,6 +28,8 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
         const val ACTION_REFRESH_NEXT_COURSE = "cn.edu.usst.jwgl.widget.ACTION_REFRESH_NEXT_COURSE"
         private const val REQUEST_CODE_OPEN_APP = 3001
         private const val REQUEST_CODE_REFRESH = 3002
+        private const val REQUEST_CODE_OPEN_TODO = 3003
+        private const val REQUEST_CODE_QUICK_SIGN = 3004
 
         fun updateAllWidgets(context: Context) {
             val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
@@ -54,6 +56,7 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
             val dayOfWeek = nowCal.get(Calendar.DAY_OF_WEEK)
             val dayNumber = if (dayOfWeek == Calendar.SUNDAY) 7 else (dayOfWeek - 1)
             val nowMinutes = nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE)
+            val nowMs = System.currentTimeMillis()
 
             var isHoliday = false
             var holidayName = ""
@@ -172,7 +175,20 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
             views.setTextColor(R.id.tvNextTime, secondaryTextColor)
             views.setTextColor(R.id.tvNextTeacher, tertiaryTextColor)
 
-            // 2. 绑定内容或空状态
+            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+
+            // 2. 课程门户：读取待办作业数据
+            val activeTodos = if (config.showPortalTodos) {
+                WidgetConfig.loadActivePortalTodos(context)
+            } else {
+                emptyList()
+            }
+
+            // 3. 绑定内容或空状态
             if (targetCourse != null) {
                 views.setViewVisibility(R.id.llNextCourseContent, View.VISIBLE)
                 views.setViewVisibility(R.id.llNextEmptyState, View.GONE)
@@ -194,6 +210,35 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.tvNextTeacher, "主讲: $teacher")
                 views.setViewVisibility(R.id.tvNextTeacher, if (config.showTeacher) View.VISIBLE else View.GONE)
 
+                // 课程门户：匹配当前课程的待办作业
+                val matchedTodo = if (config.showPortalTodos) {
+                    activeTodos.find { 
+                        WidgetConfig.matchesCourseName(it.cleanCourseName, targetCourse.courseName) ||
+                        WidgetConfig.matchesCourseName(it.courseName, targetCourse.courseName)
+                    }
+                } else null
+
+                if (matchedTodo != null) {
+                    val remainingStr = matchedTodo.getRemainingTimeText()
+                    views.setTextViewText(R.id.tvNextTodo, "📝 待办: ${matchedTodo.cleanTitle} · $remainingStr")
+                    views.setViewVisibility(R.id.llNextTodoRow, View.VISIBLE)
+
+                    // 点击待办行直达课程门户页面
+                    val todoIntent = Intent(context, MainActivity::class.java).apply {
+                        putExtra(MainActivity.EXTRA_TAB, 8) // MainTab.TRONCLASS
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    val todoPi = PendingIntent.getActivity(
+                        context,
+                        REQUEST_CODE_OPEN_TODO + appWidgetId * 10,
+                        todoIntent,
+                        pendingFlags
+                    )
+                    views.setOnClickPendingIntent(R.id.llNextTodoRow, todoPi)
+                } else {
+                    views.setViewVisibility(R.id.llNextTodoRow, View.GONE)
+                }
+
             } else {
                 // 空状态
                 views.setViewVisibility(R.id.llNextCourseContent, View.GONE)
@@ -212,27 +257,63 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
                     views.setTextViewText(R.id.tvNextEmptyTitle, "今天没有课程安排")
                     views.setTextViewText(R.id.tvNextEmptySubtitle, "自由学习或休息放松一下吧~")
                 }
+
+                // 课程门户：空状态下若有临近待办，进行学业提醒 (48小时内)
+                val urgentTodo = if (config.showPortalTodos) {
+                    activeTodos.firstOrNull { it.deadlineMillis == null || (it.deadlineMillis - nowMs) < 48 * 3600 * 1000L }
+                } else null
+
+                if (urgentTodo != null) {
+                    views.setTextViewText(R.id.tvNextEmptyTodo, "⚠️ 待办: 【${urgentTodo.cleanCourseName}】${urgentTodo.cleanTitle} · ${urgentTodo.getRemainingTimeText()}")
+                    views.setViewVisibility(R.id.tvNextEmptyTodo, View.VISIBLE)
+                    val emptyTodoIntent = Intent(context, MainActivity::class.java).apply {
+                        putExtra(MainActivity.EXTRA_TAB, 8)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    val emptyTodoPi = PendingIntent.getActivity(
+                        context,
+                        REQUEST_CODE_OPEN_TODO + appWidgetId * 10 + 1,
+                        emptyTodoIntent,
+                        pendingFlags
+                    )
+                    views.setOnClickPendingIntent(R.id.tvNextEmptyTodo, emptyTodoPi)
+                } else {
+                    views.setViewVisibility(R.id.tvNextEmptyTodo, View.GONE)
+                }
             }
 
-            // 3. 点击卡片打开课表
+            // 4. 课程门户：快速签到入口按钮
+            if (config.showQuickSign) {
+                views.setViewVisibility(R.id.btnNextQuickSign, View.VISIBLE)
+                val signIntent = Intent(context, MainActivity::class.java).apply {
+                    putExtra("extra_trigger_smart_rollcall", true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                val signPi = PendingIntent.getActivity(
+                    context,
+                    REQUEST_CODE_QUICK_SIGN + appWidgetId * 10,
+                    signIntent,
+                    pendingFlags
+                )
+                views.setOnClickPendingIntent(R.id.btnNextQuickSign, signPi)
+            } else {
+                views.setViewVisibility(R.id.btnNextQuickSign, View.GONE)
+            }
+
+            // 5. 点击微件卡片空白区域打开课表
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_TAB, 1)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             val openAppPendingIntent = PendingIntent.getActivity(
                 context,
                 REQUEST_CODE_OPEN_APP + appWidgetId * 10,
                 openAppIntent,
-                flags
+                pendingFlags
             )
             views.setOnClickPendingIntent(R.id.llNextWidgetRoot, openAppPendingIntent)
 
-            // 4. 刷新按钮 Intent
+            // 6. 刷新按钮 Intent
             val refreshIntent = Intent(context, NextCourseWidgetProvider::class.java).apply {
                 action = ACTION_REFRESH_NEXT_COURSE
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
@@ -241,7 +322,7 @@ class NextCourseWidgetProvider : AppWidgetProvider() {
                 context,
                 REQUEST_CODE_REFRESH + appWidgetId * 10,
                 refreshIntent,
-                flags
+                pendingFlags
             )
             views.setOnClickPendingIntent(R.id.btnNextRefresh, refreshPendingIntent)
 

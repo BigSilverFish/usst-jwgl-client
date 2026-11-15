@@ -2,6 +2,10 @@ package cn.edu.usst.jwgl.widget
 
 import android.content.Context
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.AuthPreferences
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
+import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.data.model.UnifiedTodo
 import com.google.gson.Gson
 
 data class WidgetConfig(
@@ -12,13 +16,47 @@ data class WidgetConfig(
     val showTimeRange: Boolean = true,      // 是否显示具体时间段(如 08:00-09:35)
     val hidePastCourses: Boolean = false,   // 是否隐藏已结束课程
     val allowDateSwitching: Boolean = true, // 是否允许在微件上切换日期(前一天/后一天)
-    val showBorder: Boolean = true          // 是否开启精致边缘描边(增强各壁纸下的辨识度)
+    val showBorder: Boolean = true,         // 是否开启精致边缘描边(增强各壁纸下的辨识度)
+    val showPortalTodos: Boolean = true,    // 是否在微件中展示课程门户待交作业提示
+    val showQuickSign: Boolean = true       // 是否在微件顶部展示课堂签到快捷入口
 ) {
     companion object {
         const val THEME_AUTO = 0
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
         const val THEME_TRANSPARENT = 3
+
+        fun matchesCourseName(todoCourseName: String, tableCourseName: String): Boolean {
+            val clean1 = todoCourseName.replace(Regex("[（(].*?[）)]"), "")
+                .replace(Regex("[0-9一二三四五六七八九十]+$"), "")
+                .replace(" ", "").trim()
+            val clean2 = tableCourseName.replace(Regex("[（(].*?[）)]"), "")
+                .replace(Regex("[0-9一二三四五六七八九十]+$"), "")
+                .replace(" ", "").trim()
+            return clean1.isNotEmpty() && clean2.isNotEmpty() && (clean1.contains(clean2) || clean2.contains(clean1))
+        }
+
+        fun loadActivePortalTodos(context: Context): List<UnifiedTodo> {
+            val list = mutableListOf<UnifiedTodo>()
+            val nowMs = System.currentTimeMillis()
+            try {
+                val account = AuthPreferences.currentStudentId(context)
+                // 1. 超星待办
+                val cxTodos = ChaoXingPreferences(context).getCachedTodos(account)
+                    .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
+                list.addAll(cxTodos)
+
+                // 2. 畅课待办
+                val tcTodos = TronClassDataCacheManager(context).getCachedTodos()
+                    .filterNot { it.isOverdue() || it.isLocked }
+                    .map { UnifiedTodo.fromTronClass(it) }
+                list.addAll(tcTodos)
+            } catch (_: Exception) {
+            }
+
+            return list.filter { it.deadlineMillis == null || it.deadlineMillis > nowMs }
+                .sortedBy { it.deadlineMillis ?: Long.MAX_VALUE }
+        }
     }
 
     fun getBackgroundResId(isDark: Boolean): Int {
