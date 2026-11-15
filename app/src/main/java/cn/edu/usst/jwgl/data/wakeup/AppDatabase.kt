@@ -40,13 +40,21 @@ class AppDatabase private constructor(context: Context, val dbName: String = DAT
             val dbName = getDatabaseName(targetStudentId)
 
             return instances.computeIfAbsent(dbName) {
-                // 如果是新分桶数据库但文件不存在，若历史的全局 wakeup.db 存在且有数据，自动复制一份历史数据保证平滑迁移
-                if (dbName != DATABASE_NAME) {
+                // 仅当老版本单账号数据库迁移，且目标学号确实为老数据主人时才可单次平滑迁移，严禁无差别复制给其他新账号
+                if (dbName != DATABASE_NAME && targetStudentId.isNotEmpty()) {
                     try {
                         val newDbFile = appCtx.getDatabasePath(dbName)
                         val legacyDbFile = appCtx.getDatabasePath(DATABASE_NAME)
-                        if (!newDbFile.exists() && legacyDbFile.exists() && legacyDbFile.length() > 0) {
+                        val legacyOwner = try {
+                            val authPrefs = appCtx.getSharedPreferences("usst_jwgl_auth", Context.MODE_PRIVATE)
+                            authPrefs.getString("auth_student_id", null) ?: authPrefs.getString("student_id", null)
+                        } catch (_: Exception) { null }
+                        val migrationPrefs = appCtx.getSharedPreferences("wakeup_migration", Context.MODE_PRIVATE)
+                        val hasMigrated = migrationPrefs.getBoolean("has_migrated_legacy_db", false)
+
+                        if (!hasMigrated && !newDbFile.exists() && legacyDbFile.exists() && legacyDbFile.length() > 0 && legacyOwner == targetStudentId) {
                             legacyDbFile.copyTo(newDbFile, overwrite = false)
+                            migrationPrefs.edit().putBoolean("has_migrated_legacy_db", true).apply()
                         }
                     } catch (e: Exception) {
                         android.util.Log.w("AppDatabase", "Failed to migrate legacy wakeup.db to $dbName", e)

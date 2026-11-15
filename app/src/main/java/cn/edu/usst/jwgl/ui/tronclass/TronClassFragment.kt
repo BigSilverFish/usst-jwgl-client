@@ -1252,19 +1252,17 @@ class TronClassFragment : Fragment() {
         updateCourseTabBadge(0)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            // 3. 若新账号已有畅课会话，则拉取新数据；若无会话，则尝试预热超星并拉取
-            if (tronClassClient.isLoggedIn()) {
-                loadTronClassData(forceRefresh = true, silent = true)
-            } else {
-                withContext(Dispatchers.IO) {
-                    try {
-                        chaoXingClient.loginWithCasSso()
-                    } catch (_: Exception) {}
-                }
-                if (chaoXingClient.isLoggedIn()) {
-                    loadTronClassData(forceRefresh = true, silent = true)
-                }
+            // 3. 在后台为新账号探活或全静默建立专属 TronClass 与超星学习通会话
+            withContext(Dispatchers.IO) {
+                try {
+                    tronClassClient.ensureSessionForAccount(newStudentId)
+                } catch (_: Exception) {}
+                try {
+                    chaoXingClient.silentLoginChaoXing(newStudentId)
+                } catch (_: Exception) {}
             }
+            // 4. 加载并呈现新账号数据
+            loadTronClassData(forceRefresh = true, silent = true)
         }
     }
 

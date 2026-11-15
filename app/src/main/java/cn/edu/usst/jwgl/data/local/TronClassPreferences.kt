@@ -33,33 +33,48 @@ class TronClassPreferences(private val context: Context) {
     }
 
     private fun migratePlaintextTokensIfNeeded() {
-        if (prefs.contains(KEY_SESSION_ID) || prefs.contains(KEY_REFRESH_TOKEN)) {
-            val oldSessionId = prefs.getString(KEY_SESSION_ID, null)
-            val oldRefreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
-            val oldUserId = prefs.getLong(KEY_USER_ID, 0L)
-            val oldUserName = prefs.getString(KEY_USER_NAME, null)
-            val oldUserNo = prefs.getString(KEY_USER_NO, null)
-            val oldUserEmail = prefs.getString(KEY_USER_EMAIL, null)
+        val legacyUserNo = prefs.getString(KEY_USER_NO, null) ?: securePrefs.getString(KEY_USER_NO, null)
+        val legacySessionId = prefs.getString(KEY_SESSION_ID, null) ?: securePrefs.getString(KEY_SESSION_ID, null)
 
-            val prefix = getAccountPrefix(oldUserNo)
+        if (!legacySessionId.isNullOrBlank()) {
+            val targetStudentId = legacyUserNo?.takeIf { it.isNotBlank() }
+                ?: try { AuthPreferences.currentStudentId(context) } catch (_: Exception) { "" }
 
+            if (targetStudentId.isNotBlank()) {
+                val prefix = getAccountPrefix(targetStudentId)
+                val oldRefreshToken = prefs.getString(KEY_REFRESH_TOKEN, null) ?: securePrefs.getString(KEY_REFRESH_TOKEN, null)
+                val oldUserId = prefs.getLong(KEY_USER_ID, 0L).let { if (it > 0) it else securePrefs.getLong(KEY_USER_ID, 0L) }
+                val oldUserName = prefs.getString(KEY_USER_NAME, null) ?: securePrefs.getString(KEY_USER_NAME, null)
+                val oldUserEmail = prefs.getString(KEY_USER_EMAIL, null) ?: securePrefs.getString(KEY_USER_EMAIL, null)
+
+                securePrefs.edit().apply {
+                    putString(prefix + KEY_SESSION_ID, legacySessionId)
+                    if (!oldRefreshToken.isNullOrBlank()) putString(prefix + KEY_REFRESH_TOKEN, oldRefreshToken)
+                    if (oldUserId > 0) putLong(prefix + KEY_USER_ID, oldUserId)
+                    if (!oldUserName.isNullOrBlank()) putString(prefix + KEY_USER_NAME, oldUserName)
+                    if (!legacyUserNo.isNullOrBlank()) putString(prefix + KEY_USER_NO, legacyUserNo)
+                    if (!oldUserEmail.isNullOrBlank()) putString(prefix + KEY_USER_EMAIL, oldUserEmail)
+                }.apply()
+            }
+
+            // 彻底抹除全局无前缀遗留，防止跨账号读取污染
             securePrefs.edit().apply {
-                if (!oldSessionId.isNullOrBlank()) putString(prefix + KEY_SESSION_ID, oldSessionId)
-                if (!oldRefreshToken.isNullOrBlank()) putString(prefix + KEY_REFRESH_TOKEN, oldRefreshToken)
-                if (oldUserId > 0) putLong(prefix + KEY_USER_ID, oldUserId)
-                if (!oldUserName.isNullOrBlank()) putString(prefix + KEY_USER_NAME, oldUserName)
-                if (!oldUserNo.isNullOrBlank()) putString(prefix + KEY_USER_NO, oldUserNo)
-                if (!oldUserEmail.isNullOrBlank()) putString(prefix + KEY_USER_EMAIL, oldUserEmail)
+                remove(KEY_SESSION_ID)
+                remove(KEY_REFRESH_TOKEN)
+                remove(KEY_USER_ID)
+                remove(KEY_USER_NAME)
+                remove(KEY_USER_NO)
+                remove(KEY_USER_EMAIL)
             }.apply()
 
-            prefs.edit()
-                .remove(KEY_SESSION_ID)
-                .remove(KEY_REFRESH_TOKEN)
-                .remove(KEY_USER_ID)
-                .remove(KEY_USER_NAME)
-                .remove(KEY_USER_NO)
-                .remove(KEY_USER_EMAIL)
-                .apply()
+            prefs.edit().apply {
+                remove(KEY_SESSION_ID)
+                remove(KEY_REFRESH_TOKEN)
+                remove(KEY_USER_ID)
+                remove(KEY_USER_NAME)
+                remove(KEY_USER_NO)
+                remove(KEY_USER_EMAIL)
+            }.apply()
         }
     }
 
@@ -181,16 +196,7 @@ class TronClassPreferences(private val context: Context) {
 
     fun getSessionId(studentId: String? = null): String? {
         val prefix = getAccountPrefix(studentId)
-        val key = prefix + KEY_SESSION_ID
-        var sid = securePrefs.getString(key, null)
-        if (sid.isNullOrBlank() && prefix.isNotEmpty()) {
-            // 兼容老版本未分桶的 Key
-            sid = securePrefs.getString(KEY_SESSION_ID, null)
-            if (!sid.isNullOrBlank()) {
-                securePrefs.edit().putString(key, sid).apply()
-            }
-        }
-        return sid
+        return securePrefs.getString(prefix + KEY_SESSION_ID, null)
     }
 
     fun setSessionId(sessionId: String?, studentId: String? = null) {
@@ -200,15 +206,7 @@ class TronClassPreferences(private val context: Context) {
 
     fun getRefreshToken(studentId: String? = null): String? {
         val prefix = getAccountPrefix(studentId)
-        val key = prefix + KEY_REFRESH_TOKEN
-        var token = securePrefs.getString(key, null)
-        if (token.isNullOrBlank() && prefix.isNotEmpty()) {
-            token = securePrefs.getString(KEY_REFRESH_TOKEN, null)
-            if (!token.isNullOrBlank()) {
-                securePrefs.edit().putString(key, token).apply()
-            }
-        }
-        return token
+        return securePrefs.getString(prefix + KEY_REFRESH_TOKEN, null)
     }
 
     fun setRefreshToken(token: String?, studentId: String? = null) {
@@ -218,16 +216,7 @@ class TronClassPreferences(private val context: Context) {
 
     fun getUserId(studentId: String? = null): Long {
         val prefix = getAccountPrefix(studentId)
-        val key = prefix + KEY_USER_ID
-        val uid = securePrefs.getLong(key, 0L)
-        if (uid <= 0L && prefix.isNotEmpty()) {
-            val legacy = securePrefs.getLong(KEY_USER_ID, 0L)
-            if (legacy > 0L) {
-                securePrefs.edit().putLong(key, legacy).apply()
-                return legacy
-            }
-        }
-        return uid
+        return securePrefs.getLong(prefix + KEY_USER_ID, 0L)
     }
 
     fun setUserId(userId: Long, studentId: String? = null) {
@@ -237,15 +226,7 @@ class TronClassPreferences(private val context: Context) {
 
     fun getUserName(studentId: String? = null): String? {
         val prefix = getAccountPrefix(studentId)
-        val key = prefix + KEY_USER_NAME
-        var name = securePrefs.getString(key, null)
-        if (name.isNullOrBlank() && prefix.isNotEmpty()) {
-            name = securePrefs.getString(KEY_USER_NAME, null)
-            if (!name.isNullOrBlank()) {
-                securePrefs.edit().putString(key, name).apply()
-            }
-        }
-        return name
+        return securePrefs.getString(prefix + KEY_USER_NAME, null)
     }
 
     fun setUserName(name: String?, studentId: String? = null) {
@@ -255,15 +236,7 @@ class TronClassPreferences(private val context: Context) {
 
     fun getUserNo(studentId: String? = null): String? {
         val prefix = getAccountPrefix(studentId)
-        val key = prefix + KEY_USER_NO
-        var userNo = securePrefs.getString(key, null)
-        if (userNo.isNullOrBlank() && prefix.isNotEmpty()) {
-            userNo = securePrefs.getString(KEY_USER_NO, null)
-            if (!userNo.isNullOrBlank()) {
-                securePrefs.edit().putString(key, userNo).apply()
-            }
-        }
-        return userNo
+        return securePrefs.getString(prefix + KEY_USER_NO, null)
     }
 
     fun setUserNo(userNo: String?, studentId: String? = null) {
@@ -273,15 +246,7 @@ class TronClassPreferences(private val context: Context) {
 
     fun getUserEmail(studentId: String? = null): String? {
         val prefix = getAccountPrefix(studentId)
-        val key = prefix + KEY_USER_EMAIL
-        var email = securePrefs.getString(key, null)
-        if (email.isNullOrBlank() && prefix.isNotEmpty()) {
-            email = securePrefs.getString(KEY_USER_EMAIL, null)
-            if (!email.isNullOrBlank()) {
-                securePrefs.edit().putString(key, email).apply()
-            }
-        }
-        return email
+        return securePrefs.getString(prefix + KEY_USER_EMAIL, null)
     }
 
     fun setUserEmail(email: String?, studentId: String? = null) {
@@ -336,6 +301,8 @@ class TronClassPreferences(private val context: Context) {
 
     fun clearSession(studentId: String? = null) {
         val prefix = getAccountPrefix(studentId)
+        val curId = try { AuthPreferences.currentStudentId(context) } catch (_: Exception) { "" }
+        val isCurrentOrEmpty = prefix.isEmpty() || (studentId == null || studentId == curId)
         securePrefs.edit().apply {
             remove(prefix + KEY_SESSION_ID)
             remove(prefix + KEY_REFRESH_TOKEN)
@@ -343,7 +310,7 @@ class TronClassPreferences(private val context: Context) {
             remove(prefix + KEY_USER_NAME)
             remove(prefix + KEY_USER_NO)
             remove(prefix + KEY_USER_EMAIL)
-            if (prefix.isEmpty()) {
+            if (isCurrentOrEmpty) {
                 remove(KEY_SESSION_ID)
                 remove(KEY_REFRESH_TOKEN)
                 remove(KEY_USER_ID)
@@ -362,7 +329,7 @@ class TronClassPreferences(private val context: Context) {
             remove(prefix + KEY_USER_EMAIL)
             remove(prefix + KEY_CACHED_TODOS)
             remove(prefix + KEY_CACHED_COURSES)
-            if (prefix.isEmpty()) {
+            if (isCurrentOrEmpty) {
                 remove(KEY_SESSION_ID)
                 remove(KEY_REFRESH_TOKEN)
                 remove(KEY_USER_ID)
@@ -572,7 +539,6 @@ class TronClassPreferences(private val context: Context) {
     fun getAllCustomSemesters(studentId: String? = null): Map<String, String> {
         val prefix = getAccountPrefix(studentId)
         val json = prefs.getString(prefix + KEY_CUSTOM_SEMESTERS, null)
-            ?: prefs.getString(KEY_CUSTOM_SEMESTERS, null)
             ?: return emptyMap()
         return try {
             val type = object : TypeToken<Map<String, String>>() {}.type
@@ -601,9 +567,7 @@ class TronClassPreferences(private val context: Context) {
             val json = gson.toJson(bindings)
             prefs.edit()
                 .putString(prefix + KEY_MANUAL_COURSE_BINDINGS, json)
-                .putString(KEY_MANUAL_COURSE_BINDINGS, json)
                 .putStringSet(prefix + KEY_UNBOUND_COURSE_PAIRS, unbounds)
-                .putStringSet(KEY_UNBOUND_COURSE_PAIRS, unbounds)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "bindCourses error", e)
@@ -633,9 +597,7 @@ class TronClassPreferences(private val context: Context) {
             val json = gson.toJson(bindings)
             prefs.edit()
                 .putString(prefix + KEY_MANUAL_COURSE_BINDINGS, json)
-                .putString(KEY_MANUAL_COURSE_BINDINGS, json)
                 .putStringSet(prefix + KEY_UNBOUND_COURSE_PAIRS, unbounds)
-                .putStringSet(KEY_UNBOUND_COURSE_PAIRS, unbounds)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "unbindCourses error", e)
@@ -648,7 +610,6 @@ class TronClassPreferences(private val context: Context) {
     fun getAllManualBindings(studentId: String? = null): Map<String, String> {
         val prefix = getAccountPrefix(studentId)
         val json = prefs.getString(prefix + KEY_MANUAL_COURSE_BINDINGS, null)
-            ?: prefs.getString(KEY_MANUAL_COURSE_BINDINGS, null)
             ?: return emptyMap()
         return try {
             val type = object : TypeToken<Map<String, String>>() {}.type
@@ -665,7 +626,6 @@ class TronClassPreferences(private val context: Context) {
     fun getUnboundPairs(studentId: String? = null): Set<String> {
         val prefix = getAccountPrefix(studentId)
         return prefs.getStringSet(prefix + KEY_UNBOUND_COURSE_PAIRS, emptySet())
-            ?: prefs.getStringSet(KEY_UNBOUND_COURSE_PAIRS, emptySet())
             ?: emptySet()
     }
 }
