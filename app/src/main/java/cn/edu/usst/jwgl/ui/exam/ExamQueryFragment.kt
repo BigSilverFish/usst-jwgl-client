@@ -224,15 +224,8 @@ class ExamQueryFragment : Fragment() {
     private fun setupListeners() {
         val page = binding
 
-        val examSemesterOptions = listOf(
-            Triple("2026-2027 第一学期 (当前)", "2026", "3"),
-            Triple("2025-2026 第二学期", "2025", "12"),
-            Triple("2025-2026 第一学期", "2025", "3"),
-            Triple("2024-2025 第二学期", "2024", "12"),
-            Triple("2024-2025 第一学期", "2024", "3"),
-            Triple("2023-2024 第二学期", "2023", "12"),
-            Triple("2023-2024 第一学期", "2023", "3")
-        )
+        // 动态生成学期选项，彻底摆脱固定学期硬编码（EXM-02）
+        val examSemesterOptions = SemesterHelper.getExamSemesterOptions()
 
         page.btnSwitchExamSemester.setOnClickListener {
             val titles = examSemesterOptions.map { it.first }.toTypedArray()

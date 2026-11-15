@@ -995,6 +995,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
         try {
             val targetWeek = if (week > 0) week else 1
             val occupiedMap = mutableMapOf<String, LappCourseItem>()
+            var coursesSource: List<LappCourseItem> = emptyList()
 
             // 1. 优先拉取或读取全校课表全量缓存进行秒级精确匹配
             val fullResult = getOrFetchFullSchoolSchedule(context, xn, xq, forceRefresh)
@@ -1004,6 +1005,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
             }
 
             if (allCourses != null) {
+                coursesSource = allCourses
                 val matchedCourses = allCourses.filter { c ->
                     (zj <= 0 || c.zj == zj) &&
                     matchesSection(c, jc) &&
@@ -1036,6 +1038,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 if (total != courses.size) {
                     return@withContext Result.failure(Exception("时段课表尚未完整获取，暂不能准确判断空教室"))
                 }
+                coursesSource = courses
                 for (c in courses) {
                     if (c.jsdd.isNotEmpty() && isCourseActiveInWeek(c, targetWeek) && matchesSection(c, jc)) {
                         occupiedMap[c.jsdd] = c
@@ -1044,16 +1047,46 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 }
             }
 
+            // 动态发现全校排课数据中的教室，补充至对应教学楼集合中（CLS-02）
+            val discoveredClassroomsByBuilding = mutableMapOf<String, MutableSet<String>>()
+            for ((bName, rooms) in KNOWN_CLASSROOMS_BY_BUILDING) {
+                discoveredClassroomsByBuilding[bName] = LinkedHashSet(rooms)
+            }
+
+            for (c in coursesSource) {
+                val room = c.jsdd.trim()
+                if (room.isNotBlank()) {
+                    val targetB = when {
+                        room.startsWith("一教") || room.contains("第一教学楼") -> "第一教学楼"
+                        room.startsWith("二教") || room.contains("第二教学楼") -> "第二教学楼"
+                        room.startsWith("三教") || room.contains("第三教学楼") -> "第三教学楼"
+                        room.startsWith("四教") || room.contains("第四教学楼") -> "第四教学楼"
+                        room.startsWith("五教") || room.contains("第五教学楼") -> "第五教学楼"
+                        room.startsWith("六教") || room.contains("第六教学楼") -> "第六教学楼"
+                        room.startsWith("七教") || room.contains("第七教学楼") -> "第七教学楼"
+                        room.startsWith("八教") || room.contains("第八教学楼") -> "第八教学楼"
+                        room.startsWith("基础") || room.contains("基础学院") -> "基础学院教学楼"
+                        room.contains("先进") || room.contains("制造") -> "先进制造大楼"
+                        room.contains("图文") || room.contains("信息") -> "图文信息中心"
+                        room.contains("体育") || room.contains("活动") -> "学生活动中心与体育馆"
+                        else -> null
+                    }
+                    if (targetB != null) {
+                        discoveredClassroomsByBuilding.getOrPut(targetB) { LinkedHashSet() }.add(room)
+                    }
+                }
+            }
+
             // 过滤教学楼
             val targetBuildings = if (building == "全部教学楼" || building.isEmpty()) {
-                KNOWN_CLASSROOMS_BY_BUILDING.keys
+                discoveredClassroomsByBuilding.keys
             } else {
-                KNOWN_CLASSROOMS_BY_BUILDING.keys.filter { it.contains(building) || building.contains(it) }
+                discoveredClassroomsByBuilding.keys.filter { it.contains(building) || building.contains(it) }
             }
 
             val resultList = mutableListOf<FreeClassroomInfo>()
             for (bName in targetBuildings) {
-                val roomList = KNOWN_CLASSROOMS_BY_BUILDING[bName] ?: continue
+                val roomList = discoveredClassroomsByBuilding[bName] ?: continue
                 for (room in roomList) {
                     val occupied = occupiedMap[room] ?: occupiedMap[normalizeClassroomName(room)]
                     if (occupied != null) {
@@ -1079,7 +1112,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
             }
 
             // 按已知教室编号字典顺序升序排列
-            resultList.sortBy { ALL_KNOWN_CLASSROOMS_ORDER[it.name] ?: 9999 }
+            resultList.sortBy { ALL_KNOWN_CLASSROOMS_ORDER[it.name] ?: (10000 + (it.name.hashCode() and 0x7fff)) }
             Result.success(resultList)
         } catch (e: Exception) {
             Log.e(TAG, "queryFreeClassrooms error", e)

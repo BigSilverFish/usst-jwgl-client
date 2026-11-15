@@ -154,6 +154,37 @@ object SemesterHelper {
     }
 
     /**
+     * 动态生成考试日程查询的学期切换选项列表（当前学期 + 历年学期）
+     * 避免硬编码学期，自适应任意未来与过去年份（EXM-02）
+     */
+    fun getExamSemesterOptions(cal: Calendar = getToday(), count: Int = 8): List<Triple<String, String, String>> {
+        val (curXnm, curXqm) = getCurrentSemester(cal)
+        val curYear = curXnm.toIntOrNull() ?: 2026
+        val options = mutableListOf<Triple<String, String, String>>()
+
+        var y = curYear
+        var q = curXqm
+
+        for (i in 0 until count) {
+            val semNum = if (q == "3") "第一学期" else "第二学期"
+            val title = if (i == 0) {
+                "${y}-${y + 1} $semNum (当前)"
+            } else {
+                "${y}-${y + 1} $semNum"
+            }
+            options.add(Triple(title, y.toString(), q))
+
+            if (q == "3") {
+                q = "12"
+                y -= 1
+            } else {
+                q = "3"
+            }
+        }
+        return options
+    }
+
+    /**
      * 根据开学第一周周一的日期字符串 (yyyy-MM-dd) 计算当前是第几周:
      * - 如果当前日期在第一周周一之前（例如开学前夕/报到），返回第 1 周
      * - 开学后，按每 7 天递增 1 周计算，限制在 1..totalWeeks 范围内
