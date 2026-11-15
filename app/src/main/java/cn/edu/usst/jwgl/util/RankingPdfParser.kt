@@ -26,18 +26,11 @@ object RankingPdfParser {
 
             val bytes = file.readBytes()
 
-            // 1. 优先检查内嵌元数据标记 (例如 DocumentPdfGenerator 生成的 %USST_RANK:...)
-            val metadataInfo = parseMetadataTag(bytes, profile)
-            if (metadataInfo != null && metadataInfo.rank > 0 && metadataInfo.total > 0) {
-                Log.d(TAG, "Successfully parsed ranking info from metadata tag: $metadataInfo")
-                return Result.success(metadataInfo)
-            }
-
-            // 2. 高性能线性解压并提取 PDF 纯文本 (支持 FlateDecode + CMap 2字节 CID 映射)
+            // 1. 高性能线性解压并提取 PDF 纯文本 (支持 FlateDecode + CMap 2字节 CID 映射)
             val extractedText = extractTextFromPdf(bytes)
             Log.d(TAG, "Extracted text from PDF (length=${extractedText.length}):\n${extractedText.take(500)}")
 
-            // 3. 正则解析排名、总人数、专业与年级 (中英文双模适配)
+            // 2. 正则解析排名、总人数、专业与年级 (中英文双模适配)
             val parsedInfo = parseTextContent(extractedText, profile)
             if (parsedInfo.rank > 0 && parsedInfo.total > 0) {
                 Log.d(TAG, "Successfully parsed ranking info from PDF content: $parsedInfo")
@@ -49,34 +42,6 @@ object RankingPdfParser {
             Log.e(TAG, "Failed to parse ranking PDF", e)
             Result.failure(e)
         }
-    }
-
-    /**
-     * 检查并提取 PDF 注释元数据标记
-     */
-    private fun parseMetadataTag(bytes: ByteArray, profile: StudentProfile?): StudentRankingInfo? {
-        val rawContent = String(bytes, Charsets.UTF_8)
-        val metaRegex = Regex("""%USST_RANK:major=(.*?);grade=(.*?);rank=(\d+);total=(\d+)(?:;percentile=(\d+))?%""")
-        val match = metaRegex.find(rawContent) ?: return null
-
-        val major = match.groupValues[1].ifEmpty { profile?.major ?: "计算机科学与技术" }
-        val grade = match.groupValues[2].ifEmpty { profile?.grade ?: "2024" }
-        val rank = match.groupValues[3].toIntOrNull() ?: 0
-        val total = match.groupValues[4].toIntOrNull() ?: 0
-        val percentileRaw = match.groupValues.getOrNull(5)?.toIntOrNull()
-        val percentile = if (percentileRaw != null && percentileRaw > 0) {
-            percentileRaw
-        } else if (total > 0) {
-            Math.round(rank.toDouble() / total.toDouble() * 100).toInt()
-        } else 0
-
-        return StudentRankingInfo(
-            major = major,
-            grade = grade,
-            rank = rank,
-            total = total,
-            percentile = percentile
-        )
     }
 
     /**
@@ -478,12 +443,12 @@ object RankingPdfParser {
             percentile = Math.round((rank.toDouble() / total.toDouble()) * 100).toInt()
         }
 
-        // 默认保底字段填充
+        // 默认保底字段填充（缺失时标注未知，严禁硬编码特定专业与年级假数据）
         if (major.isEmpty()) {
-            major = profile?.major?.ifEmpty { "计算机科学与技术" } ?: "计算机科学与技术"
+            major = profile?.major?.ifEmpty { "未知" } ?: "未知"
         }
         if (grade.isEmpty()) {
-            grade = profile?.grade?.ifEmpty { "2024" } ?: "2024"
+            grade = profile?.grade?.ifEmpty { "未知" } ?: "未知"
         }
 
         return StudentRankingInfo(

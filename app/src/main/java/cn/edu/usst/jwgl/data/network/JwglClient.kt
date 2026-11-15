@@ -1559,25 +1559,13 @@ object JwglClient {
                 }
             }
 
-            // Fallback: If server did not directly output raw PDF binary (e.g. outside campus network or print window closed),
-            // generate standard PDF document using Android's native PdfDocument
-            if (docType == cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE) {
-                return@withContext Result.failure(java.io.IOException("教务系统暂未生成您的专业排名证明或当前不在开放期"))
+            // 官方证明类文档必须由学校教务系统权威生成并返回；未成功获取时严禁在客户端本地伪造生成
+            val errorMsg = when (docType) {
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.RANKING_CERTIFICATE -> "教务系统暂未生成您的专业排名证明或当前不在开放期"
+                cn.edu.usst.jwgl.data.model.GradeDocumentType.ENGLISH_TRANSCRIPT -> "教务系统暂未生成官方盖章版英文成绩单或当前不在开放期"
+                else -> "教务系统暂未生成官方证明文件或当前不在开放期，请确保在校园网环境下重试"
             }
-
-            val cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(context)
-            val profile = cacheManager.getProfile() ?: cn.edu.usst.jwgl.data.model.StudentProfile(studentId = effectiveStudentId)
-            val grades = cacheManager.getGrades() ?: fetchGrades(context).getOrNull()
-
-            val generatedFile = cn.edu.usst.jwgl.util.DocumentPdfGenerator.generate(
-                context = context,
-                docType = docType,
-                profile = profile,
-                grades = grades,
-                destinationFile = destinationFile
-            )
-
-            Result.success(generatedFile)
+            Result.failure(java.io.IOException(errorMsg))
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading grade document", e)
             Result.failure(e)
