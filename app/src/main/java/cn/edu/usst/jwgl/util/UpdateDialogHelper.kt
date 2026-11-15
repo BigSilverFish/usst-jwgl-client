@@ -39,7 +39,14 @@ object UpdateDialogHelper {
             .setMessage("检测到新版本发布 (发布日期: ${versionInfo.releaseDate})$notes")
             .setPositiveButton("直链直接下载") { _, _ ->
                 if (directApkUrl.isNotBlank()) {
-                    ApkDownloadHelper.downloadAndInstall(activity, directApkUrl, versionInfo.versionName, versionInfo.sha256)
+                    if (versionInfo.sha256.isBlank()) {
+                        Toast.makeText(activity, "未提供 SHA-256 安全校验值，为保障安全无法应用内安装，正在打开 Release 网页...", Toast.LENGTH_LONG).show()
+                        if (webReleaseUrl.isNotBlank()) {
+                            openWebUrl(activity, webReleaseUrl)
+                        }
+                    } else {
+                        ApkDownloadHelper.downloadAndInstall(activity, directApkUrl, versionInfo.versionName, versionInfo.sha256)
+                    }
                 } else if (webReleaseUrl.isNotBlank()) {
                     openWebUrl(activity, webReleaseUrl)
                 } else {

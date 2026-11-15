@@ -2895,10 +2895,8 @@ class MainActivity : AppCompatActivity() {
 
         // Profile Tab: System & Updates card
         binding.btnLogout.setOnClickListener {
-            JwglClient.clearSession()
-            AuthPreferences(this).clearAutoLogin()
-            TronClassPreferences(this).clearSession()
-            TronClassDataCacheManager.clearDataCache(this)
+            AuthPreferences(this).performFullLogout()
+            Toast.makeText(this, "已退出登录并清除本地缓存", Toast.LENGTH_SHORT).show()
             val intent = Intent(this, LoginActivity::class.java).apply {
                 putExtra(LoginActivity.EXTRA_FROM_LOGOUT, true)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

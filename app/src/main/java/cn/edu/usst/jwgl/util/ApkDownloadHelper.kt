@@ -54,6 +54,12 @@ object ApkDownloadHelper {
             return
         }
 
+        // 供应链安全门禁（UPD-02）：未提供校验值时禁止自动安装，阻断恶意分发
+        if (expectedSha256.isBlank()) {
+            Toast.makeText(activity, "该版本未提供 SHA-256 校验和，禁止自动安装；请前往官方 Release 页面下载", Toast.LENGTH_LONG).show()
+            return
+        }
+
         // Inflate custom progress dialog layout
         val dialogView = LayoutInflater.from(activity).inflate(R.layout.dialog_apk_download, null)
         val tvTitle = dialogView.findViewById<TextView>(R.id.tvApkDownloadTitle)
@@ -149,13 +155,18 @@ object ApkDownloadHelper {
                         tempFile.renameTo(apkFile)
                     }
 
-                    // 完整性校验：若云端配置提供了 sha256 校验和，则强制进行哈希比对
-                    if (expectedSha256.isNotBlank() && apkFile.exists()) {
-                        val actualHash = calculateSha256(apkFile)
-                        if (!actualHash.equals(expectedSha256.trim(), ignoreCase = true)) {
-                            apkFile.delete()
-                            throw IOException("安装包完整性校验未通过 (SHA256 预期: $expectedSha256, 实际: $actualHash)")
-                        }
+                    // 完整性校验：必须强制执行 SHA-256 校验，防止安装包被篡改（UPD-02 / NFR-SEC-11）
+                    if (expectedSha256.isBlank()) {
+                        apkFile.delete()
+                        throw IOException("未提供 SHA-256 校验和，拒绝安装存在风险的安装包")
+                    }
+                    if (!apkFile.exists()) {
+                        throw IOException("安装包文件不存在，无法校验完整性")
+                    }
+                    val actualHash = calculateSha256(apkFile)
+                    if (!actualHash.equals(expectedSha256.trim(), ignoreCase = true)) {
+                        apkFile.delete()
+                        throw IOException("安装包完整性校验未通过 (SHA256 预期: $expectedSha256, 实际: $actualHash)")
                     }
                 }
 
