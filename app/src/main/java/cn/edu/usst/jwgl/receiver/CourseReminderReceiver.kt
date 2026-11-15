@@ -136,12 +136,23 @@ class CourseReminderReceiver : BroadcastReceiver() {
 
         // Asynchronously advance the rolling schedule so future alarms stay fresh
         val pendingResult = goAsync()
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+            android.util.Log.e("CourseReminderReceiver", "Unhandled exception in CourseReminderReceiver async task", throwable)
+            try {
+                pendingResult.finish()
+            } catch (_: Exception) {
+            }
+        }
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO + exceptionHandler).launch {
             try {
                 cn.edu.usst.jwgl.util.CourseReminderManager.scheduleUpcomingReminders(context)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.w("CourseReminderReceiver", "Failed to schedule upcoming reminders", e)
             } finally {
-                pendingResult.finish()
+                try {
+                    pendingResult.finish()
+                } catch (_: Exception) {
+                }
             }
         }
     }

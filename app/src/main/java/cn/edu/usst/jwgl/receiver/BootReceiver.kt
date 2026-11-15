@@ -3,15 +3,22 @@ package cn.edu.usst.jwgl.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class BootReceiver : BroadcastReceiver() {
+    companion object {
+        private const val TAG = "BootReceiver"
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (action == Intent.ACTION_BOOT_COMPLETED ||
@@ -20,7 +27,15 @@ class BootReceiver : BroadcastReceiver() {
             action == Intent.ACTION_TIMEZONE_CHANGED
         ) {
             val pendingResult = goAsync()
-            CoroutineScope(Dispatchers.IO).launch {
+            val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+                Log.e(TAG, "Unhandled exception in BootReceiver async processing", throwable)
+                try {
+                    pendingResult.finish()
+                } catch (_: Exception) {
+                }
+            }
+
+            CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler).launch {
                 try {
                     // 1. Reschedule rolling 14-day course reminders
                     CourseReminderManager.scheduleUpcomingReminders(context)
@@ -40,9 +55,13 @@ class BootReceiver : BroadcastReceiver() {
 
                     // 5. Reschedule TronClass classroom rollcall monitoring
                     RollcallMonitorScheduler.scheduleFromPreferences(context)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    Log.w(TAG, "Exception during BootReceiver scheduled jobs execution", e)
                 } finally {
-                    pendingResult.finish()
+                    try {
+                        pendingResult.finish()
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }

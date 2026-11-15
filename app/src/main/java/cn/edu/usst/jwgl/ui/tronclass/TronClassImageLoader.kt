@@ -10,9 +10,11 @@ import android.util.LruCache
 import android.view.View
 import android.widget.ImageView
 import cn.edu.usst.jwgl.data.network.TronClassClient
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -64,7 +66,10 @@ object TronClassImageLoader {
         activeJobs[imageView]?.cancel()
         imageView.tag = url
 
-        val job = CoroutineScope(Dispatchers.IO).launch {
+        val handler = CoroutineExceptionHandler { _, e ->
+            android.util.Log.e("TronClassImageLoader", "Unhandled image loading error for $url", e)
+        }
+        val job = CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
             val bitmap = getOrFetchBitmap(context, url, targetWidth, targetHeight)
             if (bitmap != null) {
                 memoryCache.put(url, bitmap)

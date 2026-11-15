@@ -17,8 +17,10 @@ import cn.edu.usst.jwgl.data.wakeup.CourseBean
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.TimeDetailBean
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -80,7 +82,11 @@ object CalendarExportHelper {
      * Export timetable courses to a standard RFC 5545 .ics file and trigger system share.
      */
     fun exportScheduleToIcs(activity: Activity, tableId: Int? = null) {
-        CoroutineScope(Dispatchers.Main).launch {
+        val handler = CoroutineExceptionHandler { _, throwable ->
+            android.util.Log.e("CalendarExportHelper", "Failed to export schedule to ics", throwable)
+            Toast.makeText(activity, "导出日历失败: ${throwable.message ?: "未知异常"}", Toast.LENGTH_SHORT).show()
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.Main + handler).launch {
             val (icsContent, fileName) = withContext(Dispatchers.IO) {
                 val db = AppDatabase.getDatabase(activity)
                 val table = if (tableId != null && tableId > 0) {
@@ -235,7 +241,11 @@ object CalendarExportHelper {
      * Export exam schedule to a standard RFC 5545 .ics file and trigger system share.
      */
     fun exportExamsToIcs(activity: Activity, exams: List<ExamItem>? = null) {
-        CoroutineScope(Dispatchers.Main).launch {
+        val handler = CoroutineExceptionHandler { _, throwable ->
+            android.util.Log.e("CalendarExportHelper", "Failed to export exams to ics", throwable)
+            Toast.makeText(activity, "导出考试日历失败: ${throwable.message ?: "未知异常"}", Toast.LENGTH_SHORT).show()
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.Main + handler).launch {
             val (icsContent, fileName) = withContext(Dispatchers.IO) {
                 val list = exams?.takeIf { it.isNotEmpty() } ?: DataCacheManager(activity).getAllCachedExams()
                 if (list.isEmpty()) {
