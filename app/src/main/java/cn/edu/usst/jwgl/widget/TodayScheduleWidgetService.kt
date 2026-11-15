@@ -42,7 +42,8 @@ private class TodayScheduleRemoteViewsFactory(
         val room: String,
         val teacher: String,
         val colorHex: String,
-        val isPassed: Boolean = false
+        val isPassed: Boolean = false,
+        val hasTodo: Boolean = false
     )
 
     private val courseList = mutableListOf<DisplayCourse>()
@@ -96,6 +97,14 @@ private class TodayScheduleRemoteViewsFactory(
             val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
             val currentMinute = nowCal.get(Calendar.MINUTE)
             val currentTimeVal = currentHour * 60 + currentMinute
+            val nowMs = System.currentTimeMillis()
+
+            // 获取课程门户缓存待办
+            val activeTodos = if (widgetConfig.showPortalTodos) {
+                WidgetConfig.loadActivePortalTodos(context)
+            } else {
+                emptyList()
+            }
 
             for (c in dayCourses) {
                 val startNode = c.startNode
@@ -136,6 +145,13 @@ private class TodayScheduleRemoteViewsFactory(
                 val teacher = c.teacher?.ifEmpty { "--" } ?: "--"
                 val colorHex = if (!c.color.isNullOrEmpty() && c.color.startsWith("#")) c.color else "#4A90E2"
 
+                val hasTodo = if (widgetConfig.showPortalTodos) {
+                    activeTodos.any { 
+                        WidgetConfig.matchesCourseName(it.cleanCourseName, c.courseName) ||
+                        WidgetConfig.matchesCourseName(it.courseName, c.courseName)
+                    }
+                } else false
+
                 courseList.add(
                     DisplayCourse(
                         name = c.courseName,
@@ -143,7 +159,8 @@ private class TodayScheduleRemoteViewsFactory(
                         room = room,
                         teacher = teacher,
                         colorHex = colorHex,
-                        isPassed = isPassed
+                        isPassed = isPassed,
+                        hasTodo = hasTodo
                     )
                 )
             }
@@ -171,6 +188,7 @@ private class TodayScheduleRemoteViewsFactory(
         // 显隐控制
         views.setViewVisibility(R.id.tvCourseTeacher, if (widgetConfig.showTeacher) View.VISIBLE else View.GONE)
         views.setViewVisibility(R.id.tvCourseRoom, if (widgetConfig.showRoom) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.tvCourseTodoBadge, if (widgetConfig.showPortalTodos && item.hasTodo) View.VISIBLE else View.GONE)
 
         // 色彩模式计算
         val isSystemNight = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==

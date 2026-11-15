@@ -96,6 +96,21 @@
                 android:text="张艳"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
+
+            <!-- 课程门户待交作业提示徽标 -->
+            <TextView
+                android:id="@+id/tvCourseTodoBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/bg_widget_urgent_badge"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="1dp"
+                android:text="📝 待办"
+                android:textColor="#B91C1C"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
