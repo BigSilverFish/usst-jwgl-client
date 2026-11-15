@@ -1238,11 +1238,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun getDatabaseInstance(): AppDatabase = db
+
     private fun fastInitTimetableFromPref() {
-        val fastTableId = TimetableSettingHelper.getLastActiveTableId(this)
-        val fastTableName = TimetableSettingHelper.getLastActiveTableName(this)
-        val fastMaxWeek = TimetableSettingHelper.getLastActiveMaxWeek(this)
-        val fastStartDate = TimetableSettingHelper.getLastActiveStartDate(this)
+        val currentSid = AuthPreferences(this).getStudentId()
+        val fastTableId = TimetableSettingHelper.getLastActiveTableId(this, currentSid)
+        val fastTableName = TimetableSettingHelper.getLastActiveTableName(this, currentSid)
+        val fastMaxWeek = TimetableSettingHelper.getLastActiveMaxWeek(this, currentSid)
+        val fastStartDate = TimetableSettingHelper.getLastActiveStartDate(this, currentSid)
 
         if (fastTableId > 0 && fastMaxWeek > 0 && fastStartDate.isNotBlank()) {
             val calcWeek = CourseUtils.countWeek(fastStartDate)
@@ -1254,7 +1257,7 @@ class MainActivity : AppCompatActivity() {
             updateWeekSelectionUI(determinedWeek)
             updateWeekHeaderDates(determinedWeek)
 
-            scheduleAdapter = SchedulePagerAdapter(this@MainActivity, fastMaxWeek, fastTableId)
+            scheduleAdapter = SchedulePagerAdapter(this@MainActivity, fastMaxWeek, fastTableId, currentSid)
             binding.vpSchedule.adapter = scheduleAdapter
             binding.vpSchedule.offscreenPageLimit = 1
             binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
@@ -1279,13 +1282,14 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val initData = withContext(Dispatchers.IO) {
-                db = AppDatabase.getDatabase(this@MainActivity)
+                val currentSid = AuthPreferences(this@MainActivity).getStudentId()
+                db = AppDatabase.getDatabase(this@MainActivity, currentSid)
                 db.ensureLatestTimeTableAndDefaults()
                 val defaultT = db.tableDao.getDefaultTable()
 
                 // Seamless auto-import of pre-existing cached timetables into WakeUP database (only once)
-                if (!TimetableSettingHelper.hasMigratedLegacyTimetables(this@MainActivity)) {
-                    val cachedList = cacheManager.getAllCachedTimetables()
+                if (!TimetableSettingHelper.hasMigratedLegacyTimetables(this@MainActivity, currentSid)) {
+                    val cachedList = cacheManager.getAllCachedTimetables(currentSid)
                     if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
                         val semConfig = RemoteConfigManager.getSemesterConfig()
                         val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
@@ -1293,7 +1297,7 @@ class MainActivity : AppCompatActivity() {
                             WakeupScheduleImporter.importTimetableData(db, cached, startDate)
                         }
                     }
-                    TimetableSettingHelper.setHasMigratedLegacyTimetables(this@MainActivity, true)
+                    TimetableSettingHelper.setHasMigratedLegacyTimetables(this@MainActivity, true, currentSid)
                 }
 
                 // Auto determine active semester & week on startup
@@ -1310,7 +1314,8 @@ class MainActivity : AppCompatActivity() {
                     targetTable.id,
                     targetTable.tableName,
                     targetTable.maxWeek,
-                    targetTable.startDate
+                    targetTable.startDate,
+                    currentSid
                 )
 
                 Triple(targetTable, targetWeek, targetTable.maxWeek)
@@ -1347,20 +1352,9 @@ class MainActivity : AppCompatActivity() {
 
                 reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
             } else {
-                if (targetTable.id != previousTableId || maxWeek != previousMaxWeek) {
-                    adapter.updateConfig(maxWeek, targetTable.id, activeSid)
-                    binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
-                    reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
-                } else if (determinedWeek != binding.vpSchedule.currentItem + 1) {
-                    binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
-                    updateWeekSelectionUI(determinedWeek)
-                    updateWeekHeaderDates(determinedWeek)
-                } else {
-                    binding.tvTimetableSemester.text = formatSemesterTitle(targetTable.tableName)
-                    isUpdatingChipProgrammatically = true
-                    binding.chipFilterOnlyCurrentWeek.isChecked = !targetTable.showOtherWeekCourse
-                    isUpdatingChipProgrammatically = false
-                }
+                adapter.updateConfig(maxWeek, targetTable.id, activeSid)
+                binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
+                reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
             }
         }
     }
@@ -1409,7 +1403,8 @@ class MainActivity : AppCompatActivity() {
                 isInitialWeekLocated = true
             }
 
-            scheduleAdapter?.updateConfig(table.maxWeek, table.id)
+            val activeSid = AuthPreferences(this@MainActivity).getStudentId()
+            scheduleAdapter?.updateConfig(table.maxWeek, table.id, activeSid)
 
             binding.vpSchedule.setCurrentItem(currentWeek - 1, false)
             updateWeekSelectionUI(currentWeek)
@@ -3360,6 +3355,56 @@ class MainActivity : AppCompatActivity() {
 
             // 5. 刷新 TronClass 与超星学习通
             getTronClassFragment()?.onAccountSwitched(newStudentId)
+
+            // 6. 核心：账号切换后自动静默联网拉取新账号排课，确保课表跟着自动切换
+            autoSyncTimetableForSwitchedAccount(newStudentId)
+        }
+    }
+
+    private fun autoSyncTimetableForSwitchedAccount(studentId: String) {
+        lifecycleScope.launch {
+            val semConfig = RemoteConfigManager.getSemesterConfig()
+            val parsed = SemesterHelper.parseSemesterFromTableName(currentTable?.tableName)
+            val (xnm, xqm) = parsed ?: SemesterHelper.getCurrentSemester()
+
+            binding.timetableProgressBar.visibility = View.VISIBLE
+            val res = withContext(Dispatchers.IO) {
+                try {
+                    if (JwglClient.ensureSession(this@MainActivity)) {
+                        JwglClient.fetchTimetable(xnm, xqm, context = this@MainActivity)
+                    } else {
+                        Result.failure(Exception("无法建立教务会话"))
+                    }
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+            }
+            binding.timetableProgressBar.visibility = View.GONE
+
+            res.onSuccess { data ->
+                val activeSid = AuthPreferences(this@MainActivity).getStudentId()
+                if (activeSid != studentId) return@onSuccess
+
+                val targetDb = AppDatabase.getDatabase(this@MainActivity, studentId)
+                val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
+                val importedTable = WakeupScheduleImporter.importTimetableData(
+                    db = targetDb,
+                    data = data,
+                    startDate = startDate,
+                    setAsDefault = true
+                )
+                cacheManager.saveTimetable(xnm, xqm, data, studentId)
+                withContext(Dispatchers.IO) {
+                    targetDb.tableDao.setDefaultTable(importedTable.id)
+                }
+                currentTable = importedTable
+                invalidateTableCoursesCache()
+                scheduleAdapter?.updateConfig(importedTable.maxWeek, importedTable.id, studentId)
+                reloadTimetableFromDb(forceWeek = true)
+                binding.tvTimetableSyncTime.text = "已联网同步 · 刚刚"
+            }.onFailure { e ->
+                Log.w("MainActivity", "Auto sync timetable failed for $studentId: ${e.message}")
+            }
         }
     }
 }

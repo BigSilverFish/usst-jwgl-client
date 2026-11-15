@@ -22,6 +22,55 @@ class DataCacheManager(private val context: Context) {
     private val gson = Gson()
     private val memGradeReport = java.util.concurrent.ConcurrentHashMap<String, GradeReport>()
 
+    init {
+        migrateLegacyGlobalCachesIfNeeded()
+    }
+
+    private fun migrateLegacyGlobalCachesIfNeeded() {
+        val legacySid = try {
+            val authSp = context.getSharedPreferences("usst_jwgl_auth", Context.MODE_PRIVATE)
+            authSp.getString("auth_student_id", null) ?: authSp.getString("student_id", null)
+        } catch (_: Exception) { null }
+
+        if (!legacySid.isNullOrBlank()) {
+            val prefix = "${legacySid}_"
+            val editor = prefs.edit()
+            var changed = false
+            for ((k, v) in prefs.all) {
+                if (k.startsWith(PREFIX_TIMETABLE_JSON) && !k.contains("_cache_timetable_json_") && v is String) {
+                    editor.putString(prefix + k, v)
+                    editor.remove(k)
+                    changed = true
+                } else if (k.startsWith(PREFIX_TIMETABLE_TIME) && !k.contains("_cache_timetable_time_") && v is Long) {
+                    editor.putLong(prefix + k, v)
+                    editor.remove(k)
+                    changed = true
+                } else if (k.startsWith(PREFIX_EXAM_JSON) && !k.contains("_cache_exam_json_") && v is String) {
+                    editor.putString(prefix + k, v)
+                    editor.remove(k)
+                    changed = true
+                } else if (k.startsWith(PREFIX_EXAM_TIME) && !k.contains("_cache_exam_time_") && v is Long) {
+                    editor.putLong(prefix + k, v)
+                    editor.remove(k)
+                    changed = true
+                }
+            }
+            if (changed) editor.apply()
+
+            val secEditor = securePrefs.edit()
+            val oldGrades = securePrefs.getString(KEY_GRADES_JSON, null) ?: prefs.getString(KEY_GRADES_JSON, null)
+            if (!oldGrades.isNullOrBlank()) {
+                val oldTime = securePrefs.getLong(KEY_GRADES_TIME, prefs.getLong(KEY_GRADES_TIME, System.currentTimeMillis()))
+                secEditor.putString(prefix + KEY_GRADES_JSON, oldGrades)
+                secEditor.putLong(prefix + KEY_GRADES_TIME, oldTime)
+                secEditor.remove(KEY_GRADES_JSON)
+                secEditor.remove(KEY_GRADES_TIME)
+                secEditor.apply()
+                prefs.edit().remove(KEY_GRADES_JSON).remove(KEY_GRADES_TIME).apply()
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "DataCacheManager"
         private const val PREF_NAME = "usst_jwgl_data_cache"
@@ -230,21 +279,7 @@ class DataCacheManager(private val context: Context) {
         val prefix = getAccountPrefix(studentId)
         val baseKey = "${xnm}_${xqm}"
         val keyJson = prefix + PREFIX_TIMETABLE_JSON + baseKey
-        var json = prefs.getString(keyJson, null)
-
-        // 向下兼容旧无前缀 key
-        if (json == null) {
-            val oldKeyJson = PREFIX_TIMETABLE_JSON + baseKey
-            json = prefs.getString(oldKeyJson, null)
-            if (json != null) {
-                // 迁移到当前账号
-                val keyTime = prefix + PREFIX_TIMETABLE_TIME + baseKey
-                val oldTime = prefs.getLong(PREFIX_TIMETABLE_TIME + baseKey, System.currentTimeMillis())
-                prefs.edit().putString(keyJson, json).putLong(keyTime, oldTime).apply()
-            }
-        }
-
-        if (json == null) return null
+        val json = prefs.getString(keyJson, null) ?: return null
         return try {
             gson.fromJson(json, TimetableData::class.java)
         } catch (e: Exception) {
@@ -259,7 +294,7 @@ class DataCacheManager(private val context: Context) {
         val keyTime = prefix + PREFIX_TIMETABLE_TIME + baseKey
         val t = prefs.getLong(keyTime, 0L)
         if (t > 0L) return t
-        return prefs.getLong(PREFIX_TIMETABLE_TIME + baseKey, 0L)
+        return if (prefix.isEmpty()) prefs.getLong(PREFIX_TIMETABLE_TIME + baseKey, 0L) else 0L
     }
 
     fun getAllCachedTimetables(studentId: String? = null): List<TimetableData> {
@@ -273,19 +308,6 @@ class DataCacheManager(private val context: Context) {
                     if (data != null) list.add(data)
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to parse cached TimetableData for key $k", e)
-                }
-            }
-        }
-        // 若当前分桶为空且有未分桶旧数据，进行一次尝试
-        if (list.isEmpty() && prefix.isNotEmpty()) {
-            for ((k, v) in prefs.all) {
-                if (k.startsWith(PREFIX_TIMETABLE_JSON) && !k.contains("_cache_timetable_json_") && v is String) {
-                    try {
-                        val data = gson.fromJson(v, TimetableData::class.java)
-                        if (data != null) list.add(data)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse legacy cached TimetableData for key $k", e)
-                    }
                 }
             }
         }
@@ -328,17 +350,6 @@ class DataCacheManager(private val context: Context) {
                     .putLong(keyTime, prefs.getLong(keyTime, System.currentTimeMillis()))
                     .apply()
                 prefs.edit().remove(keyJson).remove(keyTime).apply()
-            }
-        }
-
-        // 向下兼容读取旧成绩缓存
-        if (json.isNullOrEmpty()) {
-            json = securePrefs.getString(KEY_GRADES_JSON, null) ?: prefs.getString(KEY_GRADES_JSON, null)
-            if (!json.isNullOrEmpty()) {
-                securePrefs.edit()
-                    .putString(keyJson, json)
-                    .putLong(keyTime, securePrefs.getLong(KEY_GRADES_TIME, System.currentTimeMillis()))
-                    .apply()
             }
         }
 
@@ -417,20 +428,7 @@ class DataCacheManager(private val context: Context) {
         val prefix = getAccountPrefix(studentId)
         val baseKey = "${xnm}_${xqm}"
         val keyJson = prefix + PREFIX_EXAM_JSON + baseKey
-        var json = prefs.getString(keyJson, null)
-
-        // 向下兼容
-        if (json == null) {
-            val oldKeyJson = PREFIX_EXAM_JSON + baseKey
-            json = prefs.getString(oldKeyJson, null)
-            if (json != null) {
-                val keyTime = prefix + PREFIX_EXAM_TIME + baseKey
-                val oldTime = prefs.getLong(PREFIX_EXAM_TIME + baseKey, System.currentTimeMillis())
-                prefs.edit().putString(keyJson, json).putLong(keyTime, oldTime).apply()
-            }
-        }
-
-        if (json == null) return emptyList()
+        val json = prefs.getString(keyJson, null) ?: return emptyList()
         return try {
             val type = object : com.google.gson.reflect.TypeToken<List<ExamItem>>() {}.type
             gson.fromJson(json, type) ?: emptyList()

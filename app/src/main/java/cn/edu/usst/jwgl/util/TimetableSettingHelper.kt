@@ -45,7 +45,7 @@ object TimetableSettingHelper {
         if (sp.contains(prefix + KEY_LAST_ACTIVE_TABLE_ID)) {
             return sp.getInt(prefix + KEY_LAST_ACTIVE_TABLE_ID, -1)
         }
-        return sp.getInt(KEY_LAST_ACTIVE_TABLE_ID, -1)
+        return if (prefix.isEmpty()) sp.getInt(KEY_LAST_ACTIVE_TABLE_ID, -1) else -1
     }
 
     fun getLastActiveTableName(context: Context, studentId: String? = null): String {
@@ -54,7 +54,7 @@ object TimetableSettingHelper {
         if (sp.contains(prefix + KEY_LAST_ACTIVE_TABLE_NAME)) {
             return sp.getString(prefix + KEY_LAST_ACTIVE_TABLE_NAME, "") ?: ""
         }
-        return sp.getString(KEY_LAST_ACTIVE_TABLE_NAME, "") ?: ""
+        return if (prefix.isEmpty()) sp.getString(KEY_LAST_ACTIVE_TABLE_NAME, "") ?: "" else ""
     }
 
     fun getLastActiveMaxWeek(context: Context, studentId: String? = null): Int {
@@ -63,7 +63,7 @@ object TimetableSettingHelper {
         if (sp.contains(prefix + KEY_LAST_ACTIVE_MAX_WEEK)) {
             return sp.getInt(prefix + KEY_LAST_ACTIVE_MAX_WEEK, 25)
         }
-        return sp.getInt(KEY_LAST_ACTIVE_MAX_WEEK, 25)
+        return if (prefix.isEmpty()) sp.getInt(KEY_LAST_ACTIVE_MAX_WEEK, 25) else 20
     }
 
     fun getLastActiveStartDate(context: Context, studentId: String? = null): String {
@@ -72,7 +72,7 @@ object TimetableSettingHelper {
         if (sp.contains(prefix + KEY_LAST_ACTIVE_START_DATE)) {
             return sp.getString(prefix + KEY_LAST_ACTIVE_START_DATE, "") ?: ""
         }
-        return sp.getString(KEY_LAST_ACTIVE_START_DATE, "") ?: ""
+        return if (prefix.isEmpty()) sp.getString(KEY_LAST_ACTIVE_START_DATE, "") ?: "" else ""
     }
 
     fun hasMigratedLegacyTimetables(context: Context, studentId: String? = null): Boolean {
@@ -81,7 +81,7 @@ object TimetableSettingHelper {
         if (sp.contains(prefix + KEY_HAS_MIGRATED_LEGACY)) {
             return sp.getBoolean(prefix + KEY_HAS_MIGRATED_LEGACY, false)
         }
-        return sp.getBoolean(KEY_HAS_MIGRATED_LEGACY, false)
+        return if (prefix.isEmpty()) sp.getBoolean(KEY_HAS_MIGRATED_LEGACY, false) else false
     }
 
     fun setHasMigratedLegacyTimetables(context: Context, migrated: Boolean, studentId: String? = null) {
