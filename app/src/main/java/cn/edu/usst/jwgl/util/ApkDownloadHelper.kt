@@ -90,7 +90,14 @@ object ApkDownloadHelper {
             Toast.makeText(activity, "已取消更新下载", Toast.LENGTH_SHORT).show()
         }
 
-        downloadJob = CoroutineScope(Dispatchers.Main).launch {
+        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+            android.util.Log.e("ApkDownloadHelper", "Unhandled error in apk download job", throwable)
+            cancelDownload(tempFile)
+            dialog.dismiss()
+            Toast.makeText(activity, "下载更新失败: ${throwable.message ?: "未知异常"}", Toast.LENGTH_LONG).show()
+        }
+
+        downloadJob = CoroutineScope(Dispatchers.Main + SupervisorJob() + exceptionHandler).launch {
             try {
                 withContext(Dispatchers.IO) {
                     val request = Request.Builder()

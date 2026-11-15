@@ -45,6 +45,7 @@ import cn.edu.usst.jwgl.data.model.ChaoXingCourse
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.data.wakeup.AppDatabase
+import cn.edu.usst.jwgl.data.wakeup.CourseBean
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
@@ -115,6 +116,32 @@ class MainActivity : AppCompatActivity() {
     private var currentProfile: StudentProfile? = null
 
     internal var currentTable: TableBean? = null
+        set(value) {
+            field = value
+            invalidateTableCoursesCache()
+        }
+
+    // TD-12: 缓存当前课表的课程列表，避免在滑动周次时频繁在主线程查询 SQLite 造成掉帧卡顿
+    @Volatile
+    private var cachedTableId: Int? = null
+    @Volatile
+    private var cachedTableCourses: List<CourseBean>? = null
+
+    internal fun invalidateTableCoursesCache() {
+        cachedTableId = null
+        cachedTableCourses = null
+    }
+
+    private fun getTableCoursesCached(tableId: Int): List<CourseBean> {
+        val cached = cachedTableCourses
+        if (cachedTableId == tableId && cached != null) {
+            return cached
+        }
+        val courses = db.courseBaseDao.getCourseOfTable(tableId)
+        cachedTableId = tableId
+        cachedTableCourses = courses
+        return courses
+    }
     private var isUpdatingChipProgrammatically = false
     private var scheduleAdapter: SchedulePagerAdapter? = null
     private var currentWeek: Int = 1
@@ -1352,6 +1379,7 @@ class MainActivity : AppCompatActivity() {
                 // Prevent race condition on cold startup before initWakeupSchedule completes
                 return@launch
             }
+            invalidateTableCoursesCache()
             val table = withContext(Dispatchers.IO) {
                 db.tableDao.getDefaultTable()
             }
@@ -2139,7 +2167,7 @@ class MainActivity : AppCompatActivity() {
         val curWeek = CourseUtils.countWeek(table.startDate)
         val isExamWeek = ExamHelper.isExamWeek(table.tableName, week)
         val cachedExams = if (isExamWeek) cacheManager.getAllCachedExams() else emptyList()
-        val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
+        val allCourses = getTableCoursesCached(table.id)
 
         binding.tvMonthHeader.text = if (isExamWeek) "${dateStrings[0]}\n月\n[考]" else "${dateStrings[0]}\n月"
         val isSysDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES

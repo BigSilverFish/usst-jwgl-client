@@ -39,8 +39,10 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -122,7 +124,14 @@ object TronClassImageHelper {
         val appCtx = context.applicationContext
         Toast.makeText(appCtx, "正在下载图片...", Toast.LENGTH_SHORT).show()
 
-        CoroutineScope(Dispatchers.IO).launch {
+        val handler = CoroutineExceptionHandler { _, e ->
+            Log.e(TAG, "Unhandled exception in saveImageToGallery", e)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(appCtx, "保存图片失败", Toast.LENGTH_SHORT).show()
+                onComplete?.invoke(false, "保存失败")
+            }
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
             try {
                 val bytes = TronClassImageLoader.getOrFetchImageBytes(appCtx, imageUrl)
                 if (bytes == null || bytes.isEmpty()) {
@@ -243,7 +252,13 @@ object TronClassImageHelper {
         val appCtx = context.applicationContext
         Toast.makeText(appCtx, "正在准备分享图片...", Toast.LENGTH_SHORT).show()
 
-        CoroutineScope(Dispatchers.IO).launch {
+        val handler = CoroutineExceptionHandler { _, e ->
+            Log.e(TAG, "Unhandled exception in shareImage", e)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(appCtx, "分享图片失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
             try {
                 val bytes = TronClassImageLoader.getOrFetchImageBytes(appCtx, imageUrl)
                 if (bytes == null || bytes.isEmpty()) {
