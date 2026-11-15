@@ -27,8 +27,8 @@ object DocumentPdfGenerator {
         grades: GradeReport?,
         destinationFile: File
     ): File {
-        require(docType != GradeDocumentType.RANKING_CERTIFICATE) {
-            "专业排名证明须由教务处官方系统权威出具，不支持离线本地生成"
+        require(docType == GradeDocumentType.CHINESE_TRANSCRIPT) {
+            "仅支持本地渲染生成中文本科生成绩总表，官方证明与英文成绩单须由教务处官方系统权威出具"
         }
 
         val pdfDocument = PdfDocument()
@@ -110,13 +110,13 @@ object DocumentPdfGenerator {
         val col3 = left + 340f
 
         if (!isEnglish) {
-            canvas.drawText("姓    名: ${profile.name.ifEmpty { "周智轩" }}", col1, y + 16f, textPaint)
-            canvas.drawText("学    号: ${profile.studentId.ifEmpty { "2435055230" }}", col2, y + 16f, textPaint)
-            canvas.drawText("学    院: ${profile.college.ifEmpty { "光电信息与计算机工程学院" }}", col3, y + 16f, textPaint)
+            canvas.drawText("姓    名: ${profile.name.ifEmpty { "暂无" }}", col1, y + 16f, textPaint)
+            canvas.drawText("学    号: ${profile.studentId.ifEmpty { "暂无" }}", col2, y + 16f, textPaint)
+            canvas.drawText("学    院: ${profile.college.ifEmpty { "暂无" }}", col3, y + 16f, textPaint)
 
-            canvas.drawText("专    业: ${profile.major.ifEmpty { "计算机科学与技术" }}", col1, y + 32f, textPaint)
-            canvas.drawText("班    级: ${profile.className.ifEmpty { "计算机24120801班" }}", col2, y + 32f, textPaint)
-            canvas.drawText("年    级: ${profile.grade.ifEmpty { "2024" }}级 (${profile.durationYears.ifEmpty { "4" }}年制)", col3, y + 32f, textPaint)
+            canvas.drawText("专    业: ${profile.major.ifEmpty { "暂无" }}", col1, y + 32f, textPaint)
+            canvas.drawText("班    级: ${profile.className.ifEmpty { "暂无" }}", col2, y + 32f, textPaint)
+            canvas.drawText("年    级: ${profile.grade.ifEmpty { "暂无" }}${if (profile.grade.isNotEmpty()) "级" else ""} (${profile.durationYears.ifEmpty { "4" }}年制)", col3, y + 32f, textPaint)
 
             val gpaStr = String.format(Locale.CHINA, "%.2f", grades?.cumulativeGpa ?: 0.0)
             val scoreStr = String.format(Locale.CHINA, "%.2f", grades?.cumulativeWeightedScore ?: 0.0)
@@ -125,13 +125,13 @@ object DocumentPdfGenerator {
             canvas.drawText("平均绩点(GPA): $gpaStr", col2, y + 48f, boldTextPaint)
             canvas.drawText("加权平均分: $scoreStr", col3, y + 48f, boldTextPaint)
         } else {
-            canvas.drawText("Name: ${profile.name.ifEmpty { "Zhou Zhixuan" }}", col1, y + 16f, textPaint)
-            canvas.drawText("Student ID: ${profile.studentId.ifEmpty { "2435055230" }}", col2, y + 16f, textPaint)
-            canvas.drawText("School: ${profile.college.ifEmpty { "School of Optical-Electrical & Computer Eng." }}", col3, y + 16f, textPaint)
+            canvas.drawText("Name: ${profile.name.ifEmpty { "N/A" }}", col1, y + 16f, textPaint)
+            canvas.drawText("Student ID: ${profile.studentId.ifEmpty { "N/A" }}", col2, y + 16f, textPaint)
+            canvas.drawText("School: ${profile.college.ifEmpty { "N/A" }}", col3, y + 16f, textPaint)
 
-            canvas.drawText("Major: ${profile.major.ifEmpty { "Computer Science & Technology" }}", col1, y + 32f, textPaint)
+            canvas.drawText("Major: ${profile.major.ifEmpty { "N/A" }}", col1, y + 32f, textPaint)
             canvas.drawText("Degree: Bachelor of Engineering", col2, y + 32f, textPaint)
-            canvas.drawText("Grade: ${profile.grade.ifEmpty { "2024" }}", col3, y + 32f, textPaint)
+            canvas.drawText("Grade: ${profile.grade.ifEmpty { "N/A" }}", col3, y + 32f, textPaint)
 
             val gpaStr = String.format(Locale.US, "%.2f", grades?.cumulativeGpa ?: 0.0)
             val scoreStr = String.format(Locale.US, "%.2f", grades?.cumulativeWeightedScore ?: 0.0)
@@ -204,21 +204,25 @@ object DocumentPdfGenerator {
             index++
         }
 
-        // Stamp and Date Footer
+        // Disclaimer and Date Footer
         y = pageHeight - 50f
         val sdf = SimpleDateFormat("yyyy年MM月dd日", Locale.CHINA)
-        val dateText = if (isEnglish) "Issued on: ${SimpleDateFormat("MMM dd, yyyy", Locale.US).format(Date())}" else "打印日期：${sdf.format(Date())}"
-        val stampText = if (isEnglish) "Academic Affairs Office, USST" else "上海理工大学教务处 (公章有效)"
+        val dateText = if (isEnglish) "Exported on: ${SimpleDateFormat("MMM dd, yyyy", Locale.US).format(Date())}" else "导出日期：${sdf.format(Date())}"
+        val disclaimerText = if (isEnglish) {
+            "Note: Rendered from cached student data for reference only. Not an official transcript."
+        } else {
+            "注：本文件由客户端本地缓存数据渲染生成，仅供学生个人参考，不具备官方证明效力"
+        }
 
         canvas.drawText(dateText, left, y, textPaint)
-        val stampPaint = Paint().apply {
-            color = Color.parseColor("#800000")
-            textSize = 10f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        val disclaimerPaint = Paint().apply {
+            color = Color.parseColor("#757575")
+            textSize = 9f
+            typeface = Typeface.DEFAULT
             textAlign = Paint.Align.RIGHT
             isAntiAlias = true
         }
-        canvas.drawText(stampText, right, y, stampPaint)
+        canvas.drawText(disclaimerText, right, y, disclaimerPaint)
 
         pdfDocument.finishPage(page)
 

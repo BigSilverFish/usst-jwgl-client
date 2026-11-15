@@ -76,24 +76,19 @@ class RankingPdfParserTest {
     }
 
     @Test
-    fun testParseMetadataTag() {
+    fun testRejectFakeMetadataTagAndRequireRealPdfContent() {
         val dummyPdfContent = """
             %PDF-1.4
             %USST_RANK:major=计算机科学与技术;grade=2024级;rank=82;total=97;percentile=85%
             %%EOF
         """.trimIndent()
 
-        val tempFile = File.createTempFile("test_ranking_meta", ".pdf")
+        val tempFile = File.createTempFile("test_ranking_fake_meta", ".pdf")
         try {
             tempFile.writeText(dummyPdfContent)
             val result = RankingPdfParser.parse(tempFile, null)
-            assertTrue(result.isSuccess)
-            val info = result.getOrThrow()
-            assertEquals("计算机科学与技术", info.major)
-            assertEquals("2024级", info.grade)
-            assertEquals(82, info.rank)
-            assertEquals(97, info.total)
-            assertEquals(85, info.percentile)
+            // 严禁被内嵌假元数据误导，无实际有效 PDF 文本流时必须判定为失败
+            assertFalse("无正文流的伪造元数据 PDF 必须解析失败", result.isSuccess)
         } finally {
             tempFile.delete()
             assertFalse(tempFile.exists())
@@ -101,17 +96,24 @@ class RankingPdfParserTest {
     }
 
     @Test
+    fun testFallbackToUnknownWhenProfileMissing() {
+        val text = "在专业共 97 人中，综合成绩排名第 82 名。"
+        val info = RankingPdfParser.parseTextContent(text, null)
+        assertEquals(82, info.rank)
+        assertEquals(97, info.total)
+        assertEquals("未知", info.major)
+        assertEquals("未知", info.grade)
+    }
+
+    @Test
     fun testLifecycleDownloadParseDeletePrinciple() {
         val tempFile = File.createTempFile("test_lifecycle_ranking", ".pdf")
-        tempFile.writeText("%PDF-1.4\n%USST_RANK:major=计算机科学与技术;grade=2024级;rank=82;total=97;percentile=85%\n")
+        tempFile.writeText("%PDF-1.4\n%%EOF\n")
         assertTrue(tempFile.exists())
 
         try {
             val result = RankingPdfParser.parse(tempFile, null)
-            assertTrue(result.isSuccess)
-            val info = result.getOrThrow()
-            assertEquals(82, info.rank)
-            assertEquals(97, info.total)
+            assertFalse(result.isSuccess)
         } finally {
             // Principle: Delete PDF after parsing
             tempFile.delete()
