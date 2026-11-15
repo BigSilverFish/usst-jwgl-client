@@ -22,6 +22,7 @@ class AuthPreferences(private val context: Context) {
         private const val KEY_DISCLAIMER_AGREED = "pref_disclaimer_agreed"
         private const val KEY_INITIAL_SYNC_COMPLETED = "pref_initial_sync_completed"
         private const val KEY_MIGRATED = "pref_migrated_to_encrypted"
+        private const val KEY_LAST_LOGIN_STUDENT_ID = "pref_last_login_student_id"
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
 
@@ -160,9 +161,23 @@ class AuthPreferences(private val context: Context) {
     }
 
     /**
-     * 保存当前凭据，并同步写入多账号保险箱
+     * 保存当前凭据，比对账号变更实现多账号隔离，并同步写入多账号保险箱
      */
     fun saveCredentials(studentId: String, password: String, autoLogin: Boolean) {
+        // 0. 账号切换数据隔离检测：若切换了新账号，主动清除前一账号的业务缓存与课表数据
+        val lastStudentId = getLastLoginStudentId()
+        if (lastStudentId.isNotBlank() && lastStudentId != studentId) {
+            Log.i(TAG, "[AccountIsolation] Switching account from $lastStudentId to $studentId. Purging old account cache.")
+            try {
+                DataCacheManager.getInstance(context).clearAll()
+                cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context).clearAllScheduleData()
+                TronClassDataCacheManager.clearDataCache(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "[AccountIsolation] Error purging old account cache on switch", e)
+            }
+        }
+        setLastLoginStudentId(studentId)
+
         // 1. 本地存储（兼容旧调用链）
         prefs.edit()
             .putString(KEY_STUDENT_ID, studentId)
@@ -268,8 +283,74 @@ class AuthPreferences(private val context: Context) {
         }
     }
 
+    fun getLastLoginStudentId(): String {
+        return prefs.getString(KEY_LAST_LOGIN_STUDENT_ID, "") ?: ""
+    }
+
+    fun setLastLoginStudentId(studentId: String) {
+        prefs.edit().putString(KEY_LAST_LOGIN_STUDENT_ID, studentId).apply()
+    }
+
     fun clearAll() {
         prefs.edit().clear().apply()
         securePrefs.edit().clear().apply()
+    }
+
+    /**
+     * 完整退出登录：容错执行清理会话、Cookie、所有业务数据缓存、课表数据库以及本地密码凭据
+     */
+    fun performFullLogout() {
+        val currentId = getStudentId()
+
+        // 1. 清理教务网络会话
+        try {
+            cn.edu.usst.jwgl.data.network.JwglClient.clearSession()
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to clear Jwgl session", e)
+        }
+
+        // 2. 清理 WebView Cookie
+        try {
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            cookieManager.removeAllCookies(null)
+            cookieManager.flush()
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to clear WebView cookies", e)
+        }
+
+        // 3. 清理畅课会话与缓存
+        try {
+            TronClassPreferences(context).clearSession()
+            TronClassDataCacheManager.clearDataCache(context)
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to clear TronClass session/cache", e)
+        }
+
+        // 4. 清理学籍、成绩、考试等全部业务缓存
+        try {
+            DataCacheManager.getInstance(context).clearAll()
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to clear DataCacheManager", e)
+        }
+
+        // 5. 清理本地课表数据库
+        try {
+            cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context).clearAllScheduleData()
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to clear schedule database", e)
+        }
+
+        // 6. 清理凭据与自动登录状态（按安全策略默认不保留密码）
+        try {
+            clearAll()
+            if (currentId.isNotBlank()) {
+                AccountVault.getInstance(context).removeAccount(currentId)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to clear credentials from preferences/vault", e)
+        }
+
+        // 7. 重置最后登录账号
+        setLastLoginStudentId("")
     }
 }

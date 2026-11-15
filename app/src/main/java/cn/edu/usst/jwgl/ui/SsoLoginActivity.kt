@@ -43,12 +43,14 @@ class SsoLoginActivity : AppCompatActivity() {
         private const val TAG = "SsoLoginActivity"
         const val EXTRA_STUDENT_ID = "extra_student_id"
         const val EXTRA_PASSWORD = "extra_password"
+        const val EXTRA_AUTO_LOGIN = "extra_auto_login"
         private const val SSO_ENTRY_URL = "https://jwgl.usst.edu.cn/sso/jziotlogin"
 
-        fun start(context: Context, studentId: String = "", password: String = "") {
+        fun start(context: Context, studentId: String = "", password: String = "", autoLogin: Boolean = true) {
             val intent = Intent(context, SsoLoginActivity::class.java).apply {
                 putExtra(EXTRA_STUDENT_ID, studentId)
                 putExtra(EXTRA_PASSWORD, password)
+                putExtra(EXTRA_AUTO_LOGIN, autoLogin)
             }
             context.startActivity(intent)
         }
@@ -60,6 +62,7 @@ class SsoLoginActivity : AppCompatActivity() {
 
     private var passedStudentId: String = ""
     private var passedPassword: String = ""
+    private var passedAutoLogin: Boolean = true
     private var capturedUsername: String = ""
     private var capturedPassword: String = ""
 
@@ -92,6 +95,7 @@ class SsoLoginActivity : AppCompatActivity() {
 
         passedStudentId = intent.getStringExtra(EXTRA_STUDENT_ID).orEmpty()
         passedPassword = intent.getStringExtra(EXTRA_PASSWORD).orEmpty()
+        passedAutoLogin = intent.getBooleanExtra(EXTRA_AUTO_LOGIN, true)
 
         setupToolbar()
         setupBackPress()
@@ -132,7 +136,7 @@ class SsoLoginActivity : AppCompatActivity() {
         ws.databaseEnabled = true
         ws.useWideViewPort = true
         ws.loadWithOverviewMode = true
-        ws.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        ws.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         ws.cacheMode = WebSettings.LOAD_DEFAULT
 
         val cookieManager = CookieManager.getInstance()
@@ -224,22 +228,15 @@ class SsoLoginActivity : AppCompatActivity() {
 
     private fun injectCasAssistScript(view: WebView?) {
         val studentId = capturedUsername.ifEmpty { passedStudentId }
-        val password = capturedPassword.ifEmpty { passedPassword }
-
         val quotedStudentId = JSONObject.quote(studentId)
-        val quotedPassword = JSONObject.quote(password)
 
+        // 安全合规加固：严禁向 WebView DOM 中注入明文密码（NFR-SEC-06）；仅对空学号框做辅助填充
         val js = """
             (function() {
                 try {
                     var u = document.querySelector("#username") || document.querySelector("input[name='username']");
-                    var p = document.querySelector("#password") || document.querySelector("input[name='password']");
-                    
                     var presetU = $quotedStudentId;
-                    var presetP = $quotedPassword;
-                    
                     if (u && !u.value && presetU) { u.value = presetU; }
-                    if (p && !p.value && presetP) { p.value = presetP; }
                     
                     function reportCredentials() {
                         try {
@@ -360,11 +357,11 @@ class SsoLoginActivity : AppCompatActivity() {
                 val finalStudentId = profile.studentId.ifEmpty { targetStudentId }
                 val finalPassword = capturedPassword.ifEmpty { passedPassword }
 
-                // 3. 保存凭证与学籍信息
+                // 3. 保存凭证与学籍信息（尊重用户在登录界面的记住密码/自动登录选择）
                 if (finalStudentId.isNotEmpty() && finalPassword.isNotEmpty()) {
-                    authPrefs.saveCredentials(finalStudentId, finalPassword, autoLogin = true)
+                    authPrefs.saveCredentials(finalStudentId, finalPassword, autoLogin = passedAutoLogin)
                 } else if (finalStudentId.isNotEmpty()) {
-                    authPrefs.saveCredentials(finalStudentId, authPrefs.getPassword(), autoLogin = true)
+                    authPrefs.saveCredentials(finalStudentId, authPrefs.getPassword(), autoLogin = passedAutoLogin)
                 }
                 cacheManager.saveProfile(profile)
 

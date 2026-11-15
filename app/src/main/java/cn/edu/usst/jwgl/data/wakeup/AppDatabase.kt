@@ -227,6 +227,21 @@ class AppDatabase private constructor(context: Context) {
         }
     }
 
+    fun clearAllScheduleData() {
+        synchronized(this) {
+            val db = dbHelper.writableDatabase
+            db.beginTransaction()
+            try {
+                db.delete("CourseDetailBean", null, null)
+                db.delete("CourseBaseBean", null, null)
+                db.delete("TableBean", null, null)
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
     fun ensureLatestTimeTableAndDefaults() {
         val db = dbHelper.writableDatabase
 

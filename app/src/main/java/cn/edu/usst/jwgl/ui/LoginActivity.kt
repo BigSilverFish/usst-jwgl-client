@@ -148,7 +148,8 @@ class LoginActivity : AppCompatActivity() {
         binding.btnSsoLogin.setOnClickListener {
             val studentId = binding.etStudentId.text?.toString()?.trim() ?: ""
             val password = binding.etPassword.text?.toString()?.trim() ?: ""
-            SsoLoginActivity.start(this@LoginActivity, studentId, password)
+            val autoLogin = binding.cbAutoLogin.isChecked
+            SsoLoginActivity.start(this@LoginActivity, studentId, password, autoLogin)
         }
 
         binding.btnGuestCourseSearch.setOnClickListener {
