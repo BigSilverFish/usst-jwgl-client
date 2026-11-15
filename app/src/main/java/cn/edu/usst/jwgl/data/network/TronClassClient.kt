@@ -900,7 +900,7 @@ class TronClassClient(context: Context) {
                 put("radarSignal", JSONObject.NULL)
             }
 
-            Log.i(TAG, "Submitting radar rollcall: rollcallId=$rollcallId, lat=$latitude, lng=$longitude, devId=$targetDeviceId, hasCustomSession=${!customSessionId.isNullOrBlank()}")
+            Log.i(TAG, "Submitting radar rollcall: rollcallId=$rollcallId, lat=***, lng=***, devId=***, hasCustomSession=${!customSessionId.isNullOrBlank()}")
 
             val reqBuilder = Request.Builder()
                 .url(url)
@@ -1452,7 +1452,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("è·åè¯¾ç¨ç« èå¤±è´¥: HTTP ${resp.code}"))
+                return@withContext Result.failure(Exception("获取课程章节失败: HTTP ${resp.code}"))
             }
 
             val json = JSONObject(body)
@@ -1467,7 +1467,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
-     * 12. è·åè¯¾ç¨ææå­¦ä¹ æ´»å¨/è¯¾ä»¶/ä½ä¸
+     * 12. 获取课程所有学习活动/课件/作业
      * GET /api/courses/{courseId}/activities
      */
     suspend fun fetchCourseActivities(courseId: Long): Result<List<TronClassActivityItem>> = withContext(Dispatchers.IO) {
@@ -1478,7 +1478,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("è·åè¯¾ç¨æ´»å¨å¤±è´¥: HTTP ${resp.code}"))
+                return@withContext Result.failure(Exception("获取课程活动失败: HTTP ${resp.code}"))
             }
 
             val json = JSONObject(body)
@@ -1493,7 +1493,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
-     * 13. è·åè¯¾ç¨å¬ååè¡¨
+     * 13. 获取课程公告列表
      * GET /api/courses/{courseId}/bulletins
      */
     suspend fun fetchCourseBulletins(courseId: Long): Result<List<TronClassBulletin>> = withContext(Dispatchers.IO) {
@@ -1504,7 +1504,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("è·åè¯¾ç¨å¬åå¤±è´¥: HTTP ${resp.code}"))
+                return@withContext Result.failure(Exception("获取课程公告失败: HTTP ${resp.code}"))
             }
 
             val json = JSONObject(body)
@@ -1847,7 +1847,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
-     * 14. è·åæ´»å¨è¯¦æ (åå«ä½ä¸è¯´æå¯ææ¬åè¯åè§å)
+     * 14. 获取活动详情 (包含作业说明富文本及评分规则)
      * GET /api/activities/{activityId}
      */
     suspend fun fetchActivityDetail(activityId: Long): Result<TronClassActivityItem> = withContext(Dispatchers.IO) {
@@ -1858,7 +1858,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("è·åæ´»å¨è¯¦æå¤±è´¥: HTTP ${resp.code}"))
+                return@withContext Result.failure(Exception("获取活动详情失败: HTTP ${resp.code}"))
             }
 
             val item: TronClassActivityItem = gson.fromJson(body, TronClassActivityItem::class.java)
@@ -1870,7 +1870,7 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
     }
 
     /**
-     * 15. ä¸è½½è¯¾ä»¶/éä»¶å¹¶æä¾å®æ¶è¿åº¦åè°
+     * 15. 下载课件/附件并提供实时进度回调
      * GET /api/uploads/{uploadId}/blob
      */
     suspend fun downloadAttachment(
@@ -1884,10 +1884,10 @@ suspend fun fetchCourseModules(courseId: Long): Result<List<TronClassModule>> = 
             val resp = executeRequest(req)
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("ä¸è½½è¯¾ä»¶å¤±è´¥: HTTP ${resp.code}"))
+                return@withContext Result.failure(Exception("下载课件失败: HTTP ${resp.code}"))
             }
 
-            val body = resp.body ?: return@withContext Result.failure(Exception("ååºä½ä¸ºç©º"))
+            val body = resp.body ?: return@withContext Result.failure(Exception("响应体为空"))
             val totalBytes = body.contentLength()
 
             destFile.parentFile?.mkdirs()
@@ -1934,7 +1934,7 @@ suspend fun fetchSubmissionDetail(
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful) {
-                return@withContext Result.failure(Exception("è·åä½ä¸æäº¤è¯¦æå¤±è´¥: HTTP ${resp.code}"))
+                return@withContext Result.failure(Exception("获取作业提交详情失败: HTTP ${resp.code}"))
             }
 
             val sub: TronClassSubmission = gson.fromJson(body, TronClassSubmission::class.java)
@@ -1946,20 +1946,21 @@ suspend fun fetchSubmissionDetail(
     }
 
     /**
-     * 17. ä¸ä¼ ä½ä¸éä»¶æä»¶
-     * æµç¨ï¼
-     * 1) POST /api/uploads åå§åä¸ä¼ ï¼è·å upload_url å upload_id
+     * 17. 上传作业附件文件
+     * 流程：
+     * 1) POST /api/uploads 初始化上传，获取 upload_url å upload_id
      * 2) POST Multipart å° upload_url (å¸¦ x-session-id)
      */
     suspend fun uploadFile(
         file: File,
         fileName: String = file.name,
         parentType: String = "activity",
+        allowRetry: Boolean = true,
         onProgress: ((Int) -> Unit)? = null
     ): Result<TronClassUpload> = withContext(Dispatchers.IO) {
         try {
             if (!file.exists() || file.length() == 0L) {
-                return@withContext Result.failure(Exception("å¾ä¸ä¼ æä»¶ä¸å­å¨æåå®¹ä¸ºç©º"))
+                return@withContext Result.failure(Exception("待上传文件不存在或内容为空"))
             }
 
             // Step 1: POST /api/uploads
@@ -1978,10 +1979,10 @@ suspend fun fetchSubmissionDetail(
             val initBody = initResp.body?.string() ?: ""
 
             if (!initResp.isSuccessful) {
-                if (initResp.code == 401 && refreshSession().isSuccess) {
-                    return@withContext uploadFile(file, fileName, parentType, onProgress)
+                if (allowRetry && initResp.code == 401 && refreshSession().isSuccess) {
+                    return@withContext uploadFile(file, fileName, parentType, allowRetry = false, onProgress = onProgress)
                 }
-                return@withContext Result.failure(Exception("åå»ºæä»¶ä¸ä¼ è®°å½å¤±è´¥: HTTP ${initResp.code}"))
+                return@withContext Result.failure(Exception("创建文件上传记录失败: HTTP ${initResp.code}"))
             }
 
             val initJson = JSONObject(initBody)
@@ -1989,7 +1990,7 @@ suspend fun fetchSubmissionDetail(
             val uploadUrl = initJson.optString("upload_url", initJson.optString("url", ""))
 
             if (uploadId <= 0L || uploadUrl.isBlank()) {
-                return@withContext Result.failure(Exception("æå¡å¨æªä¸åææä¸ä¼ å°å"))
+                return@withContext Result.failure(Exception("服务器未下发有效上传地址"))
             }
 
             Log.d(TAG, "Upload initialized: id=$uploadId, url=$uploadUrl")
@@ -2034,7 +2035,7 @@ suspend fun fetchSubmissionDetail(
 
             val upResp = executeRequest(upReq)
             if (!upResp.isSuccessful) {
-                return@withContext Result.failure(Exception("æä»¶äºè¿å¶ä¼ è¾å¤±è´¥: HTTP ${upResp.code}"))
+                return@withContext Result.failure(Exception("文件二进制传输失败: HTTP ${upResp.code}"))
             }
 
             onProgress?.invoke(100)
@@ -2053,16 +2054,17 @@ suspend fun fetchSubmissionDetail(
     }
 
     /**
-     * 18. æäº¤ä½ä¸ / éæ°æäº¤ä½ä¸
+     * 18. 提交作业 / 重新提交作业
      * POST /api/course/activities/{activityId}/submissions
-     * è¥éæ°æäº¤ï¼PUT /api/course/activities/{activityId}/submissions?retract=true
+     * 若重新提交：PUT /api/course/activities/{activityId}/submissions?retract=true
      */
     suspend fun submitHomework(
         activityId: Long,
         comment: String,
         uploads: List<TronClassUpload>,
         isResubmit: Boolean = false,
-        submissionId: Long? = null
+        submissionId: Long? = null,
+        allowRetry: Boolean = true
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             if (isResubmit) {
@@ -2119,8 +2121,8 @@ suspend fun fetchSubmissionDetail(
                 Log.d(TAG, "submitHomework success: HTTP $code")
                 Result.success(true)
             } else {
-                if (code == 401 && refreshSession().isSuccess) {
-                    return@withContext submitHomework(activityId, comment, uploads, false, submissionId)
+                if (allowRetry && code == 401 && refreshSession().isSuccess) {
+                    return@withContext submitHomework(activityId, comment, uploads, false, submissionId, allowRetry = false)
                 }
                 Result.failure(Exception("提交作业失败: HTTP $code $body"))
             }
@@ -2789,7 +2791,8 @@ suspend fun fetchSubmissionDetail(
      */
     suspend fun submitExamAnswers(
         examId: Long,
-        answers: Map<String, Any>
+        answers: Map<String, Any>,
+        allowRetry: Boolean = true
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val submitUrl = "$BASE_URL/api/exams/$examId/submissions"
@@ -2856,8 +2859,8 @@ suspend fun fetchSubmissionDetail(
                 logActivityRead(examId)
                 Result.success(true)
             } else {
-                if (code == 401 && refreshSession().isSuccess) {
-                    return@withContext submitExamAnswers(examId, answers)
+                if (allowRetry && code == 401 && refreshSession().isSuccess) {
+                    return@withContext submitExamAnswers(examId, answers, allowRetry = false)
                 }
                 logActivityRead(examId)
                 Result.success(true)

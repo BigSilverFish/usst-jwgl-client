@@ -1732,7 +1732,8 @@ class JwglWebActivity : AppCompatActivity() {
                     val auth = AuthPreferences(this@JwglWebActivity)
                     val studentId = auth.getStudentId()
                     val password = auth.getPassword()
-                    Log.w(TAG, "CAS login page detected: attempt=$casAttemptCount, studentId='$studentId', pwd='$password'")
+                    val maskedId = if (studentId.length > 4) studentId.take(3) + "****" + studentId.takeLast(2) else studentId
+                    Log.i(TAG, "CAS login page detected: attempt=$casAttemptCount, studentId='$maskedId'")
                     if (casAttemptCount < 3 && studentId.isNotEmpty() && password.isNotEmpty()) {
                         casAttemptCount++
                         Log.w(TAG, "Auto-filling CAS login form in WebView (attempt $casAttemptCount)...")
