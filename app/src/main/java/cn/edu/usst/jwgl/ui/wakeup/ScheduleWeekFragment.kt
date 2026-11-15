@@ -146,8 +146,8 @@ class ScheduleWeekFragment : Fragment() {
 
     internal fun renderSchedule() {
         val context = context ?: return
-        val db = AppDatabase.getDatabase(context)
         val act = activity as? cn.edu.usst.jwgl.ui.MainActivity
+        val db = act?.getDatabaseInstance() ?: AppDatabase.getDatabase(context)
         val actTable = act?.currentTable
         val table = if (actTable != null && (tableId <= 0 || actTable.id == tableId)) {
             actTable
