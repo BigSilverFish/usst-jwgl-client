@@ -336,6 +336,7 @@ class AuthPreferences(private val context: Context) {
         // 5. 清理本地课表数据库
         try {
             cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context).clearAllScheduleData()
+            cn.edu.usst.jwgl.data.wakeup.AppDatabase.closeAll()
         } catch (e: Exception) {
             Log.w(TAG, "Logout: Failed to clear schedule database", e)
         }

@@ -17,44 +17,77 @@ object TimetableSettingHelper {
     const val NAV_MODE_DRAWER = 0
     const val NAV_MODE_BOTTOM = 1
 
-    fun saveLastActiveTableInfo(context: Context, tableId: Int, tableName: String, maxWeek: Int, startDate: String) {
+    private fun getAccountPrefix(context: Context, studentId: String? = null): String {
+        val sid = if (!studentId.isNullOrBlank()) studentId else {
+            try {
+                cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+            } catch (_: Exception) {
+                ""
+            }
+        }
+        return if (sid.isNotBlank()) "${sid}_" else ""
+    }
+
+    fun saveLastActiveTableInfo(context: Context, tableId: Int, tableName: String, maxWeek: Int, startDate: String, studentId: String? = null) {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val prefix = getAccountPrefix(context, studentId)
         sp.edit()
-            .putInt(KEY_LAST_ACTIVE_TABLE_ID, tableId)
-            .putString(KEY_LAST_ACTIVE_TABLE_NAME, tableName)
-            .putInt(KEY_LAST_ACTIVE_MAX_WEEK, maxWeek)
-            .putString(KEY_LAST_ACTIVE_START_DATE, startDate)
+            .putInt(prefix + KEY_LAST_ACTIVE_TABLE_ID, tableId)
+            .putString(prefix + KEY_LAST_ACTIVE_TABLE_NAME, tableName)
+            .putInt(prefix + KEY_LAST_ACTIVE_MAX_WEEK, maxWeek)
+            .putString(prefix + KEY_LAST_ACTIVE_START_DATE, startDate)
             .apply()
     }
 
-    fun getLastActiveTableId(context: Context): Int {
+    fun getLastActiveTableId(context: Context, studentId: String? = null): Int {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val prefix = getAccountPrefix(context, studentId)
+        if (sp.contains(prefix + KEY_LAST_ACTIVE_TABLE_ID)) {
+            return sp.getInt(prefix + KEY_LAST_ACTIVE_TABLE_ID, -1)
+        }
         return sp.getInt(KEY_LAST_ACTIVE_TABLE_ID, -1)
     }
 
-    fun getLastActiveTableName(context: Context): String {
+    fun getLastActiveTableName(context: Context, studentId: String? = null): String {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val prefix = getAccountPrefix(context, studentId)
+        if (sp.contains(prefix + KEY_LAST_ACTIVE_TABLE_NAME)) {
+            return sp.getString(prefix + KEY_LAST_ACTIVE_TABLE_NAME, "") ?: ""
+        }
         return sp.getString(KEY_LAST_ACTIVE_TABLE_NAME, "") ?: ""
     }
 
-    fun getLastActiveMaxWeek(context: Context): Int {
+    fun getLastActiveMaxWeek(context: Context, studentId: String? = null): Int {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val prefix = getAccountPrefix(context, studentId)
+        if (sp.contains(prefix + KEY_LAST_ACTIVE_MAX_WEEK)) {
+            return sp.getInt(prefix + KEY_LAST_ACTIVE_MAX_WEEK, 25)
+        }
         return sp.getInt(KEY_LAST_ACTIVE_MAX_WEEK, 25)
     }
 
-    fun getLastActiveStartDate(context: Context): String {
+    fun getLastActiveStartDate(context: Context, studentId: String? = null): String {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val prefix = getAccountPrefix(context, studentId)
+        if (sp.contains(prefix + KEY_LAST_ACTIVE_START_DATE)) {
+            return sp.getString(prefix + KEY_LAST_ACTIVE_START_DATE, "") ?: ""
+        }
         return sp.getString(KEY_LAST_ACTIVE_START_DATE, "") ?: ""
     }
 
-    fun hasMigratedLegacyTimetables(context: Context): Boolean {
+    fun hasMigratedLegacyTimetables(context: Context, studentId: String? = null): Boolean {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val prefix = getAccountPrefix(context, studentId)
+        if (sp.contains(prefix + KEY_HAS_MIGRATED_LEGACY)) {
+            return sp.getBoolean(prefix + KEY_HAS_MIGRATED_LEGACY, false)
+        }
         return sp.getBoolean(KEY_HAS_MIGRATED_LEGACY, false)
     }
 
-    fun setHasMigratedLegacyTimetables(context: Context, migrated: Boolean) {
+    fun setHasMigratedLegacyTimetables(context: Context, migrated: Boolean, studentId: String? = null) {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        sp.edit().putBoolean(KEY_HAS_MIGRATED_LEGACY, migrated).apply()
+        val prefix = getAccountPrefix(context, studentId)
+        sp.edit().putBoolean(prefix + KEY_HAS_MIGRATED_LEGACY, migrated).apply()
     }
 
     fun isDrawerProfileHeaderEnabled(context: Context): Boolean {

@@ -18,9 +18,11 @@ import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AccountVault
 import cn.edu.usst.jwgl.data.local.AuthPreferences
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.AccountProfile
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.JwglClient
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
@@ -181,15 +183,16 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
 
         lifecycleScope.launch {
             try {
-                // 1. 清理现有网络会话状态
-                withContext(Dispatchers.IO) {
-                    JwglClient.clearSession()
-                    TronClassPreferences(context).clearSession()
-                }
-
-                // 2. 更新本地当前激活账号及凭据
+                // 1. 更新本地当前激活账号及凭据
                 val auth = AuthPreferences(context)
                 auth.setActiveAccount(account.studentId)
+
+                // 2. 清理各模块旧网络会话状态
+                withContext(Dispatchers.IO) {
+                    JwglClient.clearSession()
+                    TronClassPreferences(context).clearSession(account.studentId)
+                    ChaoXingPreferences(context).clearSession(account.studentId)
+                }
 
                 // 3. 尝试进行一次静默登录建立远程 Session 并拉取最新 Profile
                 val loginResult = withContext(Dispatchers.IO) {
@@ -204,6 +207,11 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                     val profile = loginResult.getOrNull()
                     if (profile != null) {
                         DataCacheManager(context).saveProfile(profile)
+                    }
+                    withContext(Dispatchers.IO) {
+                        try {
+                            ChaoXingClient(context).loginWithCasSso()
+                        } catch (_: Exception) {}
                     }
                 }
 
@@ -282,6 +290,11 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                             DataCacheManager(context).saveProfile(profile)
                         }
                         AuthPreferences(context).setActiveAccount(account.studentId)
+                        withContext(Dispatchers.IO) {
+                            try {
+                                ChaoXingClient(context).loginWithCasSso()
+                            } catch (_: Exception) {}
+                        }
                         dialog?.dismiss()
                         Toast.makeText(context, "切换成功", Toast.LENGTH_SHORT).show()
                         switchListener?.onAccountSwitched(account.studentId)
