@@ -360,7 +360,8 @@ object JwglClient {
         val studentCategory = extractFieldValue("学生类别")
         val phone = extractFieldValue("手机号码")
 
-        Log.d(TAG, "Extracted from PROFILE_URL: name=$name, id=$studentId, college=$college, major=$major, class=$className, grade=$grade")
+        val maskedId = if (studentId.length > 4) studentId.take(3) + "****" + studentId.takeLast(2) else studentId
+        Log.d(TAG, "Extracted profile from PROFILE_URL: id=$maskedId, college=$college, major=$major")
 
         // If primary profile is incomplete, complement with quick dashboard info
         if (name.isEmpty() || college.isEmpty()) {
@@ -523,7 +524,24 @@ object JwglClient {
                     weightedGpa = semAvgGpa,
                     courses = courses
                 )
-            }.sortedByDescending { it.semesterTitle }
+            }.sortedWith { a, b ->
+                // 按学年数值与学期序号数值精确降序排序，杜绝纯中文字符串字典序导致的跨年或短学期排序错乱（AC-GRD-04-1）
+                val semA = cn.edu.usst.jwgl.util.SemesterHelper.parseSemesterFromTableName(a.semesterTitle)
+                val semB = cn.edu.usst.jwgl.util.SemesterHelper.parseSemesterFromTableName(b.semesterTitle)
+                if (semA != null && semB != null) {
+                    val yearA = semA.first.toIntOrNull() ?: 0
+                    val yearB = semB.first.toIntOrNull() ?: 0
+                    if (yearA != yearB) {
+                        yearB.compareTo(yearA)
+                    } else {
+                        val termA = when (semA.second) { "3" -> 1; "12" -> 2; "16" -> 3; else -> 1 }
+                        val termB = when (semB.second) { "3" -> 1; "12" -> 2; "16" -> 3; else -> 1 }
+                        termB.compareTo(termA)
+                    }
+                } else {
+                    b.semesterTitle.compareTo(a.semesterTitle)
+                }
+            }
 
             val report = cn.edu.usst.jwgl.data.model.GradeReport(
                 totalCredits = totalCredit,

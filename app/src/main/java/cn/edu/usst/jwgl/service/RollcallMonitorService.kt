@@ -340,7 +340,7 @@ class RollcallMonitorService : Service() {
         val targetLng = rollcall.longitude ?: building.longitude
         val accuracy = if (rollcall.latitude != null) 5.0 else 15.0
 
-        Log.i(TAG, "Auto signing radar rollcall $rollcallId with lat=$targetLat, lng=$targetLng (isTeacherBeacon=${rollcall.latitude != null}, building=${building.name})")
+        Log.i(TAG, "Auto signing radar rollcall $rollcallId (isTeacherBeacon=${rollcall.latitude != null}, building=${building.name})")
 
         // 2. 批量签到（多账号自动分流并各自使用独立设备指纹）
         val results = tronClassClient.batchAnswerRadarRollcall(
