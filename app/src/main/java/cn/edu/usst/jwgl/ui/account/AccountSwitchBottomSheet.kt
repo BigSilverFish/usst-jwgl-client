@@ -183,15 +183,19 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
 
         lifecycleScope.launch {
             try {
-                // 1. 更新本地当前激活账号及凭据
                 val auth = AuthPreferences(context)
+                val oldStudentId = auth.getStudentId()
+
+                // 1. 更新本地当前激活账号及凭据
                 auth.setActiveAccount(account.studentId)
 
-                // 2. 清理各模块旧网络会话状态
+                // 2. 清理旧账号网络会话状态
                 withContext(Dispatchers.IO) {
                     JwglClient.clearSession()
-                    TronClassPreferences(context).clearSession(account.studentId)
-                    ChaoXingPreferences(context).clearSession(account.studentId)
+                    if (oldStudentId.isNotBlank() && oldStudentId != account.studentId) {
+                        TronClassPreferences(context).clearSession(oldStudentId)
+                        ChaoXingPreferences(context).clearSession(oldStudentId)
+                    }
                 }
 
                 // 3. 尝试进行一次静默登录建立远程 Session 并拉取最新 Profile
@@ -268,6 +272,16 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                 btnPositive.isEnabled = false
 
                 lifecycleScope.launch {
+                    val auth = AuthPreferences(context)
+                    val oldStudentId = auth.getStudentId()
+                    withContext(Dispatchers.IO) {
+                        JwglClient.clearSession()
+                        if (oldStudentId.isNotBlank() && oldStudentId != account.studentId) {
+                            TronClassPreferences(context).clearSession(oldStudentId)
+                            ChaoXingPreferences(context).clearSession(oldStudentId)
+                        }
+                    }
+
                     val result = withContext(Dispatchers.IO) {
                         JwglClient.login(account.studentId, pwd)
                     }
@@ -289,7 +303,7 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                         if (profile != null) {
                             DataCacheManager(context).saveProfile(profile)
                         }
-                        AuthPreferences(context).setActiveAccount(account.studentId)
+                        auth.setActiveAccount(account.studentId)
                         withContext(Dispatchers.IO) {
                             try {
                                 ChaoXingClient(context).loginWithCasSso()
@@ -382,7 +396,12 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                             .setPositiveButton("立即切换") { _, _ ->
                                 performSwitchAccount(accountProfile)
                             }
-                            .setNegativeButton("稍后再说", null)
+                            .setNegativeButton("稍后再说") { _, _ ->
+                                JwglClient.clearSession()
+                            }
+                            .setOnCancelListener {
+                                JwglClient.clearSession()
+                            }
                             .show()
 
                     } else {

@@ -1325,8 +1325,9 @@ class MainActivity : AppCompatActivity() {
             currentWeek = determinedWeek
 
             val adapter = scheduleAdapter
+            val activeSid = AuthPreferences(this@MainActivity).getStudentId()
             if (adapter == null) {
-                scheduleAdapter = SchedulePagerAdapter(this@MainActivity, maxWeek, targetTable.id)
+                scheduleAdapter = SchedulePagerAdapter(this@MainActivity, maxWeek, targetTable.id, activeSid)
                 binding.vpSchedule.adapter = scheduleAdapter
                 binding.vpSchedule.offscreenPageLimit = 1
                 binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
@@ -1347,7 +1348,7 @@ class MainActivity : AppCompatActivity() {
                 reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
             } else {
                 if (targetTable.id != previousTableId || maxWeek != previousMaxWeek) {
-                    adapter.updateConfig(maxWeek, targetTable.id)
+                    adapter.updateConfig(maxWeek, targetTable.id, activeSid)
                     binding.vpSchedule.setCurrentItem(determinedWeek - 1, false)
                     reloadTimetableFromDb(initialWeek = determinedWeek, forceWeek = true)
                 } else if (determinedWeek != binding.vpSchedule.currentItem + 1) {
@@ -3298,6 +3299,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleAccountSwitched(newStudentId: String) {
         lifecycleScope.launch {
+            // 0. 清除启动 Intent 中残留的上一个登录者的 StudentProfile 缓存
+            intent?.removeExtra(EXTRA_PROFILE)
+
             // 1. 刷新个人档案缓存及 UI 展示
             val profile = cacheManager.getProfile(newStudentId)
             currentProfile = profile
@@ -3327,7 +3331,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // 3. 切换数据库为新账号专属库并重新加载课表
+            // 3. 彻底重置课表 ViewPager2 适配器及缓存，切换数据库为新账号专属库并重新加载课表
+            binding.vpSchedule.adapter = null
+            scheduleAdapter = null
+            currentTable = null
+            isInitialWeekLocated = false
+            invalidateTableCoursesCache()
+
             withContext(Dispatchers.IO) {
                 db = AppDatabase.getDatabase(this@MainActivity, newStudentId)
                 db.ensureLatestTimeTableAndDefaults()
@@ -3343,7 +3353,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            invalidateTableCoursesCache()
             initWakeupSchedule()
 
             // 4. 刷新成绩 Fragment

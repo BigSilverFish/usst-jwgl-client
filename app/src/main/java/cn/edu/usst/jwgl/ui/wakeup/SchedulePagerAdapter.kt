@@ -7,10 +7,12 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 class SchedulePagerAdapter(
     private val activity: FragmentActivity,
     private var maxWeek: Int = 25,
-    private var tableId: Int = -1
+    private var tableId: Int = -1,
+    private var accountTag: String = ""
 ) : FragmentStateAdapter(activity) {
 
     private val fragmentMap = mutableMapOf<Int, ScheduleWeekFragment>()
+    private var generation: Long = System.currentTimeMillis()
 
     override fun getItemCount(): Int = maxWeek
 
@@ -22,23 +24,40 @@ class SchedulePagerAdapter(
     }
 
     override fun getItemId(position: Int): Long {
-        // Compose unique id based on tableId and week position to force recreation on table change
-        return (tableId.toLong() shl 16) + (position + 1)
+        // 基于 (generation, tableId, position) 组合全局唯一 ID，确保换账号或重构时强制销毁并重建 Fragment
+        val genPart = (generation.hashCode().toLong() and 0xFFFF) shl 32
+        val tblPart = (tableId.toLong() and 0xFFFF) shl 16
+        val posPart = (position + 1).toLong() and 0xFFFF
+        return genPart or tblPart or posPart
     }
 
     override fun containsItem(itemId: Long): Boolean {
+        val curGenPart = (generation.hashCode().toLong() and 0xFFFF) shl 32
+        val itemGenPart = itemId and (0xFFFF.toLong() shl 32)
+        if (itemGenPart != curGenPart) return false
+        val tId = ((itemId ushr 16) and 0xFFFF).toInt()
         val week = (itemId and 0xFFFF).toInt()
-        val tId = (itemId shr 16).toInt()
-        return tId == tableId && week in 1..maxWeek
+        return tId == (tableId and 0xFFFF) && week in 1..maxWeek
     }
 
-    fun updateConfig(newMaxWeek: Int, newTableId: Int) {
-        val changed = (this.maxWeek != newMaxWeek || this.tableId != newTableId)
+    fun updateConfig(newMaxWeek: Int, newTableId: Int, newAccountTag: String = accountTag) {
+        val changed = (this.maxWeek != newMaxWeek || this.tableId != newTableId || this.accountTag != newAccountTag)
         this.maxWeek = newMaxWeek
         this.tableId = newTableId
+        if (this.accountTag != newAccountTag) {
+            this.accountTag = newAccountTag
+            this.generation = System.currentTimeMillis()
+            fragmentMap.clear()
+        }
         if (changed) {
             notifyDataSetChanged()
         }
+    }
+
+    fun forceRecreate() {
+        this.generation = System.currentTimeMillis()
+        fragmentMap.clear()
+        notifyDataSetChanged()
     }
 
     fun refreshAllFragments() {
