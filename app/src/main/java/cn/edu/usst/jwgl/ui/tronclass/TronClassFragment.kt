@@ -1229,11 +1229,65 @@ class TronClassFragment : Fragment() {
             .show()
     }
 
+    /**
+     * 多账号切换时响应：立即清空上一身份内存残留数据并尝试为新账号加载/静默登录
+     */
+    fun onAccountSwitched(newStudentId: String) {
+        val b = _binding ?: return
+        // 1. 彻底清空内存中遗留的上一身份数据
+        allTronClassCourses = emptyList()
+        allTronClassBulletins = emptyList()
+        allUnifiedCourses = emptyList()
+        allUnifiedTodos = emptyList()
+        allUnifiedBulletins = emptyList()
+        tronClassActiveRollcalls = emptyList()
+        allUnifiedActiveRollcalls = emptyList()
+        cachedChaoXingCourses = emptyList()
+
+        // 2. 刷新 Header 与空视图，立即抹去旧数据
+        updateTronClassUserHeader()
+        renderUnifiedData()
+        updateTodoTabBadge(0)
+        updateBulletinTabBadge(0)
+        updateCourseTabBadge(0)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            // 3. 若新账号已有畅课会话，则拉取新数据；若无会话，则尝试预热超星并拉取
+            if (tronClassClient.isLoggedIn()) {
+                loadTronClassData(forceRefresh = true, silent = true)
+            } else {
+                withContext(Dispatchers.IO) {
+                    try {
+                        chaoXingClient.loginWithCasSso()
+                    } catch (_: Exception) {}
+                }
+                if (chaoXingClient.isLoggedIn()) {
+                    loadTronClassData(forceRefresh = true, silent = true)
+                }
+            }
+        }
+    }
+
     fun loadTronClassData(forceRefresh: Boolean, silent: Boolean = false) {
         val ctx = context ?: return
         if (!tronClassClient.isLoggedIn()) {
-            binding.swipeRefreshTronClass.isRefreshing = false
-            return
+            allTronClassCourses = emptyList()
+            allTronClassBulletins = emptyList()
+            tronClassActiveRollcalls = emptyList()
+            updateTronClassUserHeader()
+            if (!isDualPlatformMode || !chaoXingClient.isLoggedIn()) {
+                allUnifiedCourses = emptyList()
+                allUnifiedTodos = emptyList()
+                allUnifiedBulletins = emptyList()
+                allUnifiedActiveRollcalls = emptyList()
+                cachedChaoXingCourses = emptyList()
+                renderUnifiedData()
+                updateTodoTabBadge(0)
+                updateBulletinTabBadge(0)
+                updateCourseTabBadge(0)
+                binding.swipeRefreshTronClass.isRefreshing = false
+                return
+            }
         }
 
         if (!silent) {

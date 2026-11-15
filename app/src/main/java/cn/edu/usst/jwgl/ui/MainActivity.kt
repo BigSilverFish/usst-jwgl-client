@@ -1279,6 +1279,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val initData = withContext(Dispatchers.IO) {
+                db = AppDatabase.getDatabase(this@MainActivity)
                 db.ensureLatestTimeTableAndDefaults()
                 val defaultT = db.tableDao.getDefaultTable()
 
@@ -3326,14 +3327,30 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // 3. 重新加载课表
+            // 3. 切换数据库为新账号专属库并重新加载课表
+            withContext(Dispatchers.IO) {
+                db = AppDatabase.getDatabase(this@MainActivity, newStudentId)
+                db.ensureLatestTimeTableAndDefaults()
+                val existing = db.tableDao.getAllTables()
+                if (existing.isEmpty() || existing.all { db.courseBaseDao.getCourseOfTable(it.id).isEmpty() }) {
+                    val cachedList = cacheManager.getAllCachedTimetables(newStudentId)
+                    if (cachedList.isNotEmpty()) {
+                        val semConfig = RemoteConfigManager.getSemesterConfig()
+                        val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
+                        for (cached in cachedList) {
+                            WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                        }
+                    }
+                }
+            }
+            invalidateTableCoursesCache()
             initWakeupSchedule()
 
             // 4. 刷新成绩 Fragment
             (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.loadGrades(isManual = false)
 
-            // 5. 刷新 TronClass
-            getTronClassFragment()?.loadTronClassData(forceRefresh = true, silent = true)
+            // 5. 刷新 TronClass 与超星学习通
+            getTronClassFragment()?.onAccountSwitched(newStudentId)
         }
     }
 }

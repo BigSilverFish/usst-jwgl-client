@@ -7,27 +7,65 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import cn.edu.usst.jwgl.data.model.MergedSchoolCourse
 
-class AppDatabase private constructor(context: Context) {
+class AppDatabase private constructor(context: Context, val dbName: String = DATABASE_NAME) {
 
-    private val dbHelper = DatabaseHelper(context.applicationContext)
+    private val dbHelper = DatabaseHelper(context.applicationContext, dbName)
 
     companion object {
         const val LAB_RESERVATION_PREFIX = "[实验预约] "
         private const val DATABASE_NAME = "wakeup.db"
         private const val DATABASE_VERSION = 4
 
-        @Volatile
-        private var INSTANCE: AppDatabase? = null
+        private val instances = java.util.concurrent.ConcurrentHashMap<String, AppDatabase>()
 
-        fun getDatabase(context: Context): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: AppDatabase(context).also { INSTANCE = it }
+        fun getDatabaseName(studentId: String? = null): String {
+            val targetStudentId = studentId?.trim()?.takeIf { it.isNotEmpty() } ?: ""
+            return if (targetStudentId.isNotEmpty()) {
+                val safeSid = targetStudentId.replace(Regex("""[^a-zA-Z0-9_-]"""), "")
+                "wakeup_${safeSid}.db"
+            } else {
+                DATABASE_NAME
             }
+        }
+
+        fun getDatabase(context: Context, studentId: String? = null): AppDatabase {
+            val appCtx = context.applicationContext
+            val targetStudentId = studentId?.trim()?.takeIf { it.isNotEmpty() }
+                ?: try {
+                    cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(appCtx)
+                } catch (_: Exception) {
+                    ""
+                }
+
+            val dbName = getDatabaseName(targetStudentId)
+
+            return instances.computeIfAbsent(dbName) {
+                // 如果是新分桶数据库但文件不存在，若历史的全局 wakeup.db 存在且有数据，自动复制一份历史数据保证平滑迁移
+                if (dbName != DATABASE_NAME) {
+                    try {
+                        val newDbFile = appCtx.getDatabasePath(dbName)
+                        val legacyDbFile = appCtx.getDatabasePath(DATABASE_NAME)
+                        if (!newDbFile.exists() && legacyDbFile.exists() && legacyDbFile.length() > 0) {
+                            legacyDbFile.copyTo(newDbFile, overwrite = false)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("AppDatabase", "Failed to migrate legacy wakeup.db to $dbName", e)
+                    }
+                }
+                AppDatabase(appCtx, dbName)
+            }
+        }
+
+        fun closeAll() {
+            instances.values.forEach {
+                try { it.dbHelper.close() } catch (_: Exception) {}
+            }
+            instances.clear()
         }
     }
 
-    private class DatabaseHelper(context: Context) :
-        SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+    private class DatabaseHelper(context: Context, databaseName: String) :
+        SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
 
         override fun onConfigure(db: SQLiteDatabase) {
             super.onConfigure(db)
