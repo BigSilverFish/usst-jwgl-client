@@ -43,8 +43,8 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
     private val courseList = mutableListOf<MergedSchoolCourse>()
     private lateinit var adapter: SchoolCourseAdapter
 
-    private var currentXn = "2026-2027"
-    private var currentXq = "1"
+    private var currentXn = SemesterHelper.getCurrentSemester().let { "${it.first}-${(it.first.toIntOrNull() ?: 2026) + 1}" }
+    private var currentXq = if (SemesterHelper.getCurrentSemester().second == "3") "1" else "2"
     private var selectedCollege = ""
     private var selectedDay = -1
 

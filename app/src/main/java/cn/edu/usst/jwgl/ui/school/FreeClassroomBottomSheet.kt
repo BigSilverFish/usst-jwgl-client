@@ -165,10 +165,14 @@ class FreeClassroomBottomSheet : BottomSheetDialogFragment() {
                 } ?: 1
                 currentTargetWeek = if (curWeek in 1..25) curWeek else 1
 
+                val (curXnm, curXqm) = cn.edu.usst.jwgl.util.SemesterHelper.getCurrentSemester()
+                val currentXn = "$curXnm-${(curXnm.toIntOrNull() ?: 2026) + 1}"
+                val currentXq = if (curXqm == "3") "1" else if (curXqm == "12") "2" else "3"
+
                 val result = LappClient.queryFreeClassrooms(
                     context = requireContext(),
-                    xn = "2026-2027",
-                    xq = "1",
+                    xn = currentXn,
+                    xq = currentXq,
                     week = currentTargetWeek,
                     zj = actualDay,
                     jc = selectedSection,

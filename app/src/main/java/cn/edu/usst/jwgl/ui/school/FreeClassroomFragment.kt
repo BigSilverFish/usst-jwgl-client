@@ -343,11 +343,15 @@ class FreeClassroomFragment : Fragment() {
         val actualDay = if (selectedFreeDay == 0) 1 else selectedFreeDay
         val targetWeek = getTargetWeek()
 
+        val (curXnm, curXqm) = cn.edu.usst.jwgl.util.SemesterHelper.getCurrentSemester()
+        val currentXn = "$curXnm-${(curXnm.toIntOrNull() ?: 2026) + 1}"
+        val currentXq = if (curXqm == "3") "1" else if (curXqm == "12") "2" else "3"
+
         viewLifecycleOwner.lifecycleScope.launch {
             val result = LappClient.queryFreeClassrooms(
                 context = context,
-                xn = "2026-2027",
-                xq = "1",
+                xn = currentXn,
+                xq = currentXq,
                 week = targetWeek,
                 zj = actualDay,
                 jc = selectedFreeSection,

@@ -341,6 +341,10 @@ class SchoolCourseSearchFragment : Fragment() {
         val curYearSpan = "$curYear-${curYear + 1}"
         val curTermNum = if (curXqm == "3") "1" else "2"
 
+        // 默认动态使用当前学期，避免固定学期硬编码（SCH-03）
+        currentSearchXn = curYearSpan
+        currentSearchXq = curTermNum
+
         val (nextXnm, nextXqm) = SemesterHelper.getNextSemester(curXnm, curXqm)
         val nextYear = nextXnm.toIntOrNull() ?: 2026
         val nextYearSpan = "$nextYear-${nextYear + 1}"
