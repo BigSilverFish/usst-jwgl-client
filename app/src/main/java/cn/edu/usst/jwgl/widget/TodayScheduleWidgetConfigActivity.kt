@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.databinding.ActivityTodayScheduleWidgetConfigBinding
@@ -22,30 +23,41 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 默认返回 CANCELED，防止用户在配置流程中按物理返回键导致桌面残留未配置的微件
-        setResult(RESULT_CANCELED)
-
-        binding = ActivityTodayScheduleWidgetConfigBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-
         // 获取传递过来的 AppWidgetId
         appWidgetId = intent?.extras?.getInt(
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID
         ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
 
+        // 默认预设 RESULT_OK，避免因系统后台拦截或误按返回键导致桌面将微件误判为取消并直接删除
+        val defaultResult = Intent().apply {
+            if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            }
+        }
+        setResult(RESULT_OK, defaultResult)
+
         // 读取已有配置或默认配置
         currentConfig = WidgetConfigManager.getConfig(this, appWidgetId)
 
         initToolbar()
+        initBackHandler()
         initViews()
         updatePreview()
     }
 
     private fun initToolbar() {
         binding.toolbar.setNavigationOnClickListener {
-            finish()
+            saveAndApply()
         }
+    }
+
+    private fun initBackHandler() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                saveAndApply()
+            }
+        })
     }
 
     private fun initViews() {

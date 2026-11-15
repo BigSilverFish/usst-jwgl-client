@@ -247,8 +247,7 @@
         <!-- Today Schedule AppWidget Service for ListView RemoteViews -->
         <service
             android:name=".widget.TodayScheduleWidgetService"
-            android:permission="android.permission.BIND_REMOTEVIEWS"
-            android:exported="false" />
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
