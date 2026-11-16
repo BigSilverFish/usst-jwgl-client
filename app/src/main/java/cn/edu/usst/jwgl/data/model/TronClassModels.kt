@@ -397,6 +397,41 @@ data class TronClassStudentRollcall(
     }
 }
 
+/**
+ * 课堂签到实时出勤统计模型
+ */
+data class RollcallAttendanceStats(
+    val rollcallId: Long,
+    val presentCount: Int,
+    val totalCount: Int,
+    val lateCount: Int = 0,
+    val absentCount: Int = 0,
+    val myStatus: String? = null
+) : Serializable {
+    val isAvailable: Boolean get() = totalCount > 0 || presentCount > 0
+    val presentRatePercent: Int get() = if (totalCount > 0) ((presentCount * 100f) / totalCount).toInt() else 0
+
+    fun formatBadgeText(): String {
+        return if (totalCount > 0) {
+            "已签到 $presentCount / $totalCount 人"
+        } else if (presentCount > 0) {
+            "已签到 $presentCount 人"
+        } else {
+            "等待首位同学签到"
+        }
+    }
+
+    fun formatSummary(): String {
+        return if (totalCount > 0) {
+            "已签到 $presentCount / $totalCount 人 ($presentRatePercent%)"
+        } else if (presentCount > 0) {
+            "已签到 $presentCount 人"
+        } else {
+            "暂无人签到"
+        }
+    }
+}
+
 data class TronClassModule(
     @SerializedName("id")
     val id: Long,

@@ -226,11 +226,14 @@ class RollcallMonitorService : Service() {
                 val attempt = retryAttempts[rollcallId] ?: 0
                 val waitSec = if (attempt == 0) delaySeconds else 0
 
-                Log.i(TAG, "Detected ongoing rollcall: id=$rollcallId, type=$normType, course=$cName, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS, wait=${waitSec}s")
+                val isWaitForOthers = prefs.isRollcallWaitForOthersEnabled()
+                val waitHint = if (isWaitForOthers) "等待其他同学签到后" else "${delaySeconds} 秒后"
+
+                Log.i(TAG, "Detected ongoing rollcall: id=$rollcallId, type=$normType, course=$cName, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS, wait=${waitSec}s, waitForOthers=$isWaitForOthers")
                 if (attempt == 0) {
                     updateForegroundNotification(
                         session,
-                        "检测到【$cName】签到，将在 ${delaySeconds} 秒后尝试自动提交"
+                        "检测到【$cName】签到，将在 $waitHint 尝试自动提交"
                     )
                 }
                 serviceScope.launch {
@@ -239,6 +242,33 @@ class RollcallMonitorService : Service() {
                             delay(waitSec * 1000L)
                         }
                         if (!isActive) return@launch
+
+                        // 若开启“当有人已签到再开始尝试”：轮询等待全班已有其他人签到（最多轮询 90 秒，避免签到已关闭）
+                        if (isWaitForOthers && attempt == 0) {
+                            val waitStart = System.currentTimeMillis()
+                            var someoneSigned = false
+                            while (isActive && (System.currentTimeMillis() - waitStart) < 90_000L) {
+                                val stats = tronClassClient.fetchRollcallAttendanceStats(rollcallId).getOrNull()
+                                if (stats != null && stats.presentCount > 0) {
+                                    someoneSigned = true
+                                    Log.i(TAG, "WaitForOthers condition met for rollcall $rollcallId: ${stats.presentCount} students signed")
+                                    updateForegroundNotification(
+                                        session,
+                                        "【$cName】已有 ${stats.presentCount} 人签到，正在跟进自动提交..."
+                                    )
+                                    break
+                                }
+                                updateForegroundNotification(
+                                    session,
+                                    "【$cName】等待其他同学先签到中..."
+                                )
+                                delay(3000L)
+                            }
+                            if (!isActive) return@launch
+                            if (!someoneSigned) {
+                                Log.i(TAG, "WaitForOthers timeout for rollcall $rollcallId, proceeding with submission anyway")
+                            }
+                        }
 
                         val isFinalAttempt = attempt + 1 >= MAX_AUTO_SIGN_ATTEMPTS
                         val isTerminal = when (normType) {
