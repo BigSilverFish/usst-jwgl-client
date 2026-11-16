@@ -124,6 +124,28 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.tvRadarRollcallIdBadge.text = "ID: $rollcallId"
         binding.btnSubmitRadar.text = if (isChaoXingMode) "立即位置签到" else "立即雷达签到"
 
+        if (!isChaoXingMode && rollcallId > 0) {
+            binding.tvRadarAttendanceStats.visibility = View.VISIBLE
+            binding.tvRadarAttendanceStats.text = "👥 正在查询已签到人数..."
+            val client = TronClassClient(requireContext().applicationContext)
+            viewLifecycleOwner.lifecycleScope.launch {
+                val statsResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    client.fetchRollcallAttendanceStats(rollcallId)
+                }
+                if (!isAdded || _binding == null) return@launch
+                statsResult.onSuccess { stats ->
+                    _binding?.tvRadarAttendanceStats?.apply {
+                        visibility = View.VISIBLE
+                        text = stats.formatBadgeText()
+                    }
+                }.onFailure {
+                    _binding?.tvRadarAttendanceStats?.visibility = View.GONE
+                }
+            }
+        } else {
+            binding.tvRadarAttendanceStats.visibility = View.GONE
+        }
+
         // 1. 初始化教学楼下拉框（适配深色与浅色模式文字与背景）
         val buildings = CoordinateUtils.USST_BUILDINGS
         val buildingNames = buildings.map { "${it.name} (${it.campus})" }

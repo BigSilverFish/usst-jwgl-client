@@ -98,6 +98,7 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_ROLLCALL_MONITOR_ENABLED = "tc_rollcall_monitor_enabled"
         private const val KEY_ROLLCALL_AUTO_SIGN_ENABLED = "tc_rollcall_auto_sign_enabled"
         private const val KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS = "tc_rollcall_auto_sign_delay_seconds"
+        private const val KEY_ROLLCALL_WAIT_FOR_OTHERS = "tc_rollcall_wait_for_others"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
         private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
@@ -457,6 +458,15 @@ class TronClassPreferences(private val context: Context) {
     fun setRollcallAutoSignDelaySeconds(seconds: Int) {
         val clamped = seconds.coerceIn(5, 30)
         prefs.edit().putInt(KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS, clamped).apply()
+    }
+
+    /**
+     * 是否在自动签到时等待有其他同学已签到后再开始尝试（防当出头鸟、防空点名误判）
+     */
+    fun isRollcallWaitForOthersEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, false)
+
+    fun setRollcallWaitForOthersEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, enabled).apply()
     }
 
     /**

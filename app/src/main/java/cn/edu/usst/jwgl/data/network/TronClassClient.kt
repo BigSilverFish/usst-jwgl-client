@@ -1333,6 +1333,68 @@ class TronClassClient(context: Context) {
     }
 
     /**
+     * 查询指定点名的实时出勤人数与全班统计
+     * GET /api/rollcall/{rollcallId}/student_rollcalls
+     */
+    suspend fun fetchRollcallAttendanceStats(
+        rollcallId: Long,
+        expectedAccount: String? = null
+    ): Result<cn.edu.usst.jwgl.data.model.RollcallAttendanceStats> = withContext(Dispatchers.IO) {
+        if (rollcallId <= 0L) return@withContext Result.failure(IllegalArgumentException("点名 ID 无效"))
+        val account = expectedAccount ?: accountKey()
+        try {
+            val url = "$BASE_URL/api/rollcall/$rollcallId/student_rollcalls"
+            val req = Request.Builder().url(url).get().build()
+            val resp = executeRequest(req, account)
+            if (!resp.isSuccessful) {
+                return@withContext Result.failure(Exception("获取出勤统计失败 (${resp.code})"))
+            }
+            val body = resp.body?.string().orEmpty()
+            if (body.isBlank()) return@withContext Result.failure(Exception("响应为空"))
+
+            val json = JSONObject(body)
+            val arr = json.optJSONArray("student_rollcalls") ?: json.optJSONArray("data")
+            var presentCount = 0
+            var lateCount = 0
+            var absentCount = 0
+            val totalCount = arr?.length() ?: 0
+            var myStatus: String? = null
+            val currentStudentId = getUserNo()
+
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val entry = arr.getJSONObject(i)
+                    val uNo = entry.optString("user_no", entry.optString("user_id", entry.optString("student_no", "")))
+                    val eStatus = entry.optString("rollcall_status", entry.optString("student_rollcall_status", entry.optString("status", ""))).lowercase().trim()
+                    when {
+                        eStatus == "on_call_fine" || eStatus == "on_call" || eStatus == "present" || eStatus == "attended" -> presentCount++
+                        eStatus == "on_call_arrive_late" || eStatus == "late" -> lateCount++
+                        eStatus == "absent" -> absentCount++
+                    }
+                    if (currentStudentId.isNotBlank() && uNo.equals(currentStudentId, ignoreCase = true)) {
+                        myStatus = eStatus
+                    }
+                }
+            }
+
+            val stats = cn.edu.usst.jwgl.data.model.RollcallAttendanceStats(
+                rollcallId = rollcallId,
+                presentCount = presentCount,
+                totalCount = totalCount,
+                lateCount = lateCount,
+                absentCount = absentCount,
+                myStatus = myStatus
+            )
+            Result.success(stats)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchRollcallAttendanceStats error for rollcall $rollcallId: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 10. 解析扫码得到的二维码字符串
      * 深度对齐一网畅学官方协议：
      * 1. 短链格式: https://.../j?p=... 或 /scanner-jumper?p=... (以及 _p 参数)

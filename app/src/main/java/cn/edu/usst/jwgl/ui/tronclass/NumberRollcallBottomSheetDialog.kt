@@ -45,6 +45,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var btnFetchCodeDirectly: View? = null
 
     private lateinit var tvCourseName: TextView
+    private var tvAttendanceStats: TextView? = null
     private lateinit var tvStatusTip: TextView
     private lateinit var progressSubmitting: ProgressBar
     private lateinit var cbSignAll: MaterialCheckBox
@@ -96,6 +97,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         tvCourseName = view.findViewById(R.id.tvCourseName)
+        tvAttendanceStats = view.findViewById(R.id.tvAttendanceStats)
         tvStatusTip = view.findViewById(R.id.tvStatusTip)
         progressSubmitting = view.findViewById(R.id.progressSubmitting)
         cbSignAll = view.findViewById(R.id.cbSignAll)
@@ -105,6 +107,10 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         isSubmitting = false
         submittedHere = false
         enteredCode.clear()
+
+        if (rollcallId > 0L) {
+            fetchAttendanceStats(rollcallId)
+        }
 
         boxPins = arrayOf(
             view.findViewById(R.id.boxPin1),
@@ -247,6 +253,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 rollcallId = target.getEffectiveId()
                 courseName = target.courseName
                 tvCourseName.text = "${courseName ?: "当前课程"} · 点名 $rollcallId"
+                fetchAttendanceStats(rollcallId)
                 if (!isSubmitting) {
                     tvStatusTip.text = "输入满 4 位后自动提交签到"
                     tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
@@ -271,6 +278,32 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                             if (view != null && sameAccount()) bind(candidates[which])
                         }.show()
                 }
+            }
+        }
+    }
+
+    private fun fetchAttendanceStats(id: Long) {
+        if (id <= 0L) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val statsResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val client = TronClassClient(requireContext().applicationContext)
+                    client.fetchRollcallAttendanceStats(id, accountAtOpen)
+                }
+                if (!canShowResult()) return@launch
+                statsResult.onSuccess { stats ->
+                    tvAttendanceStats?.apply {
+                        visibility = View.VISIBLE
+                        text = stats.formatBadgeText()
+                    }
+                }.onFailure {
+                    tvAttendanceStats?.apply {
+                        if (text.isNullOrBlank()) {
+                            visibility = View.GONE
+                        }
+                    }
+                }
+            } catch (_: Exception) {
             }
         }
     }

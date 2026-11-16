@@ -68,6 +68,28 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.tvLiveQrCourseInfo.text = "$cName · 正在寻找大屏机位推流"
         binding.tvLiveQrCameraBadge.text = classroom?.takeIf { it.isNotBlank() } ?: "智能匹配"
 
+        if (rollcallId > 0) {
+            binding.tvLiveAttendanceStats.visibility = View.VISIBLE
+            binding.tvLiveAttendanceStats.text = "👥 正在查询已签到人数..."
+            val client = cn.edu.usst.jwgl.data.network.TronClassClient(requireContext().applicationContext)
+            viewLifecycleOwner.lifecycleScope.launch {
+                val statsResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    client.fetchRollcallAttendanceStats(rollcallId)
+                }
+                if (!isAdded || _binding == null) return@launch
+                statsResult.onSuccess { stats ->
+                    _binding?.tvLiveAttendanceStats?.apply {
+                        visibility = View.VISIBLE
+                        text = stats.formatBadgeText()
+                    }
+                }.onFailure {
+                    _binding?.tvLiveAttendanceStats?.visibility = View.GONE
+                }
+            }
+        } else {
+            binding.tvLiveAttendanceStats.visibility = View.GONE
+        }
+
         binding.btnCloseLiveQr.setOnClickListener {
             stopTracking()
             dismiss()

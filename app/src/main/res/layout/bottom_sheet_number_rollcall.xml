@@ -38,6 +38,21 @@
         android:textColor="@color/text_secondary"
         android:textSize="13sp" />
 
+    <!-- 实时已签到人数徽章 -->
+    <TextView
+        android:id="@+id/tvAttendanceStats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_badge_rounded"
+        android:backgroundTint="@color/surface_variant"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="4dp"
+        android:text="👥 正在查询已签到人数..."
+        android:textColor="@color/primary"
+        android:textSize="11.5sp"
+        android:textStyle="bold" />
+
     <!-- 4位 PIN 码数字显示方格 -->
     <LinearLayout
         android:id="@+id/layoutPinBoxes"

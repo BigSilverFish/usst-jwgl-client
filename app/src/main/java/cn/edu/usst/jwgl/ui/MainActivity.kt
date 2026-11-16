@@ -2426,12 +2426,14 @@ class MainActivity : AppCompatActivity() {
 
         val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
         val delaySec = tcPrefs.getRollcallAutoSignDelaySeconds()
+        val waitForOthers = tcPrefs.isRollcallWaitForOthersEnabled()
         binding.switchRollcallAutoSign.isEnabled = isMonitorEnabled
         binding.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
         binding.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
             "未启用 · 需先开启上方的上课签到后台监听"
         } else if (isAutoSignEnabled) {
-            "已开启 · 首次发现签到 ${delaySec} 秒后自动提交 (点击设置时延)"
+            if (waitForOthers) "已开启 · 等待其他同学签到后再提交 (防当出头鸟)"
+            else "已开启 · 首次发现签到 ${delaySec} 秒后自动提交 (点击设置时延)"
         } else {
             "已关闭 · 仅后台监听并发通知，不自动提交签到"
         }
@@ -2533,26 +2535,41 @@ class MainActivity : AppCompatActivity() {
             "延迟 20 秒",
             "延迟 25 秒",
             "延迟 30 秒",
+            "当有人已签到再开始尝试 (推荐)",
             "自定义秒数 (5 - 30 秒)"
         )
-        val values = intArrayOf(5, 10, 15, 20, 25, 30, -1)
         val tcPrefs = TronClassPreferences(this)
         val currentSeconds = tcPrefs.getRollcallAutoSignDelaySeconds()
-        val matchIdx = values.indexOf(currentSeconds)
-        val selectedIdx = if (matchIdx >= 0) matchIdx else 6
+        val isWaitForOthers = tcPrefs.isRollcallWaitForOthersEnabled()
+        val selectedIdx = if (isWaitForOthers) 6 else {
+            val values = intArrayOf(5, 10, 15, 20, 25, 30)
+            val idx = values.indexOf(currentSeconds)
+            if (idx >= 0) idx else 7
+        }
 
         MaterialAlertDialogBuilder(this)
-            .setTitle("自动签到时延设置")
+            .setTitle("自动签到时延与触发策略")
             .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
-                if (which == 6) {
-                    dialog.dismiss()
-                    showCustomRollcallAutoSignDelayDialog()
-                } else {
-                    val chosen = values[which]
-                    tcPrefs.setRollcallAutoSignDelaySeconds(chosen)
-                    updateReminderSubtitles()
-                    Toast.makeText(this, "已设置自首次发现签到 $chosen 秒后尝试自动签到", Toast.LENGTH_SHORT).show()
-                    dialog.dismiss()
+                when (which) {
+                    6 -> {
+                        tcPrefs.setRollcallWaitForOthersEnabled(true)
+                        updateReminderSubtitles()
+                        Toast.makeText(this, "已开启：当班级有人已签到时再开始自动提交", Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                    }
+                    7 -> {
+                        dialog.dismiss()
+                        showCustomRollcallAutoSignDelayDialog()
+                    }
+                    else -> {
+                        val values = intArrayOf(5, 10, 15, 20, 25, 30)
+                        val chosen = values[which]
+                        tcPrefs.setRollcallWaitForOthersEnabled(false)
+                        tcPrefs.setRollcallAutoSignDelaySeconds(chosen)
+                        updateReminderSubtitles()
+                        Toast.makeText(this, "已设置自首次发现签到 $chosen 秒后尝试自动签到", Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                    }
                 }
             }
             .setNegativeButton("取消", null)
@@ -2584,6 +2601,7 @@ class MainActivity : AppCompatActivity() {
                 if (entered == null || entered !in 5..30) {
                     Toast.makeText(this, "请输入 5 到 30 之间的秒数", Toast.LENGTH_SHORT).show()
                 } else {
+                    tcPrefs.setRollcallWaitForOthersEnabled(false)
                     tcPrefs.setRollcallAutoSignDelaySeconds(entered)
                     updateReminderSubtitles()
                     Toast.makeText(this, "已设置自动签到时延为 $entered 秒", Toast.LENGTH_SHORT).show()
