@@ -274,6 +274,17 @@ object NotificationDiagnosticHelper {
     }
 
     /**
+     * 是否拥有显示在其他应用上层（悬浮窗/桌面直接强弹窗）权限
+     */
+    fun isOverlayPermissionGranted(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+    }
+
+    /**
      * 系统定制 ROM 类型枚举
      */
     enum class RomType {
@@ -531,6 +542,23 @@ object NotificationDiagnosticHelper {
                     return
                 } catch (_: Exception) {}
             }
+        }
+        openAppDetailsSettings(context)
+    }
+
+    /**
+     * 打开悬浮窗/显示在其他应用上层设置
+     */
+    fun openOverlayPermissionSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                return
+            } catch (_: Exception) {}
         }
         openAppDetailsSettings(context)
     }

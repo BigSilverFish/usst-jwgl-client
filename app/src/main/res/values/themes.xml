@@ -29,4 +29,17 @@
         <item name="itemTextColor">@color/bottom_nav_item_color</item>
         <item name="elevation">0dp</item>
     </style>
+
+    <!-- 半透明锁屏与桌面强弹窗主题 -->
+    <style name="Theme.UsstJwgl.TransparentDialog" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.55</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>
