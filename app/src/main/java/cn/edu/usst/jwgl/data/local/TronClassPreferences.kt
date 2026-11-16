@@ -99,6 +99,7 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_ROLLCALL_AUTO_SIGN_ENABLED = "tc_rollcall_auto_sign_enabled"
         private const val KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS = "tc_rollcall_auto_sign_delay_seconds"
         private const val KEY_ROLLCALL_WAIT_FOR_OTHERS = "tc_rollcall_wait_for_others"
+        private const val KEY_ROLLCALL_POPUP_ENABLED = "tc_rollcall_popup_enabled"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
         private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
@@ -467,6 +468,15 @@ class TronClassPreferences(private val context: Context) {
 
     fun setRollcallWaitForOthersEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, enabled).apply()
+    }
+
+    /**
+     * 发现课堂签到时直接全屏/桌面弹窗强提醒（配合系统 Full-Screen Intent 及悬浮弹窗）
+     */
+    fun isRollcallPopupEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_POPUP_ENABLED, true)
+
+    fun setRollcallPopupEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ROLLCALL_POPUP_ENABLED, enabled).apply()
     }
 
     /**

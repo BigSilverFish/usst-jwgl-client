@@ -8,10 +8,13 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.ui.MainActivity
+import cn.edu.usst.jwgl.ui.tronclass.RollcallAlertActivity
 
 object RollcallNotificationHelper {
 
@@ -19,6 +22,19 @@ object RollcallNotificationHelper {
     const val CHANNEL_ID_ALERT = NotificationDiagnosticHelper.CHANNEL_ROLLCALL_ALERT
 
     const val NOTIFICATION_ID_FOREGROUND = 88001
+
+    /**
+     * 发现课堂签到时尝试直接呼出锁屏/桌面强弹窗（若开关开启）
+     */
+    fun launchAlertPopupIfEnabled(context: Context, intent: Intent) {
+        val prefs = TronClassPreferences.getInstance(context)
+        if (!prefs.isRollcallPopupEnabled()) return
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.d("RollcallNotifHelper", "Direct background startActivity prevented: ${e.message}")
+        }
+    }
 
     fun createChannels(context: Context) {
         NotificationDiagnosticHelper.initNotificationChannels(context)
@@ -147,6 +163,27 @@ object RollcallNotificationHelper {
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
         }
+
+        if (!success) {
+            val alertIntent = RollcallAlertActivity.createIntent(
+                context = context,
+                rollcallId = rollcallId,
+                courseName = courseName,
+                type = RollcallAlertActivity.TYPE_RADAR,
+                classroom = classroom,
+                buildingName = building?.name,
+                latitude = latitude,
+                longitude = longitude
+            )
+            val fullScreenPendingIntent = PendingIntent.getActivity(
+                context,
+                notifId + 500,
+                alertIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+            launchAlertPopupIfEnabled(context, alertIntent)
+        }
         applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "选择点位签到" else "查看详情")
 
         try {
@@ -195,6 +232,22 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+
+        val alertIntent = RollcallAlertActivity.createIntent(
+            context = context,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            type = RollcallAlertActivity.TYPE_NUMBER
+        )
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            notifId + 500,
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.setFullScreenIntent(fullScreenPendingIntent, true)
+        launchAlertPopupIfEnabled(context, alertIntent)
+
         applyAlertStyling(context, builder, true, notifId, pendingIntent, "输入签到码")
 
         try {
@@ -319,6 +372,22 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+
+        val alertIntent = RollcallAlertActivity.createIntent(
+            context = context,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            type = RollcallAlertActivity.TYPE_QR
+        )
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            notifId + 500,
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.setFullScreenIntent(fullScreenPendingIntent, true)
+        launchAlertPopupIfEnabled(context, alertIntent)
+
         applyAlertStyling(context, builder, true, notifId, pendingIntent, "打开扫码相机")
 
         try {
@@ -436,6 +505,22 @@ object RollcallNotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+
+        val alertIntent = RollcallAlertActivity.createIntent(
+            context = context,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            type = RollcallAlertActivity.TYPE_GENERIC
+        )
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            notifId + 500,
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.setFullScreenIntent(fullScreenPendingIntent, true)
+        launchAlertPopupIfEnabled(context, alertIntent)
+
         applyAlertStyling(context, builder, true, notifId, pendingIntent, "前往处理")
 
         try {
