@@ -11,6 +11,11 @@ internal object RollcallNumberCodeLookup {
     fun unavailable(reason: NumberCodeLookupFailure, message: String) =
         NumberCodeLookupResult.Unavailable(reason, message)
 
+    fun coerceNumberCodeString(raw: String?): String? {
+        val text = raw?.trim() ?: return null
+        return if (text.matches(Regex("^[0-9]{4}$"))) text else null
+    }
+
     fun parse(body: String, target: TronClassRollcall): NumberCodeLookupResult {
         if (target.getEffectiveId() <= 0L || target.courseId <= 0L || target.getNormalizedType() != "number") {
             return unavailable(NumberCodeLookupFailure.ContextMissing, "缺少明确的数字签到活动和课程")
@@ -20,11 +25,29 @@ internal object RollcallNumberCodeLookup {
         if (root == null || !root.isJsonObject) return unavailable(NumberCodeLookupFailure.SchemaMismatch, "签到详情格式无法识别")
         val obj = root.asJsonObject
         val records = mutableListOf(obj)
+
         if (obj.has("rollcall") && !obj.get("rollcall").isJsonNull) {
             if (!obj.get("rollcall").isJsonObject) return unavailable(NumberCodeLookupFailure.SchemaMismatch, "签到详情格式无法识别")
             records.add(obj.getAsJsonObject("rollcall"))
         }
+
+        if (obj.has("data") && !obj.get("data").isJsonNull) {
+            if (obj.get("data").isJsonObject) {
+                val dataObj = obj.getAsJsonObject("data")
+                records.add(dataObj)
+                if (dataObj.has("rollcall") && !dataObj.get("rollcall").isJsonNull && dataObj.get("rollcall").isJsonObject) {
+                    records.add(dataObj.getAsJsonObject("rollcall"))
+                }
+            }
+        }
+
+        if (obj.has("item") && !obj.get("item").isJsonNull && obj.get("item").isJsonObject) {
+            records.add(obj.getAsJsonObject("item"))
+        }
+
+        val codeKeys = listOf("number_code", "numberCode", "code", "pin", "sign_code")
         val codes = mutableSetOf<String>()
+
         for (record in records) {
             val expired = record.get("is_expired")
             if (expired != null && !expired.isJsonNull) {
@@ -47,14 +70,18 @@ internal object RollcallNumberCodeLookup {
                     return unavailable(NumberCodeLookupFailure.Conflict, "详情课程与所选课程不一致")
                 }
             }
-            val codeElement = record.get("number_code") ?: continue
-            if (codeElement.isJsonNull) continue
-            val coercedCode = coerceNumberCode(codeElement)
-            if (coercedCode == null) {
-                return unavailable(NumberCodeLookupFailure.SchemaMismatch, "服务器返回的数字码格式无法确认")
+
+            for (key in codeKeys) {
+                val codeElement = record.get(key) ?: continue
+                if (codeElement.isJsonNull) continue
+                val coercedCode = coerceNumberCode(codeElement)
+                if (coercedCode == null) {
+                    return unavailable(NumberCodeLookupFailure.SchemaMismatch, "服务器返回的数字码格式无法确认")
+                }
+                codes.add(coercedCode)
             }
-            codes.add(coercedCode)
         }
+
         return when (codes.size) {
             0 -> unavailable(NumberCodeLookupFailure.CodeNotReturned, "服务器未返回本活动数字码，请使用课堂提供的口令")
             1 -> NumberCodeLookupResult.Found(codes.single(), target.getEffectiveId(), target.courseId)

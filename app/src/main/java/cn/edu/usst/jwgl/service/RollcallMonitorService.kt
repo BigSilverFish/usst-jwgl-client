@@ -450,12 +450,10 @@ class RollcallMonitorService : Service() {
             val reason = unavailable?.message ?: "未知原因"
             val isTerminalLookup = unavailable?.reason in setOf(
                 cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.NoActiveRollcall,
-                cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.ContextMissing,
                 cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.Forbidden,
-                cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.CodeNotReturned,
                 cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.Conflict
             )
-            Log.i(TAG, "Number code not available for rollcall $rollcallId: $reason (terminal=$isTerminalLookup)")
+            Log.i(TAG, "Number code not available for rollcall $rollcallId: $reason (terminal=$isTerminalLookup, isFinalAttempt=$isFinalAttempt)")
             if (isTerminalLookup || isFinalAttempt) {
                 RollcallNotificationHelper.notifyNumberRollcall(this, rollcallId, courseName)
                 return true

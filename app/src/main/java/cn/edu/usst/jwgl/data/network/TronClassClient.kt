@@ -531,6 +531,12 @@ class TronClassClient(context: Context) {
                     val rLng = if (item.has("longitude") && !item.isNull("longitude")) item.optDouble("longitude") else null
                     val rScope = if (item.has("scope") && !item.isNull("scope")) item.optDouble("scope") else null
                     val rClassroom = item.optString("classroom", null)
+                    val rawNumberCode = listOf("number_code", "numberCode", "code")
+                        .firstNotNullOfOrNull { key ->
+                            if (item.has(key) && !item.isNull(key)) {
+                                RollcallNumberCodeLookup.coerceNumberCodeString(item.optString(key))
+                            } else null
+                        }
 
                     val r = TronClassRollcall(
                         id = ids.single(),
@@ -547,6 +553,7 @@ class TronClassClient(context: Context) {
                         longitude = rLng,
                         scope = rScope,
                         classroom = rClassroom,
+                        numberCode = rawNumberCode,
                         createdAt = item.optString("created_at").takeIf { it.isNotBlank() && it != "null" },
                         rollcallTime = item.optString("rollcall_time").takeIf { it.isNotBlank() && it != "null" },
                         isExpired = item.optBoolean("is_expired", false)
@@ -789,34 +796,77 @@ class TronClassClient(context: Context) {
     suspend fun lookupNumberRollcallCode(rollcall: TronClassRollcall): NumberCodeLookupResult = withContext(Dispatchers.IO) {
         fun unavailable(reason: NumberCodeLookupFailure, message: String) = NumberCodeLookupResult.Unavailable(reason, message)
         val account = accountKey()
-        if (account.isBlank() || rollcall.getEffectiveId() <= 0 || rollcall.courseId <= 0 || rollcall.getNormalizedType() != "number") {
+        val effectiveRollcallId = rollcall.getEffectiveId()
+        if (account.isBlank() || effectiveRollcallId <= 0 || rollcall.getNormalizedType() != "number") {
             return@withContext unavailable(NumberCodeLookupFailure.ContextMissing, "请先选择明确的数字签到活动和课程")
         }
+
+        // 1. 若入参对象本身已携带有效的 4 位口令（如来自列表预拉取），直接命中返回
+        val immediateCode = RollcallNumberCodeLookup.coerceNumberCodeString(rollcall.numberCode)
+        if (immediateCode != null) {
+            Log.i(TAG, "lookupNumberRollcallCode: immediately found from rollcall cache: $immediateCode")
+            return@withContext NumberCodeLookupResult.Found(immediateCode, effectiveRollcallId, rollcall.courseId)
+        }
+
         try {
-            val ongoing = fetchOngoingRollcalls(account).getOrElse {
-                return@withContext unavailable(when {
-                    it is AppAuthExpiredException -> NumberCodeLookupFailure.SessionExpired
-                    it is AppNetworkException && it.statusCode == 403 -> NumberCodeLookupFailure.Forbidden
-                    it is org.json.JSONException -> NumberCodeLookupFailure.SchemaMismatch
-                    else -> NumberCodeLookupFailure.NetworkError
-                }, it.message ?: "查询活动失败")
+            // 2. 从当前进行中列表辅助核实并补全 courseId（若入参缺少）
+            val ongoing = fetchOngoingRollcalls(account).getOrDefault(emptyList())
+            val ongoingMatches = ongoing.filter { it.getEffectiveId() == effectiveRollcallId && it.getNormalizedType() == "number" && !it.isExpired }
+            val matchedTarget = ongoingMatches.firstOrNull()
+            if (matchedTarget != null) {
+                val codeFromOngoing = RollcallNumberCodeLookup.coerceNumberCodeString(matchedTarget.numberCode)
+                if (codeFromOngoing != null) {
+                    Log.i(TAG, "lookupNumberRollcallCode: found from ongoing rollcalls: $codeFromOngoing")
+                    return@withContext NumberCodeLookupResult.Found(codeFromOngoing, effectiveRollcallId, matchedTarget.courseId)
+                }
             }
-            val matches = ongoing.filter { it.getEffectiveId() == rollcall.getEffectiveId() && it.courseId == rollcall.courseId && it.getNormalizedType() == "number" && !it.isExpired }
-            if (matches.isEmpty()) return@withContext unavailable(NumberCodeLookupFailure.NoActiveRollcall, "所选数字签到已不在当前活动列表")
-            if (matches.size != 1) return@withContext unavailable(NumberCodeLookupFailure.Conflict, "活动信息不唯一，已停止取码")
-            val request = Request.Builder().url("$BASE_URL/api/rollcall/${rollcall.getEffectiveId()}/student_rollcalls").get().build()
-            val result = executeRequest(request, account).use { response ->
+
+            var targetForLookup = if (rollcall.courseId > 0) rollcall else (matchedTarget ?: rollcall)
+            if (targetForLookup.courseId <= 0) {
+                // 如果仍然缺少课程 ID，尝试从 /api/rollcall/{id}/lite 中嗅探并补齐
+                val liteInfo = getRollcallInfoLite(effectiveRollcallId).getOrNull()
+                val discoveredCourseId = liteInfo?.optLong("course_id", 0L)
+                    ?.takeIf { it > 0 } ?: liteInfo?.optLong("courseId", 0L) ?: 0L
+                if (discoveredCourseId > 0) {
+                    targetForLookup = targetForLookup.copy(courseId = discoveredCourseId)
+                }
+            }
+
+            if (targetForLookup.courseId <= 0) {
+                return@withContext unavailable(NumberCodeLookupFailure.ContextMissing, "缺少明确的课程信息")
+            }
+
+            // 3. 通道一：查询学生出勤详情接口 GET /api/rollcall/{id}/student_rollcalls
+            val request = Request.Builder().url("$BASE_URL/api/rollcall/$effectiveRollcallId/student_rollcalls").get().build()
+            val primaryResult = executeRequest(request, account).use { response ->
                 when (response.code) {
                     401 -> unavailable(NumberCodeLookupFailure.SessionExpired, "登录已失效，请重新授权")
                     403 -> unavailable(NumberCodeLookupFailure.Forbidden, "当前账号无权读取本活动数字码")
-                    in 200..299 -> RollcallNumberCodeLookup.parse(response.body?.string().orEmpty(), matches.single())
+                    in 200..299 -> RollcallNumberCodeLookup.parse(response.body?.string().orEmpty(), targetForLookup)
                     else -> unavailable(NumberCodeLookupFailure.NetworkError, "获取数字码失败 (${response.code})")
                 }
             }
+
+            if (primaryResult is NumberCodeLookupResult.Found) {
+                Log.i(TAG, "lookupNumberRollcallCode: found via student_rollcalls: ${primaryResult.code}")
+                return@withContext primaryResult
+            }
+
+            // 4. 通道二（Fallback 嗅探）：若通道一未返回口令，尝试从 /api/rollcall/{id}/lite 读取
+            val fallbackReq = Request.Builder().url("$BASE_URL/api/rollcall/$effectiveRollcallId/lite").get().build()
+            val fallbackResult = executeRequest(fallbackReq, account).use { response ->
+                if (response.isSuccessful) {
+                    RollcallNumberCodeLookup.parse(response.body?.string().orEmpty(), targetForLookup)
+                } else null
+            }
+            if (fallbackResult is NumberCodeLookupResult.Found) {
+                Log.i(TAG, "lookupNumberRollcallCode: found via lite details: ${fallbackResult.code}")
+                return@withContext fallbackResult
+            }
+
             currentCoroutineContext().ensureActive()
             if (account != accountKey()) throw CancellationException("Account changed during number code lookup")
-            // Date-based lookup remains disabled until this deployment's response contract is verified.
-            result
+            primaryResult
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
