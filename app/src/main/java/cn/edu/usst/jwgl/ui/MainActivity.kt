@@ -32,6 +32,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
@@ -1979,6 +1980,31 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
+        // TronClass Rollcall Popup Alert Row & Switch
+        binding.rowRollcallPopup.setOnClickListener {
+            binding.switchRollcallPopup.toggle()
+        }
+        binding.switchRollcallPopup.isChecked = tcPrefs.isRollcallPopupEnabled()
+        binding.switchRollcallPopup.setOnCheckedChangeListener { _, isChecked ->
+            tcPrefs.setRollcallPopupEnabled(isChecked)
+            updateReminderSubtitles()
+            val msg = if (isChecked) {
+                if (!NotificationDiagnosticHelper.isOverlayPermissionGranted(this)) {
+                    "已开启强弹窗模式（建议前往诊断授予悬浮窗权限以激活桌面弹窗）"
+                } else {
+                    "已开启发现签到直接弹窗强提醒"
+                }
+            } else {
+                "已关闭直接弹窗（仅保留普通通知栏提醒）"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        // Rollcall Diagnostic & Test Entry Row
+        binding.rowRollcallDiagnostic.setOnClickListener {
+            showNotificationSettingsDialog()
+        }
+
         // Powerful AlarmClock Reminder Row & Switch
         binding.rowPowerfulReminder.setOnClickListener {
             binding.switchPowerfulReminder.toggle()
@@ -2436,6 +2462,16 @@ class MainActivity : AppCompatActivity() {
             else "已开启 · 首次发现签到 ${delaySec} 秒后自动提交 (点击设置时延)"
         } else {
             "已关闭 · 仅后台监听并发通知，不自动提交签到"
+        }
+
+        val isPopupEnabled = tcPrefs.isRollcallPopupEnabled()
+        val hasOverlay = NotificationDiagnosticHelper.isOverlayPermissionGranted(this)
+        binding.switchRollcallPopup.isChecked = isPopupEnabled
+        binding.tvRollcallPopupSubtitle.text = if (isPopupEnabled) {
+            if (hasOverlay) "已开启 · 锁屏点亮唤醒 + 桌面居中强弹窗就绪"
+            else "已开启 · 锁屏点亮唤醒就绪 (桌面弹窗需授权悬浮窗)"
+        } else {
+            "已关闭 · 仅保留状态栏通知栏提醒"
         }
 
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)

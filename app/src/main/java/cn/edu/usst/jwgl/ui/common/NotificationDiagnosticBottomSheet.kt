@@ -3,6 +3,8 @@ package cn.edu.usst.jwgl.ui.common
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,8 +13,11 @@ import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.ui.tronclass.RollcallAlertActivity
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.RollcallNotificationHelper
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
 class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
@@ -33,6 +38,10 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
     private lateinit var tvStatusExactAlarm: TextView
     private lateinit var btnSetExactAlarm: MaterialButton
 
+    private lateinit var tvStatusOverlay: TextView
+    private lateinit var btnSetOverlay: MaterialButton
+
+    private lateinit var btnTestRollcallAlert: MaterialButton
     private lateinit var btnSendTestNotification: MaterialButton
     private lateinit var btnRefreshDiagnostic: ImageButton
     private lateinit var btnCloseDiagnostic: ImageButton
@@ -80,6 +89,10 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         tvStatusExactAlarm = v.findViewById(R.id.tvStatusExactAlarm)
         btnSetExactAlarm = v.findViewById(R.id.btnSetExactAlarm)
 
+        tvStatusOverlay = v.findViewById(R.id.tvStatusOverlay)
+        btnSetOverlay = v.findViewById(R.id.btnSetOverlay)
+
+        btnTestRollcallAlert = v.findViewById(R.id.btnTestRollcallAlert)
         btnSendTestNotification = v.findViewById(R.id.btnSendTestNotification)
         btnRefreshDiagnostic = v.findViewById(R.id.btnRefreshDiagnostic)
         btnCloseDiagnostic = v.findViewById(R.id.btnCloseDiagnostic)
@@ -149,6 +162,27 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             NotificationDiagnosticHelper.openExactAlarmSettings(requireContext())
         }
 
+        btnSetOverlay.setOnClickListener {
+            NotificationDiagnosticHelper.openOverlayPermissionSettings(requireContext())
+        }
+
+        btnTestRollcallAlert.setOnClickListener {
+            val options = arrayOf(
+                "🚀 立即模拟弹窗（测试亮屏桌面居中强弹窗）",
+                "⏱️ 延迟 5 秒模拟（点此后请立刻按电源键息屏，测试锁屏直接唤醒点亮弹窗）"
+            )
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("🧪 模拟课堂签到强弹窗测试")
+                .setItems(options) { _, which ->
+                    when (which) {
+                        0 -> testRollcallAlert(0L)
+                        1 -> testRollcallAlert(5000L)
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+
         btnSendTestNotification.setOnClickListener {
             NotificationDiagnosticHelper.sendDiagnosticTestNotification(requireContext())
             Toast.makeText(
@@ -156,6 +190,41 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
                 "已发送测试通知！请下拉通知栏或留意状态栏/挖孔处",
                 Toast.LENGTH_LONG
             ).show()
+        }
+    }
+
+    private fun testRollcallAlert(delayMs: Long) {
+        val ctx = requireContext().applicationContext
+        val alertIntent = RollcallAlertActivity.createIntent(
+            context = ctx,
+            rollcallId = 99999L,
+            courseName = "【模拟测试】高等数学（上）",
+            type = RollcallAlertActivity.TYPE_NUMBER,
+            classroom = "第一教学楼 101"
+        )
+
+        if (delayMs <= 0L) {
+            dismiss()
+            try {
+                ctx.startActivity(alertIntent)
+            } catch (e: Exception) {
+                RollcallNotificationHelper.notifyNumberRollcall(ctx, 99999L, "【模拟测试】高等数学（上）")
+            }
+        } else {
+            dismiss()
+            Toast.makeText(
+                ctx,
+                "⏳ 倒计时 5 秒！请立即按下电源键关闭屏幕，测试锁屏直接唤醒弹窗",
+                Toast.LENGTH_LONG
+            ).show()
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                NotificationDiagnosticHelper.wakeScreenBriefly(ctx, 8000L)
+                RollcallNotificationHelper.notifyNumberRollcall(ctx, 99999L, "【模拟测试】高等数学（上）")
+                try {
+                    ctx.startActivity(alertIntent)
+                } catch (_: Exception) {}
+            }, delayMs)
         }
     }
 
@@ -217,6 +286,20 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             tvStatusExactAlarm.setTextColor(Color.parseColor("#E65100"))
             btnSetExactAlarm.text = "去授权"
             btnSetExactAlarm.isEnabled = true
+        }
+
+        // 5. 显示在其他应用上层 (桌面悬浮强弹窗权限)
+        val overlayGranted = NotificationDiagnosticHelper.isOverlayPermissionGranted(context)
+        if (overlayGranted) {
+            tvStatusOverlay.text = "✅ 允许显示在其他应用上层 (支持桌面直接居中强弹窗)"
+            tvStatusOverlay.setTextColor(Color.parseColor("#2E7D32"))
+            btnSetOverlay.text = "已开启"
+            btnSetOverlay.isEnabled = false
+        } else {
+            tvStatusOverlay.text = "⚠️ 未授权悬浮窗，亮屏使用时将降级为顶部悬浮横幅"
+            tvStatusOverlay.setTextColor(Color.parseColor("#E65100"))
+            btnSetOverlay.text = "去授权"
+            btnSetOverlay.isEnabled = true
         }
     }
 }
