@@ -63,6 +63,23 @@ class RollcallNumberCodeLookupTest {
             (RollcallNumberCodeLookup.parse("""{"number_code":"1234"}""", target.copy(courseId = 0)) as NumberCodeLookupResult.Unavailable).reason)
     }
 
+    @Test fun testCamelCaseAndDataWrapperLookup() {
+        val camel = RollcallNumberCodeLookup.parse("""{"numberCode":"6789"}""", target)
+        assertEquals(NumberCodeLookupResult.Found("6789", 99001, 42), camel)
+
+        val dataWrapped = RollcallNumberCodeLookup.parse("""{"data":{"number_code":"3456"}}""", target)
+        assertEquals(NumberCodeLookupResult.Found("3456", 99001, 42), dataWrapped)
+
+        val codeKey = RollcallNumberCodeLookup.parse("""{"code":"1357"}""", target)
+        assertEquals(NumberCodeLookupResult.Found("1357", 99001, 42), codeKey)
+
+        assertEquals("2468", RollcallNumberCodeLookup.coerceNumberCodeString("2468"))
+        assertEquals("0012", RollcallNumberCodeLookup.coerceNumberCodeString("0012"))
+        assertNull(RollcallNumberCodeLookup.coerceNumberCodeString("123"))
+        assertNull(RollcallNumberCodeLookup.coerceNumberCodeString("12345"))
+        assertNull(RollcallNumberCodeLookup.coerceNumberCodeString("abcd"))
+    }
+
     @Test fun studentHistoryUsesActivityIdInsteadOfTheStudentRecordId() {
         assertEquals(99001L, TronClassStudentRollcall(id = 17, rollcallId = 99001).getEffectiveId())
         assertEquals(17L, TronClassStudentRollcall(id = 17).getEffectiveId())

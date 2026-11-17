@@ -229,6 +229,9 @@ data class TronClassRollcall(
     @SerializedName("classroom")
     val classroom: String? = null,
 
+    @SerializedName("number_code", alternate = ["numberCode", "code"])
+    val numberCode: String? = null,
+
     @SerializedName("created_at")
     val createdAt: String? = null,
 
