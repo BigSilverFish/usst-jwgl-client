@@ -2477,6 +2477,7 @@ class TronClassFragment : Fragment() {
             "📡 雷达定位签到 (上理教学楼基准/GPS)",
             if (isMonitorEnabled) "🛡️ 上课签到后台监听: 已开启 (点击关闭)" else "🛡️ 上课签到后台监听: 已关闭 (点击开启)",
             if (!isMonitorEnabled) "⚡ 课堂签到自动提交: 未启用 (需先开启监听)" else if (isAutoSignEnabled) "⚡ 课堂签到自动提交: 已开启($autoStrategyText 点击设置)" else "⚡ 课堂签到自动提交: 已关闭 (点击开启)",
+            "🧪 签到强弹窗测试与系统诊断",
             "🔄 刷新点名状态"
         )
 
@@ -2504,7 +2505,11 @@ class TronClassFragment : Fragment() {
                         }
                         showRollcallAutoSignSettingDialog(ctx, prefs)
                     }
-                    5 -> loadTronClassData(forceRefresh = true)
+                    5 -> {
+                        cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet()
+                            .show(parentFragmentManager, "NotificationDiagnostic")
+                    }
+                    6 -> loadTronClassData(forceRefresh = true)
                 }
             }
             .setNegativeButton("取消", null)
