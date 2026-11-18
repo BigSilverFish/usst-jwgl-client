@@ -3238,6 +3238,9 @@ class MainActivity : AppCompatActivity() {
                 val widgetName = if (which == 0) "今日课表" else "下一节课"
                 pinSpecificWidget(providerClass, widgetName)
             }
+            .setNeutralButton("添加遇到问题？") { _, _ ->
+                showWidgetPinGuidanceDialog(false, "课表")
+            }
             .setNegativeButton("取消", null)
             .show()
     }
@@ -3263,7 +3266,9 @@ class MainActivity : AppCompatActivity() {
                 )
                 pinSent = appWidgetManager.requestPinAppWidget(provider, null, successPendingIntent)
             }
-            showWidgetPinGuidanceDialog(pinSent, widgetName, providerClass)
+            if (!pinSent) {
+                showWidgetPinGuidanceDialog(false, widgetName, providerClass)
+            }
         } else {
             showWidgetPinGuidanceDialog(false, widgetName, providerClass)
         }

@@ -302,7 +302,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="6dp"
                             android:lineSpacingExtra="2dp"
-                            android:text="若此测验包含限时、切屏检测或人脸识别等严肃防作弊机制，建议通过官方防作弊通道答题，确保完全规避防作弊误判与试卷异常。"
+                            android:text="随堂客观题可直接作答；如含限时、切屏检测或人脸识别，建议使用官方答题环境。"
                             android:textColor="@color/text_secondary"
                             android:textSize="11.5sp" />
 

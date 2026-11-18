@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
@@ -468,12 +469,8 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             if (result != null && result.success) {
                 cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(targetRollcallId)
                 onSignSuccessListener?.invoke()
+                Toast.makeText(ctx, "🎉 口令签到成功", Toast.LENGTH_SHORT).show()
                 dismiss()
-                MaterialAlertDialogBuilder(requireActivity())
-                    .setTitle("🎉 口令签到成功！")
-                    .setMessage(result.message)
-                    .setPositiveButton("完成", null)
-                    .show()
             } else {
                 val errMsg = result?.message ?: res.exceptionOrNull()?.message ?: "口令错误或签到已结束"
                 tvStatusTip.text = errMsg

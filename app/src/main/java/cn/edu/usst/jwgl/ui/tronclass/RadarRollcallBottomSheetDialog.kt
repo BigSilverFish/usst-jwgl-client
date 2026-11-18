@@ -521,13 +521,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
                 val res = result.getOrNull()
                 if (res != null && res.isSuccess) {
+                    Toast.makeText(requireContext(), "🎉 位置签到成功", Toast.LENGTH_SHORT).show()
                     onSignSuccessListener?.invoke()
                     dismiss()
-                    MaterialAlertDialogBuilder(requireActivity())
-                        .setTitle("🎉 位置签到成功！")
-                        .setMessage(res.message)
-                        .setPositiveButton("完成", null)
-                        .show()
                 } else {
                     val errMsg = res?.message ?: result.exceptionOrNull()?.message ?: "未知网络错误"
                     MaterialAlertDialogBuilder(requireContext())
@@ -580,13 +576,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
             val res = result.getOrNull()
             if (res != null && res.success) {
+                Toast.makeText(requireContext(), "🎉 雷达签到成功", Toast.LENGTH_SHORT).show()
                 onSignSuccessListener?.invoke()
                 dismiss()
-                MaterialAlertDialogBuilder(requireActivity())
-                    .setTitle("🎉 雷达签到成功！")
-                    .setMessage(res.message)
-                    .setPositiveButton("完成", null)
-                    .show()
             } else {
                 val errMsg = res?.message ?: result.exceptionOrNull()?.message ?: "未知网络错误"
                 MaterialAlertDialogBuilder(requireContext())
