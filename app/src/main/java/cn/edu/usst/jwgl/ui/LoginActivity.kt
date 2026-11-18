@@ -3,7 +3,6 @@ package cn.edu.usst.jwgl.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.data.local.AuthPreferences
@@ -183,7 +182,6 @@ class LoginActivity : AppCompatActivity() {
                     }
                 }
                 setLoadingState(false, false)
-                Toast.makeText(this@LoginActivity, "欢迎回来: ${profile.name}", Toast.LENGTH_SHORT).show()
                 val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
                     putExtra(MainActivity.EXTRA_PROFILE, profile)
                 }

@@ -12,7 +12,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.data.local.AuthPreferences
@@ -217,7 +216,6 @@ class ChaoXingLoginActivity : AppCompatActivity() {
                     client.fetchCourses()
                 }
 
-                Toast.makeText(this@ChaoXingLoginActivity, "超星学习通单点登录成功！🎉", Toast.LENGTH_SHORT).show()
                 setResult(RESULT_OK)
                 finish()
             }

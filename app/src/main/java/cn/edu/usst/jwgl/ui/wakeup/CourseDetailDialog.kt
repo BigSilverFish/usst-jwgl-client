@@ -311,18 +311,6 @@ class CourseDetailDialog : BottomSheetDialogFragment() {
 
         btnOpenCourseLive.setOnClickListener {
             dismiss()
-            try {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("CourseName", course.courseName)
-                clipboard.setPrimaryClip(clip)
-            } catch (_: Exception) {
-            }
-            val toastMsg = if (!targetDate.isNullOrBlank()) {
-                "正在进入直录播平台，定位至 $targetDate 第${course.startNode}节 回放..."
-            } else {
-                "正在进入直录播平台，已复制课程名「${course.courseName}」"
-            }
-            Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
             JwglWebActivity.start(
                 context = context,
                 url = JwglWebActivity.LIVE_TARGET_URL,

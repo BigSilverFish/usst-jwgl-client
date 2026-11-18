@@ -223,22 +223,17 @@ class MainActivity : AppCompatActivity() {
                     binding.switchCourseReminder.isChecked = true
                     CourseReminderManager.setReminderEnabled(this, true)
                     updateReminderSubtitles()
-                    val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getCourseReminderAdvanceMinutes(this))
-                    Toast.makeText(this, "已开启课前 $text 提醒", Toast.LENGTH_SHORT).show()
                 }
                 ReminderType.EXAM -> {
                     binding.switchExamReminder.isChecked = true
                     CourseReminderManager.setExamReminderEnabled(this, true)
                     updateReminderSubtitles()
-                    val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
-                    Toast.makeText(this, "已开启考前 $text 提醒", Toast.LENGTH_SHORT).show()
                 }
                 ReminderType.TRONCLASS_24H -> {
                     binding.switchTronClassDdl24h.isChecked = true
                     TronClassPreferences(this).setDdlReminder24hEnabled(true)
                     updateReminderSubtitles()
                     TronClassDdlScheduler.scheduleFromPreferences(this)
-                    Toast.makeText(this, "已开启作业截止 24 小时预警", Toast.LENGTH_SHORT).show()
                 }
                 ReminderType.TRONCLASS_URGENT -> {
                     binding.switchTronClassDdlUrgent.isChecked = true
@@ -246,8 +241,6 @@ class MainActivity : AppCompatActivity() {
                     prefs.setDdlReminderUrgentEnabled(true)
                     updateReminderSubtitles()
                     TronClassDdlScheduler.scheduleFromPreferences(this)
-                    val text = "${prefs.getDdlReminderUrgentHours()} 小时"
-                    Toast.makeText(this, "已开启作业临期提前 $text 提醒", Toast.LENGTH_SHORT).show()
                 }
                 ReminderType.ROLLCALL_MONITOR -> {
                     binding.switchRollcallMonitor.isChecked = true
@@ -255,7 +248,6 @@ class MainActivity : AppCompatActivity() {
                     prefs.setRollcallMonitorEnabled(true)
                     updateReminderSubtitles()
                     RollcallMonitorScheduler.onPreferenceChanged(this)
-                    Toast.makeText(this, "已开启上课签到后台监听：上课时自动检测，雷达点名自动匹配点位签到", Toast.LENGTH_SHORT).show()
                 }
                 null -> {}
             }
@@ -1837,12 +1829,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 CourseReminderManager.setReminderEnabled(this, true)
                 updateReminderSubtitles()
-                val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getCourseReminderAdvanceMinutes(this))
-                Toast.makeText(this, "已开启课前 $text 提醒", Toast.LENGTH_SHORT).show()
             } else {
                 CourseReminderManager.setReminderEnabled(this, false)
                 updateReminderSubtitles()
-                Toast.makeText(this, "已关闭课前提醒", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1861,12 +1850,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 CourseReminderManager.setExamReminderEnabled(this, true)
                 updateReminderSubtitles()
-                val text = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(this))
-                Toast.makeText(this, "已开启考前 $text 提醒", Toast.LENGTH_SHORT).show()
             } else {
                 CourseReminderManager.setExamReminderEnabled(this, false)
                 updateReminderSubtitles()
-                Toast.makeText(this, "已关闭考前提醒", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1888,12 +1874,10 @@ class MainActivity : AppCompatActivity() {
                 tcPrefs.setDdlReminder24hEnabled(true)
                 updateReminderSubtitles()
                 TronClassDdlScheduler.scheduleFromPreferences(this)
-                Toast.makeText(this, "已开启作业截止 24 小时预警", Toast.LENGTH_SHORT).show()
             } else {
                 tcPrefs.setDdlReminder24hEnabled(false)
                 updateReminderSubtitles()
                 TronClassDdlScheduler.scheduleFromPreferences(this)
-                Toast.makeText(this, "已关闭作业截止 24 小时预警", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1914,13 +1898,10 @@ class MainActivity : AppCompatActivity() {
                 tcPrefs.setDdlReminderUrgentEnabled(true)
                 updateReminderSubtitles()
                 TronClassDdlScheduler.scheduleFromPreferences(this)
-                val hours = tcPrefs.getDdlReminderUrgentHours()
-                Toast.makeText(this, "已开启作业临期提前 ${hours} 小时提醒", Toast.LENGTH_SHORT).show()
             } else {
                 tcPrefs.setDdlReminderUrgentEnabled(false)
                 updateReminderSubtitles()
                 TronClassDdlScheduler.scheduleFromPreferences(this)
-                Toast.makeText(this, "已关闭作业临期提醒", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1943,14 +1924,11 @@ class MainActivity : AppCompatActivity() {
                 RollcallMonitorScheduler.onPreferenceChanged(this)
                 if (!tcPrefs.isLoggedIn()) {
                     Toast.makeText(this, "已开启上课签到监听（提示：请先登录一网畅学）", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "已开启上课签到后台监听：上课时自动检测课堂点名", Toast.LENGTH_SHORT).show()
                 }
             } else {
                 tcPrefs.setRollcallMonitorEnabled(false)
                 updateReminderSubtitles()
                 RollcallMonitorScheduler.onPreferenceChanged(this)
-                Toast.makeText(this, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1971,13 +1949,6 @@ class MainActivity : AppCompatActivity() {
             }
             tcPrefs.setRollcallAutoSignEnabled(isChecked)
             updateReminderSubtitles()
-            val msg = if (isChecked) {
-                val delay = tcPrefs.getRollcallAutoSignDelaySeconds()
-                "已开启课堂签到自动提交（发现后延迟 ${delay} 秒）"
-            } else {
-                "已关闭课堂签到自动提交（仅保留后台监听通知）"
-            }
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
         // TronClass Rollcall Popup Alert Row & Switch
@@ -1988,16 +1959,9 @@ class MainActivity : AppCompatActivity() {
         binding.switchRollcallPopup.setOnCheckedChangeListener { _, isChecked ->
             tcPrefs.setRollcallPopupEnabled(isChecked)
             updateReminderSubtitles()
-            val msg = if (isChecked) {
-                if (!NotificationDiagnosticHelper.isOverlayPermissionGranted(this)) {
-                    "已开启强弹窗模式（建议前往诊断授予悬浮窗权限以激活桌面弹窗）"
-                } else {
-                    "已开启发现签到直接弹窗强提醒"
-                }
-            } else {
-                "已关闭直接弹窗（仅保留普通通知栏提醒）"
+            if (isChecked && !NotificationDiagnosticHelper.isOverlayPermissionGranted(this)) {
+                Toast.makeText(this, "建议前往系统诊断授予悬浮窗权限以激活桌面弹窗", Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
         // Rollcall Diagnostic & Test Entry Row
@@ -2013,12 +1977,6 @@ class MainActivity : AppCompatActivity() {
         binding.switchPowerfulReminder.setOnCheckedChangeListener { _, isChecked ->
             CourseReminderManager.setPowerfulReminderEnabled(this, isChecked)
             updateReminderSubtitles()
-            val msg = if (isChecked) {
-                "已开启强力防漏模式（系统闹钟级别穿透）"
-            } else {
-                "已切换为标准后台提醒模式"
-            }
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
         // Notification Channel & Heads-up Settings Row
@@ -2039,8 +1997,6 @@ class MainActivity : AppCompatActivity() {
         binding.switchDayPartDividers.setOnCheckedChangeListener { _, isChecked ->
             TimetableSettingHelper.setDayPartDividersEnabled(this, isChecked)
             scheduleAdapter?.refreshAllFragments()
-            val msg = if (isChecked) "已开启时段区分 (上午/下午/晚上)" else "已关闭时段区分"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
         // Phone Navigation Mode (侧栏模式 / 底栏模式)
@@ -2055,8 +2011,6 @@ class MainActivity : AppCompatActivity() {
         }
         binding.switchDoubleTapDrawer.setOnCheckedChangeListener { _, isChecked ->
             TimetableSettingHelper.setDoubleTapOpenDrawerEnabled(this, isChecked)
-            val msg = if (isChecked) "已开启双击课表空白处呼出侧栏" else "已关闭双击课表空白处呼出侧栏"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
     }
@@ -2184,7 +2138,6 @@ class MainActivity : AppCompatActivity() {
                 db.tableDao.updateTable(table)
                 scheduleAdapter?.refreshAllFragments()
                 dialog.dismiss()
-                Toast.makeText(this, "已设置：${options[which]}", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("取消", null)
             .safeShow()
@@ -2404,8 +2357,6 @@ class MainActivity : AppCompatActivity() {
             .setSingleChoiceItems(options, currentMode) { dialog, which ->
                 TimetableSettingHelper.setPhoneNavMode(this, which)
                 applyPhoneNavigationMode()
-                val modeName = TimetableSettingHelper.getPhoneNavModeName(which)
-                Toast.makeText(this, "已切换为：$modeName", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -2502,8 +2453,6 @@ class MainActivity : AppCompatActivity() {
                 val chosenMins = values[which]
                 CourseReminderManager.setCourseReminderAdvanceMinutes(this, chosenMins)
                 updateReminderSubtitles()
-                val text = CourseReminderManager.formatAdvanceMinutes(chosenMins)
-                Toast.makeText(this, "已设置课前 $text 提醒", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -2530,8 +2479,6 @@ class MainActivity : AppCompatActivity() {
                 val chosenMins = values[which]
                 CourseReminderManager.setExamReminderAdvanceMinutes(this, chosenMins)
                 updateReminderSubtitles()
-                val text = CourseReminderManager.formatAdvanceMinutes(chosenMins)
-                Toast.makeText(this, "已设置考前 $text 提醒", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -2556,7 +2503,6 @@ class MainActivity : AppCompatActivity() {
                 tcPrefs.setDdlReminderUrgentHours(chosenHours)
                 updateReminderSubtitles()
                 TronClassDdlScheduler.scheduleFromPreferences(this)
-                Toast.makeText(this, "已设置作业临期提前 $chosenHours 小时提醒", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -2590,7 +2536,6 @@ class MainActivity : AppCompatActivity() {
                     6 -> {
                         tcPrefs.setRollcallWaitForOthersEnabled(true)
                         updateReminderSubtitles()
-                        Toast.makeText(this, "已开启：当班级有人已签到时再开始自动提交", Toast.LENGTH_SHORT).show()
                         dialog.dismiss()
                     }
                     7 -> {
@@ -2603,7 +2548,6 @@ class MainActivity : AppCompatActivity() {
                         tcPrefs.setRollcallWaitForOthersEnabled(false)
                         tcPrefs.setRollcallAutoSignDelaySeconds(chosen)
                         updateReminderSubtitles()
-                        Toast.makeText(this, "已设置自首次发现签到 $chosen 秒后尝试自动签到", Toast.LENGTH_SHORT).show()
                         dialog.dismiss()
                     }
                 }
@@ -2640,7 +2584,6 @@ class MainActivity : AppCompatActivity() {
                     tcPrefs.setRollcallWaitForOthersEnabled(false)
                     tcPrefs.setRollcallAutoSignDelaySeconds(entered)
                     updateReminderSubtitles()
-                    Toast.makeText(this, "已设置自动签到时延为 $entered 秒", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("取消", null)
@@ -3047,9 +2990,6 @@ class MainActivity : AppCompatActivity() {
         isSyncingConfig = true
         lifecycleScope.launch {
             try {
-                if (isManual) {
-                    Toast.makeText(this@MainActivity, "正在检查更新并同步云端配置...", Toast.LENGTH_SHORT).show()
-                }
                 val result = RemoteConfigManager.fetchConfig(this@MainActivity)
                 result.onSuccess { config ->
                     RemoteConfigManager.markDailySyncCompleted(this@MainActivity)

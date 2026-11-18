@@ -122,7 +122,6 @@ object TronClassImageHelper {
         onComplete: ((success: Boolean, message: String) -> Unit)? = null
     ) {
         val appCtx = context.applicationContext
-        Toast.makeText(appCtx, "正在下载图片...", Toast.LENGTH_SHORT).show()
 
         val handler = CoroutineExceptionHandler { _, e ->
             Log.e(TAG, "Unhandled exception in saveImageToGallery", e)
@@ -250,7 +249,6 @@ object TronClassImageHelper {
      */
     fun shareImage(context: Context, imageUrl: String, title: String? = null) {
         val appCtx = context.applicationContext
-        Toast.makeText(appCtx, "正在准备分享图片...", Toast.LENGTH_SHORT).show()
 
         val handler = CoroutineExceptionHandler { _, e ->
             Log.e(TAG, "Unhandled exception in shareImage", e)

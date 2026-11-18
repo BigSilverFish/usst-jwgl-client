@@ -353,7 +353,6 @@ class JwglWebActivity : AppCompatActivity() {
      * 手动立刻捕捉大屏画面并识别签到（支持直播与点播回放）
      */
     private fun capturePptFrameNow() {
-        Toast.makeText(this, "正在从大屏采集卡画面识别二维码...", Toast.LENGTH_SHORT).show()
         binding.cardRollcallBanner.visibility = View.VISIBLE
         binding.pbRollcallScanning.visibility = View.VISIBLE
         binding.ivRollcallStatusIcon.visibility = View.GONE
@@ -489,7 +488,6 @@ class JwglWebActivity : AppCompatActivity() {
                     binding.pbRollcallScanning.visibility = View.GONE
                     binding.ivRollcallStatusIcon.visibility = View.VISIBLE
                     binding.tvRollcallBannerTitle.text = "🎉 签到成功！已通过大屏采集卡完成签到"
-                    Toast.makeText(this@JwglWebActivity, "🎉 大屏扫码签到成功！", Toast.LENGTH_LONG).show()
 
                     // 5 秒后优雅隐藏横幅
                     binding.cardRollcallBanner.postDelayed({
@@ -499,7 +497,6 @@ class JwglWebActivity : AppCompatActivity() {
                     binding.pbRollcallScanning.visibility = View.GONE
                     val errDetail = if (firstMsg.isNotBlank()) ": $firstMsg" else ""
                     binding.tvRollcallBannerTitle.text = "⚠️ 签到提交未通过$errDetail"
-                    Toast.makeText(this@JwglWebActivity, "签到提交未通过$errDetail", Toast.LENGTH_LONG).show()
 
                     binding.cardRollcallBanner.postDelayed({
                         binding.cardRollcallBanner.visibility = View.GONE
@@ -2116,7 +2113,9 @@ class JwglWebActivity : AppCompatActivity() {
 
                 if (!isAllowedTargetHost(host)) {
                     Log.w(TAG, "Blocked navigation to external host: $host")
-                    Toast.makeText(this@JwglWebActivity, "已拦截非校园网域名访问: ${host ?: ""}", Toast.LENGTH_SHORT).show()
+                    if (request?.isForMainFrame == true && request.hasGesture()) {
+                        Toast.makeText(this@JwglWebActivity, "仅支持在应用内访问校内及课程平台链接", Toast.LENGTH_SHORT).show()
+                    }
                     return true
                 }
 
