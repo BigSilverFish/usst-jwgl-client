@@ -828,7 +828,7 @@
                                     android:id="@+id/tvRollcallPopupTitle"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="发现签到直接弹窗"
+                                    android:text="签到弹窗提醒"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
@@ -838,7 +838,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="锁屏自动点亮唤醒 + 桌面居中半透明卡片强提醒"
+                                    android:text="发现签到时点亮屏幕并在桌面居中提示"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="12.5sp" />
                             </LinearLayout>
@@ -847,47 +847,6 @@
                                 android:id="@+id/switchRollcallPopup"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content" />
-                        </LinearLayout>
-
-                        <!-- Rollcall Diagnostic & Test Entry Row -->
-                        <LinearLayout
-                            android:id="@+id/rowRollcallDiagnostic"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal"
-                            android:paddingVertical="6dp"
-                            android:background="?attr/selectableItemBackground">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical"
-                                android:paddingEnd="12dp">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="🔔 签到强弹窗测试与系统诊断"
-                                    android:textColor="@color/primary"
-                                    android:textSize="15sp"
-                                    android:textStyle="bold" />
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="2dp"
-                                    android:text="模拟测试锁屏/桌面弹窗效果，诊断悬浮窗与保活权限"
-                                    android:textColor="@color/text_secondary"
-                                    android:textSize="12.5sp" />
-                            </LinearLayout>
-
-                            <ImageView
-                                android:layout_width="20dp"
-                                android:layout_height="20dp"
-                                android:src="@drawable/ic_chevron_right"
-                                app:tint="@color/text_tertiary" />
                         </LinearLayout>
 
                         <View
@@ -917,7 +876,7 @@
                                     android:id="@+id/tvPowerfulReminderTitle"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="强力防漏模式 (系统时钟穿透)"
+                                    android:text="高优先级闹钟模式"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
@@ -927,7 +886,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="系统闹钟级别唤醒，穿透国产手机休眠防漏提醒"
+                                    android:text="采用系统级闹钟触发，确保设备休眠时准时送达"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="12.5sp" />
                             </LinearLayout>
@@ -944,7 +903,7 @@
                             android:layout_marginVertical="8dp"
                             android:background="@color/border" />
 
-                        <!-- Notification & Heads-up Settings Row -->
+                        <!-- Notification & Diagnostic Settings Row -->
                         <LinearLayout
                             android:id="@+id/rowNotificationChannelSettings"
                             android:layout_width="match_parent"
@@ -964,7 +923,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="通知横幅与锁屏显示设置"
+                                    android:text="提醒与后台运行自检"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
@@ -973,54 +932,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="开启系统悬浮通知(横幅)、锁屏显示与铃声震动防漏看"
-                                    android:textColor="@color/text_secondary"
-                                    android:textSize="12.5sp" />
-                            </LinearLayout>
-
-                            <ImageView
-                                android:layout_width="20dp"
-                                android:layout_height="20dp"
-                                android:src="@drawable/ic_chevron_right"
-                                app:tint="@color/text_tertiary" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:layout_marginVertical="8dp"
-                            android:background="@color/border" />
-
-                        <!-- Battery Optimization & Anti-miss Guide Row -->
-                        <LinearLayout
-                            android:id="@+id/rowBatteryOptimizationGuide"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal"
-                            android:paddingVertical="6dp"
-                            android:background="?attr/selectableItemBackground">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical"
-                                android:paddingEnd="12dp">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="防漏提醒与保活自检指南"
-                                    android:textColor="@color/text_primary"
-                                    android:textSize="15sp"
-                                    android:textStyle="bold" />
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="2dp"
-                                    android:text="查看小米、华为、OPPO、vivo自启动与电池设置指引"
+                                    android:text="自检通知横幅、锁屏显示、电池优化白名单与提醒模拟"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="12.5sp" />
                             </LinearLayout>

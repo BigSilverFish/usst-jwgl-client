@@ -114,13 +114,13 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             NotificationDiagnosticHelper.Manufacturer.VIVO ->
                 "vivo / iQOO (OriginOS)：请进入电池管理将掌上理工设为【允许高耗电后台运行】，并在应用权限中开启自启动以保障原子通知正常弹出。"
             NotificationDiagnosticHelper.Manufacturer.MEIZU ->
-                "魅族 Flyme：请在手机管家 -> 权限管理中开启自启动，并将掌上理工加入后台保活白名单。"
+                "魅族 Flyme：请在手机管家 -> 权限管理中开启自启动，并将掌上理工加入后台允许运行白名单。"
             NotificationDiagnosticHelper.Manufacturer.SAMSUNG ->
                 "三星 One UI：请进入电池和设备维护 -> 电池 -> 后台使用限制，将掌上理工添加到【从不休眠的应用程序】中。"
             NotificationDiagnosticHelper.Manufacturer.AOSP ->
-                "类原生 Android / AOSP 系统：遵循原生 Android 规范，无国产厂商特定后台拦截。建议在设置中将电池优化设为【无限制】，并开启横幅悬浮与锁屏通知即可。"
+                "原生 Android / AOSP 系统：建议在系统设置中将电池优化设为【无限制】，并开启横幅悬浮与锁屏通知即可。"
             NotificationDiagnosticHelper.Manufacturer.OTHER ->
-                "请确保开启横幅悬浮通知、锁屏通知，并允许后台无限制电池策略，以保证提醒 100% 准时送达。"
+                "请确保开启横幅悬浮通知、锁屏通知，并允许后台无限制电池策略，以保证提醒准时送达。"
         }
         tvDeviceSpecificTips.text = tips
 
@@ -167,11 +167,11 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
         btnTestRollcallAlert.setOnClickListener {
             val options = arrayOf(
-                "🚀 立即模拟弹窗（测试亮屏桌面居中强弹窗）",
-                "⏱️ 延迟 5 秒模拟（点此后请立刻按电源键息屏，测试锁屏直接唤醒点亮弹窗）"
+                "🚀 立即模拟弹窗（测试桌面居中提醒卡片）",
+                "⏱️ 延迟 5 秒模拟（点此后请按电源键息屏，测试锁屏点亮弹窗）"
             )
             MaterialAlertDialogBuilder(requireContext())
-                .setTitle("🧪 模拟课堂签到强弹窗测试")
+                .setTitle("🧪 模拟课堂签到弹窗测试")
                 .setItems(options) { _, which ->
                     when (which) {
                         0 -> testRollcallAlert(0L)
@@ -287,15 +287,15 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             btnSetExactAlarm.isEnabled = true
         }
 
-        // 5. 显示在其他应用上层 (桌面悬浮强弹窗权限)
+        // 5. 显示在其他应用上层 (桌面悬浮权限)
         val overlayGranted = NotificationDiagnosticHelper.isOverlayPermissionGranted(context)
         if (overlayGranted) {
-            tvStatusOverlay.text = "✅ 允许显示在其他应用上层 (支持桌面直接居中强弹窗)"
+            tvStatusOverlay.text = "✅ 允许显示在其他应用上层 (支持桌面居中弹出签到卡片)"
             tvStatusOverlay.setTextColor(Color.parseColor("#2E7D32"))
             btnSetOverlay.text = "已开启"
             btnSetOverlay.isEnabled = false
         } else {
-            tvStatusOverlay.text = "⚠️ 未授权悬浮窗，亮屏使用时将降级为顶部悬浮横幅"
+            tvStatusOverlay.text = "⚠️ 未授权悬浮窗，亮屏使用时将通过顶部横幅提醒"
             tvStatusOverlay.setTextColor(Color.parseColor("#E65100"))
             btnSetOverlay.text = "去授权"
             btnSetOverlay.isEnabled = true
