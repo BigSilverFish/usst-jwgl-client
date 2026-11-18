@@ -379,7 +379,6 @@ class SsoLoginActivity : AppCompatActivity() {
 
                 // 5. 登录完成，直达主界面
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@SsoLoginActivity, "欢迎回来: ${profile.name}", Toast.LENGTH_SHORT).show()
                     val intent = Intent(this@SsoLoginActivity, MainActivity::class.java).apply {
                         putExtra(MainActivity.EXTRA_PROFILE, profile)
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

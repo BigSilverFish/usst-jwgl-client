@@ -971,7 +971,6 @@ class SchoolCourseSearchFragment : Fragment() {
                             curPage.tvEmptyTitle.text = "未找到匹配开课班级"
                             curPage.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
                             curPage.tvCourseSearchSubtitle.text = "未找到匹配开课班级$cacheSuffix"
-                            Toast.makeText(context, "未检索到匹配的开课班级", Toast.LENGTH_SHORT).show()
                         }
                     } else {
                         curPage.rvCourseList.visibility = View.VISIBLE
@@ -982,13 +981,14 @@ class SchoolCourseSearchFragment : Fragment() {
                             else -> ""
                         }
                         curPage.tvCourseSearchSubtitle.text = "检索结果 共 ${levelFiltered.size} 个教学班$levelSuffix$cacheSuffix"
-                        val codeHint = if (extractedCode != null) " [代码 $extractedCode]" else ""
-                        val msg = if (forceRefresh) {
-                            "已刷新排课数据 · 共 ${levelFiltered.size} 个教学班$levelSuffix$codeHint"
-                        } else {
-                            "共检索到 ${levelFiltered.size} 个教学班$levelSuffix$codeHint (共 ${filtered.size} 个上课时段)"
+                        if (forceRefresh) {
+                            val codeHint = if (extractedCode != null) " [代码 $extractedCode]" else ""
+                            Toast.makeText(
+                                context,
+                                "已刷新排课数据 · 共 ${levelFiltered.size} 个教学班$levelSuffix$codeHint",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     if (schoolCourseList.isEmpty()) {

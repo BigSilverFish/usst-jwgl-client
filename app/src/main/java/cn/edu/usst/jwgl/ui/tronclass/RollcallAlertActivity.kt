@@ -384,17 +384,18 @@ class RollcallAlertActivity : AppCompatActivity() {
                 when (lookup) {
                     is NumberCodeLookupResult.Found -> {
                         val code = lookup.code
-                        Toast.makeText(this@RollcallAlertActivity, "成功获取口令: $code", Toast.LENGTH_SHORT).show()
                         etHiddenCode.setText(code)
                     }
                     is NumberCodeLookupResult.Unavailable -> {
-                        Toast.makeText(this@RollcallAlertActivity, "未嗅探到有效口令: ${lookup.message}", Toast.LENGTH_SHORT).show()
+                        tvRollcallStatusTip.text = "⚠️ 未获取到有效口令，请手动输入"
+                        tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this@RollcallAlertActivity, R.color.primary_dark))
                     }
                 }
             } catch (e: Exception) {
                 setSubmittingUI(false)
                 btnAutoFetchCode.isEnabled = true
-                Toast.makeText(this@RollcallAlertActivity, "查询异常: ${e.message}", Toast.LENGTH_SHORT).show()
+                tvRollcallStatusTip.text = "⚠️ 口令查询异常，请手动输入"
+                tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this@RollcallAlertActivity, R.color.primary_dark))
             }
         }
     }
@@ -434,7 +435,6 @@ class RollcallAlertActivity : AppCompatActivity() {
         setSubmittingUI(false)
         tvRollcallStatusTip.text = tip
         tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this, R.color.primary))
-        Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch {
             delay(1000L)
@@ -446,7 +446,6 @@ class RollcallAlertActivity : AppCompatActivity() {
         setSubmittingUI(false)
         tvRollcallStatusTip.text = "⚠️ $reason"
         tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this, R.color.primary_dark))
-        Toast.makeText(this, reason, Toast.LENGTH_LONG).show()
 
         // 如果是数字签到码错误，清空输入框并让方格变红
         if (rollcallType == TYPE_NUMBER) {

@@ -263,7 +263,6 @@ class TronClassLoginActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val result = client.loginWithAuthCode(code)
             if (result.isSuccess) {
-                Toast.makeText(this@TronClassLoginActivity, "一网畅学授权成功！", Toast.LENGTH_SHORT).show()
                 setResult(RESULT_OK)
                 finish()
             } else {

@@ -262,9 +262,12 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
             // 播放完毕标记为已完成
             if (!hasMarkedRead) {
                 hasMarkedRead = true
-                syncLearningProgress()
+                if (activityId > 0L) {
+                    syncLearningProgress(fromCompletion = true)
+                } else {
+                    Toast.makeText(this, "本章节视频已播放完毕", Toast.LENGTH_SHORT).show()
+                }
             }
-            Toast.makeText(this, "本章节视频已学习完毕！", Toast.LENGTH_SHORT).show()
         }
 
         binding.videoView.setOnErrorListener { _, what, extra ->
@@ -330,12 +333,16 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun syncLearningProgress() {
+    private fun syncLearningProgress(fromCompletion: Boolean = false) {
+        if (activityId <= 0L) return
         lifecycleScope.launch(Dispatchers.IO) {
             val res = client.logActivityRead(activityId)
             withContext(Dispatchers.Main) {
                 if (res.isSuccess) {
-                    Toast.makeText(this@TronClassVideoPlayerActivity, "学习进度已同步至一网畅学服务器 (已完成)", Toast.LENGTH_SHORT).show()
+                    val msg = if (fromCompletion) "本章节视频已学习完毕，进度已同步" else "学习进度已同步至一网畅学服务器 (已完成)"
+                    Toast.makeText(this@TronClassVideoPlayerActivity, msg, Toast.LENGTH_SHORT).show()
+                } else if (fromCompletion) {
+                    Toast.makeText(this@TronClassVideoPlayerActivity, "本章节视频已播放完毕", Toast.LENGTH_SHORT).show()
                 }
             }
         }

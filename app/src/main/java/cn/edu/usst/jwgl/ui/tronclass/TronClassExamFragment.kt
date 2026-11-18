@@ -584,10 +584,15 @@ class TronClassExamFragment : Fragment() {
     }
 
     private fun doSubmitExam() {
-        Toast.makeText(requireContext(), "正在为您提交测试答卷...", Toast.LENGTH_SHORT).show()
+        _binding?.btnSubmitExam?.apply {
+            isEnabled = false
+            text = "正在交卷..."
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             val res = client.submitExamAnswers(examId, pendingAnswers)
             if (isAdded) {
+                _binding?.btnSubmitExam?.isEnabled = true
+                updateSubmitButtonProgress()
                 if (res.isSuccess) {
                     Toast.makeText(requireContext(), "交卷完成！", Toast.LENGTH_SHORT).show()
                 } else {

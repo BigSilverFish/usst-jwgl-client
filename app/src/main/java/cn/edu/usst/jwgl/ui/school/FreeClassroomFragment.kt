@@ -367,7 +367,7 @@ class FreeClassroomFragment : Fragment() {
                 val list = result.getOrNull() ?: emptyList()
                 allFreeRooms.clear()
                 allFreeRooms.addAll(list)
-                filterAndDisplay(showToast = isUserQueryClick, isManualRefresh = forceRefresh)
+                filterAndDisplay(showToast = forceRefresh, isManualRefresh = forceRefresh)
             } else if (forceRefresh) {
                 Toast.makeText(context, "同步失败，请检查是否正确连接无线校园网", Toast.LENGTH_SHORT).show()
             }

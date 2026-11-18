@@ -136,7 +136,6 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
         btnRefreshDiagnostic.setOnClickListener {
             runDiagnostic()
-            Toast.makeText(requireContext(), "诊断已刷新", Toast.LENGTH_SHORT).show()
         }
 
         btnOpenManufacturerSettings.setOnClickListener {
