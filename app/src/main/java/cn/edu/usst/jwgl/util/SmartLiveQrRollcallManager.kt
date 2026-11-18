@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.util.Log
 import cn.edu.usst.jwgl.data.model.LiveDeviceViewDto
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
+import cn.edu.usst.jwgl.data.network.ChaoXingQrPayload
 import cn.edu.usst.jwgl.data.network.LiveUsstClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -38,6 +40,7 @@ class SmartLiveQrRollcallManager(private val context: Context) {
 
     private val liveClient by lazy { LiveUsstClient(context) }
     private val tronClassClient by lazy { TronClassClient(context) }
+    private val chaoXingClient by lazy { ChaoXingClient(context) }
 
     private val barcodeScanner by lazy {
         val options = BarcodeScannerOptions.Builder()
@@ -75,6 +78,8 @@ class SmartLiveQrRollcallManager(private val context: Context) {
         rollcall: TronClassRollcall,
         courseName: String,
         classroom: String? = null,
+        chaoXingCourseId: String? = null,
+        chaoXingClassId: String? = null,
         maxDurationSeconds: Int = 120,
         intervalMs: Long = 2500L,
         onFrameCaptured: (FrameObservation) -> Unit,
@@ -154,31 +159,65 @@ class SmartLiveQrRollcallManager(private val context: Context) {
                 }
 
                 if (!qr.isNullOrBlank()) {
-                    Log.i(TAG, "Valid QR code detected: $qr, submitting attendance...")
-                    val parsed = tronClassClient.parseRollcallQr(qr)
-                    if (parsed != null) {
-                        val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
-                        val primarySuccess = results.firstOrNull()?.success == true
-                        val successCount = results.count { it.success }
-                        val summaryMsg = if (results.size > 1) {
-                            "$successCount/${results.size} 个账号签到成功"
-                        } else {
-                            results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
+                    Log.i(TAG, "QR code detected: $qr")
+                    val isChaoXing = !chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()
+                    if (isChaoXing || ChaoXingQrPayload.isChaoXingQrUrl(qr)) {
+                        val expectedId = rollcallId.takeIf { it > 0L }
+                        val parsedCx = ChaoXingQrPayload.parse(qr, expectedId).getOrNull()
+                        if (parsedCx != null && isChaoXing) {
+                            val submitRes = chaoXingClient.submitSign(
+                                courseId = chaoXingCourseId!!,
+                                classId = chaoXingClassId!!,
+                                activeId = parsedCx.activeId,
+                                signType = "二维码签到",
+                                enc = parsedCx.enc,
+                                signCode = parsedCx.code,
+                                allowRejectedRetry = true
+                            )
+                            val cxResult = submitRes.getOrNull()
+                            val success = cxResult?.isSuccess == true
+                            val summaryMsg = cxResult?.message ?: submitRes.exceptionOrNull()?.message ?: "提交失败"
+                            if (success || (!summaryMsg.contains("过期") && !summaryMsg.contains("失效") && !summaryMsg.contains("刷新"))) {
+                                RollcallNotificationHelper.notifyLiveQrResult(
+                                    context = context,
+                                    rollcallId = parsedCx.activeId,
+                                    courseName = courseName,
+                                    success = success,
+                                    viewName = targetView.viewName ?: "大屏机位",
+                                    message = summaryMsg
+                                )
+                                withContext(Dispatchers.Main) {
+                                    onCompleted(success, summaryMsg)
+                                }
+                                return@withContext
+                            }
                         }
+                    } else {
+                        val parsed = tronClassClient.parseRollcallQr(qr)
+                        if (parsed != null) {
+                            val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
+                            val primarySuccess = results.firstOrNull()?.success == true
+                            val successCount = results.count { it.success }
+                            val summaryMsg = if (results.size > 1) {
+                                "$successCount/${results.size} 个账号签到成功"
+                            } else {
+                                results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
+                            }
 
-                        RollcallNotificationHelper.notifyLiveQrResult(
-                            context = context,
-                            rollcallId = rollcallId,
-                            courseName = courseName,
-                            success = primarySuccess,
-                            viewName = targetView.viewName ?: "大屏机位",
-                            message = summaryMsg
-                        )
+                            RollcallNotificationHelper.notifyLiveQrResult(
+                                context = context,
+                                rollcallId = rollcallId,
+                                courseName = courseName,
+                                success = primarySuccess,
+                                viewName = targetView.viewName ?: "大屏机位",
+                                message = summaryMsg
+                            )
 
-                        withContext(Dispatchers.Main) {
-                            onCompleted(primarySuccess, summaryMsg)
+                            withContext(Dispatchers.Main) {
+                                onCompleted(primarySuccess, summaryMsg)
+                            }
+                            return@withContext
                         }
-                        return@withContext
                     }
                 }
             } else {

@@ -38,5 +38,9 @@ class SingleNetworkAttemptTest {
         }
         assertFalse(parseChaoXingSubmission(500, "success", 1, "二维码签到").result.isSuccess)
         assertEquals("unknown", parseChaoXingSubmission(408, "success", 1, "二维码签到").state)
+
+        val expiredQr = parseChaoXingSubmission(200, "二维码已过期", 1, "二维码签到")
+        assertFalse(expiredQr.result.isSuccess)
+        assertEquals("rejected", expiredQr.state)
     }
 }

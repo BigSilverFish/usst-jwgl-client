@@ -26,4 +26,17 @@ class ChaoXingQrPayloadTest {
         assertTrue(ChaoXingQrPayload.readEnc("$base&enc=x&enc=y", 42).isFailure)
         assertTrue(ChaoXingQrPayload.readEnc("$base&enc=%ZZ", 42).isFailure)
     }
+
+    @Test fun parsesRealWidgetSignUrlWithDynamicCodeAndEnc() {
+        val url = "https://mobilelearn.chaoxing.com/widget/sign/e?id=7000180993584&c=285939&enc=C82E32AC981EF43969C54BAE863969C3&DB_STRATEGY=PRIMARY_KEY&STRATEGY_PARA=id"
+        assertTrue(ChaoXingQrPayload.isChaoXingQrUrl(url))
+        val parsed = ChaoXingQrPayload.parse(url).getOrThrow()
+        assertEquals(7000180993584L, parsed.activeId)
+        assertEquals("C82E32AC981EF43969C54BAE863969C3", parsed.enc)
+        assertEquals("285939", parsed.code)
+
+        val matched = ChaoXingQrPayload.parse(url, expectedActivity = 7000180993584L).getOrThrow()
+        assertEquals(parsed, matched)
+        assertTrue(ChaoXingQrPayload.parse(url, expectedActivity = 12345L).isFailure)
+    }
 }

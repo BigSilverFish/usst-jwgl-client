@@ -89,6 +89,28 @@ class TronClassFragment : Fragment() {
     private var allUnifiedActiveRollcalls: List<UnifiedActiveRollcall> = emptyList()
     private var cachedChaoXingCourses: List<ChaoXingCourse> = emptyList()
     private var isAutoAuthenticatingTronClass = false
+    private var pendingChaoXingQrCourseId: String? = null
+    private var pendingChaoXingQrClassId: String? = null
+    private var pendingChaoXingQrActiveId: Long = 0L
+    private var pendingChaoXingQrCourseName: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        savedInstanceState?.let {
+            pendingChaoXingQrCourseId = it.getString("pending_cx_qr_course_id")
+            pendingChaoXingQrClassId = it.getString("pending_cx_qr_class_id")
+            pendingChaoXingQrActiveId = it.getLong("pending_cx_qr_active_id", 0L)
+            pendingChaoXingQrCourseName = it.getString("pending_cx_qr_course_name")
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("pending_cx_qr_course_id", pendingChaoXingQrCourseId)
+        outState.putString("pending_cx_qr_class_id", pendingChaoXingQrClassId)
+        outState.putLong("pending_cx_qr_active_id", pendingChaoXingQrActiveId)
+        outState.putString("pending_cx_qr_course_name", pendingChaoXingQrCourseName)
+    }
 
     // 授权登录 Launcher
     private val tronClassLoginLauncher = registerForActivityResult(
@@ -120,8 +142,12 @@ class TronClassFragment : Fragment() {
         if (result.resultCode == RESULT_OK) {
             val rawContents = result.data?.getStringExtra(MlKitScannerActivity.EXTRA_SCAN_RESULT) ?: ""
             if (rawContents.isNotBlank()) {
-                handleTronClassScannedQrResult(rawContents)
+                handleScannedQrResult(rawContents)
+            } else {
+                clearPendingChaoXingQrTarget()
             }
+        } else {
+            clearPendingChaoXingQrTarget()
         }
     }
 
@@ -828,10 +854,16 @@ class TronClassFragment : Fragment() {
                         .setTitle("超星签到 · 二维码签到")
                         .setMessage("课程：${course.courseName}\n可选择通过教室大屏实时抓帧自动签到，或调起手机相机扫码：")
                         .setPositiveButton("🎯 大屏实时抓帧") { _, _ ->
-                            showLiveQrRollcallDialog(activeItem.id, course.courseName, matchedRoom)
+                            showLiveQrRollcallDialog(
+                                rollcallId = activeItem.id,
+                                courseName = course.courseName,
+                                classroom = matchedRoom,
+                                chaoXingCourseId = course.courseId,
+                                chaoXingClassId = course.classId
+                            )
                         }
                         .setNeutralButton("📷 相机扫码") { _, _ ->
-                            startTronClassQrScan()
+                            startChaoXingQrScan(course, activeItem)
                         }
                         .setNegativeButton("取消", null)
                         .show()
@@ -849,10 +881,13 @@ class TronClassFragment : Fragment() {
         course: ChaoXingCourse,
         activeItem: ChaoXingActiveItem,
         enc: String? = null,
-        signDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null
+        signDetail: cn.edu.usst.jwgl.data.model.ChaoXingSignDetail? = null,
+        signCodeOverride: String? = null,
+        signTypeOverride: String? = null,
+        allowRejectedRetry: Boolean = false
     ) {
         val ctx = context ?: return
-        val signType = signDetail?.signTypeDisplayName ?: activeItem.resolvedSignTypeName
+        val signType = signTypeOverride ?: signDetail?.signTypeDisplayName ?: activeItem.resolvedSignTypeName
 
         val progress = ProgressDialog(ctx).apply {
             setMessage("正在为「${course.courseName}」提交超星签到...")
@@ -862,16 +897,18 @@ class TronClassFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             val effectiveEnc = enc ?: signDetail?.signCode
+            val effectiveSignCode = signCodeOverride ?: if (signType == "二维码签到") null else effectiveEnc
             val res = chaoXingClient.submitSign(
                 courseId = course.courseId,
                 classId = course.classId,
                 activeId = activeItem.id,
                 signType = signType,
                 enc = effectiveEnc,
-                signCode = effectiveEnc,
+                signCode = effectiveSignCode,
                 latitude = signDetail?.latitude ?: 31.2936,
                 longitude = signDetail?.longitude ?: 121.5543,
-                address = signDetail?.locationText ?: "上海理工大学"
+                address = signDetail?.locationText ?: "上海理工大学",
+                allowRejectedRetry = allowRejectedRetry
             )
             progress.dismiss()
 
@@ -891,7 +928,7 @@ class TronClassFragment : Fragment() {
                     .setTitle("签到提交异常")
                     .setMessage("提交超星签到时发生异常：${err.message}\n请检查网络连接后重试。")
                     .setPositiveButton("重试") { _, _ ->
-                        executeSubmitChaoXingSign(course, activeItem, enc, signDetail)
+                        executeSubmitChaoXingSign(course, activeItem, enc, signDetail, signCodeOverride, signTypeOverride, allowRejectedRetry)
                     }
                     .setNegativeButton("取消", null)
                     .show()
@@ -2303,9 +2340,164 @@ class TronClassFragment : Fragment() {
 
     // --- 课堂签到调度与交互 ---
 
-    private fun startTronClassQrScan() {
+    private fun clearPendingChaoXingQrTarget() {
+        pendingChaoXingQrCourseId = null
+        pendingChaoXingQrClassId = null
+        pendingChaoXingQrActiveId = 0L
+        pendingChaoXingQrCourseName = null
+    }
+
+    private fun startChaoXingQrScan(course: ChaoXingCourse, activeItem: ChaoXingActiveItem) {
+        pendingChaoXingQrCourseId = course.courseId
+        pendingChaoXingQrClassId = course.classId
+        pendingChaoXingQrActiveId = activeItem.id
+        pendingChaoXingQrCourseName = course.courseName
         val intent = Intent(requireContext(), MlKitScannerActivity::class.java)
         tronClassMlKitScannerLauncher.launch(intent)
+    }
+
+    private fun startTronClassQrScan() {
+        clearPendingChaoXingQrTarget()
+        val intent = Intent(requireContext(), MlKitScannerActivity::class.java)
+        tronClassMlKitScannerLauncher.launch(intent)
+    }
+
+    private fun handleScannedQrResult(rawContents: String) {
+        val ctx = context ?: return
+        val expectedActiveId = pendingChaoXingQrActiveId.takeIf { it > 0L }
+        val savedCourseId = pendingChaoXingQrCourseId
+        val savedClassId = pendingChaoXingQrClassId
+        val savedCourseName = pendingChaoXingQrCourseName
+        clearPendingChaoXingQrTarget()
+
+        if (cn.edu.usst.jwgl.data.network.ChaoXingQrPayload.isChaoXingQrUrl(rawContents)) {
+            handleChaoXingScannedQrResult(
+                rawContents = rawContents,
+                expectedActiveId = expectedActiveId,
+                savedCourseId = savedCourseId,
+                savedClassId = savedClassId,
+                savedCourseName = savedCourseName
+            )
+            return
+        }
+
+        if (expectedActiveId != null) {
+            MaterialAlertDialogBuilder(ctx)
+                .setTitle("二维码提示")
+                .setMessage("当前处于学习通签到流程，请扫描学习通课堂二维码：\n$rawContents")
+                .setPositiveButton("确定", null)
+                .show()
+            return
+        }
+
+        handleTronClassScannedQrResult(rawContents)
+    }
+
+    private fun handleChaoXingScannedQrResult(
+        rawContents: String,
+        expectedActiveId: Long? = null,
+        savedCourseId: String? = null,
+        savedClassId: String? = null,
+        savedCourseName: String? = null
+    ) {
+        val ctx = context ?: return
+        if (!chaoXingClient.isLoggedIn()) {
+            MaterialAlertDialogBuilder(ctx)
+                .setTitle("需要登录学习通")
+                .setMessage("识别到学习通课堂签到二维码，但当前尚未绑定超星学习通账号，请先绑定后再扫码。")
+                .setPositiveButton("确定", null)
+                .show()
+            return
+        }
+
+        val parsedRes = cn.edu.usst.jwgl.data.network.ChaoXingQrPayload.parse(rawContents, expectedActiveId)
+        val parsed = parsedRes.getOrElse { err ->
+            MaterialAlertDialogBuilder(ctx)
+                .setTitle("二维码提示")
+                .setMessage(err.message ?: "无法解析学习通签到二维码")
+                .setPositiveButton("确定", null)
+                .show()
+            return
+        }
+
+        // 1. 优先匹配已保存的上下文或当前活跃签到列表
+        val cachedPair = allUnifiedActiveRollcalls
+            .firstOrNull { it.platform.isChaoXing && it.effectiveId == parsed.activeId }
+            ?.rawChaoXingSign
+
+        if (cachedPair != null) {
+            executeSubmitChaoXingSign(
+                course = cachedPair.first,
+                activeItem = cachedPair.second,
+                enc = parsed.enc,
+                signCodeOverride = parsed.code,
+                signTypeOverride = "二维码签到",
+                allowRejectedRetry = true
+            )
+            return
+        }
+
+        if (!savedCourseId.isNullOrBlank() && !savedClassId.isNullOrBlank()) {
+            val syntheticCourse = ChaoXingCourse(
+                courseId = savedCourseId,
+                classId = savedClassId,
+                courseName = savedCourseName ?: "学习通课程",
+                teacherName = ""
+            )
+            val syntheticItem = ChaoXingActiveItem(
+                rawId = com.google.gson.JsonPrimitive(parsed.activeId),
+                nameOne = "二维码签到",
+                rawOtherId = com.google.gson.JsonPrimitive(2),
+                rawStatus = com.google.gson.JsonPrimitive(1)
+            )
+            executeSubmitChaoXingSign(
+                course = syntheticCourse,
+                activeItem = syntheticItem,
+                enc = parsed.enc,
+                signCodeOverride = parsed.code,
+                signTypeOverride = "二维码签到",
+                allowRejectedRetry = true
+            )
+            return
+        }
+
+        // 2. 若从首页右上角通用扫码直接进入，自动检索学习通课程反查该 activeId 所属课程
+        val progress = ProgressDialog(ctx).apply {
+            setMessage("正在匹配超星学习通课程与签到活动...")
+            setCancelable(false)
+            show()
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val courses = if (cachedChaoXingCourses.isNotEmpty()) {
+                cachedChaoXingCourses
+            } else {
+                chaoXingClient.fetchCourses().getOrDefault(emptyList()).also {
+                    if (it.isNotEmpty()) cachedChaoXingCourses = it
+                }
+            }
+            val activeList = if (courses.isNotEmpty()) {
+                chaoXingClient.fetchActiveSignsForCourses(courses).getOrDefault(emptyList())
+            } else emptyList()
+            progress.dismiss()
+
+            val matched = activeList.firstOrNull { it.second.id == parsed.activeId }
+            if (matched != null) {
+                executeSubmitChaoXingSign(
+                    course = matched.first,
+                    activeItem = matched.second,
+                    enc = parsed.enc,
+                    signCodeOverride = parsed.code,
+                    signTypeOverride = "二维码签到",
+                    allowRejectedRetry = true
+                )
+            } else {
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("未匹配到签到活动")
+                    .setMessage("已识别学习通二维码 (活动 ID: ${parsed.activeId})，但在您当前的超星课程进行中列表中未找到该活动。\n\n请刷新课程门户后直接点击绿色签到条进入。")
+                    .setPositiveButton("确定", null)
+                    .show()
+            }
+        }
     }
 
     private fun handleTronClassScannedQrResult(rawContents: String) {
@@ -2655,19 +2847,40 @@ class TronClassFragment : Fragment() {
     private fun showLiveQrRollcallDialog(
         rollcallId: Long,
         courseName: String? = null,
-        classroom: String? = null
+        classroom: String? = null,
+        chaoXingCourseId: String? = null,
+        chaoXingClassId: String? = null
     ) {
-        val dialog = LiveQrRollcallBottomSheetDialog.newInstance(
-            rollcallId = rollcallId,
-            courseName = courseName,
-            classroom = classroom
-        )
+        val dialog = if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
+            LiveQrRollcallBottomSheetDialog.newChaoXingInstance(
+                activeId = rollcallId,
+                courseId = chaoXingCourseId,
+                classId = chaoXingClassId,
+                courseName = courseName,
+                classroom = classroom
+            )
+        } else {
+            LiveQrRollcallBottomSheetDialog.newInstance(
+                rollcallId = rollcallId,
+                courseName = courseName,
+                classroom = classroom
+            )
+        }
         dialog.setOnSignSuccessListener {
             markRollcallCompleted(rollcallId)
             loadTronClassData(forceRefresh = true)
         }
         dialog.setOnFallbackCameraListener {
-            startTronClassQrScan()
+            if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
+                pendingChaoXingQrCourseId = chaoXingCourseId
+                pendingChaoXingQrClassId = chaoXingClassId
+                pendingChaoXingQrActiveId = rollcallId
+                pendingChaoXingQrCourseName = courseName
+                val intent = Intent(requireContext(), MlKitScannerActivity::class.java)
+                tronClassMlKitScannerLauncher.launch(intent)
+            } else {
+                startTronClassQrScan()
+            }
         }
         dialog.show(parentFragmentManager, "LiveQrRollcallBottomSheet")
     }
@@ -2722,27 +2935,27 @@ class TronClassFragment : Fragment() {
                 val typeName = active.typeDisplayName
                 when (typeName) {
                     "手势签到" -> {
-                        b.btnTronClassSmartSign.text = "✍️ 手势签到"
+                        b.btnTronClassSmartSign.text = "手势签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_edit)
                     }
                     "拍照签到" -> {
-                        b.btnTronClassSmartSign.text = "📷 拍照签到"
+                        b.btnTronClassSmartSign.text = "拍照签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
                     }
                     "口令签到" -> {
-                        b.btnTronClassSmartSign.text = "🔢 口令签到"
+                        b.btnTronClassSmartSign.text = "口令签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_format_size)
                     }
                     "二维码签到" -> {
-                        b.btnTronClassSmartSign.text = "📷 扫码签到"
+                        b.btnTronClassSmartSign.text = "扫码签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
                     }
                     "位置签到" -> {
-                        b.btnTronClassSmartSign.text = "📍 位置签到"
+                        b.btnTronClassSmartSign.text = "位置签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
                     }
                     else -> {
-                        b.btnTronClassSmartSign.text = "⚡ 立即签到"
+                        b.btnTronClassSmartSign.text = "立即签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
                     }
                 }
@@ -2751,19 +2964,19 @@ class TronClassFragment : Fragment() {
                 val tc = active.rawTronClassRollcall
                 when (tc?.getNormalizedType()) {
                     "radar" -> {
-                        b.btnTronClassSmartSign.text = "📡 雷达签到"
+                        b.btnTronClassSmartSign.text = "雷达签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_radar)
                     }
                     "number" -> {
-                        b.btnTronClassSmartSign.text = "🔢 口令签到"
+                        b.btnTronClassSmartSign.text = "口令签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_format_size)
                     }
                     "self_registration" -> {
-                        b.btnTronClassSmartSign.text = "✍️ 自主签到"
+                        b.btnTronClassSmartSign.text = "自主签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_edit)
                     }
                     else -> {
-                        b.btnTronClassSmartSign.text = "📷 扫码签到"
+                        b.btnTronClassSmartSign.text = "扫码签到"
                         b.btnTronClassSmartSign.setIconResource(R.drawable.ic_camera)
                     }
                 }
