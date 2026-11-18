@@ -1363,15 +1363,24 @@ class ChaoXingClient(private val context: Context) {
             }
 
             // 第二步：正式提交签到 (Submit Ajax)
-            val submitBuilder = java.lang.StringBuilder("$SUBMIT_SIGN_URL?activeId=$activeId&appType=15&ifTiJiao=1")
-            
-            // 签到口令 / 手势密码 / 二维码 enc 参数适配
-            val effectiveCode = signCode?.trim().takeIf { !it.isNullOrBlank() }
-                ?: enc?.trim().takeIf { !it.isNullOrBlank() }
-            if (!effectiveCode.isNullOrBlank()) {
-                val encodedCode = java.net.URLEncoder.encode(effectiveCode, "UTF-8")
+            val submitBuilder = java.lang.StringBuilder("$SUBMIT_SIGN_URL?activeId=$activeId&appType=15&ifTiJiao=1&fid=0")
+
+            // 签到口令 / 手势密码 / 二维码 enc 与动态码 c 参数适配
+            val cleanEnc = enc?.trim().takeIf { !it.isNullOrBlank() }
+            val cleanSignCode = signCode?.trim().takeIf { !it.isNullOrBlank() }
+            if (cleanEnc != null && cleanSignCode != null && cleanEnc != cleanSignCode) {
+                val encodedEnc = java.net.URLEncoder.encode(cleanEnc, "UTF-8")
+                val encodedCode = java.net.URLEncoder.encode(cleanSignCode, "UTF-8")
+                submitBuilder.append("&enc=").append(encodedEnc)
+                submitBuilder.append("&c=").append(encodedCode)
                 submitBuilder.append("&signCode=").append(encodedCode)
-                submitBuilder.append("&enc=").append(encodedCode)
+            } else {
+                val effectiveCode = cleanSignCode ?: cleanEnc
+                if (!effectiveCode.isNullOrBlank()) {
+                    val encodedCode = java.net.URLEncoder.encode(effectiveCode, "UTF-8")
+                    submitBuilder.append("&signCode=").append(encodedCode)
+                    submitBuilder.append("&enc=").append(encodedCode)
+                }
             }
 
             // 拍照签到 objectId 参数适配

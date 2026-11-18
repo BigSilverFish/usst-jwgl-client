@@ -34,6 +34,11 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var rollcallId: Long = 0L
     private var courseName: String? = null
     private var classroom: String? = null
+    private var chaoXingCourseId: String? = null
+    private var chaoXingClassId: String? = null
+
+    private val isChaoXingMode: Boolean
+        get() = !chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()
 
     private var monitorJob: Job? = null
     private var onSignSuccessListener: (() -> Unit)? = null
@@ -45,6 +50,8 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             rollcallId = it.getLong(ARG_ROLLCALL_ID, 0L)
             courseName = it.getString(ARG_COURSE_NAME)
             classroom = it.getString(ARG_CLASSROOM)
+            chaoXingCourseId = it.getString(ARG_CHAOXING_COURSE_ID)
+            chaoXingClassId = it.getString(ARG_CHAOXING_CLASS_ID)
         }
     }
 
@@ -68,7 +75,7 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.tvLiveQrCourseInfo.text = "$cName · 正在寻找大屏机位推流"
         binding.tvLiveQrCameraBadge.text = classroom?.takeIf { it.isNotBlank() } ?: "智能匹配"
 
-        if (rollcallId > 0) {
+        if (!isChaoXingMode && rollcallId > 0) {
             binding.tvLiveAttendanceStats.visibility = View.VISIBLE
             binding.tvLiveAttendanceStats.text = "👥 正在查询已签到人数..."
             val client = cn.edu.usst.jwgl.data.network.TronClassClient(requireContext().applicationContext)
@@ -125,6 +132,8 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 rollcall = rollcall,
                 courseName = cName,
                 classroom = classroom,
+                chaoXingCourseId = chaoXingCourseId,
+                chaoXingClassId = chaoXingClassId,
                 maxDurationSeconds = 120,
                 intervalMs = 2500L,
                 onFrameCaptured = { observation ->
@@ -201,6 +210,8 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         private const val ARG_ROLLCALL_ID = "arg_rollcall_id"
         private const val ARG_COURSE_NAME = "arg_course_name"
         private const val ARG_CLASSROOM = "arg_classroom"
+        private const val ARG_CHAOXING_COURSE_ID = "arg_chaoxing_course_id"
+        private const val ARG_CHAOXING_CLASS_ID = "arg_chaoxing_class_id"
 
         fun newInstance(
             rollcallId: Long,
@@ -212,6 +223,24 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                     putLong(ARG_ROLLCALL_ID, rollcallId)
                     putString(ARG_COURSE_NAME, courseName)
                     putString(ARG_CLASSROOM, classroom)
+                }
+            }
+        }
+
+        fun newChaoXingInstance(
+            activeId: Long,
+            courseId: String,
+            classId: String,
+            courseName: String? = null,
+            classroom: String? = null
+        ): LiveQrRollcallBottomSheetDialog {
+            return LiveQrRollcallBottomSheetDialog().apply {
+                arguments = Bundle().apply {
+                    putLong(ARG_ROLLCALL_ID, activeId)
+                    putString(ARG_COURSE_NAME, courseName)
+                    putString(ARG_CLASSROOM, classroom)
+                    putString(ARG_CHAOXING_COURSE_ID, courseId)
+                    putString(ARG_CHAOXING_CLASS_ID, classId)
                 }
             }
         }
