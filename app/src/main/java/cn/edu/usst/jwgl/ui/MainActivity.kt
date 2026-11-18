@@ -1964,11 +1964,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Rollcall Diagnostic & Test Entry Row
-        binding.rowRollcallDiagnostic.setOnClickListener {
-            showNotificationSettingsDialog()
-        }
-
         // Powerful AlarmClock Reminder Row & Switch
         binding.rowPowerfulReminder.setOnClickListener {
             binding.switchPowerfulReminder.toggle()
@@ -1979,14 +1974,9 @@ class MainActivity : AppCompatActivity() {
             updateReminderSubtitles()
         }
 
-        // Notification Channel & Heads-up Settings Row
+        // Notification Channel & Diagnostic Settings Row
         binding.rowNotificationChannelSettings.setOnClickListener {
             showNotificationSettingsDialog()
-        }
-
-        // Battery Optimization & Anti-miss Guide Row
-        binding.rowBatteryOptimizationGuide.setOnClickListener {
-            showBatteryOptimizationGuideDialog()
         }
 
         // Day-part Dividers (上午/下午/晚上) Row & Switch
@@ -2409,7 +2399,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
             "未启用 · 需先开启上方的上课签到后台监听"
         } else if (isAutoSignEnabled) {
-            if (waitForOthers) "已开启 · 等待其他同学签到后再提交 (防当出头鸟)"
+            if (waitForOthers) "已开启 · 班级有他人签到后自动跟进提交"
             else "已开启 · 首次发现签到 ${delaySec} 秒后自动提交 (点击设置时延)"
         } else {
             "已关闭 · 仅后台监听并发通知，不自动提交签到"
@@ -2419,17 +2409,17 @@ class MainActivity : AppCompatActivity() {
         val hasOverlay = NotificationDiagnosticHelper.isOverlayPermissionGranted(this)
         binding.switchRollcallPopup.isChecked = isPopupEnabled
         binding.tvRollcallPopupSubtitle.text = if (isPopupEnabled) {
-            if (hasOverlay) "已开启 · 锁屏点亮唤醒 + 桌面居中强弹窗就绪"
-            else "已开启 · 锁屏点亮唤醒就绪 (桌面弹窗需授权悬浮窗)"
+            if (hasOverlay) "已开启 · 亮屏并在桌面居中提醒"
+            else "已开启 · 锁屏点亮提醒 (桌面展示需悬浮窗权限)"
         } else {
-            "已关闭 · 仅保留状态栏通知栏提醒"
+            "已关闭 · 仅通过通知栏提醒"
         }
 
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)
         binding.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
-            "已开启系统时钟穿透 · 状态栏显示 ⏰ 标记，防杀防漏"
+            "已开启高优先级闹钟 · 状态栏常驻 ⏰ 图标，准时提醒"
         } else {
-            "标准模式 · 灭屏深度休眠时可能受系统节流"
+            "标准模式 · 息屏较久时可能出现轻微延迟"
         }
     }
 
@@ -2517,7 +2507,7 @@ class MainActivity : AppCompatActivity() {
             "延迟 20 秒",
             "延迟 25 秒",
             "延迟 30 秒",
-            "当有人已签到再开始尝试 (推荐)",
+            "跟随班级签到（班级有他人签到后再提交）",
             "自定义秒数 (5 - 30 秒)"
         )
         val tcPrefs = TronClassPreferences(this)
@@ -2593,50 +2583,6 @@ class MainActivity : AppCompatActivity() {
     private fun showNotificationSettingsDialog() {
         val bottomSheet = cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet()
         bottomSheet.show(supportFragmentManager, "NotificationDiagnostic")
-    }
-
-    private fun showBatteryOptimizationGuideDialog() {
-        val guideMsg = """
-            为避免手机灭屏休眠导致课前/考前提醒延迟或漏报，建议完成以下自检：
-
-            1. 开启【允许自启动 / 后台运行】：
-            进入应用权限设置，允许“自启动”和“后台运行”。
-
-            2. 电池策略设为【无限制】：
-            在电池管理中将本应用设为“无限制”或“不进行耗电优化”，避免被系统强制冻结。
-
-            3. 开启【强力防漏模式】：
-            使用系统底层 AlarmClock 协议唤醒，穿透国产系统休眠，保障 100% 准时提醒。
-
-            4. 检查【通知与精确闹钟】权限：
-            确保系统的通知开关已开启，且提示音与震动正常生效。
-        """.trimIndent()
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("🔔 防漏提醒与保活自检指南")
-            .setMessage(guideMsg)
-            .setPositiveButton("前往应用详情") { _, _ ->
-                try {
-                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = android.net.Uri.fromParts("package", packageName, null)
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(this, "无法打开设置页: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNeutralButton("电池优化设置") { _, _ ->
-                try {
-                    val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    startActivity(intent)
-                } catch (_: Exception) {
-                    try {
-                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                    } catch (_: Exception) {}
-                }
-            }
-            .setNegativeButton("我知道了", null)
-            .safeShow()
     }
 
     private fun refreshProfile() {
@@ -3225,10 +3171,10 @@ class MainActivity : AppCompatActivity() {
         } else {
             msg.append("当前手机桌面启动器未支持自动添加微件。\n\n")
         }
-        msg.append("📌【国内定制系统（小米/红米 HyperOS、华为鸿蒙、OPPO ColorOS、vivo OriginOS 等）注意事项】\n")
-            .append("1. 国产系统为保障桌面安全，默认会静默拦截第三方 App 的微件添加请求，常表现为点击后界面没有任何反应。\n")
+        msg.append("📌【部分定制系统注意事项】\n")
+            .append("1. 部分系统默认会静默拦截第三方应用的微件添加请求，常表现为点击后界面没有任何反应。\n")
             .append("2. 如未弹出系统添加确认框，请点击下方【前往权限设置】开启本应用的“桌面快捷方式”或“添加桌面小部件”权限。\n\n")
-            .append("💡【最推荐：桌面手动捏合添加（100%成功）】\n")
+            .append("💡【推荐：桌面手动添加】\n")
             .append("👉 返回手机桌面 -> 双指捏合或长按空白处 -> 点击底部【微件 / 小组件 / 插件】 -> 搜索或下滑找到【上理教务】的【$widgetName】拖拽到桌面即可！")
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)

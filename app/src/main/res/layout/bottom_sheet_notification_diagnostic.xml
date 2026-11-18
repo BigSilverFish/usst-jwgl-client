@@ -35,7 +35,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🔔 通知权限诊断与灵动岛引导"
+                android:text="通知与提醒运行诊断"
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold" />
@@ -44,7 +44,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:text="自检横幅悬浮、锁屏显示、状态栏胶囊与后台保活"
+                android:text="自检通知横幅、锁屏显示、胶囊提醒与后台运行策略"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -367,7 +367,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 诊断条目 5：显示在其他应用上层 (桌面悬浮强弹窗 / 后台弹窗) -->
+            <!-- 诊断条目 5：显示在其他应用上层 (桌面悬浮窗 / 后台弹窗) -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -395,7 +395,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="5. 桌面强弹窗与悬浮权限"
+                            android:text="5. 桌面悬浮窗权限"
                             android:textColor="@color/text_primary"
                             android:textSize="14sp"
                             android:textStyle="bold" />
@@ -405,7 +405,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="支持检测到签到时直接在桌面中央弹出半透明签到卡片"
+                            android:text="用于检测到课堂签到时在桌面居中弹出提醒卡片"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -422,7 +422,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 模拟测试签到强弹窗按钮 -->
+            <!-- 模拟测试签到弹窗按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnTestRollcallAlert"
                 style="@style/Widget.Material3.Button"
@@ -430,7 +430,7 @@
                 android:layout_height="48dp"
                 android:layout_marginBottom="10dp"
                 android:backgroundTint="@color/primary"
-                android:text="⚡ 模拟测试「课堂签到强弹窗」（锁屏/桌面）"
+                android:text="⚡ 模拟测试课堂签到弹窗（锁屏 / 桌面）"
                 android:textColor="@color/on_primary"
                 android:textSize="14sp"
                 app:cornerRadius="12dp" />

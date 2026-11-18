@@ -462,7 +462,7 @@ class TronClassPreferences(private val context: Context) {
     }
 
     /**
-     * 是否在自动签到时等待有其他同学已签到后再开始尝试（防当出头鸟、防空点名误判）
+     * 是否在自动签到时等待有其他同学已签到后再开始尝试（跟随班级签到、防误判）
      */
     fun isRollcallWaitForOthersEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, false)
 
