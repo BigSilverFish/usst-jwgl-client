@@ -25,7 +25,6 @@ import cn.edu.usst.jwgl.databinding.ItemTronclassAttachmentBinding
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -329,17 +328,8 @@ object TronClassBulletinDialogHelper {
                         )
                     )
 
-                    Toast.makeText(context, "下载成功！已保存至本地", Toast.LENGTH_SHORT).show()
                     onCompleted?.invoke()
-
-                    MaterialAlertDialogBuilder(context)
-                        .setTitle("附件下载完毕")
-                        .setMessage("文件保存在：\n" + destFile.absolutePath + "\n\n是否立即用系统应用打开？")
-                        .setPositiveButton("立即打开") { _, _ ->
-                            cacheManager.openFile(destFile)
-                        }
-                        .setNegativeButton("稍后查看", null)
-                        .show()
+                    cacheManager.openFile(destFile)
                 } else {
                     val err = result.exceptionOrNull()?.message ?: "网络连接超时"
                     Toast.makeText(context, "下载失败: $err", Toast.LENGTH_LONG).show()

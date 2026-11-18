@@ -1484,6 +1484,7 @@ class TronClassHomeworkFragment : Fragment() {
                 val yun = res.getOrNull()
                 val lowerName = attachment.name.lowercase(Locale.ROOT)
                 val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
+                val isImage = TronClassImageHelper.isImageUrl(attachment.name)
 
                 if (isVideo) {
                     val stream = yun?.streamUrl ?: ""
@@ -1497,29 +1498,29 @@ class TronClassHomeworkFragment : Fragment() {
                     } else {
                         Toast.makeText(ctx, "该视频暂无可播放流地址", Toast.LENGTH_SHORT).show()
                     }
+                } else if (isImage) {
+                    val imgUrl = yun?.downloadUrl?.ifBlank { yun?.pdfUrl } ?: ""
+                    if (imgUrl.isNotBlank()) {
+                        TronClassImageHelper.showFullScreenPreview(
+                            ctx,
+                            imgUrl,
+                            title = attachment.name,
+                            courseName = courseNameText
+                        )
+                    } else {
+                        Toast.makeText(ctx, "图片资源未就绪", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     val pdfUrl = yun?.pdfUrl ?: ""
                     val downloadUrl = yun?.downloadUrl ?: ""
                     val targetUrl = pdfUrl.ifBlank { downloadUrl }
 
                     if (targetUrl.isNotBlank()) {
-                        MaterialAlertDialogBuilder(ctx)
-                            .setTitle(attachment.name)
-                            .setMessage("附件大小：${attachment.getFormattedSize()}\n\n该文件已成功转换为移动端格式，可选择在线预览或复制下载链接。")
-                            .setPositiveButton("在线预览") { _, _ ->
-                                if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank()) {
-                                    cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
-                                } else {
-                                    JwglWebActivity.start(ctx, targetUrl, attachment.name)
-                                }
-                            }
-                            .setNeutralButton("复制下载链接") { _, _ ->
-                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                cm?.setPrimaryClip(ClipData.newPlainText("下载链接", targetUrl))
-                                Toast.makeText(ctx, "下载直链已复制到剪贴板", Toast.LENGTH_SHORT).show()
-                            }
-                            .setNegativeButton("取消", null)
-                            .show()
+                        if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank() || attachment.name.endsWith(".pdf", ignoreCase = true)) {
+                            cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
+                        } else {
+                            JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                        }
                     } else {
                         Toast.makeText(ctx, "该附件暂无可下载直链", Toast.LENGTH_SHORT).show()
                     }
@@ -1768,17 +1769,12 @@ class TronClassHomeworkFragment : Fragment() {
 
             if (submitRes.isSuccess) {
                 pendingLocalFiles.clear()
-                binding.etSubmissionComment.setText("")
+                b4.etSubmissionComment.setText("")
                 renderPendingFiles()
                 isResubmitMode = false
 
-                MaterialAlertDialogBuilder(context)
-                    .setTitle("🎉 作业提交成功！")
-                    .setMessage("您的作业与附件已成功同步至上海理工大学一网畅学教学平台！")
-                    .setPositiveButton("太棒了") { _, _ ->
-                        loadData(forceRefresh = true)
-                    }
-                    .show()
+                Toast.makeText(context, "🎉 作业提交成功", Toast.LENGTH_SHORT).show()
+                loadData(forceRefresh = true)
             } else {
                 val err = submitRes.exceptionOrNull()?.message ?: "作业提交失败"
                 MaterialAlertDialogBuilder(context)
@@ -1892,19 +1888,17 @@ class TronClassHomeworkFragment : Fragment() {
             b4.btnCameraSubmit.isEnabled = true
 
             if (submitRes.isSuccess) {
-                val resObj = submitRes.getOrNull()
                 pendingLocalFiles.clear()
-                binding.etSubmissionComment.setText("")
+                b4.etSubmissionComment.setText("")
                 renderPendingFiles()
                 isResubmitMode = false
 
-                MaterialAlertDialogBuilder(context)
-                    .setTitle(if (isSubmit) "🎉 超星作业提交成功！" else "💾 草稿暂存成功！")
-                    .setMessage(resObj?.message ?: "您的作答与附件已成功同步至超星系统。")
-                    .setPositiveButton("太棒了") { _, _ ->
-                        loadData(forceRefresh = true)
-                    }
-                    .show()
+                Toast.makeText(
+                    context,
+                    if (isSubmit) "🎉 作业提交成功" else "💾 草稿已暂存",
+                    Toast.LENGTH_SHORT
+                ).show()
+                loadData(forceRefresh = true)
             } else {
                 val err = submitRes.exceptionOrNull()?.message ?: "作业提交失败"
                 MaterialAlertDialogBuilder(context)

@@ -496,42 +496,31 @@ class TronClassExamFragment : Fragment() {
                 titleLower.contains("防作弊") || titleLower.contains("严肃") ||
                 titleLower.contains("在线测试")
 
-        if (isSeriousExam && !isReviewMode) {
+        if (isReviewMode) {
+            b.tvAntiCheatBadge.text = "答卷回顾"
+            b.tvAntiCheatBadge.setTextColor(Color.parseColor("#2E7D32"))
+            b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#152E7D32"))
+            b.cardAntiCheatingChannel.strokeColor = ContextCompat.getColor(requireContext(), R.color.border)
+            b.tvAntiCheatTip.text = "如需查看网页端原始答卷记录，可进入官方页面查看。"
+            b.btnOpenOfficialWebChannel.text = "查看官方网页答卷 ➔"
+        } else if (isSeriousExam) {
             b.tvAntiCheatBadge.text = "严肃考试保障"
             b.tvAntiCheatBadge.setTextColor(Color.parseColor("#C62828"))
             b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#15C62828"))
             b.cardAntiCheatingChannel.strokeColor = Color.parseColor("#EF9A9A")
-            b.tvAntiCheatTip.text = "检测到当前为限时/严肃考试测验。若课程启用了切屏检测、人脸识别或防作弊监控，建议通过官方防作弊通道答题，以完全规避误判与试卷异常。"
+            b.tvAntiCheatTip.text = "若本场考试启用了人脸识别或切屏检测，建议使用官方防作弊通道作答。"
             b.btnOpenOfficialWebChannel.text = "进入官方防作弊答题环境 (推荐) ➔"
         } else {
             b.tvAntiCheatBadge.text = "安全通道"
             b.tvAntiCheatBadge.setTextColor(Color.parseColor("#2E7D32"))
             b.tvAntiCheatBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#152E7D32"))
             b.cardAntiCheatingChannel.strokeColor = ContextCompat.getColor(requireContext(), R.color.border)
-            b.tvAntiCheatTip.text = "客户端已原生适配随堂客观题作答。若此测验包含限时、切屏检测或人脸识别等严肃防作弊机制，可随时切换至官方防作弊通道答题。"
+            b.tvAntiCheatTip.text = "随堂客观题可直接作答；如含防作弊监控可切换至官方答题环境。"
             b.btnOpenOfficialWebChannel.text = "进入官方防作弊答题环境 ➔"
         }
 
         b.btnOpenOfficialWebChannel.setOnClickListener {
-            if (!isReviewMode && exam.isStarted && !exam.isClosed) {
-                MaterialAlertDialogBuilder(requireContext())
-                    .setTitle("进入官方防作弊答题环境")
-                    .setMessage(
-                        "即将通过官方防作弊安全通道加载答题页面：\n\n" +
-                        "• 完整支持系统级摄像头与人脸识别授权\n" +
-                        "• 具备全屏防作弊与切屏保护机制\n" +
-                        "• 会话状态与 Cookie 已自动无缝同步\n" +
-                        "• 规避后台冻结或多端登录误判风险\n\n" +
-                        "确认立即进入？"
-                    )
-                    .setPositiveButton("立即进入") { _, _ ->
-                        openOfficialAntiCheatingExamWeb()
-                    }
-                    .setNegativeButton("在原生界面作答", null)
-                    .show()
-            } else {
-                openOfficialAntiCheatingExamWeb()
-            }
+            openOfficialAntiCheatingExamWeb()
         }
     }
 

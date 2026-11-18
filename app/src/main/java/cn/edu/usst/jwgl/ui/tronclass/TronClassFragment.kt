@@ -427,7 +427,7 @@ class TronClassFragment : Fragment() {
             openHomework(todo.id, todo.courseId, todo.getCleanTitle(), todo.getCleanCourseName())
         }.apply {
             onChaoXingClickListener = { cxTodo ->
-                showChaoXingTodoDialog(cxTodo)
+                openChaoXingTodo(cxTodo)
             }
         }
         binding.rvTronClassTodos.adapter = tronClassTodoAdapter
@@ -644,9 +644,7 @@ class TronClassFragment : Fragment() {
         }
     }
 
-    private fun showChaoXingTodoDialog(todo: UnifiedTodo) {
-        val ddlText = todo.getFormattedDeadline()
-        val remainText = todo.getRemainingTimeText()
+    private fun openChaoXingTodo(todo: UnifiedTodo) {
         val cxWork = ChaoXingWork(
             workId = todo.originalTodoId,
             title = todo.cleanTitle,
@@ -655,24 +653,19 @@ class TronClassFragment : Fragment() {
             deadline = todo.getFormattedDeadline(),
             taskUrl = todo.detailUrl.orEmpty()
         )
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(todo.cleanTitle)
-            .setMessage("【超星学习通课程】${todo.cleanCourseName}\n\n截止时间：$ddlText ($remainText)\n状态：未完成待提交")
-            .setPositiveButton("查看作业详情") { _, _ ->
-                openChaoXingHomework(cxWork)
-            }
-            .setNeutralButton("🚀 网页直通作答") { _, _ ->
-                ChaoXingNavigator.openHomework(
-                    context = requireContext(),
-                    courseId = todo.originalCourseId,
-                    classId = todo.originalClassId,
-                    workId = todo.originalTodoId,
-                    title = todo.cleanTitle,
-                    detailUrl = todo.detailUrl
-                )
-            }
-            .setNegativeButton("稍后处理", null)
-            .show()
+        val matchedCourse = cachedChaoXingCourses.firstOrNull {
+            it.courseId == todo.originalCourseId &&
+                (todo.originalClassId.isNullOrBlank() || it.classId == todo.originalClassId)
+        } ?: cachedChaoXingCourses.firstOrNull {
+            it.courseId == todo.originalCourseId
+        } ?: todo.originalCourseId.takeIf { it.isNotBlank() && it != "0" }?.let { cid ->
+            ChaoXingCourse(
+                courseId = cid,
+                classId = todo.originalClassId.orEmpty(),
+                courseName = todo.cleanCourseName
+            )
+        }
+        openChaoXingHomework(cxWork, matchedCourse)
     }
 
     private fun showChaoXingCourseDialog(course: UnifiedCourse) {
@@ -765,15 +758,9 @@ class TronClassFragment : Fragment() {
                         courseName = course.courseName,
                         signTypeName = signTypeName
                     )
-                    sheet.onSignSuccessListener = { msg ->
+                    sheet.onSignSuccessListener = { _ ->
                         markRollcallCompleted(activeItem.id)
-                        MaterialAlertDialogBuilder(ctx)
-                            .setTitle("手势签到成功 🎉")
-                            .setMessage("课程：${course.courseName}\n反馈：$msg")
-                            .setPositiveButton("确定") { _, _ ->
-                                loadTronClassData(forceRefresh = true)
-                            }
-                            .show()
+                        Toast.makeText(ctx, "🎉 手势签到成功", Toast.LENGTH_SHORT).show()
                     }
                     sheet.show(childFragmentManager, "ChaoXingGestureSign")
                 }
@@ -786,15 +773,9 @@ class TronClassFragment : Fragment() {
                         courseName = course.courseName,
                         signTypeName = signTypeName
                     )
-                    sheet.onSignSuccessListener = { msg ->
+                    sheet.onSignSuccessListener = { _ ->
                         markRollcallCompleted(activeItem.id)
-                        MaterialAlertDialogBuilder(ctx)
-                            .setTitle("拍照签到成功 🎉")
-                            .setMessage("课程：${course.courseName}\n反馈：$msg")
-                            .setPositiveButton("确定") { _, _ ->
-                                loadTronClassData(forceRefresh = true)
-                            }
-                            .show()
+                        Toast.makeText(ctx, "🎉 拍照签到成功", Toast.LENGTH_SHORT).show()
                     }
                     sheet.show(childFragmentManager, "ChaoXingPhotoSign")
                 }
@@ -915,14 +896,16 @@ class TronClassFragment : Fragment() {
             res.onSuccess { result ->
                 if (result.isSuccess) {
                     markRollcallCompleted(activeItem.id)
+                    Toast.makeText(ctx, "🎉 签到成功", Toast.LENGTH_SHORT).show()
+                } else {
+                    MaterialAlertDialogBuilder(ctx)
+                        .setTitle("签到提示")
+                        .setMessage("课程：${course.courseName}\n活动：$signType\n反馈：${result.message}")
+                        .setPositiveButton("确定") { _, _ ->
+                            loadTronClassData(forceRefresh = true)
+                        }
+                        .show()
                 }
-                MaterialAlertDialogBuilder(ctx)
-                    .setTitle(if (result.isSuccess) "签到成功 🎉" else "签到提示")
-                    .setMessage("课程：${course.courseName}\n活动：$signType\n反馈：${result.message}")
-                    .setPositiveButton("确定") { _, _ ->
-                        loadTronClassData(forceRefresh = true)
-                    }
-                    .show()
             }.onFailure { err ->
                 MaterialAlertDialogBuilder(ctx)
                     .setTitle("签到提交异常")
@@ -2538,12 +2521,7 @@ class TronClassFragment : Fragment() {
                 val result = res.getOrNull()
                 if (result != null && result.success) {
                     markRollcallCompleted(parsed.rollcallId)
-                    MaterialAlertDialogBuilder(ctx)
-                        .setTitle("🎉 签到成功！")
-                        .setMessage(result.message)
-                        .setPositiveButton("太棒了", null)
-                        .show()
-                    loadTronClassData(forceRefresh = true)
+                    Toast.makeText(ctx, "🎉 扫码签到成功", Toast.LENGTH_SHORT).show()
                 } else {
                     val msg = result?.message ?: res.exceptionOrNull()?.getFriendlyErrorMessage() ?: "未知签到错误"
                     MaterialAlertDialogBuilder(ctx)

@@ -391,7 +391,11 @@ class TronClassCourseDetailFragment : Fragment() {
         activityAdapter = TronClassCourseDetailAdapter(
             onActivityClick = { act -> handleActivityClick(act) },
             onDownloadClick = { act -> handleDownloadClick(act) },
-            onAutoBrushClick = { startAutoBrushProgress() }
+            onAutoBrushClick = { startAutoBrushProgress() },
+            isActivityCached = { act ->
+                val up = act.getFirstUpload()
+                up != null && cacheManager.isCached(up.id, up.name)
+            }
         )
         if (isPad) {
             val gridManager = GridLayoutManager(context, 2)
@@ -446,7 +450,11 @@ class TronClassCourseDetailFragment : Fragment() {
                     }
                 }
                 is TronClassAssessmentItem.ChaoXingExamItem -> {
-                    showChaoXingExamBottomSheet(item.exam)
+                    if (mainAct != null) {
+                        mainAct.openChaoXingExam(item.exam, rawChaoXingCourse)
+                    } else {
+                        TronClassExamActivity.startForChaoXing(context, item.exam, rawChaoXingCourse)
+                    }
                 }
             }
         }
@@ -1605,71 +1613,33 @@ class TronClassCourseDetailFragment : Fragment() {
             return
         }
 
-        val ext = upload.getExtension()
-        val typeName = when (ext) {
-            "pdf" -> "PDF 文档"
-            "ppt", "pptx" -> "PPT 幻灯片"
-            "doc", "docx" -> "Word 文档"
-            "xls", "xlsx" -> "Excel 表格"
-            "mp4" -> "教学视频"
-            else -> " 文件"
-        }
-
-        val existingFile = cacheManager.getExistingFile(upload.id, upload.name)
-        val isCached = existingFile != null && existingFile.exists() && existingFile.length() > 0
+        val cachedFile = cacheManager.getExistingFile(upload.id, upload.name)
+            ?.takeIf { it.exists() && it.length() > 0 }
 
         if (TronClassImageHelper.isImageUrl(upload.name)) {
-            val fileUrl = if (isCached && existingFile != null) "file://${existingFile.absolutePath}" else "https://1906.usst.edu.cn/api/uploads/${upload.id}"
-            TronClassImageHelper.showImageOptionsDialog(
+            viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                client.logActivityRead(act.id)
+            }
+            val fileUrl = if (cachedFile != null) "file://${cachedFile.absolutePath}" else "https://1906.usst.edu.cn/api/uploads/${upload.id}"
+            TronClassImageHelper.showFullScreenPreview(
                 context,
                 fileUrl,
                 title = upload.name,
                 courseId = courseId,
                 courseName = courseName
-            ) {
-                TronClassImageHelper.showFullScreenPreview(
-                    context,
-                    fileUrl,
-                    title = upload.name,
-                    courseId = courseId,
-                    courseName = courseName
-                )
-            }
+            )
             return
         }
 
-        val msg = "文件名称：" + upload.name + "\n" +
-                  "文件类型：" + typeName + "\n" +
-                  "文件大小：" + upload.getFormattedSize() + "\n\n" +
-                  if (isCached) {
-                      "缓存状态：已离线缓存到手机\n\n该课件已就绪，可直接调用系统阅读器(WPS或播放器)打开。"
-                  } else {
-                      "缓存状态：未下载\n\n下载后将直接保存到手机本地，支持离线查看。"
-                  }
-
-        if (isCached) {
-            MaterialAlertDialogBuilder(context)
-                .setTitle(act.getCleanTitle())
-                .setMessage(msg)
-                .setPositiveButton("立即打开") { _, _ ->
-                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                        client.logActivityRead(act.id)
-                    }
-                    existingFile?.let { cacheManager.openFile(it) }
-                }
-                .setNeutralButton("重新下载") { _, _ ->
-                    startDownload(upload, act.id)
-                }
-                .show()
+        if (cachedFile != null) {
+            viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                client.logActivityRead(act.id)
+            }
+            cacheManager.openFile(cachedFile)
         } else {
-            MaterialAlertDialogBuilder(context)
-                .setTitle(act.getCleanTitle())
-                .setMessage(msg)
-                .setPositiveButton("立即下载") { _, _ ->
-                    startDownload(upload, act.id)
-                }
-                .setNegativeButton("取消", null)
-                .show()
+            startDownload(upload, act.id) {
+                activityAdapter.notifyDataSetChanged()
+            }
         }
     }
 
@@ -1716,17 +1686,8 @@ class TronClassCourseDetailFragment : Fragment() {
                         }
                     }
 
-                    Toast.makeText(context, "下载成功！已保存至离线课件", Toast.LENGTH_SHORT).show()
                     onCompleted?.invoke()
-
-                    MaterialAlertDialogBuilder(context)
-                        .setTitle("文件下载完毕")
-                        .setMessage("文件保存在：\n" + destFile.absolutePath + "\n\n是否立即用系统应用打开？")
-                        .setPositiveButton("立即打开") { _, _ ->
-                            cacheManager.openFile(destFile)
-                        }
-                        .setNegativeButton("稍后查看", null)
-                        .show()
+                    cacheManager.openFile(destFile)
                 } else {
                     val err = result.exceptionOrNull()?.message ?: "网络连接超时"
                     Toast.makeText(context, "下载失败: $err", Toast.LENGTH_LONG).show()
@@ -1946,23 +1907,11 @@ class TronClassCourseDetailFragment : Fragment() {
                     val targetUrl = pdfUrl.ifBlank { downloadUrl }
 
                     if (targetUrl.isNotBlank()) {
-                        MaterialAlertDialogBuilder(ctx)
-                            .setTitle(attachment.name)
-                            .setMessage("课件大小：${attachment.getFormattedSize()}\n\n该文档已成功转换为移动端格式，可选择直接在线预览或下载到本地。")
-                            .setPositiveButton("在线预览") { _, _ ->
-                                if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank() || attachment.name.endsWith(".pdf", ignoreCase = true)) {
-                                    cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
-                                } else {
-                                    JwglWebActivity.start(ctx, targetUrl, attachment.name)
-                                }
-                            }
-                            .setNeutralButton("复制下载链接") { _, _ ->
-                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                cm?.setPrimaryClip(android.content.ClipData.newPlainText("下载链接", targetUrl))
-                                Toast.makeText(ctx, "下载直链已复制到剪贴板", Toast.LENGTH_SHORT).show()
-                            }
-                            .setNegativeButton("取消", null)
-                            .show()
+                        if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank() || attachment.name.endsWith(".pdf", ignoreCase = true)) {
+                            cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
+                        } else {
+                            JwglWebActivity.start(ctx, targetUrl, attachment.name)
+                        }
                     } else {
                         Toast.makeText(ctx, "该课件暂无可下载直链", Toast.LENGTH_SHORT).show()
                     }
@@ -1971,134 +1920,6 @@ class TronClassCourseDetailFragment : Fragment() {
                 Toast.makeText(ctx, "解析课件失败，请稍后重试", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    private fun showChaoXingHomeworkBottomSheet(work: ChaoXingWork) {
-        val ctx = context ?: return
-        val dialog = BottomSheetDialog(ctx)
-        val view = layoutInflater.inflate(R.layout.dialog_chaoxing_chapter_attachments, null)
-        dialog.setContentView(view)
-
-        val tvTitle = view.findViewById<TextView>(R.id.tvChapterTitle)
-        val tvSub = view.findViewById<TextView>(R.id.tvChapterSub)
-        val llAttachments = view.findViewById<LinearLayout>(R.id.llAttachmentsContainer)
-        val progressBar = view.findViewById<ProgressBar>(R.id.progressBarLoading)
-        val tvEmpty = view.findViewById<TextView>(R.id.tvEmptyAttachments)
-
-        progressBar.visibility = View.GONE
-        tvEmpty.visibility = View.GONE
-        llAttachments.visibility = View.VISIBLE
-        llAttachments.removeAllViews()
-
-        tvTitle.text = work.title
-        val scoreText = if (work.score.isNotBlank()) " · 得分: ${work.score}分" else ""
-        tvSub.text = "${work.statusText}$scoreText · ${work.courseName}"
-
-        val card = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
-        val ivIcon = card.findViewById<ImageView>(R.id.ivAttachmentIcon)
-        val tvName = card.findViewById<TextView>(R.id.tvAttachmentName)
-        val tvSize = card.findViewById<TextView>(R.id.tvAttachmentSize)
-        val btnAction = card.findViewById<MaterialButton>(R.id.btnAttachmentAction)
-
-        ivIcon.setImageResource(R.drawable.ic_homework)
-        ivIcon.setColorFilter(Color.parseColor("#EA580C"))
-        val cleanDdl = ChaoXingCourseDetailClient.cleanDeadline(work.deadline)
-        tvName.text = if (cleanDdl.isNotBlank()) "截止时间: $cleanDdl" else "无具体截止时间限制"
-        tvSize.text = "状态: ${work.statusText}$scoreText"
-        btnAction.text = if (work.statusText.contains("已完成") || (work.statusText.contains("已批") && !work.statusText.contains("待批"))) "查看批阅" else "查看作业"
-        btnAction.setIconResource(R.drawable.ic_chevron_right)
-
-        btnAction.setOnClickListener {
-            dialog.dismiss()
-            val mainAct = activity as? MainActivity
-            if (mainAct != null) {
-                mainAct.openChaoXingHomework(work, rawChaoXingCourse)
-            } else {
-                TronClassHomeworkActivity.startForChaoXing(ctx, work, rawChaoXingCourse)
-            }
-        }
-
-        llAttachments.addView(card)
-        dialog.show()
-    }
-
-    private fun showChaoXingExamBottomSheet(exam: ChaoXingExam) {
-        val ctx = context ?: return
-        val dialog = BottomSheetDialog(ctx)
-        val view = layoutInflater.inflate(R.layout.dialog_chaoxing_chapter_attachments, null)
-        dialog.setContentView(view)
-
-        val tvTitle = view.findViewById<TextView>(R.id.tvChapterTitle)
-        val tvSub = view.findViewById<TextView>(R.id.tvChapterSub)
-        val llAttachments = view.findViewById<LinearLayout>(R.id.llAttachmentsContainer)
-        val progressBar = view.findViewById<ProgressBar>(R.id.progressBarLoading)
-        val tvEmpty = view.findViewById<TextView>(R.id.tvEmptyAttachments)
-
-        progressBar.visibility = View.GONE
-        tvEmpty.visibility = View.GONE
-        llAttachments.visibility = View.VISIBLE
-        llAttachments.removeAllViews()
-
-        tvTitle.text = exam.title.orEmpty()
-        val examScore = exam.score.orEmpty()
-        val examStatus = exam.status.orEmpty()
-        val examRemaining = exam.remaining.orEmpty()
-        val scoreText = if (examScore.isNotBlank()) " · 得分: ${examScore}分" else ""
-        tvSub.text = "$examStatus$scoreText"
-
-        val card = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
-        val ivIcon = card.findViewById<ImageView>(R.id.ivAttachmentIcon)
-        val tvName = card.findViewById<TextView>(R.id.tvAttachmentName)
-        val tvSize = card.findViewById<TextView>(R.id.tvAttachmentSize)
-        val btnAction = card.findViewById<MaterialButton>(R.id.btnAttachmentAction)
-
-        ivIcon.setImageResource(R.drawable.ic_exam)
-        ivIcon.setColorFilter(Color.parseColor("#EA580C"))
-        tvName.text = if (examRemaining.isNotBlank()) examRemaining else "在线测试"
-        tvSize.text = "状态: $examStatus$scoreText"
-
-        val hasAnalysis = exam.analysisUrl.orEmpty().isNotBlank()
-        val isDone = examStatus.contains("已完成") || examStatus.contains("已批") || examScore.isNotBlank()
-        btnAction.text = if (isDone) "查看试卷 (原生)" else "进入测验 (原生)"
-        btnAction.setIconResource(R.drawable.ic_chevron_right)
-
-        btnAction.setOnClickListener {
-            dialog.dismiss()
-            val mainAct = activity as? MainActivity
-            if (mainAct != null) {
-                mainAct.openChaoXingExam(exam, rawChaoXingCourse)
-            } else {
-                TronClassExamActivity.startForChaoXing(ctx, exam, rawChaoXingCourse)
-            }
-        }
-
-        llAttachments.addView(card)
-
-        // 2. 官方防作弊安全通道卡片
-        val safeCard = layoutInflater.inflate(R.layout.item_chaoxing_attachment_card, llAttachments, false)
-        val safeIcon = safeCard.findViewById<ImageView>(R.id.ivAttachmentIcon)
-        val safeName = safeCard.findViewById<TextView>(R.id.tvAttachmentName)
-        val safeSize = safeCard.findViewById<TextView>(R.id.tvAttachmentSize)
-        val safeBtnAction = safeCard.findViewById<MaterialButton>(R.id.btnAttachmentAction)
-
-        safeIcon.setImageResource(R.drawable.ic_camera)
-        safeIcon.setColorFilter(Color.parseColor("#0284C7"))
-        safeName.text = "官方防作弊环境通道"
-        safeSize.text = if (hasAnalysis) "提供超星智能答卷分析报告" else "支持摄像头、人脸识别与防切屏监控"
-        safeBtnAction.text = if (hasAnalysis) "智能分析" else "官方通道"
-        safeBtnAction.setIconResource(R.drawable.ic_chevron_right)
-
-        safeBtnAction.setOnClickListener {
-            dialog.dismiss()
-            val targetUrl = if (hasAnalysis) exam.analysisUrl else {
-                val cx = rawChaoXingCourse
-                "https://mooc1.chaoxing.com/mooc-ans/mooc2/exam/exam-list?courseid=${cx?.courseId}&clazzid=${cx?.classId}&personid=${cx?.cpi}"
-            }
-            ChaoXingNavigator.openChaoXingWebPage(ctx, targetUrl, exam.title)
-        }
-
-        llAttachments.addView(safeCard)
-        dialog.show()
     }
 
     private fun showCacheManagementDialog() {
