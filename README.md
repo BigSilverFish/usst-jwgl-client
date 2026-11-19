@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.2">
-    <img src="https://img.shields.io/badge/Release-v1.2.2-blue.svg" alt="Release v1.2.2" />
+  <a href="https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.0">
+    <img src="https://img.shields.io/badge/Release-v1.3.0-blue.svg" alt="Release v1.3.0" />
   </a>
   <a href="https://developer.android.com">
     <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-green.svg" alt="Android 7.0+" />
@@ -276,12 +276,12 @@
 ## 📥 下载与安装
 
 > [!TIP]
-> **升级建议**：建议所有用户更新至最新 **v1.2.2** 版本，畅享全面重构的一网畅学体验、课堂讨论互动交流、官方直通车全自动 SSO 与更极速流畅的原生性能！
+> **升级建议**：建议所有用户更新至最新 **v1.3.0** 版本，畅享全面重构的课堂签到向导、开发者模式安全管控、底栏模式升级与更极速流畅的原生性能！
 
 请前往 [GitHub Releases 页面](https://github.com/BigSilverFish/usst-jwgl-client/releases) 获取正式安装包：
 
-- **最新稳定版本**：[v1.2.2 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.2.2)
-- **直接下载 APK**：[app-release.apk (v1.2.2)](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.2.2/app-release.apk)
+- **最新稳定版本**：[v1.3.0 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.0)
+- **直接下载 APK**：[app-release.apk (v1.3.0)](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.3.0/app-release.apk)
 - **运行环境**：Android 7.0 (API 24) 及以上版本的 64 位安卓设备 (`arm64-v8a`)。
 
 ---

@@ -43,6 +43,7 @@ import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityWebViewBinding
@@ -1234,6 +1235,7 @@ class JwglWebActivity : AppCompatActivity() {
                     true
                 }
                 R.id.action_toggle_screen_signin -> {
+                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
                     isScreenAutoSignInEnabled = !isScreenAutoSignInEnabled
                     item.title = if (isScreenAutoSignInEnabled) "大屏自动签到 (已开启)" else "大屏自动签到 (已暂停)"
                     if (isScreenAutoSignInEnabled) {
@@ -1247,18 +1249,22 @@ class JwglWebActivity : AppCompatActivity() {
                     true
                 }
                 R.id.action_capture_screen_now -> {
+                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
                     capturePptFrameNow()
                     true
                 }
                 R.id.action_toggle_chase_frame -> {
+                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
                     toggleLiveChaseFrame(item)
                     true
                 }
                 R.id.action_sync_live_now -> {
+                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
                     triggerManualSyncLiveNow()
                     true
                 }
                 R.id.action_test_frame_grab -> {
+                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
                     Toast.makeText(this, "正在抓取视频帧与延迟数据...", Toast.LENGTH_SHORT).show()
                     injectFrameGrabTestJs()
                     true
@@ -1269,17 +1275,20 @@ class JwglWebActivity : AppCompatActivity() {
     }
 
     private fun updateLiveMenuItemsVisibility(isLiveUrl: Boolean) {
+        val isDev = DeveloperModeManager.isDeveloperMode(this)
+        val showAdvanced = isLiveUrl && isDev
+
         binding.toolbar.menu.findItem(R.id.action_toggle_screen_signin)?.apply {
-            isVisible = isLiveUrl
+            isVisible = showAdvanced
             title = if (isScreenAutoSignInEnabled) "大屏自动签到 (已开启)" else "大屏自动签到 (已暂停)"
         }
-        binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = isLiveUrl
+        binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = showAdvanced
         binding.toolbar.menu.findItem(R.id.action_toggle_chase_frame)?.apply {
-            isVisible = isLiveUrl
+            isVisible = showAdvanced
             title = if (isLiveChaseFrameEnabled) "直播低延迟追帧 (已开启)" else "直播低延迟追帧 (已暂停)"
         }
-        binding.toolbar.menu.findItem(R.id.action_sync_live_now)?.isVisible = isLiveUrl
-        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = isLiveUrl
+        binding.toolbar.menu.findItem(R.id.action_sync_live_now)?.isVisible = showAdvanced
+        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = showAdvanced
     }
 
     /**
