@@ -109,6 +109,7 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_SAVED_TAB_NAME = "key_saved_tab_name"
         var topBarHeightPx: Int = 0
         var bottomBarHeightPx: Int = 0
+        private var hasCheckedUpdateOnColdStart: Boolean = false
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -473,7 +474,10 @@ class MainActivity : AppCompatActivity() {
         setupViews()
         setupListeners()
         initWakeupSchedule()
-        syncRemoteConfig(isManual = false)
+        if (!hasCheckedUpdateOnColdStart) {
+            hasCheckedUpdateOnColdStart = true
+            syncRemoteConfig(isManual = false, force = true)
+        }
 
         if (!AuthPreferences(this).hasAgreedDisclaimer()) {
             showAuthorDisclaimerDialog(allowDismiss = false)
@@ -1004,7 +1008,11 @@ class MainActivity : AppCompatActivity() {
                 ApkDownloadHelper.installApk(this, apk)
             }
         }
-        if (RemoteConfigManager.shouldPerformDailySync(this)) {
+        if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE) &&
+            RemoteConfigManager.getLatestVersion().forceUpdate
+        ) {
+            showUpdateDialog(RemoteConfigManager.getLatestVersion(), isManual = false)
+        } else if (RemoteConfigManager.shouldPerformDailySync(this)) {
             syncRemoteConfig(isManual = false)
         }
         if (TronClassPreferences.getInstance(this).isRollcallMonitorEnabled()) {
@@ -3004,6 +3012,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         isSyncingConfig = true
+        val wasDailySyncPending = RemoteConfigManager.shouldPerformDailySync(this)
         lifecycleScope.launch {
             try {
                 val result = RemoteConfigManager.fetchConfig(this@MainActivity)
@@ -3036,7 +3045,7 @@ class MainActivity : AppCompatActivity() {
                         showUpdateDialog(config.appVersion, isManual = isManual)
                     } else if (isManual) {
                         Toast.makeText(this@MainActivity, "当前已是最新版本，校历与调休配置已同步", Toast.LENGTH_SHORT).show()
-                    } else {
+                    } else if (wasDailySyncPending) {
                         // Daily first launch check: if there is an adjustment today, give a friendly reminder
                         val todayStr = RemoteConfigManager.getTodayDateString()
                         val todayAdjustments = RemoteConfigManager.getAdjustmentsForDate(todayStr)
@@ -3048,7 +3057,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 }.onFailure { error ->
                     Log.e("MainActivity", "Remote config sync failed", error)
-                    if (isManual) {
+                    if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE) &&
+                        RemoteConfigManager.getLatestVersion().forceUpdate
+                    ) {
+                        showUpdateDialog(RemoteConfigManager.getLatestVersion(), isManual = false)
+                    } else if (isManual) {
                         val msg = if (error is com.google.gson.JsonSyntaxException) "云端配置文件格式错误(JSON语法)" else "同步云端配置失败: ${error.message ?: "请检查网络"}"
                         Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
                     }
