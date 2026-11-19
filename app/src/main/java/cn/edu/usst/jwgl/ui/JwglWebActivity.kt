@@ -297,7 +297,7 @@ class JwglWebActivity : AppCompatActivity() {
             binding.pbRollcallScanning.visibility = View.GONE
             binding.ivRollcallStatusIcon.visibility = View.VISIBLE
             binding.ivRollcallStatusIcon.setImageResource(R.drawable.ic_dialpad)
-            binding.tvRollcallBannerTitle.text = "🔢 请关注大屏展示的 4 位数字口令，点击右下角按钮直接输入"
+            binding.tvRollcallBannerTitle.text = "请关注大屏展示的 4 位数字口令，点击右下角按钮直接输入"
             return
         }
 
@@ -313,7 +313,7 @@ class JwglWebActivity : AppCompatActivity() {
         binding.cardRollcallBanner.visibility = View.VISIBLE
         binding.pbRollcallScanning.visibility = View.VISIBLE
         binding.ivRollcallStatusIcon.visibility = View.GONE
-        binding.tvRollcallBannerTitle.text = "🔔 检测到【$courseTitle】开启二维码签到，正在从大屏采集卡识别二维码..."
+        binding.tvRollcallBannerTitle.text = "检测到【$courseTitle】开启二维码签到，正在从大屏采集卡识别二维码..."
 
         startPptScanningLoop(rollcall)
     }
@@ -356,7 +356,7 @@ class JwglWebActivity : AppCompatActivity() {
         binding.cardRollcallBanner.visibility = View.VISIBLE
         binding.pbRollcallScanning.visibility = View.VISIBLE
         binding.ivRollcallStatusIcon.visibility = View.GONE
-        binding.tvRollcallBannerTitle.text = "⚡ 正在从大屏采集卡捕获二维码..."
+        binding.tvRollcallBannerTitle.text = "正在从大屏采集卡捕获二维码..."
         injectPptFrameCaptureJs(isManual = true)
     }
 
@@ -477,7 +477,7 @@ class JwglWebActivity : AppCompatActivity() {
         // 界面更新为提交中
         binding.pbRollcallScanning.visibility = View.VISIBLE
         binding.ivRollcallStatusIcon.visibility = View.GONE
-        binding.tvRollcallBannerTitle.text = "🎯 已捕获大屏二维码，正在自动提交签到..."
+        binding.tvRollcallBannerTitle.text = "已捕获大屏二维码，正在自动提交签到..."
 
         lifecycleScope.launch(Dispatchers.IO) {
             val results = tcClient.batchAnswerQRRollcall(rollcallId, parsed.qrData)
@@ -487,7 +487,7 @@ class JwglWebActivity : AppCompatActivity() {
                 if (anySuccess) {
                     binding.pbRollcallScanning.visibility = View.GONE
                     binding.ivRollcallStatusIcon.visibility = View.VISIBLE
-                    binding.tvRollcallBannerTitle.text = "🎉 签到成功！已通过大屏采集卡完成签到"
+                    binding.tvRollcallBannerTitle.text = "签到成功！已通过大屏采集卡完成签到"
 
                     // 5 秒后优雅隐藏横幅
                     binding.cardRollcallBanner.postDelayed({
@@ -496,7 +496,7 @@ class JwglWebActivity : AppCompatActivity() {
                 } else {
                     binding.pbRollcallScanning.visibility = View.GONE
                     val errDetail = if (firstMsg.isNotBlank()) ": $firstMsg" else ""
-                    binding.tvRollcallBannerTitle.text = "⚠️ 签到提交未通过$errDetail"
+                    binding.tvRollcallBannerTitle.text = "签到提交未通过$errDetail"
 
                     binding.cardRollcallBanner.postDelayed({
                         binding.cardRollcallBanner.visibility = View.GONE
@@ -1120,13 +1120,13 @@ class JwglWebActivity : AppCompatActivity() {
         binding.pbRollcallScanning.visibility = View.GONE
         binding.ivRollcallStatusIcon.visibility = View.VISIBLE
         binding.ivRollcallStatusIcon.setImageResource(R.drawable.ic_dialpad)
-        binding.tvRollcallBannerTitle.text = "🔢 请关注大屏展示的 4 位数字口令，点击右下角按钮直接输入"
+        binding.tvRollcallBannerTitle.text = "请关注大屏展示的 4 位数字口令，点击右下角按钮直接输入"
 
         binding.fabNumberRollcall.setOnClickListener {
             val dialog = cn.edu.usst.jwgl.ui.tronclass.NumberRollcallBottomSheetDialog.newInstance(rollcallId, courseName)
             dialog.setOnSignSuccessListener {
                 cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(rollcallId)
-                Toast.makeText(this, "🎉 数字口令签到成功，已自动返回！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "数字口令签到成功，已自动返回！", Toast.LENGTH_SHORT).show()
                 binding.fabNumberRollcall.postDelayed({
                     finish()
                 }, 300)
@@ -1235,7 +1235,7 @@ class JwglWebActivity : AppCompatActivity() {
                 }
                 R.id.action_toggle_screen_signin -> {
                     isScreenAutoSignInEnabled = !isScreenAutoSignInEnabled
-                    item.title = if (isScreenAutoSignInEnabled) "🎯 大屏自动签到 (已开启)" else "🎯 大屏自动签到 (已暂停)"
+                    item.title = if (isScreenAutoSignInEnabled) "大屏自动签到 (已开启)" else "大屏自动签到 (已暂停)"
                     if (isScreenAutoSignInEnabled) {
                         startLiveRollcallWatcher()
                         Toast.makeText(this, "已开启大屏签到感知：捕捉到老师发起签到时将自动从大屏扫码", Toast.LENGTH_SHORT).show()
@@ -1271,12 +1271,12 @@ class JwglWebActivity : AppCompatActivity() {
     private fun updateLiveMenuItemsVisibility(isLiveUrl: Boolean) {
         binding.toolbar.menu.findItem(R.id.action_toggle_screen_signin)?.apply {
             isVisible = isLiveUrl
-            title = if (isScreenAutoSignInEnabled) "🎯 大屏自动签到 (已开启)" else "🎯 大屏自动签到 (已暂停)"
+            title = if (isScreenAutoSignInEnabled) "大屏自动签到 (已开启)" else "大屏自动签到 (已暂停)"
         }
         binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = isLiveUrl
         binding.toolbar.menu.findItem(R.id.action_toggle_chase_frame)?.apply {
             isVisible = isLiveUrl
-            title = if (isLiveChaseFrameEnabled) "🚀 直播低延迟追帧 (已开启)" else "🚀 直播低延迟追帧 (已暂停)"
+            title = if (isLiveChaseFrameEnabled) "直播低延迟追帧 (已开启)" else "直播低延迟追帧 (已暂停)"
         }
         binding.toolbar.menu.findItem(R.id.action_sync_live_now)?.isVisible = isLiveUrl
         binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = isLiveUrl
