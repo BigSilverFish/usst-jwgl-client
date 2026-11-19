@@ -5,16 +5,19 @@ import cn.edu.usst.jwgl.data.model.TimetableData
 
 object WakeupScheduleImporter {
 
+    private fun safeStr(value: String?): String = value ?: ""
+
     fun importTimetableData(
         db: AppDatabase,
         data: TimetableData,
         startDate: String = "2026-09-07",
         setAsDefault: Boolean = true
     ): TableBean {
-        val tableName = if (data.semesterTitle.isNotBlank()) {
-            data.semesterTitle
+        val semTitle = safeStr(data.semesterTitle)
+        val tableName = if (semTitle.isNotBlank()) {
+            semTitle
         } else {
-            "${data.academicYear}学年 第${data.semester}学期"
+            "${safeStr(data.academicYear)}学年 第${safeStr(data.semester)}学期"
         }
 
         // Find or create table
@@ -26,9 +29,10 @@ object WakeupScheduleImporter {
 
         val existingBases = if (targetTable != null) db.courseBaseDao.getCourseBasesOfTable(targetTable.id) else emptyList()
         val existingCourses = if (targetTable != null) db.courseBaseDao.getCourseOfTable(targetTable.id) else emptyList()
+        val safeCourses: List<CourseItem> = (data.courses as List<CourseItem>?) ?: emptyList()
 
-        val showSat = data.courses.any { it.dayOfWeek == 6 } || existingCourses.any { it.isLocked && it.day == 6 }
-        val showSun = data.courses.any { it.dayOfWeek == 7 } || existingCourses.any { it.isLocked && it.day == 7 }
+        val showSat = safeCourses.any { it.dayOfWeek == 6 } || existingCourses.any { it.isLocked && it.day == 6 }
+        val showSun = safeCourses.any { it.dayOfWeek == 7 } || existingCourses.any { it.isLocked && it.day == 7 }
 
         if (targetTable == null) {
             val newTable = TableBean(
@@ -58,7 +62,7 @@ object WakeupScheduleImporter {
             db.tableDao.setDefaultTable(targetTable.id)
         }
 
-        val plan = computeMergePlan(existingBases, data.courses)
+        val plan = computeMergePlan(existingBases, safeCourses)
 
         // Clear existing UNLOCKED courses in this table; preserve LOCKED courses
         for (idToDelete in plan.courseIdsToDelete) {
@@ -68,10 +72,10 @@ object WakeupScheduleImporter {
         for ((currentCourseId, entry) in plan.newCourseAssignments) {
             val (courseName, itemList) = entry
             val color = CourseUtils.getColorHex(currentCourseId - 1)
-            val resolvedClassCode = itemList.firstNotNullOfOrNull { it.classCode.takeIf { c -> c.isNotBlank() } }
-                ?: itemList.firstNotNullOfOrNull { it.courseCode.takeIf { c -> c.isNotBlank() } }
+            val resolvedClassCode = itemList.firstNotNullOfOrNull { safeStr(it.classCode).takeIf { c -> c.isNotBlank() } }
+                ?: itemList.firstNotNullOfOrNull { safeStr(it.courseCode).takeIf { c -> c.isNotBlank() } }
                 ?: ""
-            val resolvedExamType = itemList.firstNotNullOfOrNull { it.examType.takeIf { e -> e.isNotBlank() } } ?: ""
+            val resolvedExamType = itemList.firstNotNullOfOrNull { safeStr(it.examType).takeIf { e -> e.isNotBlank() } } ?: ""
             val baseBean = CourseBaseBean(
                 id = currentCourseId,
                 courseName = courseName,
@@ -86,14 +90,15 @@ object WakeupScheduleImporter {
             val detailsToInsert = mutableListOf<CourseDetailBean>()
 
             for (item in itemList) {
-                val weekBeans = if (item.weeks.isNotEmpty()) {
-                    CourseUtils.intList2WeekBeanList(item.weeks)
+                val safeWeeks: List<Int> = (item.weeks as List<Int>?) ?: emptyList()
+                val weekBeans = if (safeWeeks.isNotEmpty()) {
+                    CourseUtils.intList2WeekBeanList(safeWeeks)
                 } else {
-                    parseRawWeeks(item.rawWeeks)
+                    parseRawWeeks(safeStr(item.rawWeeks))
                 }
 
-                val teacher = item.teacher.ifBlank { "" }
-                val room = item.classroom.ifBlank { "" }
+                val teacher = safeStr(item.teacher).ifBlank { "" }
+                val room = safeStr(item.classroom).ifBlank { "" }
 
                 for (wb in weekBeans) {
                     detailsToInsert.add(
@@ -142,7 +147,7 @@ object WakeupScheduleImporter {
             return nextCourseId++
         }
 
-        val grouped = networkCourses.groupBy { it.name.trim() }
+        val grouped = networkCourses.groupBy { safeStr(it.name).trim() }
         val assignments = mutableListOf<Pair<Int, Pair<String, List<CourseItem>>>>()
         for ((courseName, itemList) in grouped) {
             if (lockedNames.contains(courseName)) {

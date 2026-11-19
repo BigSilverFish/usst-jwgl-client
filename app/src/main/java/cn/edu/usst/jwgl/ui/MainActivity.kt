@@ -1301,15 +1301,20 @@ class MainActivity : AppCompatActivity() {
 
                 // Seamless auto-import of pre-existing cached timetables into WakeUP database (only once)
                 if (!TimetableSettingHelper.hasMigratedLegacyTimetables(this@MainActivity, currentSid)) {
-                    val cachedList = cacheManager.getAllCachedTimetables(currentSid)
-                    if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
-                        val semConfig = RemoteConfigManager.getSemesterConfig()
-                        val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
-                        for (cached in cachedList) {
-                            WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                    try {
+                        val cachedList = cacheManager.getAllCachedTimetables(currentSid)
+                        if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
+                            val semConfig = RemoteConfigManager.getSemesterConfig()
+                            val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
+                            for (cached in cachedList) {
+                                WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                            }
                         }
+                    } catch (e: Exception) {
+                        android.util.Log.w("MainActivity", "Legacy timetable migration skipped due to incompatible cache", e)
+                    } finally {
+                        TimetableSettingHelper.setHasMigratedLegacyTimetables(this@MainActivity, true, currentSid)
                     }
-                    TimetableSettingHelper.setHasMigratedLegacyTimetables(this@MainActivity, true, currentSid)
                 }
 
                 // Auto determine active semester & week on startup
