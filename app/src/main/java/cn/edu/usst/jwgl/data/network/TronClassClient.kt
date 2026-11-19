@@ -21,6 +21,7 @@ import cn.edu.usst.jwgl.data.model.TronClassUpload
 import cn.edu.usst.jwgl.data.model.TronClassSubmission
 import cn.edu.usst.jwgl.util.AppAuthExpiredException
 import cn.edu.usst.jwgl.util.AppNetworkException
+import cn.edu.usst.jwgl.util.CoordinateUtils
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okio.BufferedSink
@@ -971,6 +972,222 @@ class TronClassClient(context: Context) {
             Result.failure(e)
         }
         }
+    }
+
+    sealed class RadarProbeResult {
+        data class InRange(val submitResult: RollcallSubmitResult) : RadarProbeResult()
+        data class Distance(val distanceMeters: Double) : RadarProbeResult()
+        data class Error(val message: String) : RadarProbeResult()
+    }
+
+    /**
+     * 向指定经纬度坐标发送雷达测距探针
+     * 若在范围内，返回 InRange；若超出范围且返回了与教师距离，返回 Distance(m)；否则返回 Error
+     */
+    suspend fun probeRadarCoordinate(
+        rollcallId: Long,
+        latitude: Double,
+        longitude: Double,
+        customSessionId: String? = null,
+        customDeviceId: String? = null,
+        customAccountKey: String? = null
+    ): RadarProbeResult = withContext(Dispatchers.IO) {
+        val capturedAccount = customAccountKey ?: accountKey()
+        if (capturedAccount.isBlank() || rollcallId <= 0L) {
+            return@withContext RadarProbeResult.Error("账号或活动无效")
+        }
+        val session = customSessionId ?: prefs.getSessionId(capturedAccount)
+        if (session.isNullOrBlank()) {
+            return@withContext RadarProbeResult.Error("未登录或会话失效")
+        }
+        try {
+            val url = "$BASE_URL/api/rollcall/$rollcallId/answer?api_version=1.76"
+            val targetDeviceId = customDeviceId ?: prefs.getDeviceId(capturedAccount)
+            val payload = JSONObject().apply {
+                put("deviceId", targetDeviceId)
+                put("latitude", latitude)
+                put("longitude", longitude)
+                put("accuracy", 60.0)
+                put("altitude", 10.0)
+                put("radarSignal", JSONObject.NULL)
+            }
+            val reqBuilder = Request.Builder()
+                .url(url)
+                .header("x-session-id", session)
+                .header("Cookie", "session_id=$session")
+                .put(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+
+            val resp = executeRequest(reqBuilder.build(), capturedAccount)
+            val code = resp.code
+            val body = resp.body?.string().orEmpty()
+            val parsed = parseRollcallWriteResult(code, body)
+
+            if (parsed.result.success || parsed.state == "confirmed") {
+                RollcallSubmissionStore(context).record(capturedAccount, rollcallId, "confirmed")
+                return@withContext RadarProbeResult.InRange(parsed.result)
+            }
+
+            val dist = parsed.result.distance
+            if (dist != null && dist >= 0.0) {
+                return@withContext RadarProbeResult.Distance(dist)
+            }
+
+            return@withContext RadarProbeResult.Error(parsed.result.message.ifBlank { "探针未返回距离 (HTTP $code)" })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext RadarProbeResult.Error(e.message ?: "探针网络请求异常")
+        }
+    }
+
+    /**
+     * 自动执行三点定位反解并完成签到
+     */
+    suspend fun solveTrilaterationAndAnswer(
+        rollcallId: Long,
+        classroom: String? = null,
+        courseName: String? = null,
+        customSessionId: String? = null,
+        customDeviceId: String? = null,
+        customAccountKey: String? = null,
+        onProgress: ((String) -> Unit)? = null
+    ): Result<RollcallSubmitResult> = withContext(Dispatchers.IO) {
+        val capturedAccount = customAccountKey ?: accountKey()
+        onProgress?.invoke("正在获取校园基准三角锚点...")
+        val anchors = cn.edu.usst.jwgl.util.TrilaterationSolver.getCampusAnchors(classroom, courseName)
+        val observations = mutableListOf<cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation>()
+
+        for ((idx, anchor) in anchors.withIndex()) {
+            onProgress?.invoke("正在探测第 ${idx + 1}/3 点: 【${anchor.name}】...")
+            val probe = probeRadarCoordinate(
+                rollcallId = rollcallId,
+                latitude = anchor.latitude,
+                longitude = anchor.longitude,
+                customSessionId = customSessionId,
+                customDeviceId = customDeviceId,
+                customAccountKey = capturedAccount
+            )
+            when (probe) {
+                is RadarProbeResult.InRange -> {
+                    onProgress?.invoke("锚点【${anchor.name}】直接在签到范围内，秒签成功！")
+                    return@withContext Result.success(probe.submitResult)
+                }
+                is RadarProbeResult.Distance -> {
+                    Log.i(TAG, "Anchor ${anchor.name} distance: ${probe.distanceMeters}m")
+                    observations.add(
+                        cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation(
+                            latitude = anchor.latitude,
+                            longitude = anchor.longitude,
+                            distanceMeters = probe.distanceMeters,
+                            name = anchor.name
+                        )
+                    )
+                }
+                is RadarProbeResult.Error -> {
+                    Log.w(TAG, "Anchor ${anchor.name} probe error: ${probe.message}")
+                }
+            }
+        }
+
+        if (observations.size < 3) {
+            val msg = "三点测距不足 (仅获取 ${observations.size}/3 组有效距离)，无法精确解算"
+            onProgress?.invoke(msg)
+            return@withContext Result.failure(Exception(msg))
+        }
+
+        onProgress?.invoke("已获取 3 组测距数据，正在三边测量非线性解算教师坐标...")
+        val solved = cn.edu.usst.jwgl.util.TrilaterationSolver.solve(observations)
+            ?: return@withContext Result.failure(Exception("三点几何反解矩阵退化，解算失败"))
+
+        Log.i(TAG, "Trilateration solved teacher location: lat=${solved.latitude}, lng=${solved.longitude}, rmse=${solved.residualRmse}m")
+        onProgress?.invoke(String.format(Locale.CHINA, "解算完成！拟合误差: ±%.1fm，正在提交高精度签到...", solved.residualRmse))
+
+        val finalRes = answerRadarRollcall(
+            rollcallId = rollcallId,
+            latitude = solved.latitude,
+            longitude = solved.longitude,
+            accuracy = 5.0,
+            customSessionId = customSessionId,
+            customDeviceId = customDeviceId,
+            customAccountKey = capturedAccount
+        )
+        finalRes
+    }
+
+    /**
+     * 批量三点定位签到（单次解算，全员复用提交）
+     */
+    suspend fun batchAnswerTrilaterationRollcall(
+        rollcallId: Long,
+        classroom: String? = null,
+        courseName: String? = null,
+        onProgress: ((String) -> Unit)? = null
+    ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
+        val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
+        val accounts = vault.getAccounts()
+        if (accounts.isEmpty()) {
+            val currId = AuthPreferences(context).getStudentId()
+            val single = solveTrilaterationAndAnswer(rollcallId, classroom, courseName, onProgress = onProgress)
+            val sRes = single.getOrNull()
+            return@withContext listOf(
+                MultiAccountRollcallResult(
+                    studentId = currId,
+                    studentName = "当前用户",
+                    success = sRes?.success == true,
+                    message = sRes?.message ?: (single.exceptionOrNull()?.message ?: "未知结果"),
+                    statusName = sRes?.statusName ?: ""
+                )
+            )
+        }
+
+        var solvedCoord: Pair<Double, Double>? = null
+        val primaryAcc = accounts.first()
+        val primarySessionRes = ensureSessionForAccount(primaryAcc.studentId)
+        val primarySid = primarySessionRes.getOrNull()
+
+        if (!primarySid.isNullOrBlank()) {
+            onProgress?.invoke("主账号正在进行校园三点测距反解...")
+            val anchors = cn.edu.usst.jwgl.util.TrilaterationSolver.getCampusAnchors(classroom, courseName)
+            val observations = mutableListOf<cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation>()
+            for (anchor in anchors) {
+                val probe = probeRadarCoordinate(
+                    rollcallId = rollcallId,
+                    latitude = anchor.latitude,
+                    longitude = anchor.longitude,
+                    customSessionId = primarySid,
+                    customDeviceId = prefs.getDeviceId(primaryAcc.studentId),
+                    customAccountKey = primaryAcc.studentId
+                )
+                if (probe is RadarProbeResult.InRange) {
+                    solvedCoord = Pair(anchor.latitude, anchor.longitude)
+                    break
+                } else if (probe is RadarProbeResult.Distance) {
+                    observations.add(
+                        cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation(
+                            anchor.latitude, anchor.longitude, probe.distanceMeters, anchor.name
+                        )
+                    )
+                }
+            }
+            if (solvedCoord == null && observations.size >= 3) {
+                val s = cn.edu.usst.jwgl.util.TrilaterationSolver.solve(observations)
+                if (s != null) {
+                    solvedCoord = Pair(s.latitude, s.longitude)
+                }
+            }
+        }
+
+        if (solvedCoord == null) {
+            onProgress?.invoke("三点定位测距反解未能收敛，降级为常规教学楼批量签到")
+            val building = CoordinateUtils.findMatchingBuilding(classroom)
+                ?: CoordinateUtils.findMatchingBuilding(courseName)
+                ?: CoordinateUtils.USST_BUILDINGS.first()
+            return@withContext batchAnswerRadarRollcall(rollcallId, building.latitude, building.longitude)
+        }
+
+        val (targetLat, targetLng) = solvedCoord
+        onProgress?.invoke("三点反解坐标成功，正在为所有账号分发独立设备码签到...")
+        batchAnswerRadarRollcall(rollcallId, targetLat, targetLng, accuracy = 5.0)
     }
 
     /**

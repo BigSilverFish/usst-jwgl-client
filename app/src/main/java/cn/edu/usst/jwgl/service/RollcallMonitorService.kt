@@ -4,10 +4,15 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.location.Location
+import android.location.LocationManager
+import android.Manifest
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
@@ -359,21 +364,35 @@ class RollcallMonitorService : Service() {
         val room = rollcall.classroom ?: matchedSession.room
         val courseName = rollcall.courseName ?: matchedSession.courseName
 
-        // 1. 自动匹配教学楼经纬度基准
+        // 1. 默认优先采用手机本机原生定位 (GCJ-02)，未获取到则降级为教学楼或教师基准
         val building = CoordinateUtils.findMatchingBuilding(room)
             ?: CoordinateUtils.findMatchingBuilding(courseName)
             ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" }
             ?: CoordinateUtils.USST_BUILDINGS.first()
 
-        // 优先采纳教师端下发的实时高精基准坐标（0偏差必过通道），若未下发则采纳教学楼 GCJ-02 基准
-        val targetLat = rollcall.latitude ?: building.latitude
-        val targetLng = rollcall.longitude ?: building.longitude
-        val accuracy = if (rollcall.latitude != null) 5.0 else 15.0
+        val targetLat: Double
+        val targetLng: Double
+        val accuracy: Double
+        val locSource: String
 
-        Log.i(TAG, "Auto signing radar rollcall $rollcallId (isTeacherBeacon=${rollcall.latitude != null}, building=${building.name})")
+        val deviceLoc = getFreshDeviceLocation()
+        if (deviceLoc != null) {
+            val (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(deviceLoc.latitude, deviceLoc.longitude)
+            targetLat = gcjLat
+            targetLng = gcjLng
+            accuracy = if (deviceLoc.hasAccuracy()) deviceLoc.accuracy.toDouble() else 15.0
+            locSource = "本机定位"
+        } else {
+            targetLat = rollcall.latitude ?: building.latitude
+            targetLng = rollcall.longitude ?: building.longitude
+            accuracy = if (rollcall.latitude != null) 5.0 else 15.0
+            locSource = if (rollcall.latitude != null) "教师基准点" else "教学楼(${building.name})"
+        }
+
+        Log.i(TAG, "Auto signing radar rollcall $rollcallId with source=$locSource (lat=$targetLat, lng=$targetLng)")
 
         // 2. 批量签到（多账号自动分流并各自使用独立设备指纹）
-        val results = tronClassClient.batchAnswerRadarRollcall(
+        var results = tronClassClient.batchAnswerRadarRollcall(
             rollcallId = rollcallId,
             latitude = targetLat,
             longitude = targetLng,
@@ -381,7 +400,26 @@ class RollcallMonitorService : Service() {
         )
 
         val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        val primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
+        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
+
+        // 3. 智能三点定位测距反解重试：若因超出范围失败，自动启动三点定位反解教师位置并签到
+        if (!primarySuccess) {
+            val hasScopeError = results.any { it.message.contains("范围") || it.message.contains("scope", ignoreCase = true) }
+            if (hasScopeError) {
+                Log.i(TAG, "Radar sign out of scope, activating Trilateration Solver auto-recovery for rollcall $rollcallId...")
+                val triResults = tronClassClient.batchAnswerTrilaterationRollcall(
+                    rollcallId = rollcallId,
+                    classroom = room,
+                    courseName = courseName
+                )
+                if (isPrimaryAccountSuccess(triResults, currentStudentId)) {
+                    Log.i(TAG, "Trilateration auto-sign successfully recovered rollcall $rollcallId!")
+                    results = triResults
+                    primarySuccess = true
+                }
+            }
+        }
+
         val successCount = results.count { it.success }
         val totalCount = results.size
 
@@ -734,6 +772,31 @@ class RollcallMonitorService : Service() {
             )
         }
         return isTerminal
+    }
+
+    private fun getFreshDeviceLocation(): Location? {
+        val finePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+        val coarsePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (finePerm != PackageManager.PERMISSION_GRANTED && coarsePerm != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        val now = System.currentTimeMillis()
+        var bestLoc: Location? = null
+        for (p in providers) {
+            try {
+                if (lm.isProviderEnabled(p)) {
+                    val loc = lm.getLastKnownLocation(p)
+                    if (loc != null && (now - loc.time) <= 30 * 60 * 1000L) {
+                        if (bestLoc == null || loc.accuracy < bestLoc.accuracy) {
+                            bestLoc = loc
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return bestLoc
     }
 
     private fun stopMonitoringAndSelf() {
