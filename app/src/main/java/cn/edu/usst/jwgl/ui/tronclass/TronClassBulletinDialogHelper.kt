@@ -212,7 +212,7 @@ object TronClassBulletinDialogHelper {
         }
 
         dialogBinding.layoutAttachmentsSection.visibility = View.VISIBLE
-        dialogBinding.tvAttachmentsHeader.text = "📎 附件下载 (${uploads.size})"
+        dialogBinding.tvAttachmentsHeader.text = "附件下载 (${uploads.size})"
         dialogBinding.llAttachmentsContainer.removeAllViews()
 
         for (upload in uploads) {

@@ -60,7 +60,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="📅 2026-11-15 13:30 - 15:30"
+                android:text="2026-11-15 13:30 - 15:30"
                 android:textColor="@color/text_primary"
                 android:textSize="13sp"
                 android:textStyle="bold" />
@@ -88,7 +88,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="📍 考场：第一教学楼 102 教室"
+                android:text="考场：第一教学楼 102 教室"
                 android:textColor="@color/text_secondary"
                 android:textSize="12.5sp" />
 
@@ -96,7 +96,7 @@
                 android:id="@+id/tvExamSeat"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="💺 座位号: 42"
+                android:text="座位号: 42"
                 android:textColor="@color/text_secondary"
                 android:textSize="12.5sp"
                 android:textStyle="bold" />
