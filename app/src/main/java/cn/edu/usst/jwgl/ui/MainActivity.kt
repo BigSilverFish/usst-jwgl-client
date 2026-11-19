@@ -52,6 +52,7 @@ import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
 import cn.edu.usst.jwgl.databinding.ActivityMainBinding
+import cn.edu.usst.jwgl.ui.common.AuthorDisclaimerBottomSheet
 import cn.edu.usst.jwgl.ui.grades.GradesFragment
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
@@ -1140,6 +1141,7 @@ class MainActivity : AppCompatActivity() {
 
         if (intent.getBooleanExtra("extra_set_disclaimer_agreed", false)) {
             AuthPreferences(this).setDisclaimerAgreed(true)
+            (supportFragmentManager.findFragmentByTag(AuthorDisclaimerBottomSheet.TAG) as? AuthorDisclaimerBottomSheet)?.dismiss()
             activeDisclaimerDialog?.dismiss()
             activeDisclaimerDialog = null
         }
@@ -2948,28 +2950,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) {
-        activeDisclaimerDialog?.dismiss()
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle("作者声明")
-            .setMessage("本app非官方项目，仅供开发学习，不上传任何数据，不泄露任何隐私。")
-            .setCancelable(allowDismiss)
-            .setPositiveButton("同意") { dialog, _ ->
-                AuthPreferences(this).setDisclaimerAgreed(true)
-                activeDisclaimerDialog = null
-                dialog.dismiss()
+        val existing = supportFragmentManager.findFragmentByTag(AuthorDisclaimerBottomSheet.TAG) as? AuthorDisclaimerBottomSheet
+        existing?.dismiss()
+        val sheet = AuthorDisclaimerBottomSheet.newInstance(allowDismiss = allowDismiss).apply {
+            onAgreedListener = {
+                AuthPreferences(this@MainActivity).setDisclaimerAgreed(true)
             }
-        if (!allowDismiss) {
-            builder.setNegativeButton("不同意并退出") { _, _ ->
+            onDisagreedListener = {
                 finishAffinity()
             }
-        } else {
-            builder.setNegativeButton("关闭") { _, _ ->
-                activeDisclaimerDialog = null
-            }
         }
-        val dialog = builder.create()
-        activeDisclaimerDialog = dialog
-        dialog.show()
+        sheet.show(supportFragmentManager, AuthorDisclaimerBottomSheet.TAG)
     }
 
     private var isSyncingConfig = false

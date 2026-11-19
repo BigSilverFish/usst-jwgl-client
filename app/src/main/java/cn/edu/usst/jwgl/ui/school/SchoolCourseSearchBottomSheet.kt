@@ -68,7 +68,7 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
         }
         for (i in 0 until 4) {
             val pastSpan = "$pastYear-${pastYear + 1}"
-            val label = "$pastSpan 第${pastTerm}学期 (历年参考)"
+            val label = if (pastTerm == "2" && i == 0) "$pastSpan 第${pastTerm}学期 (春季参考)" else "$pastSpan 第${pastTerm}学期"
             add(Pair(label, Pair(pastSpan, pastTerm)))
             if (pastTerm == "2") {
                 pastTerm = "1"
@@ -250,16 +250,7 @@ class SchoolCourseSearchBottomSheet : BottomSheetDialogFragment() {
                     }
 
                     if (merged.isEmpty()) {
-                        val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
-                        val curYear = curXnm.toIntOrNull() ?: 2026
-                        val curYearSpan = "$curYear-${curYear + 1}"
-                        val curTermNum = if (curXqm == "3") "1" else "2"
-                        val isCurrentTerm = (currentXn == curYearSpan && currentXq == curTermNum)
-                        if (!isCurrentTerm) {
-                            tvCount.text = "共检索到 0 个教学班 (历史学期若已归档则以教务系统为准)"
-                        } else {
-                            tvCount.text = "共检索到 0 个教学班"
-                        }
+                        tvCount.text = "共检索到 0 个教学班"
                         emptyLayout.visibility = View.VISIBLE
                         rvCourses.visibility = View.GONE
                     } else {
