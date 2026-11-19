@@ -365,7 +365,7 @@ class TronClassHomeworkFragment : Fragment() {
             b.viewHeaderSpacing.layoutParams = params
         }
         val density = resources.displayMetrics.density
-        val startOffset = headerHeight
+        val startOffset = headerHeight + (8 * density).toInt()
         val endOffset = headerHeight + (56 * density).toInt()
         b.swipeRefresh.setProgressViewOffset(true, startOffset, endOffset)
     }

@@ -202,6 +202,10 @@ class TronClassExamFragment : Fragment() {
             params.height = headerHeight
             b.viewHeaderSpacing.layoutParams = params
         }
+        val density = resources.displayMetrics.density
+        val startOffset = headerHeight + (8 * density).toInt()
+        val endOffset = headerHeight + (56 * density).toInt()
+        b.swipeRefresh.setProgressViewOffset(true, startOffset, endOffset)
     }
 
     private fun setupUI() {
@@ -253,6 +257,7 @@ class TronClassExamFragment : Fragment() {
             loadExamData()
         }
 
+        binding.swipeRefresh.setColorSchemeResources(R.color.primary)
         binding.swipeRefresh.setOnRefreshListener {
             loadExamData()
         }
