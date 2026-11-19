@@ -84,7 +84,7 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 .apply { if (largeIcon != null) setLargeIcon(largeIcon) }
                 .setColor(examColor)
                 .setColorized(true)
-                .setContentTitle("📝 考试提醒：还有 $advanceText 开始【$courseName】")
+                .setContentTitle("考试提醒：还有 $advanceText 开始【$courseName】")
                 .setContentText(content)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "科目：$courseName ($examNature)\n考场地点：$classroom\n座位号：${seatNumber.ifEmpty { "见考场公布栏" }}\n考试时间：$startTime\n请备齐学生证/身份证与考试文具，提前到达考场签到！"
@@ -111,7 +111,7 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 .apply { if (largeIcon != null) setLargeIcon(largeIcon) }
                 .setColor(primaryColor)
                 .setColorized(true)
-                .setContentTitle("🔔 还有 $advanceText 上课：$courseName")
+                .setContentTitle("还有 $advanceText 上课：$courseName")
                 .setContentText(content)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${content}\n请带齐课件与学习用品，准时到达教室。"))
                 .setPriority(NotificationCompat.PRIORITY_MAX)

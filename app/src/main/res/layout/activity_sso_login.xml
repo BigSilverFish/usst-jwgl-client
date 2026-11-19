@@ -56,11 +56,11 @@
             android:paddingHorizontal="12dp"
             android:paddingVertical="8dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="💡"
-                android:textSize="14sp" />
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_check_circle"
+                app:tint="@color/primary" />
 
             <TextView
                 android:layout_width="0dp"

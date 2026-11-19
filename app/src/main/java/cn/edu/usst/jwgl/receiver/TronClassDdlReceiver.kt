@@ -66,9 +66,9 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         val timeLeftStr = if (hoursLeft > 0) "${hoursLeft}小时${minutesLeft}分钟" else "${minutesLeft}分钟"
 
         val title = if (isUrgent) {
-            "⚠️【一网畅学】作业紧急临期提醒 (仅剩$timeLeftStr)"
+            "【一网畅学】作业紧急临期提醒 (仅剩$timeLeftStr)"
         } else {
-            "⏰【一网畅学】作业截止预警 (剩$timeLeftStr)"
+            "【一网畅学】作业截止预警 (剩$timeLeftStr)"
         }
 
         val content = if (isUrgent) {
