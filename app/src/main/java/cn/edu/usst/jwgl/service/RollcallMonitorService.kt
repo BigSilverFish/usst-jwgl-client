@@ -404,61 +404,45 @@ class RollcallMonitorService : Service() {
         val room = rollcall.classroom ?: matchedSession.room
         val courseName = rollcall.courseName ?: matchedSession.courseName
 
-        // 1. 默认优先采用手机本机原生定位 (GCJ-02)，未获取到则降级为教学楼或教师基准
+        // 1. 准备降级备选坐标（优先本机原生定位 GCJ-02，未获取到则降级为教师基准点或教学楼基准）
         val building = CoordinateUtils.findMatchingBuilding(room)
             ?: CoordinateUtils.findMatchingBuilding(courseName)
             ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" }
             ?: CoordinateUtils.USST_BUILDINGS.first()
 
-        val targetLat: Double
-        val targetLng: Double
-        val accuracy: Double
-        val locSource: String
+        val fallbackLat: Double
+        val fallbackLng: Double
+        val fallbackAccuracy: Double
+        val fallbackSource: String
 
         val deviceLoc = getFreshDeviceLocation()
         if (deviceLoc != null) {
             val (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(deviceLoc.latitude, deviceLoc.longitude)
-            targetLat = gcjLat
-            targetLng = gcjLng
-            accuracy = if (deviceLoc.hasAccuracy()) deviceLoc.accuracy.toDouble() else 15.0
-            locSource = "本机定位"
+            fallbackLat = gcjLat
+            fallbackLng = gcjLng
+            fallbackAccuracy = if (deviceLoc.hasAccuracy()) deviceLoc.accuracy.toDouble() else 15.0
+            fallbackSource = "本机定位"
         } else {
-            targetLat = rollcall.latitude ?: building.latitude
-            targetLng = rollcall.longitude ?: building.longitude
-            accuracy = if (rollcall.latitude != null) 5.0 else 15.0
-            locSource = if (rollcall.latitude != null) "教师基准点" else "教学楼(${building.name})"
+            fallbackLat = rollcall.latitude ?: building.latitude
+            fallbackLng = rollcall.longitude ?: building.longitude
+            fallbackAccuracy = if (rollcall.latitude != null) 5.0 else 15.0
+            fallbackSource = if (rollcall.latitude != null) "教师基准点" else "教学楼(${building.name})"
         }
 
-        Log.i(TAG, "Auto signing radar rollcall $rollcallId with source=$locSource (lat=$targetLat, lng=$targetLng)")
+        Log.i(TAG, "Auto signing radar rollcall $rollcallId: prioritizing Trilateration Solver (fallback=$fallbackSource)")
 
-        // 2. 批量签到（多账号自动分流并各自使用独立设备指纹）
-        var results = tronClassClient.batchAnswerRadarRollcall(
+        // 2. 优先采用校园三点测距反解（单次反解、多账号各自独立设备码分发；未收敛时平滑降级为本机/预设坐标）
+        val results = tronClassClient.batchAnswerTrilaterationRollcall(
             rollcallId = rollcallId,
-            latitude = targetLat,
-            longitude = targetLng,
-            accuracy = accuracy
+            classroom = room,
+            courseName = courseName,
+            fallbackLatitude = fallbackLat,
+            fallbackLongitude = fallbackLng,
+            fallbackAccuracy = fallbackAccuracy
         )
 
         val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
-
-        // 3. 智能三点定位测距反解重试：若因超出范围失败，自动启动三点定位反解教师位置并签到
-        if (!primarySuccess) {
-            val hasScopeError = results.any { it.message.contains("范围") || it.message.contains("scope", ignoreCase = true) }
-            if (hasScopeError) {
-                Log.i(TAG, "Radar sign out of scope, activating Trilateration Solver auto-recovery for rollcall $rollcallId...")
-                val triResults = tronClassClient.batchAnswerTrilaterationRollcall(
-                    rollcallId = rollcallId,
-                    classroom = room,
-                    courseName = courseName
-                )
-                if (isPrimaryAccountSuccess(triResults, currentStudentId)) {
-                    Log.i(TAG, "Trilateration auto-sign successfully recovered rollcall $rollcallId!")
-                    results = triResults
-                    primarySuccess = true
-                }
-            }
-        }
+        val primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
 
         val successCount = results.count { it.success }
         val totalCount = results.size

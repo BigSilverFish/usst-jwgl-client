@@ -1115,12 +1115,15 @@ class TronClassClient(context: Context) {
     }
 
     /**
-     * 批量三点定位签到（单次解算，全员复用提交）
+     * 批量三点定位签到（单次解算，全员复用提交；未能收敛时使用 fallback 坐标或教学楼兜底）
      */
     suspend fun batchAnswerTrilaterationRollcall(
         rollcallId: Long,
         classroom: String? = null,
         courseName: String? = null,
+        fallbackLatitude: Double? = null,
+        fallbackLongitude: Double? = null,
+        fallbackAccuracy: Double = 15.0,
         onProgress: ((String) -> Unit)? = null
     ): List<MultiAccountRollcallResult> = withContext(Dispatchers.IO) {
         val vault = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context)
@@ -1129,11 +1132,36 @@ class TronClassClient(context: Context) {
             val currId = AuthPreferences(context).getStudentId()
             val single = solveTrilaterationAndAnswer(rollcallId, classroom, courseName, onProgress = onProgress)
             val sRes = single.getOrNull()
+            if (sRes?.success == true) {
+                return@withContext listOf(
+                    MultiAccountRollcallResult(
+                        studentId = currId,
+                        studentName = "当前用户",
+                        success = true,
+                        message = sRes.message,
+                        statusName = sRes.statusName ?: ""
+                    )
+                )
+            }
+            if (fallbackLatitude != null && fallbackLongitude != null) {
+                onProgress?.invoke("三点定位未成功，降级为预设/本机定位签到...")
+                val fb = answerRadarRollcall(rollcallId, fallbackLatitude, fallbackLongitude, fallbackAccuracy)
+                val fbRes = fb.getOrNull()
+                return@withContext listOf(
+                    MultiAccountRollcallResult(
+                        studentId = currId,
+                        studentName = "当前用户",
+                        success = fbRes?.success == true,
+                        message = fbRes?.message ?: (fb.exceptionOrNull()?.message ?: "未知结果"),
+                        statusName = fbRes?.statusName ?: ""
+                    )
+                )
+            }
             return@withContext listOf(
                 MultiAccountRollcallResult(
                     studentId = currId,
                     studentName = "当前用户",
-                    success = sRes?.success == true,
+                    success = false,
                     message = sRes?.message ?: (single.exceptionOrNull()?.message ?: "未知结果"),
                     statusName = sRes?.statusName ?: ""
                 )
@@ -1178,6 +1206,10 @@ class TronClassClient(context: Context) {
         }
 
         if (solvedCoord == null) {
+            if (fallbackLatitude != null && fallbackLongitude != null) {
+                onProgress?.invoke("三点定位测距反解未能收敛，降级为本机/预设坐标批量签到")
+                return@withContext batchAnswerRadarRollcall(rollcallId, fallbackLatitude, fallbackLongitude, fallbackAccuracy)
+            }
             onProgress?.invoke("三点定位测距反解未能收敛，降级为常规教学楼批量签到")
             val building = CoordinateUtils.findMatchingBuilding(classroom)
                 ?: CoordinateUtils.findMatchingBuilding(courseName)
