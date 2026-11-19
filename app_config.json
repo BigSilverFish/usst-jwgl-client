@@ -7,7 +7,7 @@
     "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.0",
     "apk_url": "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.3.0/app-release.apk",
     "sha256": "fa6efaade3d63062524e452b448173d36ff594ad8ecf0bfd1f9fb3af9143abc4",
-    "force_update": false
+    "force_update": true
   },
   "semester_config": {
     "current_semester": "2026-2027-1",
