@@ -70,9 +70,15 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             fetchDeviceLocation()
         } else {
             val b = _binding ?: return@registerForActivityResult
-            b.tvGpsStatus.text = "定位权限被拒绝，已自动回退到上理教学楼基准"
-            b.rbModeBuilding.isChecked = true
-            updateModeVisibility()
+            val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+            if (isDev) {
+                b.tvGpsStatus.text = "定位权限被拒绝，已自动回退到上理教学楼基准"
+                b.rbModeBuilding.isChecked = true
+                updateModeVisibility()
+            } else {
+                b.tvGpsStatus.text = "定位权限被拒绝，请在系统设置中允许定位权限"
+                Toast.makeText(requireContext(), "未开启开发者模式，雷达签到须允许本机定位权限", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -186,8 +192,10 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.spinnerBuildings.setSelection(defaultIndex)
         applyBuildingLocation(buildings[defaultIndex])
 
-        // 3. 教师基准点直连模式（若服务端下发了教师坐标，则提供单选按钮供自主选择）
-        val hasTeacherBeacon = teacherLat != null && teacherLng != null && teacherLat != 0.0 && teacherLng != 0.0
+        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+
+        // 3. 教师基准点直连模式（仅开发者模式下且服务端下发教师坐标时提供）
+        val hasTeacherBeacon = isDev && teacherLat != null && teacherLng != null && teacherLat != 0.0 && teacherLng != 0.0
         if (hasTeacherBeacon) {
             val rbTeacher = android.widget.RadioButton(requireContext()).apply {
                 id = View.generateViewId()
@@ -198,6 +206,15 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             }
             binding.rgLocationMode.addView(rbTeacher, 0)
             teacherRadioButtonId = rbTeacher.id
+        }
+
+        if (!isDev) {
+            // 未开启开发者模式：只能用本机真实定位，彻底隐藏其他虚拟基准与三点反解选项
+            binding.tvLocationModeTitle.text = "签到定位基准：手机本机真实定位"
+            binding.rbModeTrilateration.visibility = View.GONE
+            binding.layoutTrilaterationStatus.visibility = View.GONE
+            binding.rbModeBuilding.visibility = View.GONE
+            binding.layoutBuildingSelector.visibility = View.GONE
         }
 
         // 默认签到方式设为本机定位模式 (手机原生 GPS / 基站定位)
@@ -312,6 +329,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun trySilentAutoSnapToNearestBuilding() {
+        if (!DeveloperModeManager.isDeveloperMode(requireContext())) {
+            return
+        }
         val finePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
         val coarsePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
         if (finePerm != PackageManager.PERMISSION_GRANTED && coarsePerm != PackageManager.PERMISSION_GRANTED) {
@@ -593,8 +613,44 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun submitRadarRollcall() {
+        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+        if (!isDev) {
+            if (!binding.rbModeCurrentGps.isChecked) {
+                Toast.makeText(requireContext(), "未开启开发者模式，仅允许使用手机本机定位签到", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (binding.tvGpsStatus.text.toString().contains("正在")) {
+                Toast.makeText(requireContext(), "正在获取本机 GPS 定位，请稍候...", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (selectedLatitude == 0.0 && selectedLongitude == 0.0) {
+                Toast.makeText(requireContext(), "尚未获取到有效定位，请点击刷新获取", Toast.LENGTH_SHORT).show()
+                checkLocationPermissionAndFetch()
+                return
+            }
+        }
+
         if (rollcallId <= 0L) {
-            Toast.makeText(requireContext(), "点名 ID 无效", Toast.LENGTH_SHORT).show()
+            val ctx = requireContext()
+            val input = android.widget.EditText(ctx).apply {
+                hint = "请输入雷达点名 ID"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            }
+            MaterialAlertDialogBuilder(ctx)
+                .setTitle("输入点名 ID")
+                .setMessage("当前未检测到进行中的点名活动，请向教师获取数字点名 ID 后提交：")
+                .setView(input)
+                .setPositiveButton("确定提交") { _, _ ->
+                    val enteredId = input.text.toString().trim().toLongOrNull() ?: 0L
+                    if (enteredId > 0L) {
+                        rollcallId = enteredId
+                        submitRadarRollcall()
+                    } else {
+                        Toast.makeText(ctx, "请输入有效的点名 ID", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
             return
         }
 

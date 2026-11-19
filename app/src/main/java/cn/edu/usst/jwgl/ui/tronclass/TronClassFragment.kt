@@ -2813,46 +2813,20 @@ class TronClassFragment : Fragment() {
             tronClassActiveRollcalls.firstOrNull { it.getNormalizedType() == "radar" }
                 ?: tronClassActiveRollcalls.firstOrNull()
         }
-        val rollcallId = designatedRollcallId ?: activeRollcall?.getEffectiveId()
-
-        if (rollcallId == null || rollcallId <= 0L) {
-            val input = EditText(ctx).apply {
-                hint = "请输入雷达点名 ID（选填）"
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER
-                setPadding(48, 36, 48, 36)
-            }
-            MaterialAlertDialogBuilder(ctx)
-                .setTitle("雷达定位签到")
-                .setMessage("当前无进行中的雷达点名。若教师已发起，可输入点名 ID 或直接进入定位面板：")
-                .setView(input)
-                .setPositiveButton("进入定位") { _, _ ->
-                    val id = input.text.toString().trim().toLongOrNull() ?: 0L
-                    val dialog = RadarRollcallBottomSheetDialog.newInstance(
-                        rollcallId = id,
-                        courseName = courseName ?: "课堂雷达签到",
-                        classroom = classroom
-                    )
-                    dialog.setOnSignSuccessListener {
-                        markRollcallCompleted(id)
-                        loadTronClassData(forceRefresh = true)
-                    }
-                    dialog.show(parentFragmentManager, "RadarRollcallBottomSheet")
-                }
-                .setNegativeButton("取消", null)
-                .show()
-            return
-        }
+        val rollcallId = designatedRollcallId ?: activeRollcall?.getEffectiveId() ?: 0L
 
         val dialog = RadarRollcallBottomSheetDialog.newInstance(
             rollcallId = rollcallId,
-            courseName = courseName ?: activeRollcall?.courseName,
+            courseName = courseName ?: activeRollcall?.courseName ?: "课堂雷达签到",
             classroom = classroom ?: activeRollcall?.classroom,
             teacherLat = activeRollcall?.latitude,
             teacherLng = activeRollcall?.longitude,
             teacherScope = activeRollcall?.scope
         )
         dialog.setOnSignSuccessListener {
-            markRollcallCompleted(rollcallId)
+            if (rollcallId > 0L) {
+                markRollcallCompleted(rollcallId)
+            }
             loadTronClassData(forceRefresh = true)
         }
         dialog.show(parentFragmentManager, "RadarRollcallBottomSheet")
