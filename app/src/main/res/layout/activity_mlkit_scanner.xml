@@ -93,14 +93,6 @@
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Google ML Kit 深度视觉引擎 · 强抗反光与远距离识别"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
-
     </LinearLayout>
 
     <!-- 3. 顶部沉浸式导航栏 -->

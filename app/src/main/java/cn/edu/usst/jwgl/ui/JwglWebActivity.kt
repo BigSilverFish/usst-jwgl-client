@@ -841,7 +841,7 @@ class JwglWebActivity : AppCompatActivity() {
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse multi test result", e)
-            Toast.makeText(this, "多机位测试结果解析失败: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "多机位测试结果解析失败，请检查网络或稍后重试", Toast.LENGTH_SHORT).show()
         }
     }
 

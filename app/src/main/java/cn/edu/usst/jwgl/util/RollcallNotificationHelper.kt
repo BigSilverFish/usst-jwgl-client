@@ -24,15 +24,42 @@ object RollcallNotificationHelper {
     const val NOTIFICATION_ID_FOREGROUND = 88001
 
     /**
-     * 发现课堂签到时尝试直接呼出锁屏/桌面强弹窗（若开关开启）
+     * 发现课堂签到时尝试直接呼出锁屏/桌面弹窗（若开关开启）
+     * @return 是否成功拉起弹窗
      */
-    fun launchAlertPopupIfEnabled(context: Context, intent: Intent) {
+    fun launchAlertPopupIfEnabled(context: Context, intent: Intent): Boolean {
         val prefs = TronClassPreferences.getInstance(context)
-        if (!prefs.isRollcallPopupEnabled()) return
-        try {
+        if (!prefs.isRollcallPopupEnabled()) return false
+        return try {
             context.startActivity(intent)
+            true
         } catch (e: Exception) {
             Log.d("RollcallNotifHelper", "Direct background startActivity prevented: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 取消指定课堂签到关联的全部系统通知（实现处理完毕后即时消隐）
+     */
+    fun cancelRollcallNotification(context: Context, rollcallId: Long) {
+        if (rollcallId <= 0) return
+        val baseId = (rollcallId % 100000L).toInt()
+        val notifManager = NotificationManagerCompat.from(context)
+        val idsToCancel = intArrayOf(
+            baseId + 20000,
+            baseId + 30000,
+            baseId + 35000,
+            baseId + 40000,
+            baseId + 45000,
+            baseId + 50000,
+            baseId + 60000,
+            baseId + 70000
+        )
+        for (id in idsToCancel) {
+            try {
+                notifManager.cancel(id)
+            } catch (_: Exception) {}
         }
     }
 
@@ -182,7 +209,11 @@ object RollcallNotificationHelper {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             builder.setFullScreenIntent(fullScreenPendingIntent, true)
-            launchAlertPopupIfEnabled(context, alertIntent)
+            val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
+            if (popupShown) {
+                builder.setSilent(true)
+                builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            }
         }
         applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "选择点位签到" else "查看详情")
 
@@ -246,7 +277,11 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         builder.setFullScreenIntent(fullScreenPendingIntent, true)
-        launchAlertPopupIfEnabled(context, alertIntent)
+        val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
+        if (popupShown) {
+            builder.setSilent(true)
+            builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        }
 
         applyAlertStyling(context, builder, true, notifId, pendingIntent, "输入签到码")
 
@@ -386,7 +421,11 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         builder.setFullScreenIntent(fullScreenPendingIntent, true)
-        launchAlertPopupIfEnabled(context, alertIntent)
+        val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
+        if (popupShown) {
+            builder.setSilent(true)
+            builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        }
 
         applyAlertStyling(context, builder, true, notifId, pendingIntent, "打开扫码相机")
 
@@ -519,7 +558,11 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         builder.setFullScreenIntent(fullScreenPendingIntent, true)
-        launchAlertPopupIfEnabled(context, alertIntent)
+        val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
+        if (popupShown) {
+            builder.setSilent(true)
+            builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        }
 
         applyAlertStyling(context, builder, true, notifId, pendingIntent, "前往处理")
 

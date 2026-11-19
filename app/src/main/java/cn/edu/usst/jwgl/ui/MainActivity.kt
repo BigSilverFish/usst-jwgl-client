@@ -33,6 +33,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.DataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
@@ -2607,7 +2608,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e("MainActivity", "refreshProfile error", e)
-                Toast.makeText(this@MainActivity, "个人信息更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, e.getFriendlyErrorMessage("个人信息更新失败，请稍后重试"), Toast.LENGTH_SHORT).show()
             } finally {
                 binding.swipeRefreshProfile.isRefreshing = false
             }
@@ -2890,7 +2891,7 @@ class MainActivity : AppCompatActivity() {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl))
                 startActivity(intent)
             } catch (e: Exception) {
-                Toast.makeText(this, "无法打开浏览器: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "无法打开浏览器，请确认已安装浏览器应用", Toast.LENGTH_SHORT).show()
             }
         }
 

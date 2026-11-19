@@ -420,6 +420,7 @@ class RollcallMonitorService : Service() {
 
         // 4. 更新前台服务常驻通知状态
         if (primarySuccess) {
+            RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
             updateForegroundNotification(
                 matchedSession,
                 "已自动签到【$courseName】(${building.name})"
@@ -502,6 +503,7 @@ class RollcallMonitorService : Service() {
 
         // 4. 更新前台服务常驻通知
         if (primarySuccess) {
+            RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
             updateForegroundNotification(
                 currentSession,
                 "已自动签到【$courseName】(数字口令 $numberCode)"

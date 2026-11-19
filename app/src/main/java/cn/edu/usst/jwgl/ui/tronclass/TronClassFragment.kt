@@ -48,6 +48,7 @@ import cn.edu.usst.jwgl.databinding.LayoutPageTronclassBinding
 import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
 import cn.edu.usst.jwgl.util.AppAuthExpiredException
+import cn.edu.usst.jwgl.util.RollcallNotificationHelper
 import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
@@ -279,6 +280,7 @@ class TronClassFragment : Fragment() {
 
     fun markRollcallCompleted(effectiveId: Long) {
         val act = activity ?: return
+        RollcallNotificationHelper.cancelRollcallNotification(act, effectiveId)
         act.runOnUiThread {
             allUnifiedActiveRollcalls = allUnifiedActiveRollcalls.filter { it.effectiveId != effectiveId }
             tronClassActiveRollcalls = tronClassActiveRollcalls.filter { it.getEffectiveId() != effectiveId }

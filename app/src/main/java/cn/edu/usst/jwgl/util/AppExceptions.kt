@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.util
 
+import android.content.ActivityNotFoundException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -39,11 +40,13 @@ class AppDataParseException(
 
 /**
  * 转换任何 Throwable 为用户友好、可读性高的中文诊断信息，
- * 同时保留技术诊断信息（如状态码与异常类型）以便排查。
+ * 避免将底层类名或原始堆栈透出给用户。
  */
 fun Throwable.getFriendlyErrorMessage(fallback: String = "操作失败，请稍后重试"): String {
     return when (this) {
         is AppAuthExpiredException -> message ?: "登录状态已失效，请重新登录"
+        is ActivityNotFoundException -> "未找到可处理此操作或打开此文件的应用"
+        is SecurityException -> "缺少必要的系统权限，请前往应用设置授予"
         is UnknownHostException -> "无法解析服务器地址，请检查手机网络是否已连接"
         is SocketTimeoutException -> "网络请求超时，服务器响应过慢，请稍后重试"
         is ConnectException -> "无法连接至服务器，请检查校园网/VPN或校园服务器状态"
@@ -62,9 +65,18 @@ fun Throwable.getFriendlyErrorMessage(fallback: String = "操作失败，请稍�
             when {
                 msg.contains("timeout", ignoreCase = true) -> "网络连接超时，请重试"
                 msg.contains("closed", ignoreCase = true) -> "网络连接意外中断，请重试"
-                else -> "网络传输错误: ${msg.ifBlank { "未知I/O异常" }}"
+                msg.contains("failed to connect", ignoreCase = true) -> "无法连接至服务器，请检查网络"
+                msg.contains("unexpected end of stream", ignoreCase = true) -> "服务器传输中断，请重试"
+                else -> fallback
             }
         }
-        else -> message?.takeIf { it.isNotBlank() } ?: fallback
+        else -> {
+            val raw = message?.trim()
+            if (raw.isNullOrBlank() || raw.startsWith("java.") || raw.contains("Exception") || raw.contains("No Activity found")) {
+                fallback
+            } else {
+                raw
+            }
+        }
     }
 }

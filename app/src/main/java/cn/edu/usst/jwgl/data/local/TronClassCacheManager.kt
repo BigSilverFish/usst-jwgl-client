@@ -112,7 +112,7 @@ class TronClassCacheManager(private val context: Context) {
             }
             context.startActivity(Intent.createChooser(intent, "选择打开方式: ${file.name}"))
         } catch (e: Exception) {
-            Toast.makeText(context, "未找到能够打开该文件的应用: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "未找到能够打开该文件的应用，请安装相应格式的查看器", Toast.LENGTH_SHORT).show()
         }
     }
 }
