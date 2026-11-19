@@ -24,6 +24,7 @@ import cn.edu.usst.jwgl.data.network.TronClassClient
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import kotlinx.coroutines.launch
 
 /**
@@ -134,10 +135,11 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             tvCourseName.text = "请输入教师发布的 4 位数字口令"
         }
 
-        // 多账号签到检测
+        // 多账号签到检测（受开发者模式管控：未激活时隐藏）
         try {
+            val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
             val accounts = AccountVault.getInstance(requireContext()).getAccounts()
-            if (accounts.size > 1) {
+            if (isDev && accounts.size > 1) {
                 cbSignAll.visibility = View.VISIBLE
                 cbSignAll.isChecked = false
                 cbSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
@@ -428,7 +430,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         tvStatusTip.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
         layoutKeypad.isEnabled = false
 
-        val isBatch = (cbSignAll.visibility == View.VISIBLE && cbSignAll.isChecked)
+        val isBatch = (cbSignAll.visibility == View.VISIBLE && cbSignAll.isChecked && DeveloperModeManager.isDeveloperMode(ctx))
         val client = TronClassClient(ctx.applicationContext)
 
         viewLifecycleOwner.lifecycleScope.launch {

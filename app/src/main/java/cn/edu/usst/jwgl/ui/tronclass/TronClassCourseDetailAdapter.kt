@@ -13,6 +13,7 @@ import cn.edu.usst.jwgl.data.model.TronClassUpload
 import cn.edu.usst.jwgl.databinding.ItemTronclassActivityBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassModuleHeaderBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassProgressHeaderBinding
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 
 sealed class CourseDetailUiItem {
     data class ProgressHeader(val completedCount: Int, val totalCount: Int, val percent: Int) : CourseDetailUiItem()
@@ -79,6 +80,9 @@ class TronClassCourseDetailAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(header: CourseDetailUiItem.ProgressHeader) {
+            val isDev = DeveloperModeManager.isDeveloperMode(binding.root.context)
+            binding.layoutAutoBrushRow.visibility = if (isDev) View.VISIBLE else View.GONE
+
             binding.progressLearning.progress = header.percent
             binding.tvProgressText.text = "已完成 ${header.percent}% (${header.completedCount} / ${header.totalCount} 项)"
             if (header.percent >= 100) {

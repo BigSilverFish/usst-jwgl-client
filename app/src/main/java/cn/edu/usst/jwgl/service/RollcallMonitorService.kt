@@ -18,6 +18,7 @@ import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.util.CoordinateUtils
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
 import cn.edu.usst.jwgl.util.RollcallScheduleHelper
 import cn.edu.usst.jwgl.util.ScheduledClassSession
@@ -185,7 +186,7 @@ class RollcallMonitorService : Service() {
             val normType = rollcall.getNormalizedType()
             val cName = rollcall.courseName ?: session.courseName
 
-            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
+            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled() && DeveloperModeManager.isDeveloperMode(this)
             val delaySeconds = prefs.getRollcallAutoSignDelaySeconds()
 
             if (!isAutoSignEnabled) {
@@ -677,7 +678,7 @@ class RollcallMonitorService : Service() {
                 continue
             }
 
-            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
+            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled() && DeveloperModeManager.isDeveloperMode(this)
             val delaySeconds = prefs.getRollcallAutoSignEffectiveDelaySeconds()
 
             if (!isAutoSignEnabled) {

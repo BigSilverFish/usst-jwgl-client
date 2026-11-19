@@ -53,6 +53,7 @@ import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
 import cn.edu.usst.jwgl.databinding.ActivityMainBinding
 import cn.edu.usst.jwgl.ui.common.AuthorDisclaimerBottomSheet
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.ui.grades.GradesFragment
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
@@ -287,8 +288,15 @@ class MainActivity : AppCompatActivity() {
         pendingReminderType = null
     }
 
+    private val devModeListener: (Boolean) -> Unit = {
+        runOnUiThread {
+            updateReminderSubtitles()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DeveloperModeManager.addListener(devModeListener)
 
         // Enable edge-to-edge immersive transparent system bars
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -989,6 +997,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         reloadTimetableFromDb()
+        updateReminderSubtitles()
         ApkDownloadHelper.pendingInstallApkFile?.let { apk ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
                 ApkDownloadHelper.pendingInstallApkFile = null
@@ -1124,7 +1133,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (intent.hasExtra("extra_nav_mode")) {
-            val mode = intent.getIntExtra("extra_nav_mode", TimetableSettingHelper.NAV_MODE_DRAWER)
+            val mode = intent.getIntExtra("extra_nav_mode", TimetableSettingHelper.NAV_MODE_BOTTOM)
             TimetableSettingHelper.setPhoneNavMode(this, mode)
             applyPhoneNavigationMode()
         }
@@ -2394,6 +2403,10 @@ class MainActivity : AppCompatActivity() {
             "已关闭 · 上课时驻留后台检测签到活动"
         }
 
+        val isDevMode = DeveloperModeManager.isDeveloperMode(this)
+        binding.rowRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
+        binding.dividerRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
+
         val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
         val strategyDisplay = tcPrefs.getRollcallAutoSignStrategyDisplayName()
         binding.switchRollcallAutoSign.isEnabled = isMonitorEnabled
@@ -2744,14 +2757,17 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // Custom 4-Tab Bottom Navigation Bar (Phone Bottom Mode)
+        // Custom 5-Tab Bottom Navigation Bar (Phone Bottom Mode)
         binding.tabBottomTimetable.setOnClickListener {
+            DeveloperModeManager.onBottomTabClicked(this, 0)
             switchTab(MainTab.TIMETABLE)
         }
         binding.tabBottomGrades.setOnClickListener {
+            DeveloperModeManager.onBottomTabClicked(this, 1)
             switchTab(MainTab.GRADES)
         }
         binding.tabBottomTronClass.setOnClickListener {
+            DeveloperModeManager.onBottomTabClicked(this, 2)
             if (currentTab == MainTab.TRONCLASS && getTronClassFragment()?.hasBackStack() == true) {
                 clearTronClassBackStack()
             } else {
@@ -2759,9 +2775,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.tabBottomMore.setOnClickListener {
+            DeveloperModeManager.onBottomTabClicked(this, 3)
             switchTab(MainTab.MORE_FEATURES)
         }
         binding.tabBottomProfile.setOnClickListener {
+            DeveloperModeManager.onBottomTabClicked(this, 4)
             switchTab(MainTab.PROFILE)
         }
 
@@ -3397,5 +3415,10 @@ class MainActivity : AppCompatActivity() {
                 Log.w("MainActivity", "Auto sync timetable failed for $studentId: ${e.message}")
             }
         }
+    }
+
+    override fun onDestroy() {
+        DeveloperModeManager.removeListener(devModeListener)
+        super.onDestroy()
     }
 }

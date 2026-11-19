@@ -25,6 +25,7 @@ import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.DialogRadarRollcallBinding
 import cn.edu.usst.jwgl.util.CoordinateUtils
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -208,8 +209,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             binding.cbRadarSignAll.visibility = View.GONE
         } else {
             try {
+                val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
                 val accounts = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(requireContext()).getAccounts()
-                if (accounts.size > 1) {
+                if (isDev && accounts.size > 1) {
                     binding.cbRadarSignAll.visibility = View.VISIBLE
                     binding.cbRadarSignAll.isChecked = true
                     binding.cbRadarSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
@@ -607,7 +609,10 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.btnCancelRadar.isEnabled = false
 
         val client = TronClassClient(requireContext().applicationContext)
-        val isBatch = !isChaoXingMode && binding.cbRadarSignAll.visibility == View.VISIBLE && binding.cbRadarSignAll.isChecked
+        val isBatch = !isChaoXingMode &&
+                DeveloperModeManager.isDeveloperMode(requireContext()) &&
+                binding.cbRadarSignAll.visibility == View.VISIBLE &&
+                binding.cbRadarSignAll.isChecked
 
         lifecycleScope.launch {
             if (isChaoXingMode) {
