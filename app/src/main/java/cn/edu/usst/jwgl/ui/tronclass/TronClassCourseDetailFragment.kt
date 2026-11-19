@@ -1227,11 +1227,11 @@ class TronClassCourseDetailFragment : Fragment() {
 
         fun updateLikeButtonUi() {
             if (topic.currentUserLiked) {
-                dialogBinding.btnDetailLike.text = "❤️ ${topic.likeCount} 已赞"
+                dialogBinding.btnDetailLike.text = "已赞 (${topic.likeCount})"
                 dialogBinding.btnDetailLike.strokeColor = ColorStateList.valueOf(Color.parseColor("#E91E63"))
                 dialogBinding.btnDetailLike.setTextColor(Color.parseColor("#E91E63"))
             } else {
-                dialogBinding.btnDetailLike.text = "🤍 ${topic.likeCount} 点赞"
+                dialogBinding.btnDetailLike.text = "点赞 (${topic.likeCount})"
                 dialogBinding.btnDetailLike.strokeColor = ColorStateList.valueOf(ContextCompat.getColor(ctx, R.color.primary))
                 dialogBinding.btnDetailLike.setTextColor(ContextCompat.getColor(ctx, R.color.primary))
             }
@@ -1261,7 +1261,7 @@ class TronClassCourseDetailFragment : Fragment() {
 
         fun renderReplies() {
             val replies = topic.replies ?: emptyList()
-            dialogBinding.tvDetailReplyCount.text = "💬 ${replies.size} 条回复"
+            dialogBinding.tvDetailReplyCount.text = "${replies.size} 条回复"
             dialogBinding.llRepliesContainer.removeAllViews()
 
             if (replies.isEmpty()) {

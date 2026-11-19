@@ -168,7 +168,7 @@
                                         android:layout_width="0dp"
                                         android:layout_height="wrap_content"
                                         android:layout_weight="1"
-                                        android:text="🎯 教师批改与成绩反馈"
+                                        android:text="教师批改与成绩反馈"
                                         android:textColor="#2E7D32"
                                         android:textSize="15sp"
                                         android:textStyle="bold" />
@@ -229,7 +229,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="📝 作业题目与要求说明"
+                                    android:text="作业题目与要求说明"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
@@ -268,7 +268,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="14dp"
-                                    android:text="📎 教师随堂附件"
+                                    android:text="随堂附件"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="13sp"
                                     android:textStyle="bold"
@@ -323,7 +323,7 @@
                                         android:layout_width="0dp"
                                         android:layout_height="wrap_content"
                                         android:layout_weight="1"
-                                        android:text="📤 我的提交记录"
+                                        android:text="我的提交记录"
                                         android:textColor="@color/text_primary"
                                         android:textSize="15sp"
                                         android:textStyle="bold" />
@@ -392,7 +392,7 @@
                                     android:id="@+id/tvSubmitHeader"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="📥 提交作业与附件"
+                                    android:text="提交作业与附件"
                                     android:textColor="@color/text_primary"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />

@@ -67,7 +67,7 @@ class ExamAdapter(
             }
 
             val sessionStr = if (exam.session.isNotEmpty()) " (${exam.session})" else " (第${exam.getSessionIndex()}场)"
-            tvTime.text = "📅 ${exam.examTime}$sessionStr"
+            tvTime.text = "${exam.examTime}$sessionStr"
 
             val countdown = exam.getCountdownString()
             tvCountdown.text = countdown
@@ -80,22 +80,22 @@ class ExamAdapter(
                 val context = itemView.context
                 if (CourseReminderManager.isExamReminderEnabled(context)) {
                     val adv = CourseReminderManager.formatAdvanceMinutes(CourseReminderManager.getExamReminderAdvanceMinutes(context))
-                    tvReminderStatus.text = "🔔 考前 $adv 已设提醒"
+                    tvReminderStatus.text = "考前 $adv 已设提醒"
                     tvReminderStatus.setTextColor(Color.parseColor("#14532D"))
                 } else {
-                    tvReminderStatus.text = "🔕 考前提醒未开启"
+                    tvReminderStatus.text = "考前提醒未开启"
                     tvReminderStatus.setTextColor(Color.parseColor("#667085"))
                 }
             }
 
             val locText = if (exam.building.isNotEmpty() || exam.location.isNotEmpty()) {
-                "📍 考场：${exam.building} ${exam.location}".trim()
+                "考场：${exam.building} ${exam.location}".trim()
             } else {
-                "📍 考场：待教务处排定"
+                "考场：待教务处排定"
             }
             tvLocation.text = locText
 
-            val seatText = if (exam.seatNumber.isNotEmpty()) "💺 座位号: ${exam.seatNumber}" else "💺 座位待定"
+            val seatText = if (exam.seatNumber.isNotEmpty()) "座位号: ${exam.seatNumber}" else "座位待定"
             tvSeat.text = seatText
 
             val methodText = buildString {

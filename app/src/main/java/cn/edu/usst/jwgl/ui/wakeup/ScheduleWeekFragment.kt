@@ -363,7 +363,7 @@ class ScheduleWeekFragment : Fragment() {
                         val seat = if (exam.seatNumber.isNotBlank()) "座号:${exam.seatNumber}" else exam.examMethod.ifBlank { "考试" }
                         val timeStr = exam.getTimeRangeString()
 
-                        text = "📝 ${exam.courseName}\n$loc\n$seat\n$timeStr"
+                        text = "${exam.courseName}\n$loc\n$seat\n$timeStr"
 
                         setOnClickListener {
                             showExamDetailDialog(exam)
@@ -523,7 +523,7 @@ class ScheduleWeekFragment : Fragment() {
                     }
                     background = bgDrawable
 
-                    val lockPrefix = if (course.isLocked) "🔒 " else ""
+                    val lockPrefix = if (course.isLocked) "[锁定] " else ""
                     val textBuilder = StringBuilder("$lockPrefix${course.courseName}")
                     val teacher = course.teacher?.trim()
                     if (!teacher.isNullOrBlank()) {
@@ -632,24 +632,24 @@ class ScheduleWeekFragment : Fragment() {
     private fun showExamDetailDialog(exam: ExamItem) {
         val context = context ?: return
         val sb = StringBuilder()
-        sb.append("📅 考试时间：").append(exam.examTime).append("\n\n")
-        sb.append("🏫 考场地点：").append(exam.location.ifBlank { "待定" })
+        sb.append("考试时间：").append(exam.examTime).append("\n\n")
+        sb.append("考场地点：").append(exam.location.ifBlank { "待定" })
         if (exam.building.isNotBlank() && !exam.location.contains(exam.building)) {
             sb.append(" (").append(exam.building).append(")")
         }
         sb.append("\n\n")
-        sb.append("🪑 考试座号：").append(exam.seatNumber.ifBlank { "未指定" }).append("\n\n")
+        sb.append("考试座号：").append(exam.seatNumber.ifBlank { "未指定" }).append("\n\n")
         if (exam.examName.isNotBlank()) {
-            sb.append("📌 考试类别：").append(exam.examName).append("\n\n")
+            sb.append("考试类别：").append(exam.examName).append("\n\n")
         }
-        sb.append("📋 考核方式：").append(exam.examMethod.ifBlank { "笔试(闭卷)" })
+        sb.append("考核方式：").append(exam.examMethod.ifBlank { "笔试(闭卷)" })
         if (exam.examNature.isNotBlank()) {
             sb.append(" · ").append(exam.examNature)
         }
         sb.append("\n\n")
-        sb.append("🎓 课程学分：").append(exam.credit).append(" 学分")
+        sb.append("课程学分：").append(exam.credit).append(" 学分")
         if (exam.remarks.isNotBlank()) {
-            sb.append("\n\n💡 备注：").append(exam.remarks)
+            sb.append("\n\n备注：").append(exam.remarks)
         }
 
         MaterialAlertDialogBuilder(context)

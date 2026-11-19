@@ -162,7 +162,7 @@
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
                     android:paddingHorizontal="12dp"
-                    android:text="❤️ 0 点赞"
+                    android:text="点赞 (0)"
                     android:textColor="@color/primary"
                     android:textSize="12.5sp"
                     app:strokeColor="@color/primary"
@@ -173,7 +173,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="14dp"
-                    android:text="💬 0 条回复"
+                    android:text="0 条回复"
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
 
