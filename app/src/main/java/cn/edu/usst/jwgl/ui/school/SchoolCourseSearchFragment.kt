@@ -360,7 +360,7 @@ class SchoolCourseSearchFragment : Fragment() {
             }
             for (i in 0 until 4) {
                 val pastSpan = "$pastYear-${pastYear + 1}"
-                val label = "$pastSpan 第${pastTerm}学期 (历年参考)"
+                val label = if (pastTerm == "2" && i == 0) "$pastSpan 第${pastTerm}学期 (春季参考)" else "$pastSpan 第${pastTerm}学期"
                 add(Pair(label, Pair(pastSpan, pastTerm)))
                 if (pastTerm == "2") {
                     pastTerm = "1"
@@ -614,17 +614,6 @@ class SchoolCourseSearchFragment : Fragment() {
             return
         }
 
-        val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
-        val curYear = curXnm.toIntOrNull() ?: 2026
-        val curYearSpan = "$curYear-${curYear + 1}"
-        val curTermNum = if (curXqm == "3") "1" else "2"
-        val isCurrentTerm = (currentSearchXn == curYearSpan && currentSearchXq == curTermNum)
-
-        if (!isCurrentTerm) {
-            // 历史学期不自动绑定当前上课时段与当前周次，避免无缓存区间报错
-            return
-        }
-
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             LappClient.getOrFetchFullSchoolSchedule(context, currentSearchXn, currentSearchXq)
         }
@@ -820,24 +809,9 @@ class SchoolCourseSearchFragment : Fragment() {
         val courseKeyword = page.etSearchCourse.text.toString().trim()
         val teacherKeyword = page.etSearchTeacher.text.toString().trim()
 
-        val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
-        val curYear = curXnm.toIntOrNull() ?: 2026
-        val curYearSpan = "$curYear-${curYear + 1}"
-        val curTermNum = if (curXqm == "3") "1" else "2"
-        val isCurrentTermSelected = (currentSearchXn == curYearSpan && currentSearchXq == curTermNum)
-
         if (courseKeyword.isEmpty() && teacherKeyword.isEmpty() && selectedSearchCollege.isEmpty() && selectedSearchDay == -1 && selectedSearchWeek == -1 && selectedSearchSection == "-1" && selectedSearchLevel == "ALL") {
-            if (isCurrentTermSelected && getCurrentWeekdaySlot() != null) {
+            if (getCurrentWeekdaySlot() != null) {
                 checkAndLoadDefaultCourseSearch(isUserInitiatedReset = true, forceRefresh = forceRefresh)
-            } else if (!isCurrentTermSelected) {
-                schoolCourseList.clear()
-                schoolCourseAdapter?.notifyDataSetChanged()
-                page.rvCourseList.visibility = View.GONE
-                page.layoutEmptyResults.visibility = View.VISIBLE
-                page.tvEmptyTitle.text = "历史学期检索"
-                page.tvEmptyDesc.text = "请在上方搜索栏输入课程名或教师名进行检索\n(学校微哨平台通常仅保留当期课表；历史学期若已下线归档则以教务系统为准)"
-                page.tvCourseSearchSubtitle.text = "历史学期请通过关键词检索"
-                Toast.makeText(context, "历史学期请在上方输入课程名或教师名进行检索", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(context, "请输入课程名/代码/教师名或选择筛选条件", Toast.LENGTH_SHORT).show()
             }
@@ -994,17 +968,9 @@ class SchoolCourseSearchFragment : Fragment() {
                             schoolCourseAdapter?.notifyDataSetChanged()
                             curPage.rvCourseList.visibility = View.GONE
                             curPage.layoutEmptyResults.visibility = View.VISIBLE
-                            val isCurrentTerm = (currentSearchXn == curYearSpan && currentSearchXq == curTermNum)
-                            if (!isCurrentTerm) {
-                                curPage.tvEmptyTitle.text = "未检索到历史排课数据"
-                                curPage.tvEmptyDesc.text = "学校微哨轻应用通常仅保留当期活跃课表；历史学期若已下线归档，请前往正方教务系统或历年成绩单中查验"
-                                curPage.tvCourseSearchSubtitle.text = "历史学期未检索到数据$cacheSuffix"
-                                Toast.makeText(context, "未检索到历史排课数据（学校微哨平台历史学期可能已下线）", Toast.LENGTH_SHORT).show()
-                            } else {
-                                curPage.tvEmptyTitle.text = "未找到匹配开课班级"
-                                curPage.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
-                                curPage.tvCourseSearchSubtitle.text = "未找到匹配开课班级$cacheSuffix"
-                            }
+                            curPage.tvEmptyTitle.text = "未找到匹配开课班级"
+                            curPage.tvEmptyDesc.text = "请尝试减少筛选条件、检查关键词拼写或更换学期"
+                            curPage.tvCourseSearchSubtitle.text = "未找到匹配开课班级$cacheSuffix"
                         }
                     } else {
                         curPage.rvCourseList.visibility = View.VISIBLE

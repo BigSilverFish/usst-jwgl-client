@@ -13,6 +13,7 @@ import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.data.model.AppVersionInfo
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import cn.edu.usst.jwgl.ui.common.AuthorDisclaimerBottomSheet
 import cn.edu.usst.jwgl.util.InitialSyncHelper
 import cn.edu.usst.jwgl.util.UpdateDialogHelper
 import kotlinx.coroutines.Dispatchers
@@ -73,19 +74,15 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun showDisclaimerDialog(onAgreed: () -> Unit) {
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("作者声明")
-            .setMessage("本app非官方项目，仅供开发学习，不上传任何数据，不泄露任何隐私。")
-            .setCancelable(false)
-            .setPositiveButton("同意") { dialog, _ ->
-                authPrefs.setDisclaimerAgreed(true)
-                dialog.dismiss()
+        val sheet = AuthorDisclaimerBottomSheet.newInstance(allowDismiss = false).apply {
+            onAgreedListener = {
                 onAgreed()
             }
-            .setNegativeButton("不同意并退出") { _, _ ->
+            onDisagreedListener = {
                 finishAffinity()
             }
-            .show()
+        }
+        sheet.show(supportFragmentManager, AuthorDisclaimerBottomSheet.TAG)
     }
 
     private fun setupPrefillAndAutoLogin() {
