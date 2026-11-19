@@ -2884,6 +2884,12 @@ class MainActivity : AppCompatActivity() {
             switchTab(MainTab.GRADE_REPORTS)
         }
 
+        binding.layoutDrawer.drawerItemWidgetConfig.setOnClickListener {
+            closeNavDrawer()
+            val intent = Intent(this, cn.edu.usst.jwgl.widget.TodayScheduleWidgetConfigActivity::class.java)
+            startActivity(intent)
+        }
+
         binding.layoutDrawer.drawerItemJwglWeb.setOnClickListener {
             closeNavDrawer()
             JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
