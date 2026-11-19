@@ -150,20 +150,15 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             cbSignAll.visibility = View.GONE
         }
 
-        // 观看课堂直播按钮
-        view.findViewById<View?>(R.id.btnWatchLiveForCode)?.setOnClickListener {
-            val cNameTarget = courseName
-            cn.edu.usst.jwgl.ui.JwglWebActivity.startForNumberRollcall(
-                context = requireContext(),
-                rollcallId = rollcallId,
-                courseName = cNameTarget
-            )
-            dismiss()
-        }
-
-        // 一键获取口令按钮
+        // 一键获取口令按钮（受开发者模式管控：未开启时不显示且禁止调用）
         btnFetchCodeDirectly = view.findViewById(R.id.btnFetchCodeDirectly)
+        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+        btnFetchCodeDirectly?.visibility = if (isDev) View.VISIBLE else View.GONE
         btnFetchCodeDirectly?.setOnClickListener {
+            if (!DeveloperModeManager.isDeveloperMode(requireContext())) {
+                Toast.makeText(requireContext(), "该功能仅在开发者模式下可用", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             fetchNumberCodeDirectly()
         }
 
