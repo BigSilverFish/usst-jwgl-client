@@ -99,11 +99,34 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_ROLLCALL_AUTO_SIGN_ENABLED = "tc_rollcall_auto_sign_enabled"
         private const val KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS = "tc_rollcall_auto_sign_delay_seconds"
         private const val KEY_ROLLCALL_WAIT_FOR_OTHERS = "tc_rollcall_wait_for_others"
+        private const val KEY_ROLLCALL_AUTO_SIGN_STRATEGY = "tc_rollcall_auto_sign_strategy"
+        private const val KEY_ROLLCALL_AUTO_SIGN_CUSTOM_SECONDS = "tc_rollcall_auto_sign_custom_seconds"
+        private const val KEY_ROLLCALL_AUTO_SIGN_CUSTOM_RATIO = "tc_rollcall_auto_sign_custom_ratio"
         private const val KEY_ROLLCALL_POPUP_ENABLED = "tc_rollcall_popup_enabled"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
         private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
         private const val KEY_UNBOUND_COURSE_PAIRS = "tc_unbound_course_pairs"
+
+        const val STRATEGY_NO_DELAY = "no_delay"
+        const val STRATEGY_DELAY_10S = "delay_10s"
+        const val STRATEGY_DELAY_30S = "delay_30s"
+        const val STRATEGY_COUNT_1 = "count_1"
+        const val STRATEGY_COUNT_10 = "count_10"
+        const val STRATEGY_HALF_CLASS = "half_class"
+        const val STRATEGY_CUSTOM_TIME = "custom_time"
+        const val STRATEGY_CUSTOM_RATIO = "custom_ratio"
+
+        const val DEFAULT_AUTO_SIGN_STRATEGY = STRATEGY_COUNT_10
+
+        fun isHeadcountStrategy(strategy: String): Boolean {
+            return strategy in setOf(
+                STRATEGY_COUNT_1,
+                STRATEGY_COUNT_10,
+                STRATEGY_HALF_CLASS,
+                STRATEGY_CUSTOM_RATIO
+            )
+        }
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
 
@@ -452,22 +475,122 @@ class TronClassPreferences(private val context: Context) {
     }
 
     /**
-     * 自动签到延迟执行时长（秒）：自首次发现签到的 5-30 秒才开始尝试自动签到，默认 10 秒
+     * 自动签到延迟执行时长（秒）：自首次发现签到的延迟等待秒数
      */
-    fun getRollcallAutoSignDelaySeconds(): Int = prefs.getInt(KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS, 10).coerceIn(5, 30)
+    fun getRollcallAutoSignDelaySeconds(): Int {
+        return when (getRollcallAutoSignStrategy()) {
+            STRATEGY_NO_DELAY -> 0
+            STRATEGY_DELAY_10S -> 10
+            STRATEGY_DELAY_30S -> 30
+            STRATEGY_CUSTOM_TIME -> getRollcallAutoSignCustomSeconds()
+            else -> 0
+        }
+    }
+
+    /**
+     * 适用于无班级人数探测系统的有效延迟时长（如超星位置签到）：
+     * 人数策略回退为温和延迟 10 秒
+     */
+    fun getRollcallAutoSignEffectiveDelaySeconds(): Int {
+        return when (getRollcallAutoSignStrategy()) {
+            STRATEGY_NO_DELAY -> 0
+            STRATEGY_DELAY_10S -> 10
+            STRATEGY_DELAY_30S -> 30
+            STRATEGY_CUSTOM_TIME -> getRollcallAutoSignCustomSeconds()
+            STRATEGY_COUNT_1 -> 5
+            STRATEGY_COUNT_10 -> 10
+            STRATEGY_HALF_CLASS -> 15
+            STRATEGY_CUSTOM_RATIO -> 10
+            else -> 10
+        }
+    }
 
     fun setRollcallAutoSignDelaySeconds(seconds: Int) {
-        val clamped = seconds.coerceIn(5, 30)
+        val clamped = seconds.coerceIn(0, 300)
         prefs.edit().putInt(KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS, clamped).apply()
+    }
+
+    /**
+     * 当前配置的自动签到策略标识（默认: count_10 即有10人签到时）
+     */
+    fun getRollcallAutoSignStrategy(): String {
+        return prefs.getString(KEY_ROLLCALL_AUTO_SIGN_STRATEGY, null)
+            ?: if (prefs.getBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, false)) {
+                DEFAULT_AUTO_SIGN_STRATEGY
+            } else {
+                DEFAULT_AUTO_SIGN_STRATEGY
+            }
+    }
+
+    fun setRollcallAutoSignStrategy(strategy: String) {
+        val isHeadcount = isHeadcountStrategy(strategy)
+        prefs.edit()
+            .putString(KEY_ROLLCALL_AUTO_SIGN_STRATEGY, strategy)
+            .putBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, isHeadcount)
+            .apply()
+    }
+
+    fun getRollcallAutoSignStrategyIndex(): Int {
+        return when (getRollcallAutoSignStrategy()) {
+            STRATEGY_NO_DELAY -> 0
+            STRATEGY_DELAY_10S -> 1
+            STRATEGY_DELAY_30S -> 2
+            STRATEGY_COUNT_1 -> 3
+            STRATEGY_COUNT_10 -> 4
+            STRATEGY_HALF_CLASS -> 5
+            STRATEGY_CUSTOM_TIME -> 6
+            STRATEGY_CUSTOM_RATIO -> 7
+            else -> 4
+        }
+    }
+
+    fun getRollcallAutoSignStrategyDisplayName(): String {
+        return when (getRollcallAutoSignStrategy()) {
+            STRATEGY_NO_DELAY -> "不延迟"
+            STRATEGY_DELAY_10S -> "延迟10秒"
+            STRATEGY_DELAY_30S -> "延迟30秒"
+            STRATEGY_COUNT_1 -> "有1人签到时"
+            STRATEGY_COUNT_10 -> "有10人签到时 (默认)"
+            STRATEGY_HALF_CLASS -> "有一半人签到时"
+            STRATEGY_CUSTOM_TIME -> "延迟${getRollcallAutoSignCustomSeconds()}秒"
+            STRATEGY_CUSTOM_RATIO -> "有${getRollcallAutoSignCustomRatio()}%人签到时"
+            else -> "有10人签到时 (默认)"
+        }
+    }
+
+    fun getRollcallAutoSignCustomSeconds(): Int {
+        return prefs.getInt(KEY_ROLLCALL_AUTO_SIGN_CUSTOM_SECONDS, 15).coerceIn(0, 300)
+    }
+
+    fun setRollcallAutoSignCustomSeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(0, 300)
+        prefs.edit().putInt(KEY_ROLLCALL_AUTO_SIGN_CUSTOM_SECONDS, clamped).apply()
+    }
+
+    fun getRollcallAutoSignCustomRatio(): Int {
+        return prefs.getInt(KEY_ROLLCALL_AUTO_SIGN_CUSTOM_RATIO, 30).coerceIn(1, 100)
+    }
+
+    fun setRollcallAutoSignCustomRatio(ratio: Int) {
+        val clamped = ratio.coerceIn(1, 100)
+        prefs.edit().putInt(KEY_ROLLCALL_AUTO_SIGN_CUSTOM_RATIO, clamped).apply()
     }
 
     /**
      * 是否在自动签到时等待有其他同学已签到后再开始尝试（跟随班级签到、防误判）
      */
-    fun isRollcallWaitForOthersEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, false)
+    fun isRollcallWaitForOthersEnabled(): Boolean {
+        return isHeadcountStrategy(getRollcallAutoSignStrategy())
+    }
 
     fun setRollcallWaitForOthersEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_ROLLCALL_WAIT_FOR_OTHERS, enabled).apply()
+        if (enabled) {
+            setRollcallAutoSignStrategy(DEFAULT_AUTO_SIGN_STRATEGY)
+        } else {
+            if (isHeadcountStrategy(getRollcallAutoSignStrategy())) {
+                setRollcallAutoSignStrategy(STRATEGY_DELAY_10S)
+            }
+        }
     }
 
     /**

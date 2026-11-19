@@ -186,7 +186,7 @@ class RollcallMonitorService : Service() {
             val cName = rollcall.courseName ?: session.courseName
 
             val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
-            val delaySeconds = prefs.getRollcallAutoSignDelaySeconds().coerceIn(5, 30)
+            val delaySeconds = prefs.getRollcallAutoSignDelaySeconds()
 
             if (!isAutoSignEnabled) {
                 // 仅监听模式：立即标记已处理并通知用户手动签到
@@ -229,12 +229,18 @@ class RollcallMonitorService : Service() {
                     continue
                 }
                 val attempt = retryAttempts[rollcallId] ?: 0
-                val waitSec = if (attempt == 0) delaySeconds else 0
+                val strategy = prefs.getRollcallAutoSignStrategy()
+                val isHeadcount = TronClassPreferences.isHeadcountStrategy(strategy)
+                val waitSec = if (attempt == 0 && !isHeadcount) delaySeconds else 0
+                val strategyText = prefs.getRollcallAutoSignStrategyDisplayName()
 
-                val isWaitForOthers = prefs.isRollcallWaitForOthersEnabled()
-                val waitHint = if (isWaitForOthers) "等待其他同学签到后" else "${delaySeconds} 秒后"
+                val waitHint = when {
+                    waitSec > 0 -> "${waitSec}秒后"
+                    isHeadcount -> "满足条件 ($strategyText) 后"
+                    else -> "立即"
+                }
 
-                Log.i(TAG, "Detected ongoing rollcall: id=$rollcallId, type=$normType, course=$cName, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS, wait=${waitSec}s, waitForOthers=$isWaitForOthers")
+                Log.i(TAG, "Detected ongoing rollcall: id=$rollcallId, type=$normType, course=$cName, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS, waitSec=$waitSec, strategy=$strategyText")
                 if (attempt == 0) {
                     updateForegroundNotification(
                         session,
@@ -248,30 +254,63 @@ class RollcallMonitorService : Service() {
                         }
                         if (!isActive) return@launch
 
-                        // 若开启“当有人已签到再开始尝试”：轮询等待全班已有其他人签到（最多轮询 90 秒，避免签到已关闭）
-                        if (isWaitForOthers && attempt == 0) {
+                        // 若开启人数/比例等待策略：轮询等待班级出勤达到条件（最多轮询 90 秒，避免签到已关闭）
+                        if (isHeadcount && attempt == 0) {
                             val waitStart = System.currentTimeMillis()
-                            var someoneSigned = false
+                            var conditionMet = false
+                            val targetCount = when (strategy) {
+                                TronClassPreferences.STRATEGY_COUNT_1 -> 1
+                                TronClassPreferences.STRATEGY_COUNT_10 -> 10
+                                else -> 0
+                            }
+                            val targetRatio = when (strategy) {
+                                TronClassPreferences.STRATEGY_HALF_CLASS -> 50
+                                TronClassPreferences.STRATEGY_CUSTOM_RATIO -> prefs.getRollcallAutoSignCustomRatio()
+                                else -> 0
+                            }
+
                             while (isActive && (System.currentTimeMillis() - waitStart) < 90_000L) {
                                 val stats = tronClassClient.fetchRollcallAttendanceStats(rollcallId).getOrNull()
-                                if (stats != null && stats.presentCount > 0) {
-                                    someoneSigned = true
-                                    Log.i(TAG, "WaitForOthers condition met for rollcall $rollcallId: ${stats.presentCount} students signed")
+                                if (stats != null) {
+                                    val present = stats.presentCount
+                                    val total = stats.totalCount
+                                    val met = when {
+                                        targetCount > 0 -> {
+                                            if (total in 1 until targetCount) {
+                                                present >= total || present >= (total + 1) / 2
+                                            } else {
+                                                present >= targetCount
+                                            }
+                                        }
+                                        targetRatio > 0 -> {
+                                            if (total > 0) {
+                                                (present * 100 / total) >= targetRatio
+                                            } else {
+                                                present >= 1
+                                            }
+                                        }
+                                        else -> present >= 1
+                                    }
+
+                                    if (met) {
+                                        conditionMet = true
+                                        Log.i(TAG, "Headcount strategy condition met for rollcall $rollcallId: $present/$total signed (strategy=$strategyText)")
+                                        updateForegroundNotification(
+                                            session,
+                                            "【$cName】已有 $present 人签到，正在跟进自动提交..."
+                                        )
+                                        break
+                                    }
                                     updateForegroundNotification(
                                         session,
-                                        "【$cName】已有 ${stats.presentCount} 人签到，正在跟进自动提交..."
+                                        "【$cName】等待满足签到条件 ($strategyText，当前已签 $present 人)..."
                                     )
-                                    break
                                 }
-                                updateForegroundNotification(
-                                    session,
-                                    "【$cName】等待其他同学先签到中..."
-                                )
                                 delay(3000L)
                             }
                             if (!isActive) return@launch
-                            if (!someoneSigned) {
-                                Log.i(TAG, "WaitForOthers timeout for rollcall $rollcallId, proceeding with submission anyway")
+                            if (!conditionMet) {
+                                Log.i(TAG, "Headcount strategy wait timeout for rollcall $rollcallId, proceeding with submission anyway")
                             }
                         }
 
@@ -639,7 +678,7 @@ class RollcallMonitorService : Service() {
             }
 
             val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
-            val delaySeconds = prefs.getRollcallAutoSignDelaySeconds().coerceIn(5, 30)
+            val delaySeconds = prefs.getRollcallAutoSignEffectiveDelaySeconds()
 
             if (!isAutoSignEnabled) {
                 prefs.markRollcallHandled(activeId)

@@ -2393,15 +2393,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
-        val delaySec = tcPrefs.getRollcallAutoSignDelaySeconds()
-        val waitForOthers = tcPrefs.isRollcallWaitForOthersEnabled()
+        val strategyDisplay = tcPrefs.getRollcallAutoSignStrategyDisplayName()
         binding.switchRollcallAutoSign.isEnabled = isMonitorEnabled
         binding.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
         binding.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
             "未启用 · 需先开启上方的上课签到后台监听"
         } else if (isAutoSignEnabled) {
-            if (waitForOthers) "已开启 · 班级有他人签到后自动跟进提交"
-            else "已开启 · 首次发现签到 ${delaySec} 秒后自动提交 (点击设置时延)"
+            "已开启 · 触发策略：$strategyDisplay (点击设置)"
         } else {
             "已关闭 · 仅后台监听并发通知，不自动提交签到"
         }
@@ -2502,44 +2500,59 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRollcallAutoSignDelayDialog() {
         val options = arrayOf(
-            "延迟 5 秒",
-            "延迟 10 秒 (推荐)",
-            "延迟 15 秒",
-            "延迟 20 秒",
-            "延迟 25 秒",
-            "延迟 30 秒",
-            "跟随班级签到（班级有他人签到后再提交）",
-            "自定义秒数 (5 - 30 秒)"
+            "不延迟",
+            "延迟10秒",
+            "延迟30秒",
+            "有1人签到时",
+            "有10人签到时 (默认)",
+            "有一半人签到时",
+            "自定义时间",
+            "自定义签到人数比例"
         )
-        val tcPrefs = TronClassPreferences(this)
-        val currentSeconds = tcPrefs.getRollcallAutoSignDelaySeconds()
-        val isWaitForOthers = tcPrefs.isRollcallWaitForOthersEnabled()
-        val selectedIdx = if (isWaitForOthers) 6 else {
-            val values = intArrayOf(5, 10, 15, 20, 25, 30)
-            val idx = values.indexOf(currentSeconds)
-            if (idx >= 0) idx else 7
-        }
+        val tcPrefs = TronClassPreferences.getInstance(this)
+        val selectedIdx = tcPrefs.getRollcallAutoSignStrategyIndex()
 
         MaterialAlertDialogBuilder(this)
             .setTitle("自动签到时延与触发策略")
             .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
                 when (which) {
-                    6 -> {
-                        tcPrefs.setRollcallWaitForOthersEnabled(true)
+                    0 -> {
+                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_NO_DELAY)
                         updateReminderSubtitles()
                         dialog.dismiss()
+                    }
+                    1 -> {
+                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_10S)
+                        updateReminderSubtitles()
+                        dialog.dismiss()
+                    }
+                    2 -> {
+                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_30S)
+                        updateReminderSubtitles()
+                        dialog.dismiss()
+                    }
+                    3 -> {
+                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_1)
+                        updateReminderSubtitles()
+                        dialog.dismiss()
+                    }
+                    4 -> {
+                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_10)
+                        updateReminderSubtitles()
+                        dialog.dismiss()
+                    }
+                    5 -> {
+                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_HALF_CLASS)
+                        updateReminderSubtitles()
+                        dialog.dismiss()
+                    }
+                    6 -> {
+                        dialog.dismiss()
+                        showCustomRollcallAutoSignTimeDialog()
                     }
                     7 -> {
                         dialog.dismiss()
-                        showCustomRollcallAutoSignDelayDialog()
-                    }
-                    else -> {
-                        val values = intArrayOf(5, 10, 15, 20, 25, 30)
-                        val chosen = values[which]
-                        tcPrefs.setRollcallWaitForOthersEnabled(false)
-                        tcPrefs.setRollcallAutoSignDelaySeconds(chosen)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
+                        showCustomRollcallAutoSignRatioDialog()
                     }
                 }
             }
@@ -2547,14 +2560,14 @@ class MainActivity : AppCompatActivity() {
             .safeShow()
     }
 
-    private fun showCustomRollcallAutoSignDelayDialog() {
-        val tcPrefs = TronClassPreferences(this)
-        val currentSeconds = tcPrefs.getRollcallAutoSignDelaySeconds()
+    private fun showCustomRollcallAutoSignTimeDialog() {
+        val tcPrefs = TronClassPreferences.getInstance(this)
+        val currentSeconds = tcPrefs.getRollcallAutoSignCustomSeconds()
         val input = android.widget.EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText(currentSeconds.toString())
             setSelection(text.length)
-            setHint("请输入 5 到 30 之间的整数秒")
+            hint = "请输入 0 到 300 之间的秒数"
         }
 
         val container = android.widget.FrameLayout(this).apply {
@@ -2565,15 +2578,49 @@ class MainActivity : AppCompatActivity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle("自定义自动签到时延 (秒)")
-            .setMessage("设定自首次发现签到活动至开始尝试自动提交的等待时间（5 - 30 秒）：")
+            .setMessage("设定自首次发现签到活动至开始尝试自动提交的等待时间（0 - 300 秒）：")
             .setView(container)
             .setPositiveButton("确定") { _, _ ->
                 val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 5..30) {
-                    Toast.makeText(this, "请输入 5 到 30 之间的秒数", Toast.LENGTH_SHORT).show()
+                if (entered == null || entered !in 0..300) {
+                    Toast.makeText(this, "请输入 0 到 300 之间的秒数", Toast.LENGTH_SHORT).show()
                 } else {
-                    tcPrefs.setRollcallWaitForOthersEnabled(false)
-                    tcPrefs.setRollcallAutoSignDelaySeconds(entered)
+                    tcPrefs.setRollcallAutoSignCustomSeconds(entered)
+                    tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_TIME)
+                    updateReminderSubtitles()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
+    }
+
+    private fun showCustomRollcallAutoSignRatioDialog() {
+        val tcPrefs = TronClassPreferences.getInstance(this)
+        val currentRatio = tcPrefs.getRollcallAutoSignCustomRatio()
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(currentRatio.toString())
+            setSelection(text.length)
+            hint = "请输入 1 到 100 之间的整数百分比"
+        }
+
+        val container = android.widget.FrameLayout(this).apply {
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, (8 * resources.displayMetrics.density).toInt(), padding, 0)
+            addView(input)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("自定义签到人数比例 (%)")
+            .setMessage("设定当班级已出勤人数达到指定比例后跟进提交（1% - 100%）：")
+            .setView(container)
+            .setPositiveButton("确定") { _, _ ->
+                val entered = input.text.toString().trim().toIntOrNull()
+                if (entered == null || entered !in 1..100) {
+                    Toast.makeText(this, "请输入 1 到 100 之间的百分比", Toast.LENGTH_SHORT).show()
+                } else {
+                    tcPrefs.setRollcallAutoSignCustomRatio(entered)
+                    tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_RATIO)
                     updateReminderSubtitles()
                 }
             }
