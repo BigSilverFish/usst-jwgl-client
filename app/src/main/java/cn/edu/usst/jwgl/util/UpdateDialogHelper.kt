@@ -82,7 +82,7 @@ object UpdateDialogHelper {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             activity.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(activity, "无法打开网页: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "无法打开浏览器，请确认已安装浏览器应用", Toast.LENGTH_SHORT).show()
         }
     }
 }

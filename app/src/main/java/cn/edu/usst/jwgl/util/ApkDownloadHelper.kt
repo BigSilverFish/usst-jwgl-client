@@ -193,7 +193,7 @@ object ApkDownloadHelper {
             } catch (e: Exception) {
                 cancelDownload(tempFile)
                 dialog.dismiss()
-                Toast.makeText(activity, "下载更新失败: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(activity, e.getFriendlyErrorMessage("下载更新安装包失败，请检查网络后重试"), Toast.LENGTH_SHORT).show()
             } finally {
                 activeCall = null
                 downloadJob = null
@@ -246,7 +246,7 @@ object ApkDownloadHelper {
                             }
                             activity.startActivity(intent)
                         } catch (e: Exception) {
-                            Toast.makeText(activity, "无法打开设置页面: ${e.message}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(activity, "无法打开系统设置页面，请手动前往设置开启", Toast.LENGTH_SHORT).show()
                         }
                     }
                     .setNegativeButton("取消", null)
@@ -269,7 +269,7 @@ object ApkDownloadHelper {
 
             activity.startActivity(installIntent)
         } catch (e: Exception) {
-            Toast.makeText(activity, "无法唤起安装器: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "无法唤起系统安装器，请在文件管理器中点击安装包安装", Toast.LENGTH_SHORT).show()
         }
     }
 

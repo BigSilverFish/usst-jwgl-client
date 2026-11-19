@@ -154,7 +154,7 @@ class TronClassHomeworkFragment : Fragment() {
             val photoUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", photoFile)
             takePictureLauncher.launch(photoUri)
         } catch (e: Exception) {
-            Toast.makeText(ctx, "调起相机失败: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(ctx, "调起相机失败，请确认是否已授权相机权限", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1644,7 +1644,7 @@ class TronClassHomeworkFragment : Fragment() {
             pendingLocalFiles.add(pending)
             renderPendingFiles()
         } catch (e: Exception) {
-            Toast.makeText(context, "读取选择的文件失败: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "读取选择的文件失败，请重试", Toast.LENGTH_SHORT).show()
         }
     }
 

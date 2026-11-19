@@ -80,6 +80,7 @@
             android:background="@drawable/bg_badge_rounded"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"
+            android:visibility="gone"
             android:text="ID: --"
             android:textColor="@color/text_secondary"
             android:textSize="11sp" />
@@ -124,7 +125,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="上理教学楼基准 (推荐，免疫室内信号漂移)"
+                    android:text="上理教学楼基准 (推荐，避免室内定位漂移)"
                     android:textColor="@color/text_primary"
                     android:textSize="13sp" />
 
@@ -230,7 +231,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="上报经纬度 (GCJ-02 火星坐标)"
+                    android:text="签到定位坐标"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
 

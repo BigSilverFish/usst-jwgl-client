@@ -1546,7 +1546,7 @@ class GradesFragment : Fragment() {
             } catch (e: Exception) {
                 progressDialog.dismiss()
                 if (isAdded) {
-                    Toast.makeText(requireContext(), "排名查询异常: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), e.getFriendlyErrorMessage("排名查询失败，请稍后重试"), Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 // 3. 严格遵循原理：解析完毕后立即删除临时 PDF 文件

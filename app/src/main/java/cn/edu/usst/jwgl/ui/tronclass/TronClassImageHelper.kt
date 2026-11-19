@@ -237,8 +237,8 @@ object TronClassImageHelper {
             } catch (e: Exception) {
                 Log.e(TAG, "saveImageToGallery failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(appCtx, "保存图片发生异常: ${e.message}", Toast.LENGTH_SHORT).show()
-                    onComplete?.invoke(false, e.message ?: "未知异常")
+                    Toast.makeText(appCtx, "保存图片失败，请检查存储权限或稍后重试", Toast.LENGTH_SHORT).show()
+                    onComplete?.invoke(false, "保存失败")
                 }
             }
         }
@@ -287,7 +287,7 @@ object TronClassImageHelper {
             } catch (e: Exception) {
                 Log.e(TAG, "shareImage failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(appCtx, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(appCtx, "未找到支持分享此图片的应用", Toast.LENGTH_SHORT).show()
                 }
             }
         }

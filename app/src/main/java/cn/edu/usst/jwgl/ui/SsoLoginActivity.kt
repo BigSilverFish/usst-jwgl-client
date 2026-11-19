@@ -30,6 +30,7 @@ import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.ActivitySsoLoginBinding
 import cn.edu.usst.jwgl.util.CookieSyncHelper
 import cn.edu.usst.jwgl.util.InitialSyncHelper
+import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -393,7 +394,7 @@ class SsoLoginActivity : AppCompatActivity() {
                     binding.layoutLoading.visibility = View.GONE
                     binding.bannerTip.visibility = View.VISIBLE
                     binding.webView.visibility = View.VISIBLE
-                    Toast.makeText(this@SsoLoginActivity, "同步学籍失败: ${e.message}，请重试", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@SsoLoginActivity, e.getFriendlyErrorMessage("同步学籍信息失败，请检查网络后重试"), Toast.LENGTH_SHORT).show()
                 }
             }
         }

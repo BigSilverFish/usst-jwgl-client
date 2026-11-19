@@ -122,9 +122,14 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="🔔 考前 30 分钟已开启自动提醒"
+                android:visibility="gone"
                 android:textColor="@color/grade_green_text"
                 android:textSize="11sp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
 
             <TextView
                 android:id="@+id/tvExamMethod"

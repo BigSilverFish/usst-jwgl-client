@@ -161,7 +161,7 @@ class ChaoXingPhotoSignBottomSheet : BottomSheetDialogFragment() {
             val photoUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", photoFile)
             takePictureLauncher.launch(photoUri)
         } catch (e: Exception) {
-            Toast.makeText(ctx, "调起相机失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "调起相机失败，请确认是否已授权相机权限", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -26,6 +26,7 @@ import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.databinding.LayoutPageGradeReportsBinding
 import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
+import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -376,7 +377,7 @@ class GradeReportsFragment : Fragment() {
                 }
             } catch (e: Exception) {
                 progressDialog.dismiss()
-                Toast.makeText(context, "下载异常: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, e.getFriendlyErrorMessage("成绩单下载失败，请稍后重试"), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -417,7 +418,7 @@ class GradeReportsFragment : Fragment() {
             }
             startActivity(Intent.createChooser(intent, "分享 PDF 文件"))
         } catch (e: Exception) {
-            Toast.makeText(context, "分享 PDF 失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "未找到支持分享此 PDF 文件的应用", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -29,6 +29,7 @@ import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
 import cn.edu.usst.jwgl.util.CoordinateUtils
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.RollcallNotificationHelper
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -190,7 +191,10 @@ class RollcallAlertActivity : AppCompatActivity() {
 
         // 点击卡片外阴影区域退出弹窗
         findViewById<View>(R.id.layoutAlertRoot).setOnClickListener {
-            if (!isSubmitting) finish()
+            if (!isSubmitting) {
+                RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
+                finish()
+            }
         }
         findViewById<View>(R.id.cardAlert).setOnClickListener {
             // 消费点击事件，避免点卡片内部触发外部关闭
@@ -198,8 +202,14 @@ class RollcallAlertActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        btnClose.setOnClickListener { finish() }
-        btnDismiss.setOnClickListener { finish() }
+        btnClose.setOnClickListener {
+            RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
+            finish()
+        }
+        btnDismiss.setOnClickListener {
+            RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
+            finish()
+        }
 
         // 点击方格自动聚焦隐藏输入框并呼出键盘
         boxPins.forEach { box ->
@@ -432,6 +442,7 @@ class RollcallAlertActivity : AppCompatActivity() {
 
     private fun handleSignSuccess(tip: String) {
         prefs.markRollcallHandled(rollcallId)
+        RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
         setSubmittingUI(false)
         tvRollcallStatusTip.text = tip
         tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this, R.color.primary))

@@ -197,7 +197,7 @@ class MlKitScannerActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "CameraX binding failed", e)
-                Toast.makeText(this, "相机启动失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "相机启动失败，请检查是否已授权相机权限", Toast.LENGTH_SHORT).show()
             }
         }, ContextCompat.getMainExecutor(this))
     }

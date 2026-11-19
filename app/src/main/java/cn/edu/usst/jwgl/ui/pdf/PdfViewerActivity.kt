@@ -26,6 +26,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import cn.edu.usst.jwgl.databinding.ActivityPdfViewerBinding
 import cn.edu.usst.jwgl.databinding.ItemPdfPageBinding
 import kotlinx.coroutines.CancellationException
@@ -225,7 +226,7 @@ class PdfViewerActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    showError("读取文档失败:\n${e.message}")
+                    showError(e.getFriendlyErrorMessage("读取文档失败，文件可能已损坏或格式不受支持"))
                 }
             }
         }
@@ -279,7 +280,7 @@ class PdfViewerActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    showError("下载网络文档失败:\n${e.message}")
+                    showError(e.getFriendlyErrorMessage("下载网络文档失败，请检查网络连接后重试"))
                 }
             }
         }
@@ -327,7 +328,7 @@ class PdfViewerActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    showError("打开 PDF 失败: ${e.message}")
+                    showError(e.getFriendlyErrorMessage("打开 PDF 失败，文档可能已损坏或格式不兼容"))
                 }
             }
         }
@@ -403,7 +404,7 @@ class PdfViewerActivity : AppCompatActivity() {
             }
             startActivity(Intent.createChooser(intent, "选择打开方式: ${file.name}"))
         } catch (e: Exception) {
-            Toast.makeText(this, "未找到能够打开 PDF 的外部应用: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "未找到能够打开 PDF 的外部应用，请安装 PDF 阅读器", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -425,7 +426,7 @@ class PdfViewerActivity : AppCompatActivity() {
             }
             startActivity(Intent.createChooser(intent, "分享文档: ${file.name}"))
         } catch (e: Exception) {
-            Toast.makeText(this, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "未找到支持分享此文档的应用", Toast.LENGTH_SHORT).show()
         }
     }
 

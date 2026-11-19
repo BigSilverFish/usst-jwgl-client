@@ -156,7 +156,7 @@ object TronClassDownloadManager {
             }
             context.startActivity(Intent.createChooser(intent, "打开课件: ${item.fileName}"))
         } catch (e: Exception) {
-            Toast.makeText(context, "未找到可打开此格式的应用: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "未找到可打开此格式的应用，请安装相应格式的查看器", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -185,7 +185,7 @@ object TronClassDownloadManager {
             }
             context.startActivity(Intent.createChooser(shareIntent, "分享课件: ${item.fileName}"))
         } catch (e: Exception) {
-            Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "未找到支持分享此文件的应用", Toast.LENGTH_SHORT).show()
         }
     }
 

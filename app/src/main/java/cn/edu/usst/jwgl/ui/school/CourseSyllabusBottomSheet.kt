@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.model.CourseBasicInfo
 import cn.edu.usst.jwgl.data.network.CourseCatalogService
+import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
@@ -254,10 +255,11 @@ class CourseSyllabusBottomSheet : BottomSheetDialogFragment() {
                         }
                     }
                 } else {
-                    Toast.makeText(ctx, "下载大纲失败: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                    val errMsg = result.exceptionOrNull()?.getFriendlyErrorMessage("下载大纲失败，请重试") ?: "下载大纲失败"
+                    Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(ctx, "保存异常: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "保存失败，请检查存储权限后重试", Toast.LENGTH_SHORT).show()
             } finally {
                 btnDownload?.isEnabled = true
                 btnQuickOpen?.isEnabled = true

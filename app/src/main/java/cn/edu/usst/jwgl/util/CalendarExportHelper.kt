@@ -649,7 +649,7 @@ object CalendarExportHelper {
 
             activity.startActivity(Intent.createChooser(intent, "分享或导入日历 (.ics)"))
         } catch (e: Exception) {
-            Toast.makeText(activity, "导出 .ics 失败: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "日历文件导出失败，请检查存储权限后重试", Toast.LENGTH_SHORT).show()
         }
     }
 }

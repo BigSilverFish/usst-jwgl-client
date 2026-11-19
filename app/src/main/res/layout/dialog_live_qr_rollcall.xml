@@ -132,7 +132,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:text="正在连接教室大屏 FLV 推流并解码关键帧..."
+                    android:text="正在同步教室大屏实时画面..."
                     android:textColor="#E0E0E0"
                     android:textSize="12sp" />
 

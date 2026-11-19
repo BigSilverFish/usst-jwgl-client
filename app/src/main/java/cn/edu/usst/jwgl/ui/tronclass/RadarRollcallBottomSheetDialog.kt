@@ -439,7 +439,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         } catch (e: Exception) {
             val b = _binding
             if (b != null && bestLocation == null) {
-                b.tvGpsStatus.text = "定位获取异常: ${e.message}，建议切回教学楼基准"
+                b.tvGpsStatus.text = "GPS定位超时或未开启，建议使用教学楼基准定位"
             }
         }
     }
