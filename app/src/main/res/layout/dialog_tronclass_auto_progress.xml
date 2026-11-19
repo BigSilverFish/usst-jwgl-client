@@ -186,7 +186,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:backgroundTint="@color/primary"
-            android:text="⚡ 开始自动刷课"
+            android:text="开始自动同步进度"
             android:textColor="@android:color/white"
             app:cornerRadius="8dp" />
 

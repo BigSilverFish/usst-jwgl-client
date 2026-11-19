@@ -75,7 +75,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="💡 提示：支持手机验证码、学号密码或学习通APP扫码登录。登录成功后将自动绑定并返回。"
+            android:text="提示：支持手机验证码、学号密码或学习通APP扫码登录。登录成功后将自动绑定并返回。"
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 

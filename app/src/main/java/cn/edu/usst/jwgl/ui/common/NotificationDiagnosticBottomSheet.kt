@@ -167,11 +167,11 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
         btnTestRollcallAlert.setOnClickListener {
             val options = arrayOf(
-                "🚀 立即模拟弹窗（测试桌面居中提醒卡片）",
-                "⏱️ 延迟 5 秒模拟（点此后请按电源键息屏，测试锁屏点亮弹窗）"
+                "立即模拟弹窗（测试桌面居中提醒卡片）",
+                "延迟 5 秒模拟（点此后请按电源键息屏，测试锁屏点亮弹窗）"
             )
             MaterialAlertDialogBuilder(requireContext())
-                .setTitle("🧪 模拟课堂签到弹窗测试")
+                .setTitle("模拟课堂签到弹窗测试")
                 .setItems(options) { _, which ->
                     when (which) {
                         0 -> testRollcallAlert(0L)

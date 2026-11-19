@@ -264,7 +264,7 @@ class CourseSyllabusBottomSheet : BottomSheetDialogFragment() {
                 btnDownload?.isEnabled = true
                 btnQuickOpen?.isEnabled = true
                 btnDownload?.text = originalText
-                btnQuickOpen?.text = "📖 立即下载并在手机中打开"
+                btnQuickOpen?.text = "立即下载并在手机中打开"
             }
         }
     }

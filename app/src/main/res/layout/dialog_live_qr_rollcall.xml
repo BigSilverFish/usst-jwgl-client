@@ -236,7 +236,10 @@
             android:layout_height="48dp"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
-            android:text="📷 相机扫码"
+            android:text="相机扫码"
+            app:icon="@drawable/ic_camera"
+            app:iconGravity="textStart"
+            app:iconSize="18dp"
             android:textColor="@color/text_primary"
             app:cornerRadius="12dp"
             app:strokeColor="@color/border" />

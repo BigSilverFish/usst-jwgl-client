@@ -836,7 +836,7 @@ class TronClassFragment : Fragment() {
                     MaterialAlertDialogBuilder(ctx)
                         .setTitle("超星签到 · 二维码签到")
                         .setMessage("课程：${course.courseName}\n可选择通过教室大屏实时抓帧自动签到，或调起手机相机扫码：")
-                        .setPositiveButton("🎯 大屏实时抓帧") { _, _ ->
+                        .setPositiveButton("大屏实时抓帧") { _, _ ->
                             showLiveQrRollcallDialog(
                                 rollcallId = activeItem.id,
                                 courseName = course.courseName,
@@ -845,7 +845,7 @@ class TronClassFragment : Fragment() {
                                 chaoXingClassId = course.classId
                             )
                         }
-                        .setNeutralButton("📷 相机扫码") { _, _ ->
+                        .setNeutralButton("相机扫码") { _, _ ->
                             startChaoXingQrScan(course, activeItem)
                         }
                         .setNegativeButton("取消", null)
@@ -1879,18 +1879,18 @@ class TronClassFragment : Fragment() {
                 val actionCodes = mutableListOf<String>()
 
                 if (isDualPlatformMode) {
-                    menuItems.add("🔗 手动关联学习通课程...")
+                    menuItems.add("手动关联学习通课程...")
                     actionCodes.add("BIND_CX")
                 }
 
-                menuItems.add("📅 设置/修改学期归属")
+                menuItems.add("设置/修改学期归属")
                 actionCodes.add("SET_SEMESTER")
 
                 if (originalSem != null && customSem != null) {
-                    menuItems.add("🔄 恢复教务学期 ($originalSem)")
+                    menuItems.add("恢复教务学期 ($originalSem)")
                     actionCodes.add("RESET_SEMESTER")
                 } else if (originalSem == null && customSem != null) {
-                    menuItems.add("🔄 恢复默认 (清除自定义，归入【其他课程】)")
+                    menuItems.add("恢复默认 (清除自定义，归入【其他课程】)")
                     actionCodes.add("RESET_SEMESTER")
                 }
 
@@ -1914,16 +1914,16 @@ class TronClassFragment : Fragment() {
                 val menuItems = mutableListOf<String>()
                 val actionCodes = mutableListOf<String>()
 
-                menuItems.add("🔓 解除双平台关联（拆分为独立课程）")
+                menuItems.add("解除双平台关联（拆分为独立课程）")
                 actionCodes.add("UNBIND")
 
-                menuItems.add("📅 设置/修改学期归属")
+                menuItems.add("设置/修改学期归属")
                 actionCodes.add("SET_SEMESTER")
 
                 val tcPrefs = TronClassPreferences.getInstance(requireContext())
                 val customSem = tcPrefs.getCustomSemester(course.originalCourseId)
                 if (customSem != null) {
-                    menuItems.add("🔄 恢复教务同步学期")
+                    menuItems.add("恢复教务同步学期")
                     actionCodes.add("RESET_SEMESTER")
                 }
 
@@ -1955,17 +1955,17 @@ class TronClassFragment : Fragment() {
                 val actionCodes = mutableListOf<String>()
 
                 if (isDualPlatformMode) {
-                    menuItems.add("🔗 手动关联畅课课程...")
+                    menuItems.add("手动关联畅课课程...")
                     actionCodes.add("BIND_TC")
                 }
 
-                menuItems.add("📅 设置课程所属学期")
+                menuItems.add("设置课程所属学期")
                 actionCodes.add("SET_SEMESTER")
 
                 val cxPrefs = ChaoXingPreferences(requireContext())
                 val customSem = cxPrefs.getCustomSemester(course.originalCourseId, course.originalClassId)
                 if (!customSem.isNullOrBlank()) {
-                    menuItems.add("🔄 恢复默认推断")
+                    menuItems.add("恢复默认推断")
                     actionCodes.add("RESET_SEMESTER")
                 }
 
@@ -2087,11 +2087,11 @@ class TronClassFragment : Fragment() {
             itemValues.add(sem)
         }
 
-        itemLabels.add("✏️ 手动输入其他学期代码...")
+        itemLabels.add("手动输入其他学期代码...")
         itemValues.add("__INPUT__")
 
         if (!customSem.isNullOrBlank()) {
-            itemLabels.add("🔄 恢复默认 (清除自定义，归入【其他课程】)")
+            itemLabels.add("恢复默认 (清除自定义，归入【其他课程】)")
             itemValues.add("__RESET__")
         }
 
@@ -2186,11 +2186,11 @@ class TronClassFragment : Fragment() {
             itemValues.add(sem)
         }
 
-        itemLabels.add("✏️ 手动输入其他学期代码...")
+        itemLabels.add("手动输入其他学期代码...")
         itemValues.add("__INPUT__")
 
         if (!customSem.isNullOrBlank()) {
-            itemLabels.add("🔄 恢复默认推断 (清除自定义设置)")
+            itemLabels.add("恢复默认推断 (清除自定义设置)")
             itemValues.add("__RESET__")
         }
 
@@ -2644,13 +2644,13 @@ class TronClassFragment : Fragment() {
         val isWaitForOthers = prefs.isRollcallWaitForOthersEnabled()
         val autoStrategyText = if (isWaitForOthers) "有人已签到再尝试" else "${delaySec}s时延"
         val options = arrayOf(
-            "📷 启动扫码签到 (针对教师投影仪二维码)",
-            "🔢 输入口令签到 (针对数字签到码)",
-            "📡 雷达定位签到 (上理教学楼基准/GPS)",
-            if (isMonitorEnabled) "🛡️ 上课签到后台监听: 已开启 (点击关闭)" else "🛡️ 上课签到后台监听: 已关闭 (点击开启)",
-            if (!isMonitorEnabled) "⚡ 课堂签到自动提交: 未启用 (需先开启监听)" else if (isAutoSignEnabled) "⚡ 课堂签到自动提交: 已开启($autoStrategyText 点击设置)" else "⚡ 课堂签到自动提交: 已关闭 (点击开启)",
-            "🧪 签到弹窗测试与系统诊断",
-            "🔄 刷新点名状态"
+            "启动扫码签到 (针对教师投影仪二维码)",
+            "输入口令签到 (针对数字签到码)",
+            "雷达定位签到 (上理教学楼基准/GPS)",
+            if (isMonitorEnabled) "上课签到后台监听: 已开启 (点击关闭)" else "上课签到后台监听: 已关闭 (点击开启)",
+            if (!isMonitorEnabled) "课堂签到自动提交: 未启用 (需先开启监听)" else if (isAutoSignEnabled) "课堂签到自动提交: 已开启($autoStrategyText 点击设置)" else "课堂签到自动提交: 已关闭 (点击开启)",
+            "签到弹窗测试与系统诊断",
+            "刷新点名状态"
         )
 
         MaterialAlertDialogBuilder(ctx)
