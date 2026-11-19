@@ -485,10 +485,10 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:gravity="center_horizontal"
+                    android:gravity="center"
                     android:orientation="vertical"
                     android:paddingHorizontal="8dp"
-                    android:paddingVertical="14dp">
+                    android:paddingVertical="16dp">
 
                     <FrameLayout
                         android:layout_width="38dp"
@@ -509,20 +509,10 @@
                         android:layout_marginTop="10dp"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:text="正方教务"
+                        android:text="教务官方页"
                         android:textColor="@color/text_primary"
                         android:textSize="13.5sp"
                         android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:text="jwgl 直达"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -545,10 +535,10 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:gravity="center_horizontal"
+                    android:gravity="center"
                     android:orientation="vertical"
                     android:paddingHorizontal="8dp"
-                    android:paddingVertical="14dp">
+                    android:paddingVertical="16dp">
 
                     <FrameLayout
                         android:layout_width="38dp"
@@ -569,20 +559,10 @@
                         android:layout_marginTop="10dp"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:text="学工一体"
+                        android:text="学工一体化"
                         android:textColor="@color/text_primary"
                         android:textSize="13.5sp"
                         android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:text="new2017"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -605,10 +585,10 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:gravity="center_horizontal"
+                    android:gravity="center"
                     android:orientation="vertical"
                     android:paddingHorizontal="8dp"
-                    android:paddingVertical="14dp">
+                    android:paddingVertical="16dp">
 
                     <FrameLayout
                         android:layout_width="38dp"
@@ -629,20 +609,10 @@
                         android:layout_marginTop="10dp"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:text="课程直播"
+                        android:text="课程直录播"
                         android:textColor="@color/text_primary"
                         android:textSize="13.5sp"
                         android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:text="live 点播"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
