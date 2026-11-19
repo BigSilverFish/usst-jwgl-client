@@ -8,7 +8,7 @@ internal data class RollcallWriteResult(val result: RollcallSubmitResult, val st
 internal fun parseRollcallWriteResult(httpCode: Int, body: String): RollcallWriteResult {
     val obj = try { JsonParser.parseString(body).takeIf { it.isJsonObject }?.asJsonObject } catch (_: Exception) { null }
     fun text(key: String): String? = try { obj?.get(key)?.takeIf { it.isJsonPrimitive }?.asString } catch (_: Exception) { null }
-    val distance = text("distance")?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+    val distance = extractDistance(obj)
     if (httpCode !in 200..299) {
         val errorCode = text("errorCode")
         val rawMessage = text("message")?.takeIf { it.isNotBlank() }
@@ -44,4 +44,26 @@ internal fun decodeTronClassQrId(raw: String, compact: Boolean): Long? {
     val clean = raw.trim().trimStart('\u0010', '\u001a')
     val radix = if (compact) 36 else 10
     return clean.toLongOrNull(radix)?.takeIf { it > 0L }
+}
+
+internal fun extractDistance(root: com.google.gson.JsonObject?): Double? {
+    if (root == null) return null
+    fun findIn(obj: com.google.gson.JsonObject): Double? {
+        for (key in listOf("distance", "scope_distance", "distance_meters", "distanceMeters", "scopeDistance")) {
+            val elem = obj.get(key)
+            if (elem != null && elem.isJsonPrimitive) {
+                val d = elem.asString.toDoubleOrNull()
+                if (d != null && d.isFinite() && d >= 0.0) return d
+            }
+        }
+        for (subKey in listOf("data", "result", "error", "errors", "scope", "rollcall")) {
+            val sub = obj.get(subKey)
+            if (sub != null && sub.isJsonObject) {
+                val d = findIn(sub.asJsonObject)
+                if (d != null) return d
+            }
+        }
+        return null
+    }
+    return findIn(root)
 }

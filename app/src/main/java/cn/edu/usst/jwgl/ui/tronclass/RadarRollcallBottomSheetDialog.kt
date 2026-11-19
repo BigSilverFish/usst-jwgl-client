@@ -8,6 +8,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -184,7 +185,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.spinnerBuildings.setSelection(defaultIndex)
         applyBuildingLocation(buildings[defaultIndex])
 
-        // 3. 教师基准点直连优先模式（最高优先级通道，0偏差必过）
+        // 3. 教师基准点直连模式（若服务端下发了教师坐标，则提供单选按钮供自主选择）
         val hasTeacherBeacon = teacherLat != null && teacherLng != null && teacherLat != 0.0 && teacherLng != 0.0
         if (hasTeacherBeacon) {
             val rbTeacher = android.widget.RadioButton(requireContext()).apply {
@@ -196,12 +197,11 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             }
             binding.rgLocationMode.addView(rbTeacher, 0)
             teacherRadioButtonId = rbTeacher.id
-            rbTeacher.isChecked = true
-            applyTeacherBeaconLocation()
-        } else {
-            // 若无教师坐标，尝试轻量获取当前基站/GPS定位智能吸附最近教学楼
-            trySilentAutoSnapToNearestBuilding()
         }
+
+        // 默认签到方式设为本机定位模式 (手机原生 GPS / 基站定位)
+        binding.rbModeCurrentGps.isChecked = true
+        checkLocationPermissionAndFetch()
 
         // 4. 多账号签到支持（仅畅课雷达点名启用）
         if (isChaoXingMode) {
@@ -245,11 +245,19 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 applyBuildingLocation(building)
             } else if (checkedId == R.id.rbModeCurrentGps) {
                 checkLocationPermissionAndFetch()
+            } else if (checkedId == R.id.rbModeTrilateration) {
+                binding.tvCoordinatesDisplay.text = "等待三点测距反解..."
+                binding.tvSelectedBuildingCampus.text = "基准: 校园三点几何测距反解 (教师真实位置)"
+                binding.tvAccuracyTip.text = "算法拟合精度: ±1~5m"
             }
         }
 
         binding.btnRefreshGps.setOnClickListener {
             checkLocationPermissionAndFetch()
+        }
+
+        binding.btnStartTrilateration.setOnClickListener {
+            startTrilaterationProbe(autoSubmitAfterSolve = false)
         }
 
         binding.btnCancelRadar.setOnClickListener {
@@ -263,14 +271,18 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     private fun updateModeVisibility() {
         val isTeacherMode = teacherRadioButtonId != null && binding.rgLocationMode.checkedRadioButtonId == teacherRadioButtonId
+        binding.layoutBuildingSelector.visibility = View.GONE
+        binding.layoutGpsStatus.visibility = View.GONE
+        binding.layoutTrilaterationStatus.visibility = View.GONE
+
         if (isTeacherMode) {
-            binding.layoutBuildingSelector.visibility = View.GONE
-            binding.layoutGpsStatus.visibility = View.GONE
+            // 教师直连模式
         } else if (binding.rbModeBuilding.isChecked) {
             binding.layoutBuildingSelector.visibility = View.VISIBLE
-            binding.layoutGpsStatus.visibility = View.GONE
+        } else if (binding.rbModeTrilateration.isChecked) {
+            binding.layoutTrilaterationStatus.visibility = View.VISIBLE
         } else {
-            binding.layoutBuildingSelector.visibility = View.GONE
+            // 本机定位模式 (rbModeCurrentGps)
             binding.layoutGpsStatus.visibility = View.VISIBLE
         }
     }
@@ -484,9 +496,108 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         autoSnapToNearestBuilding(loc)
     }
 
+    private fun startTrilaterationProbe(autoSubmitAfterSolve: Boolean = false) {
+        if (rollcallId <= 0L) return
+        val client = TronClassClient(requireContext().applicationContext)
+        val b = _binding ?: return
+        b.btnStartTrilateration.isEnabled = false
+        b.btnSubmitRadar.isEnabled = false
+
+        lifecycleScope.launch {
+            b.tvTrilaterationStatus.text = "正在获取校园基准三角锚点..."
+            val anchors = cn.edu.usst.jwgl.util.TrilaterationSolver.getCampusAnchors(classroom, courseName)
+            val observations = mutableListOf<cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation>()
+
+            for ((idx, anchor) in anchors.withIndex()) {
+                if (!isAdded || _binding == null) return@launch
+                b.tvTrilaterationStatus.text = "正在探测点 ${idx + 1}/3: 【${anchor.name}】..."
+                val probe = client.probeRadarCoordinate(
+                    rollcallId = rollcallId,
+                    latitude = anchor.latitude,
+                    longitude = anchor.longitude
+                )
+                when (probe) {
+                    is TronClassClient.RadarProbeResult.InRange -> {
+                        if (!isAdded || _binding == null) return@launch
+                        b.tvTrilaterationStatus.text = "锚点【${anchor.name}】在范围内，已直接签到成功！"
+                        Toast.makeText(requireContext(), "🎉 探针命中范围，签到成功！", Toast.LENGTH_SHORT).show()
+                        onSignSuccessListener?.invoke()
+                        dismiss()
+                        return@launch
+                    }
+                    is TronClassClient.RadarProbeResult.Distance -> {
+                        observations.add(
+                            cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation(
+                                anchor.latitude, anchor.longitude, probe.distanceMeters, anchor.name
+                            )
+                        )
+                    }
+                    is TronClassClient.RadarProbeResult.Error -> {
+                        Log.w("RadarDialog", "Anchor ${anchor.name} probe error: ${probe.message}")
+                    }
+                }
+            }
+
+            if (!isAdded || _binding == null) return@launch
+            b.btnStartTrilateration.isEnabled = true
+            b.btnSubmitRadar.isEnabled = true
+
+            if (observations.size < 3) {
+                b.tvTrilaterationStatus.text = "测距获取不足 (${observations.size}/3 组)，请切换为本机定位重试"
+                if (autoSubmitAfterSolve) {
+                    Toast.makeText(requireContext(), "三点测距不足，请使用本机定位签到", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            b.tvTrilaterationStatus.text = "已获取 3 组测距数据，正在三边测量反解教师坐标..."
+            val solved = cn.edu.usst.jwgl.util.TrilaterationSolver.solve(observations)
+            if (solved == null) {
+                b.tvTrilaterationStatus.text = "反解几何方程退化，请重试或使用本机定位"
+                if (autoSubmitAfterSolve) {
+                    Toast.makeText(requireContext(), "三点解算失败，请使用本机定位签到", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            // 反解成功！将坐标应用到当前界面中
+            selectedLatitude = solved.latitude
+            selectedLongitude = solved.longitude
+            selectedAccuracy = 5.0
+            selectedAddress = "三点定位反解教师位置"
+
+            b.tvCoordinatesDisplay.text = String.format(
+                Locale.CHINA,
+                "纬度: %.6f, 经度: %.6f",
+                selectedLatitude,
+                selectedLongitude
+            )
+            b.tvAccuracyTip.text = String.format(Locale.CHINA, "反解精度: ±%.1fm", solved.residualRmse)
+            b.tvSelectedBuildingCampus.text = String.format(
+                Locale.CHINA,
+                "基准: 校园三点几何测距反解 (教师真实位置，残差: ±%.1fm)",
+                solved.residualRmse
+            )
+            b.tvTrilaterationStatus.text = String.format(
+                Locale.CHINA,
+                "✅ 教师坐标反解成功！(拟合残差: ±%.1fm)",
+                solved.residualRmse
+            )
+
+            if (autoSubmitAfterSolve) {
+                submitRadarRollcall()
+            }
+        }
+    }
+
     private fun submitRadarRollcall() {
         if (rollcallId <= 0L) {
             Toast.makeText(requireContext(), "点名 ID 无效", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (binding.rbModeTrilateration.isChecked && selectedAddress != "三点定位反解教师位置") {
+            startTrilaterationProbe(autoSubmitAfterSolve = true)
             return
         }
 
