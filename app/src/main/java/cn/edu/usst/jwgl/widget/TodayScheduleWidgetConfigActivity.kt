@@ -22,6 +22,8 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        binding = ActivityTodayScheduleWidgetConfigBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         // 获取传递过来的 AppWidgetId
         appWidgetId = intent?.extras?.getInt(
@@ -96,8 +98,9 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         }
 
         // 2. 透明度 Slider
-        binding.sliderAlpha.value = currentConfig.bgAlpha.toFloat()
-        binding.tvAlphaValue.text = "${currentConfig.bgAlpha}%"
+        val safeAlpha = (Math.round(currentConfig.bgAlpha.coerceIn(0, 100) / 5.0) * 5).toFloat()
+        binding.sliderAlpha.value = safeAlpha
+        binding.tvAlphaValue.text = "${safeAlpha.toInt()}%"
         binding.sliderAlpha.addOnChangeListener { _, value, _ ->
             val alpha = value.toInt()
             currentConfig = currentConfig.copy(bgAlpha = alpha)
