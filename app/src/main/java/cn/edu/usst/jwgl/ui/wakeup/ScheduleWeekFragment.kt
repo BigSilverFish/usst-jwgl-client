@@ -324,7 +324,7 @@ class ScheduleWeekFragment : Fragment() {
                     ).apply {
                         topMargin = dpToPx(90f)
                     }
-                    text = "🎉\n${resolved.holidayName}\n放假停课"
+                    text = "${resolved.holidayName}\n放假停课"
                     textSize = 11.5f
                     gravity = Gravity.CENTER
                     setTextColor(0xFF888888.toInt())

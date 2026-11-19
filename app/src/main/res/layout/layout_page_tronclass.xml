@@ -108,7 +108,7 @@
                                 android:insetBottom="0dp"
                                 android:paddingHorizontal="12dp"
                                 android:paddingVertical="0dp"
-                                android:text="⚡ 课堂签到"
+                                android:text="课堂签到"
                                 android:textColor="@color/primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold"
@@ -140,11 +140,11 @@
                             android:paddingVertical="9dp"
                             android:visibility="gone">
 
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="🚨"
-                                android:textSize="15sp" />
+                            <ImageView
+                                android:layout_width="16dp"
+                                android:layout_height="16dp"
+                                android:src="@drawable/ic_location"
+                                app:tint="#FFFFFF" />
 
                             <TextView
                                 android:id="@+id/tvTronClassHeroRollcallCourse"
@@ -317,7 +317,7 @@
                         android:layout_marginVertical="16dp"
                         android:gravity="center"
                         android:padding="20dp"
-                        android:text="🎉 太棒了，当前暂无任何待交作业！"
+                        android:text="当前暂无待交作业"
                         android:textColor="@color/text_tertiary"
                         android:textSize="14sp"
                         android:visibility="gone" />

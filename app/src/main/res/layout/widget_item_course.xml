@@ -106,7 +106,7 @@
                 android:background="@drawable/bg_widget_urgent_badge"
                 android:paddingHorizontal="4dp"
                 android:paddingVertical="1dp"
-                android:text="📝 待办"
+                android:text="待办"
                 android:textColor="#B91C1C"
                 android:textSize="9sp"
                 android:textStyle="bold"

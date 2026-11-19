@@ -762,7 +762,7 @@ class TronClassFragment : Fragment() {
                     )
                     sheet.onSignSuccessListener = { _ ->
                         markRollcallCompleted(activeItem.id)
-                        Toast.makeText(ctx, "🎉 手势签到成功", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(ctx, "手势签到成功", Toast.LENGTH_SHORT).show()
                     }
                     sheet.show(childFragmentManager, "ChaoXingGestureSign")
                 }
@@ -777,7 +777,7 @@ class TronClassFragment : Fragment() {
                     )
                     sheet.onSignSuccessListener = { _ ->
                         markRollcallCompleted(activeItem.id)
-                        Toast.makeText(ctx, "🎉 拍照签到成功", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(ctx, "拍照签到成功", Toast.LENGTH_SHORT).show()
                     }
                     sheet.show(childFragmentManager, "ChaoXingPhotoSign")
                 }
@@ -794,7 +794,7 @@ class TronClassFragment : Fragment() {
                         setPadding(48, 36, 48, 36)
                     }
                     val msg = if (detectedCode.isNotBlank()) {
-                        "课程：${course.courseName}\n⚡ 系统已为您自动探测到签到口令：$detectedCode"
+                        "课程：${course.courseName}\n系统已为您自动探测到签到口令：$detectedCode"
                     } else {
                         "课程：${course.courseName}\n请输入教师给出的签到口令："
                     }
@@ -898,7 +898,7 @@ class TronClassFragment : Fragment() {
             res.onSuccess { result ->
                 if (result.isSuccess) {
                     markRollcallCompleted(activeItem.id)
-                    Toast.makeText(ctx, "🎉 签到成功", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "签到成功", Toast.LENGTH_SHORT).show()
                 } else {
                     MaterialAlertDialogBuilder(ctx)
                         .setTitle("签到提示")
@@ -1215,7 +1215,7 @@ class TronClassFragment : Fragment() {
             } catch (_: Exception) {}
 
             if (ssoRes.isSuccess) {
-                Toast.makeText(ctx, "超星学习通 SSO 登录成功！🎉", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "超星学习通登录成功", Toast.LENGTH_SHORT).show()
                 updateTronClassUserHeader()
                 loadTronClassData(forceRefresh = true)
             } else {
@@ -2523,7 +2523,7 @@ class TronClassFragment : Fragment() {
                 val result = res.getOrNull()
                 if (result != null && result.success) {
                     markRollcallCompleted(parsed.rollcallId)
-                    Toast.makeText(ctx, "🎉 扫码签到成功", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "扫码签到成功", Toast.LENGTH_SHORT).show()
                 } else {
                     val msg = result?.message ?: res.exceptionOrNull()?.getFriendlyErrorMessage() ?: "未知签到错误"
                     MaterialAlertDialogBuilder(ctx)
@@ -2870,14 +2870,14 @@ class TronClassFragment : Fragment() {
         val successCount = results.count { it.success }
         val totalCount = results.size
         val title = if (successCount == totalCount) {
-            "🎉 全员签到成功 ($successCount/$totalCount)"
+            "全员签到成功 ($successCount/$totalCount)"
         } else {
-            "📋 多账号签到结果 ($successCount/$totalCount 成功)"
+            "多账号签到结果 ($successCount/$totalCount 成功)"
         }
 
         val sb = StringBuilder()
         for (r in results) {
-            val icon = if (r.success) "🟢" else "🔴"
+            val icon = if (r.success) "[成功]" else "[未成功]"
             val status = if (r.statusName.isNotBlank()) " [${r.statusName}]" else ""
             sb.append("$icon ${r.studentName} (${r.studentId})$status\n")
             sb.append("   ${r.message.trim()}\n\n")
@@ -2989,7 +2989,7 @@ class TronClassFragment : Fragment() {
             b.btnTronClassSmartSign.setTextColor(redBtnTextColor)
             b.btnTronClassSmartSign.iconTint = ColorStateList.valueOf(redBtnTextColor)
 
-            b.btnTronClassSmartSign.text = "⚡ 课堂签到"
+            b.btnTronClassSmartSign.text = "课堂签到"
             b.btnTronClassSmartSign.setIconResource(R.drawable.ic_location)
 
             b.llTronClassHeroRollcall.visibility = View.GONE
