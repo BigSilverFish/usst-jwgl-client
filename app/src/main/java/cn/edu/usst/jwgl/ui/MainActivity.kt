@@ -1304,10 +1304,9 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val cachedList = cacheManager.getAllCachedTimetables(currentSid)
                         if (cachedList.isNotEmpty() && db.courseBaseDao.getCourseOfTable(defaultT.id).isEmpty()) {
-                            val semConfig = RemoteConfigManager.getSemesterConfig()
-                            val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
                             for (cached in cachedList) {
-                                WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                                val resolvedStartDate = RemoteConfigManager.resolveStartDateForTimetable(cached)
+                                WakeupScheduleImporter.importTimetableData(db, cached, resolvedStartDate)
                             }
                         }
                     } catch (e: Exception) {
@@ -1315,6 +1314,12 @@ class MainActivity : AppCompatActivity() {
                     } finally {
                         TimetableSettingHelper.setHasMigratedLegacyTimetables(this@MainActivity, true, currentSid)
                     }
+                }
+
+                // Calibrate all local tables' startDate before auto-locating active semester
+                try {
+                    RemoteConfigManager.calibrateTablesAndSync(this@MainActivity, RemoteConfigManager.getConfig(), db)
+                } catch (_: Exception) {
                 }
 
                 // Auto determine active semester & week on startup
@@ -3235,10 +3240,9 @@ class MainActivity : AppCompatActivity() {
                 if (existing.isEmpty() || existing.all { db.courseBaseDao.getCourseOfTable(it.id).isEmpty() }) {
                     val cachedList = cacheManager.getAllCachedTimetables(newStudentId)
                     if (cachedList.isNotEmpty()) {
-                        val semConfig = RemoteConfigManager.getSemesterConfig()
-                        val startDate = semConfig.week1Monday.ifBlank { "2026-09-07" }
                         for (cached in cachedList) {
-                            WakeupScheduleImporter.importTimetableData(db, cached, startDate)
+                            val resolvedStartDate = RemoteConfigManager.resolveStartDateForTimetable(cached)
+                            WakeupScheduleImporter.importTimetableData(db, cached, resolvedStartDate)
                         }
                     }
                 }

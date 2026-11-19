@@ -196,13 +196,45 @@ object RemoteConfigManager {
     fun getSemesters(): List<cn.edu.usst.jwgl.data.model.SemesterConfigItem> = cachedConfig.semesters
 
     /**
+     * Resolves the accurate startDate for a given TimetableData using cached remote semesters,
+     * falling back to academic-year estimation so past semesters never inherit current semester's startDate.
+     */
+    fun resolveStartDateForTimetable(data: cn.edu.usst.jwgl.data.model.TimetableData): String {
+        val acadYear = (data.academicYear as String?)?.trim() ?: ""
+        val sem = (data.semester as String?)?.trim() ?: ""
+        val semTitle = (data.semesterTitle as String?)?.trim() ?: ""
+        val startYearStr = acadYear.split("-").firstOrNull()?.trim()
+
+        val matched = cachedConfig.semesters.find { item ->
+            val semId = item.semesterId.trim()
+            val itemTitle = item.semesterTitle.trim()
+            (semTitle.isNotBlank() && itemTitle.isNotBlank() && (semTitle == itemTitle || semTitle.contains(itemTitle) || itemTitle.contains(semTitle))) ||
+                (acadYear.isNotBlank() && sem.isNotBlank() && semId == "$acadYear-$sem") ||
+                (startYearStr != null && sem.isNotBlank() && semId.startsWith("$startYearStr-") && semId.endsWith("-$sem"))
+        }
+        if (matched != null && matched.startDate.isNotBlank()) {
+            return matched.startDate
+        }
+
+        val startYear = startYearStr?.toIntOrNull()
+        if (startYear != null) {
+            return if (sem == "2") "${startYear + 1}-03-01" else "$startYear-09-07"
+        }
+
+        return cachedConfig.semesterConfig.week1Monday.ifBlank { "2026-09-07" }
+    }
+
+    /**
      * Calibrates all local tables' startDate and maxWeek according to remote semesters list
      * Returns true if any table was updated
      */
-    fun calibrateTablesAndSync(context: Context, config: AppConfig): Boolean {
+    fun calibrateTablesAndSync(
+        context: Context,
+        config: AppConfig,
+        targetDb: cn.edu.usst.jwgl.data.wakeup.AppDatabase = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context)
+    ): Boolean {
         var anyChanged = false
-        val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context)
-        val localTables = db.tableDao.getAllTables()
+        val localTables = targetDb.tableDao.getAllTables()
 
         for (remoteSem in config.semesters) {
             val semId = remoteSem.semesterId.trim()
@@ -229,7 +261,7 @@ object RemoteConfigManager {
                         tableChanged = true
                     }
                     if (tableChanged) {
-                        db.tableDao.updateTable(table)
+                        targetDb.tableDao.updateTable(table)
                         anyChanged = true
                     }
                 }
