@@ -459,7 +459,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 is org.json.JSONArray -> gson.fromJson<List<LappCourseItem>>(itemsObj.toString(), type) ?: return null
                 else -> return null
             }
-            if (list.isNotEmpty() || (root.optBoolean("complete", false) && root.optInt("expectedCount", -1) == 0)) {
+            if (list.isNotEmpty()) {
                 return Pair(ts, list)
             }
         } catch (_: Exception) {}
@@ -570,21 +570,20 @@ val ALL_KNOWN_BUILDINGS = listOf(
             }
 
             // 4. 核心完整性自愈逻辑：
-            // 如果本地缓存数据量异常偏小（例如因分页中断只写了前 1000 条，而全校课表有 9000 多条）：
-            // 判定本地缓存为残缺数据，立刻丢弃残缺缓存并强制回退到内置的完整镜像资产！
+            // 如果本地缓存为空、数据量异常偏小（例如上游返回空结果污染缓存，或因分页中断只写了部分数据）：
+            // 判定本地缓存为无效/残缺数据，立刻丢弃并强制回退到内置的完整镜像资产！
             val presetSize = presetPair?.second?.size ?: 0
-            val localSize = localPair?.second?.size ?: 0
+            val localSize = localPair?.second?.size
 
-            val isSeverelyIncomplete = localPair == null || (!locallyVerified && (localSize < 5000 || localSize < (presetSize * 0.8)))
-            if (presetPair != null && isSeverelyIncomplete) {
-                Log.w(TAG, "Local cache is incomplete or severely outdated (localSize=$localSize vs presetSize=$presetSize). Self-healing with built-in asset preset...")
+            if (presetPair != null && shouldSelfHealWithPreset(localSize, locallyVerified, presetSize)) {
+                Log.w(TAG, "Local cache is empty, incomplete or poisoned (localSize=$localSize vs presetSize=$presetSize, verified=$locallyVerified). Self-healing with built-in asset preset...")
                 val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second, verified = true)
                 val finalPair = Pair(savedTime, presetPair.second)
                 fullScheduleMemoryCache[key] = finalPair
                 return finalPair
             }
 
-            if (localPair != null && (locallyVerified || localPair.second.isNotEmpty())) {
+            if (localPair != null && localPair.second.isNotEmpty()) {
                 if (locallyVerified || localPair.second.size >= 5000) {
                     verifiedFullSchedules.add(key)
                 }
@@ -603,9 +602,26 @@ val ALL_KNOWN_BUILDINGS = listOf(
         }
     }
 
+    internal fun shouldSelfHealWithPreset(localSize: Int?, locallyVerified: Boolean, presetSize: Int): Boolean {
+        if (presetSize <= 0) return false
+        if (localSize == null || localSize <= 0) return true
+        if (localSize < (presetSize * 0.5)) return true
+        return !locallyVerified && (localSize < 5000 || localSize < (presetSize * 0.8))
+    }
+
+    internal fun shouldRejectUpstreamScheduleOverwrite(fetchedSize: Int, existingSize: Int): Boolean {
+        if (fetchedSize <= 0) return true
+        if (existingSize >= 5000 && fetchedSize < (existingSize * 0.5)) return true
+        return false
+    }
+
     private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>, verified: Boolean = false): Long {
-        val key = "${xn.trim()}_${xq.trim()}"
         val now = System.currentTimeMillis()
+        if (list.isEmpty()) {
+            Log.w(TAG, "Refusing to overwrite full schedule cache for ${xn.trim()}_${xq.trim()} with empty list")
+            return now
+        }
+        val key = "${xn.trim()}_${xq.trim()}"
         fullScheduleMemoryCache[key] = Pair(now, list)
         val isTrulyVerified = verified || list.size >= 5000
         if (isTrulyVerified) verifiedFullSchedules.add(key) else verifiedFullSchedules.remove(key)
@@ -655,7 +671,6 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val account = AuthPreferences(context).getStudentId()
             val allCourses = fullScheduleReads.await("${context.applicationContext.filesDir}|$account|$xn|$xq") {
                 val complete = completeSchedulePages<LappCourseItem>(key = { it.id.takeIf(String::isNotBlank) ?: it }) { offset, rows ->
-                    val pageIndex = if (rows > 0) offset / rows else 0
                     fetchSchedulePage(
                     context = context,
                     xn = xn,
@@ -667,9 +682,13 @@ val ALL_KNOWN_BUILDINGS = listOf(
                     kcmc = "",
                     kcdm = "",
                     lsmc = "",
-                    page = pageIndex,
+                    page = offset,
                     rows = rows
                     ).getOrThrow()
+                }
+                val existingSize = getFullSchoolScheduleCached(context, xn, xq)?.second?.size ?: 0
+                if (shouldRejectUpstreamScheduleOverwrite(complete.size, existingSize)) {
+                    throw IllegalStateException("上游课表接口返回异常（${complete.size} 条），已保留本地缓存")
                 }
                 saveFullSchoolSchedule(context, xn, xq, complete, verified = true)
                 failedFullSyncAt.remove(termKey)
@@ -999,11 +1018,44 @@ val ALL_KNOWN_BUILDINGS = listOf(
             }
             if (list.isNotEmpty()) {
                 prefs.edit().putString("cached_colleges", gson.toJson(list)).apply()
+                return@withContext Result.success(list)
+            }
+            val fallback = deriveCollegesFromLocalSchedule(context)
+            if (fallback.isNotEmpty()) {
+                return@withContext Result.success(fallback)
             }
             Result.success(list)
         } catch (e: Exception) {
             Log.e(TAG, "queryColleges error", e)
-            Result.failure(e)
+            val fallback = deriveCollegesFromLocalSchedule(context)
+            if (fallback.isNotEmpty()) {
+                Result.success(fallback)
+            } else {
+                Result.failure(e)
+            }
+        }
+    }
+
+    private fun deriveCollegesFromLocalSchedule(context: Context): List<String> {
+        return try {
+            val (curXnm, curXqm) = cn.edu.usst.jwgl.util.SemesterHelper.getCurrentSemester()
+            val curYear = curXnm.toIntOrNull() ?: 2026
+            val xn = "$curYear-${curYear + 1}"
+            val xq = if (curXqm == "3") "1" else "2"
+            val courses = getFullSchoolScheduleCached(context, xn, xq)?.second
+                ?: fullScheduleMemoryCache.values.firstOrNull { it.second.isNotEmpty() }?.second
+                ?: return emptyList()
+            val aliasedChildren = COLLEGE_FILTER_ALIASES.flatMap { (parent, children) ->
+                children.filter { it != parent }
+            }.toSet()
+            courses.asSequence()
+                .map { it.xy.trim() }
+                .filter { it.isNotEmpty() && it !in aliasedChildren }
+                .distinct()
+                .sorted()
+                .toList()
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
