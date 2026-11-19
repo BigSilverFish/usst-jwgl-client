@@ -669,15 +669,42 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 底部保存按钮 -->
+            <!-- 底部操作区：添加到桌面 & 保存应用 -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPinToDesktop"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="20dp"
+                android:text="添加“今日课表”到桌面"
+                android:textSize="15sp"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_add"
+                app:iconGravity="textStart" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSave"
                 android:layout_width="match_parent"
                 android:layout_height="50dp"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="10dp"
                 android:text="保存并应用微件"
                 android:textSize="15sp"
                 app:cornerRadius="12dp" />
+
+            <TextView
+                android:id="@+id/tvPinTrouble"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:text="添加遇到问题？查看权限与手动添加指引"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
 
         </LinearLayout>
 
