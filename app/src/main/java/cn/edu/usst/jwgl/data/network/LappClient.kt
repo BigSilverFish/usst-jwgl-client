@@ -199,6 +199,10 @@ val ALL_KNOWN_BUILDINGS = listOf(
      */
     fun syncCookiesFromJwgl(jwglCookies: List<Cookie>) {
         for (c in jwglCookies) {
+            // 严禁将 jwgl/ids6 等非 lapp 专用的局部 JSESSIONID 覆盖进 LappClient，避免虚假判定 lapp 已登录
+            if (c.name.equals("JSESSIONID", ignoreCase = true) && !c.domain.contains("lapp")) {
+                continue
+            }
             cookieStore.removeAll { it.name == c.name && it.domain == c.domain }
             cookieStore.add(c)
         }
@@ -280,8 +284,15 @@ val ALL_KNOWN_BUILDINGS = listOf(
         }
     }
 
-    private fun hasLappSession(): Boolean {
-        return cookieStore.any { it.name.equals("JSESSIONID", ignoreCase = true) && (it.domain.contains("lapp") || it.domain.endsWith("usst.edu.cn")) }
+    internal fun hasLappSession(): Boolean {
+        return cookieStore.any { 
+            it.name.equals("JSESSIONID", ignoreCase = true) && 
+            (it.domain.contains("lapp") || it.domain.equals("lapp.usst.edu.cn", ignoreCase = true)) 
+        }
+    }
+
+    internal fun clearCookies() {
+        cookieStore.clear()
     }
 
     private const val PREF_LAPP_CACHE = "usst_lapp_schedule_cache"
@@ -464,6 +475,27 @@ val ALL_KNOWN_BUILDINGS = listOf(
         return null
     }
 
+    private val COLLEGE_FILTER_ALIASES: Map<String, Set<String>> = mapOf(
+        "管理学院" to setOf("管理学院", "管理学院专业学位教育中心")
+    )
+
+    /**
+     * 精确匹配开课学院，避免子串包含（如 "理学院" 误匹配 "管理学院"）及空值穿透。
+     * 针对未单独列入下拉筛选项的归属单位（如 "管理学院专业学位教育中心"），按预设映射归并至所属学院。
+     */
+    fun matchesCollege(courseXy: String, selectedXy: String): Boolean {
+        val target = selectedXy.trim()
+        if (target.isEmpty() || target == "全部学院") return true
+        val actual = courseXy.trim()
+        if (actual.isEmpty()) return false
+        val acceptedNames = COLLEGE_FILTER_ALIASES[target]
+        return if (acceptedNames != null) {
+            actual in acceptedNames
+        } else {
+            actual == target
+        }
+    }
+
     fun normalizeKeyword(input: String): String {
         return input.trim()
             .replace("（", "(")
@@ -546,19 +578,22 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val isSeverelyIncomplete = localPair == null || (!locallyVerified && (localSize < 5000 || localSize < (presetSize * 0.8)))
             if (presetPair != null && isSeverelyIncomplete) {
                 Log.w(TAG, "Local cache is incomplete or severely outdated (localSize=$localSize vs presetSize=$presetSize). Self-healing with built-in asset preset...")
-                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second)
+                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second, verified = true)
                 val finalPair = Pair(savedTime, presetPair.second)
                 fullScheduleMemoryCache[key] = finalPair
                 return finalPair
             }
 
             if (localPair != null && (locallyVerified || localPair.second.isNotEmpty())) {
+                if (locallyVerified || localPair.second.size >= 5000) {
+                    verifiedFullSchedules.add(key)
+                }
                 fullScheduleMemoryCache[key] = localPair
                 return localPair
             }
 
             if (presetPair != null && presetPair.second.isNotEmpty()) {
-                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second)
+                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second, verified = true)
                 val finalPair = Pair(savedTime, presetPair.second)
                 fullScheduleMemoryCache[key] = finalPair
                 return finalPair
@@ -572,12 +607,13 @@ val ALL_KNOWN_BUILDINGS = listOf(
         val key = "${xn.trim()}_${xq.trim()}"
         val now = System.currentTimeMillis()
         fullScheduleMemoryCache[key] = Pair(now, list)
-        if (verified) verifiedFullSchedules.add(key) else verifiedFullSchedules.remove(key)
+        val isTrulyVerified = verified || list.size >= 5000
+        if (isTrulyVerified) verifiedFullSchedules.add(key) else verifiedFullSchedules.remove(key)
         try {
             val encFile = getFullEncryptedCacheFile(context, xn, xq)
             val root = JSONObject().apply {
                 put("time", now)
-                put("complete", verified)
+                put("complete", isTrulyVerified)
                 put("expectedCount", list.size)
                 put("items", gson.toJson(list))
             }
@@ -619,6 +655,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val account = AuthPreferences(context).getStudentId()
             val allCourses = fullScheduleReads.await("${context.applicationContext.filesDir}|$account|$xn|$xq") {
                 val complete = completeSchedulePages<LappCourseItem>(key = { it.id.takeIf(String::isNotBlank) ?: it }) { offset, rows ->
+                    val pageIndex = if (rows > 0) offset / rows else 0
                     fetchSchedulePage(
                     context = context,
                     xn = xn,
@@ -630,7 +667,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
                     kcmc = "",
                     kcdm = "",
                     lsmc = "",
-                    page = offset,
+                    page = pageIndex,
                     rows = rows
                     ).getOrThrow()
                 }
@@ -791,7 +828,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
                 filtered = filtered.filter { isCourseActiveInWeek(it, week) }
             }
             if (xy.isNotEmpty()) {
-                filtered = filtered.filter { it.xy.contains(xy) || xy.contains(it.xy) }
+                filtered = filtered.filter { matchesCollege(it.xy, xy) }
             }
             if (zj > 0) {
                 filtered = filtered.filter { it.zj == zj }
@@ -1000,8 +1037,11 @@ val ALL_KNOWN_BUILDINGS = listOf(
             // 1. 优先拉取或读取全校课表全量缓存进行秒级精确匹配
             val fullResult = getOrFetchFullSchoolSchedule(context, xn, xq, forceRefresh)
             val allCourses = fullResult.getOrNull()
-            if (allCourses != null && fullScheduleKey(xn, xq) !in verifiedFullSchedules) {
+            if (allCourses != null && fullScheduleKey(xn, xq) !in verifiedFullSchedules && allCourses.size < 5000) {
                 return@withContext Result.failure(Exception("当前全校课表完整性未核验，暂不能准确判断空教室；请联网同步"))
+            }
+            if (allCourses != null && allCourses.size >= 5000) {
+                verifiedFullSchedules.add(fullScheduleKey(xn, xq))
             }
 
             if (allCourses != null) {
