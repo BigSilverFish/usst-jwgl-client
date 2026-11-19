@@ -5,7 +5,7 @@ import android.content.Context
 object TimetableSettingHelper {
     private const val PREF_NAME = "usst_timetable_pref"
     private const val KEY_DAY_PART_DIVIDERS = "day_part_dividers_enabled"
-    private const val KEY_NAV_MODE = "phone_nav_mode" // 0 = 侧栏模式 (默认), 1 = 底栏模式
+    private const val KEY_NAV_MODE = "phone_nav_mode" // 0 = 侧栏模式, 1 = 底栏模式 (默认)
     private const val KEY_DOUBLE_TAP_DRAWER = "double_tap_timetable_open_drawer"
     private const val KEY_DRAWER_PROFILE_HEADER = "drawer_profile_header_enabled"
     private const val KEY_LAST_ACTIVE_TABLE_ID = "last_active_table_id"
@@ -112,7 +112,7 @@ object TimetableSettingHelper {
 
     fun getPhoneNavMode(context: Context): Int {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        return sp.getInt(KEY_NAV_MODE, NAV_MODE_DRAWER)
+        return sp.getInt(KEY_NAV_MODE, NAV_MODE_BOTTOM)
     }
 
     fun setPhoneNavMode(context: Context, mode: Int) {

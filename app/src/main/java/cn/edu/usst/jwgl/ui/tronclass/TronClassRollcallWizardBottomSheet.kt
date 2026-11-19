@@ -14,6 +14,7 @@ import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.databinding.DialogTronclassRollcallWizardBinding
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
 /**
@@ -186,7 +187,11 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             "已关闭 · 开启后上课时自动检测并弹窗提醒"
         }
 
-        // 自动提交项
+        // 自动提交项（受开发者模式管控：未激活时隐藏）
+        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+        binding.layoutAutoSignRow.visibility = if (isDev) View.VISIBLE else View.GONE
+        binding.dividerAutoSign.visibility = if (isDev) View.VISIBLE else View.GONE
+
         binding.switchAutoSign.isEnabled = isMonitor
         binding.switchAutoSign.isChecked = isMonitor && isAutoSign
         binding.layoutAutoSignRow.alpha = if (isMonitor) 1.0f else 0.5f

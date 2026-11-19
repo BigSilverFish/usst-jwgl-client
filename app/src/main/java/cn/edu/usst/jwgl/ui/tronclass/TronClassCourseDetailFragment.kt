@@ -22,6 +22,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.button.MaterialButton
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import java.util.Locale
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -1433,6 +1434,10 @@ class TronClassCourseDetailFragment : Fragment() {
 
     private fun startAutoBrushProgress() {
         val context = context ?: return
+        if (!DeveloperModeManager.isDeveloperMode(context)) {
+            Toast.makeText(context, "自动刷课功能仅在开发者模式下可用", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (cachedActivities.isEmpty()) {
             Toast.makeText(context, "暂无可学习的课件与活动", Toast.LENGTH_SHORT).show()
             return
