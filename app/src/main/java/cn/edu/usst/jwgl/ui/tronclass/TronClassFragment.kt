@@ -2636,54 +2636,21 @@ class TronClassFragment : Fragment() {
     }
 
     private fun showManualRollcallGuideDialog(designatedId: Long? = null, courseName: String? = null) {
-        val ctx = context ?: return
-        val prefs = TronClassPreferences.getInstance(ctx)
-        val isMonitorEnabled = prefs.isRollcallMonitorEnabled()
-        val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
-        val autoStrategyText = prefs.getRollcallAutoSignStrategyDisplayName()
-        val options = arrayOf(
-            "启动扫码签到 (针对教师投影仪二维码)",
-            "输入口令签到 (针对数字签到码)",
-            "雷达定位签到 (上理教学楼基准/GPS)",
-            if (isMonitorEnabled) "上课签到后台监听: 已开启 (点击关闭)" else "上课签到后台监听: 已关闭 (点击开启)",
-            if (!isMonitorEnabled) "课堂签到自动提交: 未启用 (需先开启监听)" else if (isAutoSignEnabled) "课堂签到自动提交: 已开启 ($autoStrategyText，点击设置)" else "课堂签到自动提交: 已关闭 (点击开启)",
-            "签到弹窗测试与系统诊断",
-            "刷新点名状态"
-        )
-
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle(if (courseName != null) "课程签到 · $courseName" else "课堂签到向导")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> startTronClassQrScan()
-                    1 -> showTronClassNumberRollcallDialog(designatedId, courseName)
-                    2 -> showTronClassRadarRollcallDialog(designatedId, courseName)
-                    3 -> {
-                        val newEnabled = !isMonitorEnabled
-                        prefs.setRollcallMonitorEnabled(newEnabled)
-                        RollcallMonitorScheduler.onPreferenceChanged(ctx)
-                        if (newEnabled) {
-                            Toast.makeText(ctx, "已开启上课签到后台监听：上课时自动检测课堂点名", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(ctx, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    4 -> {
-                        if (!prefs.isRollcallMonitorEnabled()) {
-                            Toast.makeText(ctx, "自动签到功能需要先开启上课签到后台监听", Toast.LENGTH_SHORT).show()
-                            return@setItems
-                        }
-                        showRollcallAutoSignSettingDialog(ctx, prefs)
-                    }
-                    5 -> {
-                        cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet()
-                            .show(parentFragmentManager, "NotificationDiagnostic")
-                    }
-                    6 -> loadTronClassData(forceRefresh = true)
-                }
+        val sheet = TronClassRollcallWizardBottomSheet.newInstance(designatedId, courseName).apply {
+            onStartQrScanListener = {
+                startTronClassQrScan()
             }
-            .setNegativeButton("取消", null)
-            .show()
+            onStartNumberSignListener = { id, name ->
+                showTronClassNumberRollcallDialog(id, name)
+            }
+            onStartRadarSignListener = { id, name ->
+                showTronClassRadarRollcallDialog(id, name)
+            }
+            onRefreshRollcallListener = {
+                loadTronClassData(forceRefresh = true)
+            }
+        }
+        sheet.show(parentFragmentManager, TronClassRollcallWizardBottomSheet.TAG)
     }
 
     private fun showRollcallAutoSignSettingDialog(ctx: Context, prefs: TronClassPreferences) {
