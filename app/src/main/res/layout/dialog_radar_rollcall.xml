@@ -164,7 +164,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="📐 校园三点测距反解 (100% 盲解教师位置)"
+                    android:text="校园三点测距反解 (智能推算教师位置)"
                     android:textColor="@color/text_primary"
                     android:textSize="13sp" />
 

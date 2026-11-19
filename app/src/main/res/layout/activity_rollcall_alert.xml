@@ -231,7 +231,7 @@
                     android:layout_marginTop="10dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:text="⚡ 尝试自动获取签到码"
+                    android:text="尝试自动获取签到码"
                     android:textSize="12sp"
                     app:cornerRadius="18dp" />
             </LinearLayout>

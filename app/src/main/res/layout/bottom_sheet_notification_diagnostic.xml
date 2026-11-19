@@ -430,7 +430,7 @@
                 android:layout_height="48dp"
                 android:layout_marginBottom="10dp"
                 android:backgroundTint="@color/primary"
-                android:text="⚡ 模拟测试课堂签到弹窗（锁屏 / 桌面）"
+                android:text="模拟测试课堂签到弹窗（锁屏 / 桌面）"
                 android:textColor="@color/on_primary"
                 android:textSize="14sp"
                 app:cornerRadius="12dp" />
@@ -442,7 +442,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:layout_marginBottom="8dp"
-                android:text="🚀 发送一条「灵动胶囊 / 焦点通知」测试"
+                android:text="发送测试通知与胶囊提醒"
                 android:textSize="13sp"
                 app:cornerRadius="12dp" />
 

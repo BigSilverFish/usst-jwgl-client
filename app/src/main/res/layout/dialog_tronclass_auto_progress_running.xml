@@ -33,7 +33,7 @@
                 android:id="@+id/tvRunningTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="⚡ 正在自动刷课中..."
+                android:text="正在自动同步进度中..."
                 android:textColor="@color/text_primary"
                 android:textSize="17sp"
                 android:textStyle="bold" />

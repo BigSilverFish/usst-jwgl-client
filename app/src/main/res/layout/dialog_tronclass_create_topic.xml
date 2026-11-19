@@ -129,7 +129,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:lineSpacingExtra="2dp"
-            android:text="💡 发帖将同步至一网畅学讨论区，计入课程学习进度与互动成绩。"
+            android:text="发帖将同步至一网畅学讨论区，计入课程学习进度与互动成绩。"
             android:textColor="@color/text_tertiary"
             android:textSize="11.5sp" />
 

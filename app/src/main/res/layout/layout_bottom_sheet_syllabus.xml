@@ -233,7 +233,7 @@
                             android:layout_height="44dp"
                             android:layout_marginTop="12dp"
                             android:backgroundTint="@color/primary"
-                            android:text="📖 立即下载并在手机中打开"
+                            android:text="立即下载并在手机中打开"
                             android:textColor="@color/on_primary"
                             android:textSize="13sp"
                             android:textStyle="bold"
@@ -311,7 +311,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📋 课程教学基本信息"
+                            android:text="课程教学基本信息"
                             android:textColor="@color/text_primary"
                             android:textSize="14sp"
                             android:textStyle="bold" />
@@ -478,7 +478,7 @@
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:backgroundTint="@color/primary"
-            android:text="📥 下载大纲文档到手机"
+            android:text="下载大纲文档到手机"
             android:textColor="@color/on_primary"
             android:textSize="14sp"
             android:textStyle="bold"
