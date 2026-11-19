@@ -913,7 +913,7 @@ class SchoolCourseSearchFragment : Fragment() {
                     }
                     if (selectedSearchCollege.isNotBlank() && selectedSearchCollege != "全部学院") {
                         filtered = filtered.filter {
-                            it.xy.contains(selectedSearchCollege) || selectedSearchCollege.contains(it.xy)
+                            LappClient.matchesCollege(it.xy, selectedSearchCollege)
                         }
                     }
                     if (selectedSearchDay > 0) {
