@@ -64,4 +64,22 @@ class LappCollegeFilterTest {
         assertTrue(LappClient.hasLappSession())
         LappClient.clearCookies()
     }
+
+    @Test
+    fun `poisoned verified empty cache self heals from preset`() {
+        assertTrue(LappClient.shouldSelfHealWithPreset(localSize = 0, locallyVerified = true, presetSize = 9024))
+        assertTrue(LappClient.shouldSelfHealWithPreset(localSize = 100, locallyVerified = true, presetSize = 9024))
+        assertTrue(LappClient.shouldSelfHealWithPreset(localSize = null, locallyVerified = false, presetSize = 9024))
+        assertFalse(LappClient.shouldSelfHealWithPreset(localSize = 9024, locallyVerified = true, presetSize = 9024))
+        assertFalse(LappClient.shouldSelfHealWithPreset(localSize = 0, locallyVerified = true, presetSize = 0))
+    }
+
+    @Test
+    fun `upstream empty or severely truncated sync never overwrites valid cache`() {
+        assertTrue(LappClient.shouldRejectUpstreamScheduleOverwrite(fetchedSize = 0, existingSize = 9024))
+        assertTrue(LappClient.shouldRejectUpstreamScheduleOverwrite(fetchedSize = 0, existingSize = 0))
+        assertTrue(LappClient.shouldRejectUpstreamScheduleOverwrite(fetchedSize = 1000, existingSize = 9024))
+        assertFalse(LappClient.shouldRejectUpstreamScheduleOverwrite(fetchedSize = 9050, existingSize = 9024))
+        assertFalse(LappClient.shouldRejectUpstreamScheduleOverwrite(fetchedSize = 300, existingSize = 0))
+    }
 }
