@@ -169,7 +169,7 @@
                             android:background="@drawable/bg_widget_sign_pill"
                             android:paddingHorizontal="6dp"
                             android:paddingVertical="2dp"
-                            android:text="⚡ 签到"
+                            android:text="签到"
                             android:textColor="@color/on_primary"
                             android:textSize="10sp"
                             android:textStyle="bold" />
@@ -261,7 +261,7 @@
                                 android:background="@drawable/bg_widget_urgent_badge"
                                 android:paddingHorizontal="4dp"
                                 android:paddingVertical="1dp"
-                                android:text="📝 待办"
+                                android:text="待办"
                                 android:textColor="#B91C1C"
                                 android:textSize="9sp"
                                 android:textStyle="bold" />
@@ -370,7 +370,7 @@
                             android:background="@drawable/bg_widget_sign_pill"
                             android:paddingHorizontal="6dp"
                             android:paddingVertical="2dp"
-                            android:text="⚡ 签到"
+                            android:text="签到"
                             android:textColor="@color/on_primary"
                             android:textSize="10sp"
                             android:textStyle="bold" />
@@ -459,7 +459,7 @@
                             android:layout_height="wrap_content"
                             android:ellipsize="end"
                             android:maxLines="1"
-                            android:text="📝 待办: 习题册第三章作业 · 还有 5小时截止"
+                            android:text="待办: 习题册第三章作业 · 还有 5小时截止"
                             android:textColor="#B91C1C"
                             android:textSize="10sp"
                             android:textStyle="bold" />

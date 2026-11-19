@@ -155,7 +155,7 @@ object RollcallNotificationHelper {
             val bName = building?.let { "${it.name} (${it.campus})" } ?: "匹配基准点位"
             NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("🎉 雷达点名已自动签到")
+                .setContentTitle("雷达点名已自动签到")
                 .setContentText("【${courseName ?: "课堂"}】已自动匹配 [$bName] 并成功签到！")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "课程：${courseName ?: "未指定课程"}\n" +
@@ -174,7 +174,7 @@ object RollcallNotificationHelper {
             val bName = building?.let { "${it.name} (${it.campus})" } ?: "基准点位"
             NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("⚠️ 雷达自动签到需手动确认")
+                .setContentTitle("雷达自动签到需手动确认")
                 .setContentText("【${courseName ?: "课堂"}】尝试匹配 [$bName] 未成功 ($message)，点击手动选择点位")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "课程：${courseName ?: "未指定课程"}\n" +
@@ -250,7 +250,7 @@ object RollcallNotificationHelper {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("📢 收到数字签到通知")
+            .setContentTitle("收到数字签到通知")
             .setContentText("【${courseName ?: "课堂"}】教师已发起数字口令签到，点击输入4位签到码")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "课程：${courseName ?: "课堂"}\n" +
@@ -327,7 +327,7 @@ object RollcallNotificationHelper {
         val builder = if (success) {
             NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("🎉 数字口令已自动签到")
+                .setContentTitle("数字口令已自动签到")
                 .setContentText("【${courseName ?: "课堂"}】已自动获取签到码并成功签到！")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "课程：${courseName ?: "未指定课程"}\n" +
@@ -344,7 +344,7 @@ object RollcallNotificationHelper {
         } else {
             NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("⚠️ 数字口令自动签到未成功")
+                .setContentTitle("数字口令自动签到未成功")
                 .setContentText("【${courseName ?: "课堂"}】自动签到未成功，点击手动输入口令")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "课程：${courseName ?: "课堂"}\n" +
@@ -394,7 +394,7 @@ object RollcallNotificationHelper {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("📢 收到扫码签到通知")
+            .setContentTitle("收到扫码签到通知")
             .setContentText("【${courseName ?: "课堂"}】教师已发起二维码签到，点击打开扫码器")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "课程：${courseName ?: "课堂"}\n" +
@@ -472,7 +472,7 @@ object RollcallNotificationHelper {
         val builder = if (success) {
             NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("🎉 大屏二维码已秒级自动签到")
+                .setContentTitle("大屏二维码已自动签到")
                 .setContentText("【${courseName ?: "课堂"}】已通过智慧录播 [$viewName] 自动扫码并签到成功！")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "课程：${courseName ?: "未指定课程"}\n" +
@@ -490,7 +490,7 @@ object RollcallNotificationHelper {
         } else {
             NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("📢 收到扫码签到 (大屏未检测到)")
+                .setContentTitle("收到扫码签到 (大屏未检测到)")
                 .setContentText("【${courseName ?: "课堂"}】教师已发起二维码签到，点击打开扫码器")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
                     "课程：${courseName ?: "课堂"}\n" +
@@ -537,7 +537,7 @@ object RollcallNotificationHelper {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("📢 收到课堂签到通知")
+            .setContentTitle("收到课堂签到通知")
             .setContentText("【${courseName ?: "课堂"}】正在进行 $typeDesc，点击进入处理")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSound(defaultSound)
@@ -598,7 +598,7 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (success) "✅ 自主签到成功" else "⚠️ 自主签到失败"
+        val title = if (success) "自主签到成功" else "自主签到失败"
         val content = if (success) {
             "【${courseName ?: "课堂"}】已全自动完成自主点名确认"
         } else {
@@ -649,7 +649,7 @@ object RollcallNotificationHelper {
         )
 
         val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-        val title = if (success) "🎉 超星位置签到已自动完成" else "⚠️ 超星位置自动签到需手动确认"
+        val title = if (success) "超星位置签到已自动完成" else "超星位置签到需手动确认"
         val body = if (success) {
             "【${courseName ?: "课堂"}】已使用 [$locationLabel] 自动完成学习通位置签到 ($message)"
         } else {

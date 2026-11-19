@@ -368,7 +368,7 @@ class RollcallAlertActivity : AppCompatActivity() {
             isSubmitting = false
 
             if (result.isSuccess && result.getOrNull()?.success == true) {
-                handleSignSuccess("🎉 口令签到成功！")
+                handleSignSuccess("口令签到成功")
             } else {
                 val msg = result.getOrNull()?.message ?: result.exceptionOrNull()?.message ?: "签到码错误或已失效"
                 handleSignFailure(msg)
@@ -432,7 +432,7 @@ class RollcallAlertActivity : AppCompatActivity() {
             isSubmitting = false
 
             if (result.isSuccess && result.getOrNull()?.success == true) {
-                handleSignSuccess("🎉 雷达定位签到成功！")
+                handleSignSuccess("雷达定位签到成功")
             } else {
                 val msg = result.getOrNull()?.message ?: result.exceptionOrNull()?.message ?: "定位超出范围或活动已结束"
                 handleSignFailure(msg)
@@ -455,7 +455,7 @@ class RollcallAlertActivity : AppCompatActivity() {
 
     private fun handleSignFailure(reason: String) {
         setSubmittingUI(false)
-        tvRollcallStatusTip.text = "⚠️ $reason"
+        tvRollcallStatusTip.text = reason
         tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this, R.color.primary_dark))
 
         // 如果是数字签到码错误，清空输入框并让方格变红
