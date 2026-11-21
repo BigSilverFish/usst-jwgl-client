@@ -280,11 +280,22 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.scheduleOrUpdate(context)
+    }
+
+    override fun onDisabled(context: Context) {
+        super.onDisabled(context)
+        cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.scheduleOrUpdate(context)
+    }
+
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
         for (appWidgetId in appWidgetIds) {
             WidgetConfigManager.deleteConfig(context, appWidgetId)
         }
+        cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.scheduleOrUpdate(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -328,6 +339,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                         updateAppWidget(context, appWidgetManager, id)
                     }
                 }
+                cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.triggerImmediateSync(context)
             }
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,

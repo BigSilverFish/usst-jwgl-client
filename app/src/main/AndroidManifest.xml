@@ -258,6 +258,45 @@
                 android:resource="@xml/next_course_widget_info" />
         </receiver>
 
+        <!-- Learning Feed AppWidget Provider (7-day Todos & Notices) -->
+        <receiver
+            android:name=".widget.LearningFeedWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_learning_feed_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_SWITCH_TAB" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_REFRESH_FEED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/learning_feed_widget_info" />
+        </receiver>
+
+        <!-- Omni Campus AppWidget Provider (Schedule + Todos + Notices) -->
+        <receiver
+            android:name=".widget.OmniCampusWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_omni_campus_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_SWITCH_TAB" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_REFRESH_FEED" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_MULTI_PREV_DAY" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_MULTI_NEXT_DAY" />
+                <action android:name="cn.edu.usst.jwgl.widget.ACTION_MULTI_RESET_TODAY" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/omni_campus_widget_info" />
+        </receiver>
+
         <!-- Today Schedule AppWidget Service for ListView RemoteViews -->
         <service
             android:name=".widget.TodayScheduleWidgetService"

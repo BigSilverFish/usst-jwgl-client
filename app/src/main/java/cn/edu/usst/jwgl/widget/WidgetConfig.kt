@@ -18,13 +18,21 @@ data class WidgetConfig(
     val allowDateSwitching: Boolean = true, // 是否允许在微件上切换日期(前一天/后一天)
     val showBorder: Boolean = true,         // 是否开启精致边缘描边(增强各壁纸下的辨识度)
     val showPortalTodos: Boolean = true,    // 是否在微件中展示课程门户待交作业提示
-    val showQuickSign: Boolean = true       // 是否在微件顶部展示课堂签到快捷入口
+    val showQuickSign: Boolean = true,      // 是否在微件顶部展示课堂签到快捷入口
+    val syncIntervalHours: Int = 2,         // 后台定时刷新周期 (1/2/3/4/6/8/12/18/24 小时)
+    val feedDaysWindow: Int = 7             // 待办/通知时间窗口 (默认7天)
 ) {
     companion object {
         const val THEME_AUTO = 0
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
         const val THEME_TRANSPARENT = 3
+
+        const val TAB_SCHEDULE = 0
+        const val TAB_TODOS = 1
+        const val TAB_NOTICES = 2
+
+        val SYNC_INTERVAL_OPTIONS = listOf(1, 2, 3, 4, 6, 8, 12, 18, 24)
 
         fun matchesCourseName(todoCourseName: String, tableCourseName: String): Boolean {
             val clean1 = todoCourseName.replace(Regex("[（(].*?[）)]"), "")
@@ -37,25 +45,7 @@ data class WidgetConfig(
         }
 
         fun loadActivePortalTodos(context: Context): List<UnifiedTodo> {
-            val list = mutableListOf<UnifiedTodo>()
-            val nowMs = System.currentTimeMillis()
-            try {
-                val account = AuthPreferences.currentStudentId(context)
-                // 1. 超星待办
-                val cxTodos = ChaoXingPreferences(context).getCachedTodos(account)
-                    .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
-                list.addAll(cxTodos)
-
-                // 2. 畅课待办
-                val tcTodos = TronClassDataCacheManager(context).getCachedTodos()
-                    .filterNot { it.isOverdue() || it.isLocked }
-                    .map { UnifiedTodo.fromTronClass(it) }
-                list.addAll(tcTodos)
-            } catch (_: Exception) {
-            }
-
-            return list.filter { it.deadlineMillis == null || it.deadlineMillis > nowMs }
-                .sortedBy { it.deadlineMillis ?: Long.MAX_VALUE }
+            return WidgetFeedRepository.loadActiveTodos(context)
         }
     }
 
@@ -105,6 +95,7 @@ object WidgetConfigManager {
     private const val PREF_NAME = "usst_widget_preferences"
     private const val KEY_PREFIX_WIDGET = "config_widget_"
     private const val KEY_PREFIX_OFFSET = "offset_widget_"
+    private const val KEY_PREFIX_TAB = "tab_widget_"
     private const val KEY_GLOBAL_DEFAULT = "config_global_default"
     private val gson = Gson()
 
@@ -137,7 +128,33 @@ object WidgetConfigManager {
         sp.edit()
             .remove(KEY_PREFIX_WIDGET + appWidgetId)
             .remove(KEY_PREFIX_OFFSET + appWidgetId)
+            .remove(KEY_PREFIX_TAB + appWidgetId)
             .apply()
+    }
+
+    fun getActiveTab(context: Context, appWidgetId: Int, defaultTab: Int): Int {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return sp.getInt(KEY_PREFIX_TAB + appWidgetId, defaultTab)
+    }
+
+    fun setActiveTab(context: Context, appWidgetId: Int, tab: Int) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        sp.edit().putInt(KEY_PREFIX_TAB + appWidgetId, tab).apply()
+    }
+
+    fun getSyncIntervalHours(context: Context): Int {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val json = sp.getString(KEY_GLOBAL_DEFAULT, null)
+        val raw = if (!json.isNullOrEmpty()) {
+            try {
+                gson.fromJson(json, WidgetConfig::class.java)?.syncIntervalHours ?: 2
+            } catch (_: Exception) {
+                2
+            }
+        } else {
+            2
+        }
+        return if (raw in WidgetConfig.SYNC_INTERVAL_OPTIONS) raw else 2
     }
 
     fun getDayOffset(context: Context, appWidgetId: Int): Int {

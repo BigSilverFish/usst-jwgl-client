@@ -19,7 +19,14 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
     private var appWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
 
     private var currentConfig = WidgetConfig()
-    private var isNextCoursePreview = false
+    private var previewMode = PREVIEW_TODAY
+
+    companion object {
+        private const val PREVIEW_TODAY = 0
+        private const val PREVIEW_LEARNING_FEED = 1
+        private const val PREVIEW_OMNI = 2
+        private const val PREVIEW_NEXT = 3
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,19 +71,31 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
-        // 0. 预览形态切换 (今日课表 / 下一节课)
+        // 0. 预览形态切换 (今日课表 / 学习动态 / 全能聚合 / 下一节课)
         binding.btnPreviewToday.isChecked = true
         binding.togglePreviewType.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (isChecked) {
-                isNextCoursePreview = (checkedId == R.id.btnPreviewNext)
-                if (isNextCoursePreview) {
-                    binding.llPreviewWidgetCard.visibility = View.GONE
-                    binding.llPreviewNextCourseCard.visibility = View.VISIBLE
-                    binding.btnPinToDesktop.text = "添加“下一节课”到桌面"
-                } else {
-                    binding.llPreviewWidgetCard.visibility = View.VISIBLE
-                    binding.llPreviewNextCourseCard.visibility = View.GONE
-                    binding.btnPinToDesktop.text = "添加“今日课表”到桌面"
+                previewMode = when (checkedId) {
+                    R.id.btnPreviewLearningFeed -> PREVIEW_LEARNING_FEED
+                    R.id.btnPreviewOmni -> PREVIEW_OMNI
+                    R.id.btnPreviewNext -> PREVIEW_NEXT
+                    else -> PREVIEW_TODAY
+                }
+                binding.llPreviewWidgetCard.visibility = if (previewMode == PREVIEW_TODAY) View.VISIBLE else View.GONE
+                binding.llPreviewFeedCard.visibility = if (previewMode == PREVIEW_LEARNING_FEED || previewMode == PREVIEW_OMNI) View.VISIBLE else View.GONE
+                binding.llPreviewNextCourseCard.visibility = if (previewMode == PREVIEW_NEXT) View.VISIBLE else View.GONE
+
+                if (previewMode == PREVIEW_LEARNING_FEED) {
+                    binding.tvPreviewFeedTabSchedule.visibility = View.GONE
+                } else if (previewMode == PREVIEW_OMNI) {
+                    binding.tvPreviewFeedTabSchedule.visibility = View.VISIBLE
+                }
+
+                binding.btnPinToDesktop.text = when (previewMode) {
+                    PREVIEW_LEARNING_FEED -> "添加“学习动态”到桌面"
+                    PREVIEW_OMNI -> "添加“全能聚合”到桌面"
+                    PREVIEW_NEXT -> "添加“下一节课”到桌面"
+                    else -> "添加“今日课表”到桌面"
                 }
             }
         }
@@ -161,6 +180,23 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             updatePreview()
         }
 
+        // 3.5 学习动态定时刷新频率
+        updateSyncIntervalText()
+        binding.rowSyncInterval.setOnClickListener {
+            val options = WidgetConfig.SYNC_INTERVAL_OPTIONS
+            val labels = options.map { "每 $it 小时" }.toTypedArray()
+            val checkedIndex = options.indexOf(currentConfig.syncIntervalHours).coerceAtLeast(0)
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("选择后台定时刷新频率")
+                .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
+                    currentConfig = currentConfig.copy(syncIntervalHours = options[which])
+                    updateSyncIntervalText()
+                    dialog.dismiss()
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+
         // 4. 添加到桌面与保存按钮
         if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             // 通过系统微件配置流程进入时隐藏“添加到桌面”入口
@@ -183,11 +219,21 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         }
     }
 
-    private fun currentTargetWidget(): Pair<Class<*>, String> {
-        return if (isNextCoursePreview) {
-            NextCourseWidgetProvider::class.java to "下一节课"
+    private fun updateSyncIntervalText() {
+        val hours = if (currentConfig.syncIntervalHours in WidgetConfig.SYNC_INTERVAL_OPTIONS) {
+            currentConfig.syncIntervalHours
         } else {
-            TodayScheduleWidgetProvider::class.java to "今日课表"
+            2
+        }
+        binding.tvSyncIntervalValue.text = "每 $hours 小时"
+    }
+
+    private fun currentTargetWidget(): Pair<Class<*>, String> {
+        return when (previewMode) {
+            PREVIEW_LEARNING_FEED -> LearningFeedWidgetProvider::class.java to "学习动态"
+            PREVIEW_OMNI -> OmniCampusWidgetProvider::class.java to "全能聚合"
+            PREVIEW_NEXT -> NextCourseWidgetProvider::class.java to "下一节课"
+            else -> TodayScheduleWidgetProvider::class.java to "今日课表"
         }
     }
 
@@ -209,6 +255,7 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         // 动态加载带圆角与描边的预设 Shape Drawable
         val bgResId = currentConfig.getBackgroundResId(isDark)
         binding.llPreviewWidgetCard.setBackgroundResource(bgResId)
+        binding.llPreviewFeedCard.setBackgroundResource(bgResId)
         binding.llPreviewNextCourseCard.setBackgroundResource(bgResId)
 
         // ===== 1. 今日课表形态预览 =====
@@ -249,6 +296,14 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         binding.tvPreviewNextTeacher.visibility = if (currentConfig.showTeacher) View.VISIBLE else View.GONE
         binding.tvPreviewNextQuickSign.visibility = if (currentConfig.showQuickSign) View.VISIBLE else View.GONE
         binding.llPreviewNextTodoRow.visibility = if (currentConfig.showPortalTodos) View.VISIBLE else View.GONE
+
+        // ===== 3. 学习动态 / 全能聚合形态预览 =====
+        binding.tvPreviewFeedSubHeader.setTextColor(primaryTextColor)
+        binding.viewPreviewFeedDivider.setBackgroundColor(dividerColor)
+        binding.tvPreviewFeedTodoTitle.setTextColor(primaryTextColor)
+        binding.tvPreviewFeedTodoCourse.setTextColor(secondaryTextColor)
+        binding.tvPreviewFeedNoticeTitle.setTextColor(primaryTextColor)
+        binding.tvPreviewFeedNoticeSub.setTextColor(secondaryTextColor)
     }
 
     private fun saveConfigAndRefresh(showToast: Boolean) {
@@ -257,6 +312,8 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
         val appWidgetManager = AppWidgetManager.getInstance(this)
         if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             TodayScheduleWidgetProvider.updateAppWidget(this, appWidgetManager, appWidgetId)
+            LearningFeedWidgetProvider.updateAppWidget(this, appWidgetManager, appWidgetId)
+            OmniCampusWidgetProvider.updateAppWidget(this, appWidgetManager, appWidgetId)
             NextCourseWidgetProvider.updateAppWidget(this, appWidgetManager, appWidgetId)
             val resultValue = Intent().apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
@@ -264,12 +321,12 @@ class TodayScheduleWidgetConfigActivity : AppCompatActivity() {
             setResult(RESULT_OK, resultValue)
         } else {
             // 全局设置生效：刷新所有桌面微件
-            TodayScheduleWidgetProvider.updateAllWidgets(this)
-            NextCourseWidgetProvider.updateAllWidgets(this)
+            WidgetUpdateHelper.updateAllWidgets(this)
             if (showToast) {
                 Toast.makeText(this, "设置已保存，桌面微件已同步更新", Toast.LENGTH_SHORT).show()
             }
         }
+        cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.scheduleOrUpdate(this)
     }
 
     private fun saveAndApply() {

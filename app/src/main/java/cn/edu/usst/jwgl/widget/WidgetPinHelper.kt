@@ -23,10 +23,10 @@ object WidgetPinHelper {
             var pinSent = false
             if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
                 val successIntent = Intent(context, providerClass).apply {
-                    action = if (providerClass == TodayScheduleWidgetProvider::class.java) {
-                        TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
-                    } else {
-                        NextCourseWidgetProvider.ACTION_REFRESH_NEXT_COURSE
+                    action = when (providerClass) {
+                        TodayScheduleWidgetProvider::class.java -> TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                        NextCourseWidgetProvider::class.java -> NextCourseWidgetProvider.ACTION_REFRESH_NEXT_COURSE
+                        else -> MultiFeedWidgetRenderer.ACTION_REFRESH_FEED
                     }
                 }
                 val successPendingIntent = PendingIntent.getBroadcast(
@@ -76,10 +76,10 @@ object WidgetPinHelper {
                     val provider = ComponentName(context, providerClass)
                     if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
                         val successIntent = Intent(context, providerClass).apply {
-                            action = if (providerClass == TodayScheduleWidgetProvider::class.java) {
-                                TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
-                            } else {
-                                NextCourseWidgetProvider.ACTION_REFRESH_NEXT_COURSE
+                            action = when (providerClass) {
+                                TodayScheduleWidgetProvider::class.java -> TodayScheduleWidgetProvider.ACTION_REFRESH_WIDGET
+                                NextCourseWidgetProvider::class.java -> NextCourseWidgetProvider.ACTION_REFRESH_NEXT_COURSE
+                                else -> MultiFeedWidgetRenderer.ACTION_REFRESH_FEED
                             }
                         }
                         val successPendingIntent = PendingIntent.getBroadcast(

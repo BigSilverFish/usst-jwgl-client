@@ -1,4 +1,4 @@
-package cn.edu.usst.jwgl.ui
+﻿package cn.edu.usst.jwgl.ui
 
 import android.content.Intent
 import android.net.Uri
@@ -112,12 +112,12 @@ class MainActivity : AppCompatActivity() {
         private var hasCheckedUpdateOnColdStart: Boolean = false
     }
 
-    private lateinit var binding: ActivityMainBinding
+    internal lateinit var binding: ActivityMainBinding
     internal var isTabletLandscapeMode: Boolean = false
-    private var timetableLandscapeExtraPadPx: Int = 0
-    private var isGuestMode: Boolean = false
+    internal var timetableLandscapeExtraPadPx: Int = 0
+    internal var isGuestMode: Boolean = false
     private lateinit var cacheManager: DataCacheManager
-    private lateinit var db: AppDatabase
+    internal lateinit var db: AppDatabase
     private var currentProfile: StudentProfile? = null
 
     internal var currentTable: TableBean? = null
@@ -148,8 +148,8 @@ class MainActivity : AppCompatActivity() {
         return courses
     }
     private var isUpdatingChipProgrammatically = false
-    private var scheduleAdapter: SchedulePagerAdapter? = null
-    private var currentWeek: Int = 1
+    internal var scheduleAdapter: SchedulePagerAdapter? = null
+    internal var currentWeek: Int = 1
     private var isInitialWeekLocated: Boolean = false
 
     private var pendingCalendarAction: (() -> Unit)? = null
@@ -193,7 +193,7 @@ class MainActivity : AppCompatActivity() {
      * 2) Otherwise from RemoteConfigManager.getCurrentWeek() (synced with cloud calendar);
      * 3) Otherwise falling back to currentWeek (coerced into 1..25).
      */
-    private fun getEffectiveCurrentWeek(): Int {
+    internal fun getEffectiveCurrentWeek(): Int {
         val tableWeek = currentTable?.let { CourseUtils.countWeek(it.startDate) }
         if (tableWeek != null && tableWeek in 1..25) {
             return tableWeek
@@ -563,7 +563,7 @@ class MainActivity : AppCompatActivity() {
             }
         }, 1500L)
 
-        // 第二阶段错峰预热：启动 3.0 秒后在单独帧预热一网畅学页
+        // 第二阶段错峰预热：启动 3.0 秒后在单独帧预热一网畅学页 & 同步桌面微件数据
         binding.root.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
             val fm = supportFragmentManager
@@ -572,12 +572,14 @@ class MainActivity : AppCompatActivity() {
                     .add(R.id.containerTronclass, TronClassFragment.newInstance(), "TronClassFragment")
                     .commitAllowingStateLoss()
             }
+            cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.scheduleOrUpdate(this)
+            cn.edu.usst.jwgl.worker.WidgetFeedSyncScheduler.triggerImmediateSync(this)
         }, 3000L)
     }
 
-    private var lastNavBarBottomInsetPx: Int = 0
-    private var lastStatusTopPadPx: Int = 0
-    private var lastStatusBarTopPx: Int = 0
+    internal var lastNavBarBottomInsetPx: Int = 0
+    internal var lastStatusTopPadPx: Int = 0
+    internal var lastStatusBarTopPx: Int = 0
 
     fun getStatusTopPad(): Int = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * resources.displayMetrics.density).toInt()
     fun getStatusBarTop(): Int = lastStatusBarTopPx.takeIf { it > 0 } ?: (24 * resources.displayMetrics.density).toInt()
@@ -587,353 +589,20 @@ class MainActivity : AppCompatActivity() {
     fun isTabletLandscapeModeActive(): Boolean = isTabletLandscapeMode
     fun getEffectiveCurrentWeekNumber(): Int = getEffectiveCurrentWeek()
 
-    private fun isPhoneBottomBarMode(): Boolean {
-        return !isTabletLandscapeMode && !isGuestMode &&
-                TimetableSettingHelper.getPhoneNavMode(this) == TimetableSettingHelper.NAV_MODE_BOTTOM
-    }
+    private val adaptiveLayoutController by lazy { MainAdaptiveLayoutController(this) }
+    private val settingsDialogController by lazy { MainSettingsDialogController(this) }
 
-    private fun applyContentBottomPadding() {
-        val density = resources.displayMetrics.density
-        val isBottomMode = isPhoneBottomBarMode()
-        val bottomNavBarHeight = if (isBottomMode) (64 * density).toInt() else 0
-        bottomBarHeightPx = lastNavBarBottomInsetPx + bottomNavBarHeight + (16 * density).toInt()
-        val statusTopPad = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * density).toInt()
-
-        binding.scrollProfile.setPadding(
-            binding.scrollProfile.paddingLeft,
-            binding.scrollProfile.paddingTop,
-            binding.scrollProfile.paddingRight,
-            bottomBarHeightPx
-        )
-        binding.pageMoreFeatures.scrollMoreFeatures.setPadding(
-            binding.pageMoreFeatures.scrollMoreFeatures.paddingLeft,
-            binding.pageMoreFeatures.scrollMoreFeatures.paddingTop,
-            binding.pageMoreFeatures.scrollMoreFeatures.paddingRight,
-            bottomBarHeightPx
-        )
-        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
-            ?.applyBottomPadding(bottomBarHeightPx)
-
-        supportFragmentManager.fragments.filterIsInstance<cn.edu.usst.jwgl.ui.wakeup.ScheduleWeekFragment>()
-            .forEach { it.applyContentPadding() }
-    }
-
-    private fun applyPhoneNavigationMode() {
-        if (isGuestMode) {
-            closeNavDrawer()
-            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
-            binding.blurViewBottomNav.visibility = View.GONE
-            binding.btnOpenDrawerTimetable.visibility = View.GONE
-            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
-            (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
-            binding.btnOpenDrawerProfile.visibility = View.GONE
-
-            binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
-
-            binding.rowDoubleTapDrawer.visibility = View.GONE
-            binding.dividerDoubleTapDrawer.visibility = View.GONE
-            applyContentBottomPadding()
-            return
-        }
-
-        if (isTabletLandscapeMode) {
-            binding.blurViewBottomNav.visibility = View.GONE
-            binding.rowPhoneNavMode.visibility = View.GONE
-            binding.dividerPhoneNavMode.visibility = View.GONE
-            binding.rowDoubleTapDrawer.visibility = View.GONE
-            binding.dividerDoubleTapDrawer.visibility = View.GONE
-            binding.cardBottomModeServices.visibility = View.GONE
-            return
-        }
-
-        val navMode = TimetableSettingHelper.getPhoneNavMode(this)
-        val isBottomMode = navMode == TimetableSettingHelper.NAV_MODE_BOTTOM
-
-        binding.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(navMode)
-        binding.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
-        binding.cardBottomModeServices.visibility = View.GONE
-
-        if (isBottomMode) {
-            closeNavDrawer()
-            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
-            binding.blurViewBottomNav.visibility = View.VISIBLE
-
-            // Hide top-left drawer hamburger icons on the main bottom-bar pages
-            binding.btnOpenDrawerTimetable.visibility = View.GONE
-            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
-            (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
-            binding.btnOpenDrawerProfile.visibility = View.GONE
-
-            // All 4 school features (全校查课 / 空教室 / 考试日程 / 成绩单与证明) are under "更多功能" with a Back arrow
-            binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.GONE
-
-            // Double-tap drawer option is only applicable in Sidebar mode
-            binding.rowDoubleTapDrawer.visibility = View.GONE
-            binding.dividerDoubleTapDrawer.visibility = View.GONE
-        } else {
-            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
-            binding.blurViewBottomNav.visibility = View.GONE
-
-            binding.btnOpenDrawerTimetable.visibility = View.VISIBLE
-            (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(true)
-            (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(true)
-            binding.btnOpenDrawerProfile.visibility = View.VISIBLE
-            binding.pageMoreFeatures.btnOpenDrawerMoreFeatures.visibility = View.VISIBLE
-
-            binding.rowDoubleTapDrawer.visibility = View.VISIBLE
-            binding.dividerDoubleTapDrawer.visibility = View.VISIBLE
-
-            if (currentTab == MainTab.MORE_FEATURES) {
-                switchTab(MainTab.TIMETABLE)
-            }
-        }
-
-        applyContentBottomPadding()
-    }
-
-    fun onTimetableEmptySpaceDoubleTapped(): Boolean {
-        if (isTabletLandscapeMode) return false
-        if (TimetableSettingHelper.getPhoneNavMode(this) != TimetableSettingHelper.NAV_MODE_DRAWER) return false
-        if (!TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)) return false
-        openNavDrawer()
-        return true
-    }
-
-    fun openNavDrawer() {
-        if (!isTabletLandscapeMode &&
-            !isPhoneBottomBarMode() &&
-            binding.layoutDrawer.root.parent == binding.drawerLayout
-        ) {
-            val drawerView = binding.layoutDrawer.root
-            if (drawerView.visibility != View.VISIBLE) {
-                drawerView.visibility = View.VISIBLE
-            }
-            binding.drawerLayout.openDrawer(GravityCompat.START)
-        }
-    }
-
-    private fun closeNavDrawer() {
-        if (!isTabletLandscapeMode && !isPhoneBottomBarMode() && binding.layoutDrawer.root.parent == binding.drawerLayout) {
-            binding.drawerLayout.closeDrawer(GravityCompat.START, false)
-        }
-    }
-
-    private fun isNavDrawerOpen(): Boolean {
-        return !isTabletLandscapeMode &&
-                binding.layoutDrawer.root.parent == binding.drawerLayout &&
-                binding.drawerLayout.isDrawerVisible(GravityCompat.START)
-    }
-
-    private fun setupTabletLandscapeLayout(config: Configuration? = null) {
-        isTabletLandscapeMode = TabletLayoutHelper.isTabletLandscape(this, config)
-        if (!isTabletLandscapeMode) return
-
-        val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
-
-        // 若抽屉处于展开态，先无动画闭合
-        binding.drawerLayout.closeDrawer(GravityCompat.START, false)
-
-        // 1. 常驻左侧导航栏 (Permanent Left Side Navigation)
-        val drawerView = binding.layoutDrawer.root
-        (drawerView.parent as? ViewGroup)?.removeView(drawerView)
-
-        // 彻底复位 DrawerLayout 残留的所有滑动偏移、平移与可见性状态，杜绝侧栏空白
-        drawerView.visibility = View.VISIBLE
-        drawerView.translationX = 0f
-        drawerView.translationY = 0f
-        drawerView.alpha = 1f
-
-        binding.permanentSidebarContainer.removeAllViews()
-        binding.permanentSidebarContainer.addView(
-            drawerView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-        binding.permanentSidebarContainer.visibility = View.VISIBLE
-        binding.viewPermanentSidebarDivider.visibility = View.VISIBLE
-        binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
-        binding.permanentSidebarContainer.requestLayout()
-        drawerView.requestLayout()
-
-        // 隐藏各页面顶栏左上角汉堡包菜单图标
-        binding.btnOpenDrawerTimetable.visibility = View.GONE
-        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
-        (supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
-        binding.btnOpenDrawerProfile.visibility = View.GONE
-
-        // 3. 双栏主从视图 (Two-Pane Master-Detail Layouts)
-        // 3a. 学业情况查询 (委托给 GradesFragment)
-        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
-            ?.updateTabletLandscapeMode(true)
-
-        // 3b. 个人与设置 (左：学生名片 + 学籍档案；右：外观提醒设置 + 系统更新 + 退出登录)
-        binding.llProfileBody.orientation = LinearLayout.HORIZONTAL
-        binding.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.42f
-        ).apply {
-            marginEnd = dp(16f)
-        }
-        binding.llProfileRightPane.layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            0.58f
-        )
-        (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
-
-        binding.headerTimetableContainer.post {
-            alignLandscapeTimetableTopBarWithSidebar()
-        }
-    }
-
-    /**
-     * 将横屏平板模式下课表顶栏底部边界对齐至左侧栏用户信息下方分割线。
-     */
-    private fun alignLandscapeTimetableTopBarWithSidebar() {
-        val density = resources.displayMetrics.density
-        val baseTopPad = lastStatusBarTopPx + (8 * density).toInt()
-        val baseBottomPad = (6 * density).toInt()
-
-        if (!isTabletLandscapeMode ||
-            binding.layoutDrawer.cardDrawerProfileHeader.visibility != View.VISIBLE ||
-            binding.layoutDrawer.dividerDrawerProfileHeader.visibility != View.VISIBLE
-        ) {
-            if (timetableLandscapeExtraPadPx != 0) {
-                timetableLandscapeExtraPadPx = 0
-                binding.headerTimetable.setPadding(
-                    binding.headerTimetable.paddingLeft,
-                    baseTopPad,
-                    binding.headerTimetable.paddingRight,
-                    baseBottomPad
-                )
-            }
-            return
-        }
-
-        val sidebarDividerBottom = binding.layoutDrawer.dividerDrawerProfileHeader.bottom
-        val currentHeaderHeight = binding.headerTimetableContainer.height
-        if (sidebarDividerBottom <= 0 || currentHeaderHeight <= 0) return
-
-        val naturalHeaderHeight = currentHeaderHeight - timetableLandscapeExtraPadPx
-        val desiredExtra = (sidebarDividerBottom - naturalHeaderHeight).coerceAtLeast(0)
-        if (desiredExtra != timetableLandscapeExtraPadPx ||
-            binding.headerTimetable.paddingBottom != baseBottomPad + desiredExtra
-        ) {
-            timetableLandscapeExtraPadPx = desiredExtra
-            binding.headerTimetable.setPadding(
-                binding.headerTimetable.paddingLeft,
-                baseTopPad,
-                binding.headerTimetable.paddingRight,
-                baseBottomPad + desiredExtra
-            )
-        }
-    }
-
-    /**
-     * 屏幕旋转或侧栏显隐导致 ViewPager2 宽度变化时，强制将内部 RecyclerView 精准对齐当前周页，避免卡在半页位置。
-     */
-    private fun snapSchedulePagerToCurrentItem(targetPos: Int = binding.vpSchedule.currentItem) {
-        val pager = binding.vpSchedule
-        if (pager.adapter == null || pager.width <= 0) return
-        val count = pager.adapter?.itemCount ?: 0
-        if (count <= 0) return
-        val clampedPos = targetPos.coerceIn(0, count - 1)
-        if (pager.currentItem != clampedPos) {
-            pager.setCurrentItem(clampedPos, false)
-        }
-        val rv = pager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
-        val lm = rv.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return
-        lm.scrollToPositionWithOffset(clampedPos, 0)
-        pager.requestTransform()
-    }
-
-    private fun restorePortraitLayout() {
-        isTabletLandscapeMode = false
-        val dp = { v: Float -> TabletLayoutHelper.dpToPx(this, v) }
-
-        // 1. 恢复侧边栏至抽屉
-        val drawerView = binding.layoutDrawer.root
-        (drawerView.parent as? ViewGroup)?.removeView(drawerView)
-
-        val drawerWidthPx = (310 * resources.displayMetrics.density).toInt()
-        val screenHeight = resources.displayMetrics.heightPixels
-
-        // 强制重设 drawerView 测量尺寸与初始布局，将其完整置于屏幕左外侧 (-drawerWidthPx, 0, 0, height)
-        // 消除从 permanentSidebarContainer (265dp) 带出的残留尺寸 530px 与旧坐标
-        val widthSpec = View.MeasureSpec.makeMeasureSpec(drawerWidthPx, View.MeasureSpec.EXACTLY)
-        val heightSpec = View.MeasureSpec.makeMeasureSpec(screenHeight, View.MeasureSpec.EXACTLY)
-        drawerView.measure(widthSpec, heightSpec)
-        drawerView.layout(-drawerWidthPx, 0, 0, screenHeight)
-
-        drawerView.translationX = 0f
-        drawerView.translationY = 0f
-        drawerView.alpha = 1f
-        val isBottomMode = isPhoneBottomBarMode()
-        if (isBottomMode) {
-            drawerView.visibility = View.GONE
-            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
-        } else {
-            // 设置为 INVISIBLE 使 DrawerLayout 在初始测量与排版时计算其尺寸并将 left 放置在屏幕左侧外 (-drawerWidthPx)，排版后彻底不可见
-            drawerView.visibility = View.INVISIBLE
-            binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
-        }
-
-        val lp = androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
-            drawerWidthPx,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            GravityCompat.START
-        )
-        binding.drawerLayout.addView(drawerView, lp)
-        binding.permanentSidebarContainer.visibility = View.GONE
-        binding.viewPermanentSidebarDivider.visibility = View.GONE
-
-        if (!isBottomMode) {
-            // 仅在抽屉模式下调用 closeDrawer，避免 closeDrawer 将底栏模式下设为 GONE 的视图覆盖为 INVISIBLE
-            binding.drawerLayout.closeDrawer(GravityCompat.START, false)
-        }
-
-        drawerView.post {
-            if (!isTabletLandscapeMode && binding.layoutDrawer.root.parent == binding.drawerLayout) {
-                if (isBottomMode) {
-                    drawerView.visibility = View.GONE
-                } else {
-                    binding.drawerLayout.closeDrawer(GravityCompat.START, false)
-                    if (!binding.drawerLayout.isDrawerVisible(GravityCompat.START)) {
-                        drawerView.visibility = View.GONE
-                    }
-                }
-            }
-        }
-
-        /* 3. Restore two-pane to vertical */
-        (supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
-            ?.updateTabletLandscapeMode(false)
-
-        binding.llProfileBody.orientation = LinearLayout.VERTICAL
-        binding.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            marginEnd = 0
-        }
-        binding.llProfileRightPane.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-        (binding.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
-        timetableLandscapeExtraPadPx = 0
-        val density = resources.displayMetrics.density
-        binding.headerTimetable.setPadding(
-            binding.headerTimetable.paddingLeft,
-            lastStatusBarTopPx + (8 * density).toInt(),
-            binding.headerTimetable.paddingRight,
-            (6 * density).toInt()
-        )
-    }
-
+    internal fun isPhoneBottomBarMode(): Boolean = adaptiveLayoutController.isPhoneBottomBarMode()
+    private fun applyContentBottomPadding() = adaptiveLayoutController.applyContentBottomPadding()
+    internal fun applyPhoneNavigationMode() = adaptiveLayoutController.applyPhoneNavigationMode()
+    fun onTimetableEmptySpaceDoubleTapped(): Boolean = adaptiveLayoutController.onTimetableEmptySpaceDoubleTapped()
+    fun openNavDrawer() = adaptiveLayoutController.openNavDrawer()
+    private fun closeNavDrawer() = adaptiveLayoutController.closeNavDrawer()
+    private fun isNavDrawerOpen(): Boolean = adaptiveLayoutController.isNavDrawerOpen()
+    private fun setupTabletLandscapeLayout(config: Configuration? = null) = adaptiveLayoutController.setupTabletLandscapeLayout(config)
+    private fun alignLandscapeTimetableTopBarWithSidebar() = adaptiveLayoutController.alignLandscapeTimetableTopBarWithSidebar()
+    private fun snapSchedulePagerToCurrentItem(targetPos: Int = binding.vpSchedule.currentItem) = adaptiveLayoutController.snapSchedulePagerToCurrentItem(targetPos)
+    private fun restorePortraitLayout() = adaptiveLayoutController.restorePortraitLayout()
     override fun onConfigurationChanged(newConfig: Configuration) {
         val preservedSchedulePos = if (isInitialWeekLocated && binding.vpSchedule.adapter != null) {
             binding.vpSchedule.currentItem
@@ -998,9 +667,16 @@ class MainActivity : AppCompatActivity() {
         outState.putString(KEY_SAVED_TAB_NAME, (currentTab ?: MainTab.TIMETABLE).name)
     }
 
+    private var isFirstResumeAfterCreate = true
+
     override fun onResume() {
         super.onResume()
-        reloadTimetableFromDb()
+        val isFirstResume = isFirstResumeAfterCreate
+        isFirstResumeAfterCreate = false
+
+        if (!isFirstResume) {
+            reloadTimetableFromDb()
+        }
         updateReminderSubtitles()
         ApkDownloadHelper.pendingInstallApkFile?.let { apk ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
@@ -1015,11 +691,15 @@ class MainActivity : AppCompatActivity() {
         } else if (RemoteConfigManager.shouldPerformDailySync(this)) {
             syncRemoteConfig(isManual = false)
         }
-        if (TronClassPreferences.getInstance(this).isRollcallMonitorEnabled()) {
-            RollcallMonitorScheduler.checkAndSchedule(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (TronClassPreferences.getInstance(this@MainActivity).isRollcallMonitorEnabled()) {
+                RollcallMonitorScheduler.checkAndSchedule(this@MainActivity)
+            }
+            if (!isFirstResume) {
+                cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this@MainActivity)
+                cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this@MainActivity)
+            }
         }
-        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this)
-        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this)
     }
 
     override fun onStop() {
@@ -1154,6 +834,46 @@ class MainActivity : AppCompatActivity() {
 
         if (intent.getBooleanExtra("extra_open_drawer", false)) {
             openNavDrawer()
+        }
+
+        val widgetClickType = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_WIDGET_CLICK_TYPE)
+        if (widgetClickType == cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.CLICK_TYPE_TODO) {
+            val platform = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_PLATFORM)
+            val todoId = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_TODO_ID).orEmpty()
+            val courseId = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_COURSE_ID).orEmpty()
+            val classId = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_CLASS_ID).orEmpty()
+            val title = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_TITLE).orEmpty()
+            val courseName = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_COURSE_NAME).orEmpty()
+            val detailUrl = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_DETAIL_URL).orEmpty()
+
+            if (platform == cn.edu.usst.jwgl.data.model.LearningPlatform.CHAOXING.name) {
+                val safeUrl = detailUrl.ifBlank {
+                    "https://mooc1.chaoxing.com/work/phone/work?courseId=$courseId&classId=$classId&workId=$todoId"
+                }
+                JwglWebActivity.start(this, safeUrl, title.ifBlank { "学习通作业" })
+            } else {
+                val actId = todoId.toLongOrNull() ?: 0L
+                val cid = courseId.toLongOrNull() ?: 0L
+                if (actId > 0L) {
+                    val hwIntent = Intent(this, cn.edu.usst.jwgl.ui.tronclass.TronClassHomeworkActivity::class.java).apply {
+                        putExtra("extra_activity_id", actId)
+                        putExtra("extra_course_id", cid)
+                        putExtra("extra_title", title)
+                        putExtra("extra_course_name", courseName)
+                    }
+                    startActivity(hwIntent)
+                } else {
+                    switchTab(MainTab.TRONCLASS)
+                }
+            }
+        } else if (widgetClickType == cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.CLICK_TYPE_NOTICE) {
+            switchTab(MainTab.TRONCLASS)
+            val bulletinId = intent.getStringExtra(cn.edu.usst.jwgl.widget.TodayScheduleWidgetService.EXTRA_BULLETIN_ID)
+            if (!bulletinId.isNullOrBlank()) {
+                binding.root.postDelayed({
+                    getTronClassFragment()?.openBulletinFromWidget(bulletinId)
+                }, 350)
+            }
         }
 
         if (intent.getBooleanExtra("extra_set_disclaimer_agreed", false)) {
@@ -1446,7 +1166,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateWeekSelectionUI(week: Int) {
+    internal fun updateWeekSelectionUI(week: Int) {
         val table = currentTable ?: return
         val realCurrentWeek = CourseUtils.countWeek(table.startDate)
         val isCurrent = (week == realCurrentWeek)
@@ -1464,7 +1184,7 @@ class MainActivity : AppCompatActivity() {
         GRADE_REPORTS,
         PROFILE
     }
-    private var currentTab: MainTab? = null
+    internal var currentTab: MainTab? = null
 
     fun switchTab(tab: MainTab, force: Boolean = false) {
         if (!force && currentTab == tab) {
@@ -1587,146 +1307,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateBottomNavActiveTab(tab: MainTab) {
-        val primaryCol = ContextCompat.getColor(this, R.color.primary)
-        val secondaryCol = ContextCompat.getColor(this, R.color.text_secondary)
-        val primaryTint = android.content.res.ColorStateList.valueOf(primaryCol)
-        val secondaryTint = android.content.res.ColorStateList.valueOf(secondaryCol)
-
-        fun setBottomTabStyle(pill: FrameLayout, icon: ImageView, label: TextView, isActive: Boolean) {
-            val wasActive = pill.tag as? Boolean
-            if (wasActive == isActive) return // 状态未改变时直接跳过，杜绝多余的 requestLayout 和背景重置
-            pill.tag = isActive
-
-            if (isActive) {
-                pill.setBackgroundResource(R.drawable.bg_bottom_nav_pill)
-                icon.imageTintList = primaryTint
-                label.setTextColor(primaryCol)
-                label.typeface = android.graphics.Typeface.DEFAULT_BOLD
-            } else {
-                pill.background = null
-                icon.imageTintList = secondaryTint
-                label.setTextColor(secondaryCol)
-                label.typeface = android.graphics.Typeface.DEFAULT
-            }
-        }
-
-        val isMoreSection = tab == MainTab.MORE_FEATURES ||
-                tab == MainTab.COURSE_SEARCH ||
-                tab == MainTab.FREE_CLASSROOM ||
-                tab == MainTab.EXAM_QUERY ||
-                tab == MainTab.GRADE_REPORTS
-
-        setBottomTabStyle(
-            binding.flBottomPillTimetable,
-            binding.ivBottomTimetable,
-            binding.tvBottomTimetable,
-            tab == MainTab.TIMETABLE
-        )
-        setBottomTabStyle(
-            binding.flBottomPillGrades,
-            binding.ivBottomGrades,
-            binding.tvBottomGrades,
-            tab == MainTab.GRADES
-        )
-        setBottomTabStyle(
-            binding.flBottomPillTronClass,
-            binding.ivBottomTronClass,
-            binding.tvBottomTronClass,
-            tab == MainTab.TRONCLASS
-        )
-        setBottomTabStyle(
-            binding.flBottomPillMore,
-            binding.ivBottomMore,
-            binding.tvBottomMore,
-            isMoreSection
-        )
-        setBottomTabStyle(
-            binding.flBottomPillProfile,
-            binding.ivBottomProfile,
-            binding.tvBottomProfile,
-            tab == MainTab.PROFILE
-        )
-    }
-
-    private fun updateDrawerActiveTab(tab: MainTab) {
-        val typedValue = android.util.TypedValue()
-        theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
-        val defaultBg = typedValue.resourceId
-        val primaryCol = ContextCompat.getColor(this, R.color.primary)
-        val textPrimaryCol = ContextCompat.getColor(this, R.color.text_primary)
-        val textSecondaryCol = ContextCompat.getColor(this, R.color.text_secondary)
-        val primaryTint = android.content.res.ColorStateList.valueOf(primaryCol)
-        val secondaryTint = android.content.res.ColorStateList.valueOf(textSecondaryCol)
-
-        fun setNavActive(layout: LinearLayout, icon: ImageView, text: TextView, isActive: Boolean) {
-            val wasActive = layout.tag as? Boolean
-            if (wasActive == isActive) return
-            layout.tag = isActive
-
-            if (isActive) {
-                layout.setBackgroundResource(R.drawable.bg_drawer_active)
-                text.setTextColor(primaryCol)
-                text.typeface = android.graphics.Typeface.DEFAULT_BOLD
-                icon.imageTintList = primaryTint
-            } else {
-                layout.setBackgroundResource(defaultBg)
-                text.setTextColor(textPrimaryCol)
-                text.typeface = android.graphics.Typeface.DEFAULT
-                icon.imageTintList = secondaryTint
-            }
-        }
-
-        setNavActive(
-            binding.layoutDrawer.drawerNavTimetable,
-            binding.layoutDrawer.ivNavTimetable,
-            binding.layoutDrawer.tvNavTimetable,
-            tab == MainTab.TIMETABLE
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerNavGrades,
-            binding.layoutDrawer.ivNavGrades,
-            binding.layoutDrawer.tvNavGrades,
-            tab == MainTab.GRADES
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerNavTronClass,
-            binding.layoutDrawer.ivNavTronClass,
-            binding.layoutDrawer.tvNavTronClass,
-            tab == MainTab.TRONCLASS
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerItemSchoolSearch,
-            binding.layoutDrawer.ivDrawerSchoolSearch,
-            binding.layoutDrawer.tvDrawerSchoolSearchTitle,
-            tab == MainTab.COURSE_SEARCH
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerItemFreeClassroom,
-            binding.layoutDrawer.ivDrawerFreeClassroom,
-            binding.layoutDrawer.tvDrawerFreeClassroomTitle,
-            tab == MainTab.FREE_CLASSROOM
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerItemExamQuery,
-            binding.layoutDrawer.ivDrawerExamQuery,
-            binding.layoutDrawer.tvDrawerExamQueryTitle,
-            tab == MainTab.EXAM_QUERY
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerItemGradeReports,
-            binding.layoutDrawer.ivDrawerGradeReports,
-            binding.layoutDrawer.tvDrawerGradeReportsTitle,
-            tab == MainTab.GRADE_REPORTS
-        )
-        setNavActive(
-            binding.layoutDrawer.drawerNavProfile,
-            binding.layoutDrawer.ivNavProfile,
-            binding.layoutDrawer.tvNavProfile,
-            tab == MainTab.PROFILE
-        )
-    }
-
+    private fun updateBottomNavActiveTab(tab: MainTab) = adaptiveLayoutController.updateBottomNavActiveTab(tab)
+    private fun updateDrawerActiveTab(tab: MainTab) = adaptiveLayoutController.updateDrawerActiveTab(tab)
     private fun setupViews() {
         updateDrawerProfileHeaderVisibility()
 
@@ -2098,72 +1680,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showWeekPickerDialog() {
-        val table = currentTable ?: return
-        val realCurrentWeek = CourseUtils.countWeek(table.startDate)
-        val maxWeek = table.maxWeek
-        val options = Array(maxWeek) { i ->
-            val w = i + 1
-            if (w == realCurrentWeek) "第 $w 周 (本周)" else "第 $w 周"
-        }
-        val currentIdx = (currentWeek - 1).coerceIn(0, maxWeek - 1)
-
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle("切换周次 (共 ${maxWeek} 周)")
-            .setSingleChoiceItems(options, currentIdx) { dialog, which ->
-                val targetWeek = which + 1
-                currentWeek = targetWeek
-                binding.vpSchedule.setCurrentItem(targetWeek - 1, true)
-                updateWeekSelectionUI(targetWeek)
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-
-        if (currentWeek != realCurrentWeek && realCurrentWeek in 1..maxWeek) {
-            builder.setNeutralButton("回到本周") { dialog, _ ->
-                currentWeek = realCurrentWeek
-                binding.vpSchedule.setCurrentItem(realCurrentWeek - 1, true)
-                updateWeekSelectionUI(realCurrentWeek)
-                dialog.dismiss()
-            }
-        }
-
-        builder.safeShow()
-    }
-
-    private fun showFontSizeDialog() {
-        val table = currentTable ?: return
-        val options = arrayOf(
-            "紧凑 (48dp / 10sp)",
-            "标准 (56dp / 11sp)",
-            "宽松 (64dp / 12sp)",
-            "大号 (72dp / 13sp)"
-        )
-        val configs = arrayOf(
-            Pair(48, 10),
-            Pair(56, 11),
-            Pair(64, 12),
-            Pair(72, 13)
-        )
-
-        var currentIdx = configs.indexOfFirst { it.first == table.itemHeight }
-        if (currentIdx == -1) currentIdx = 1
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("课表格子大小")
-            .setSingleChoiceItems(options, currentIdx) { dialog, which ->
-                val (height, textSize) = configs[which]
-                table.itemHeight = height
-                table.itemTextSize = textSize
-                db.tableDao.updateTable(table)
-                scheduleAdapter?.refreshAllFragments()
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun updateWeekHeaderDates(week: Int) {
+    private fun showWeekPickerDialog() = settingsDialogController.showWeekPickerDialog()
+    private fun showFontSizeDialog() = settingsDialogController.showFontSizeDialog()
+    internal fun updateWeekHeaderDates(week: Int) {
         val table = currentTable ?: return
         val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)
         val todayWeekday = CourseUtils.getTodayWeekdayInt()
@@ -2283,7 +1802,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateDrawerProfileHeaderVisibility() {
+    internal fun updateDrawerProfileHeaderVisibility() {
         val isEnabled = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
         if (isEnabled && !isGuestMode) {
             binding.layoutDrawer.cardDrawerProfileHeader.visibility = View.VISIBLE
@@ -2350,322 +1869,14 @@ class MainActivity : AppCompatActivity() {
         binding.tvGender.text = profile.gender.ifEmpty { "--" }
     }
 
-    private fun showDarkModeDialog() {
-        val options = arrayOf("跟随系统 (默认)", "浅色模式", "深色模式")
-        val currentMode = ThemeManager.getThemeMode(this)
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("深色模式")
-            .setSingleChoiceItems(options, currentMode) { dialog, which ->
-                ThemeManager.setThemeMode(this, which)
-                binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(which)
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showPhoneNavModeDialog() {
-        val options = arrayOf(
-            "侧栏模式 (左滑/双击课表空白处呼出)",
-            "底栏模式 (底部常驻四栏导航)"
-        )
-        val currentMode = TimetableSettingHelper.getPhoneNavMode(this)
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("导航栏模式 (手机)")
-            .setSingleChoiceItems(options, currentMode) { dialog, which ->
-                TimetableSettingHelper.setPhoneNavMode(this, which)
-                applyPhoneNavigationMode()
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun updateReminderSubtitles() {
-        val courseMins = CourseReminderManager.getCourseReminderAdvanceMinutes(this)
-        val courseMinsStr = CourseReminderManager.formatAdvanceMinutes(courseMins)
-        binding.tvCourseReminderSubtitle.text = if (CourseReminderManager.isReminderEnabled(this)) {
-            "提前 $courseMinsStr · 点击修改"
-        } else {
-            "已关闭 · 点击可设置提前时长"
-        }
-
-        val examMins = CourseReminderManager.getExamReminderAdvanceMinutes(this)
-        val examMinsStr = CourseReminderManager.formatAdvanceMinutes(examMins)
-        binding.tvExamReminderSubtitle.text = if (CourseReminderManager.isExamReminderEnabled(this)) {
-            "提前 $examMinsStr · 点击修改"
-        } else {
-            "已关闭 · 点击可设置提前时长"
-        }
-
-        val tcPrefs = TronClassPreferences(this)
-        binding.tvTronClassDdl24hSubtitle.text = if (tcPrefs.isDdlReminder24hEnabled()) {
-            "截止前 24 小时首轮预警"
-        } else {
-            "已关闭首轮预警"
-        }
-
-        val urgentHours = tcPrefs.getDdlReminderUrgentHours()
-        binding.tvTronClassDdlUrgentSubtitle.text = if (tcPrefs.isDdlReminderUrgentEnabled()) {
-            "提前 $urgentHours 小时 · 点击设置"
-        } else {
-            "已关闭 · 点击可设置提前时长"
-        }
-
-        val isMonitorEnabled = tcPrefs.isRollcallMonitorEnabled()
-        binding.tvRollcallMonitorSubtitle.text = if (isMonitorEnabled) {
-            "已开启 · 上课时驻留后台检测签到活动"
-        } else {
-            "已关闭 · 上课时驻留后台检测签到活动"
-        }
-
-        val isDevMode = DeveloperModeManager.isDeveloperMode(this)
-        binding.rowRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        binding.dividerRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
-
-        val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
-        val strategyDisplay = tcPrefs.getRollcallAutoSignStrategyDisplayName()
-        binding.switchRollcallAutoSign.isEnabled = isMonitorEnabled
-        binding.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
-        binding.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
-            "未启用 · 需先开启上方的上课签到后台监听"
-        } else if (isAutoSignEnabled) {
-            "已开启 · 触发策略：$strategyDisplay (点击设置)"
-        } else {
-            "已关闭 · 仅后台监听并发通知，不自动提交签到"
-        }
-
-        val isPopupEnabled = tcPrefs.isRollcallPopupEnabled()
-        val hasOverlay = NotificationDiagnosticHelper.isOverlayPermissionGranted(this)
-        binding.switchRollcallPopup.isChecked = isPopupEnabled
-        binding.tvRollcallPopupSubtitle.text = if (isPopupEnabled) {
-            if (hasOverlay) "已开启 · 亮屏并在桌面居中提醒"
-            else "已开启 · 锁屏点亮提醒 (桌面展示需悬浮窗权限)"
-        } else {
-            "已关闭 · 仅通过通知栏提醒"
-        }
-
-        val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(this)
-        binding.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
-            "已开启高优先级闹钟 · 状态栏常驻 ⏰ 图标，准时提醒"
-        } else {
-            "标准模式 · 息屏较久时可能出现轻微延迟"
-        }
-    }
-
-    private fun showCourseReminderAdvanceDialog() {
-        val options = arrayOf(
-            "提前 5 分钟",
-            "提前 10 分钟",
-            "提前 15 分钟 (推荐)",
-            "提前 20 分钟",
-            "提前 30 分钟",
-            "提前 45 分钟",
-            "提前 1 小时"
-        )
-        val values = intArrayOf(5, 10, 15, 20, 30, 45, 60)
-        val currentMins = CourseReminderManager.getCourseReminderAdvanceMinutes(this)
-        var selectedIdx = values.indexOf(currentMins).let { if (it >= 0) it else 2 }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("课前提醒时间")
-            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
-                val chosenMins = values[which]
-                CourseReminderManager.setCourseReminderAdvanceMinutes(this, chosenMins)
-                updateReminderSubtitles()
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showExamReminderAdvanceDialog() {
-        val options = arrayOf(
-            "提前 15 分钟",
-            "提前 30 分钟 (推荐)",
-            "提前 45 分钟",
-            "提前 1 小时",
-            "提前 2 小时",
-            "提前 3 小时",
-            "提前 1 天 (24小时)"
-        )
-        val values = intArrayOf(15, 30, 45, 60, 120, 180, 1440)
-        val currentMins = CourseReminderManager.getExamReminderAdvanceMinutes(this)
-        var selectedIdx = values.indexOf(currentMins).let { if (it >= 0) it else 1 }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("考前提醒时间")
-            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
-                val chosenMins = values[which]
-                CourseReminderManager.setExamReminderAdvanceMinutes(this, chosenMins)
-                updateReminderSubtitles()
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showTronClassDdlUrgentAdvanceDialog() {
-        val options = arrayOf(
-            "提前 1 小时",
-            "提前 2 小时 (推荐)",
-            "提前 3 小时"
-        )
-        val values = intArrayOf(1, 2, 3)
-        val tcPrefs = TronClassPreferences(this)
-        val currentHours = tcPrefs.getDdlReminderUrgentHours()
-        val selectedIdx = values.indexOf(currentHours).let { if (it >= 0) it else 1 }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("作业临期提醒时间")
-            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
-                val chosenHours = values[which]
-                tcPrefs.setDdlReminderUrgentHours(chosenHours)
-                updateReminderSubtitles()
-                TronClassDdlScheduler.scheduleFromPreferences(this)
-                dialog.dismiss()
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showRollcallAutoSignDelayDialog() {
-        val options = arrayOf(
-            "不延迟",
-            "延迟10秒",
-            "延迟30秒",
-            "有1人签到时",
-            "有10人签到时 (默认)",
-            "有一半人签到时",
-            "自定义时间",
-            "自定义签到人数比例"
-        )
-        val tcPrefs = TronClassPreferences.getInstance(this)
-        val selectedIdx = tcPrefs.getRollcallAutoSignStrategyIndex()
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("自动签到时延与触发策略")
-            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
-                when (which) {
-                    0 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_NO_DELAY)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
-                    }
-                    1 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_10S)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
-                    }
-                    2 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_30S)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
-                    }
-                    3 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_1)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
-                    }
-                    4 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_10)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
-                    }
-                    5 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_HALF_CLASS)
-                        updateReminderSubtitles()
-                        dialog.dismiss()
-                    }
-                    6 -> {
-                        dialog.dismiss()
-                        showCustomRollcallAutoSignTimeDialog()
-                    }
-                    7 -> {
-                        dialog.dismiss()
-                        showCustomRollcallAutoSignRatioDialog()
-                    }
-                }
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showCustomRollcallAutoSignTimeDialog() {
-        val tcPrefs = TronClassPreferences.getInstance(this)
-        val currentSeconds = tcPrefs.getRollcallAutoSignCustomSeconds()
-        val input = android.widget.EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(currentSeconds.toString())
-            setSelection(text.length)
-            hint = "请输入 0 到 300 之间的秒数"
-        }
-
-        val container = android.widget.FrameLayout(this).apply {
-            val padding = (24 * resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("自定义自动签到时延 (秒)")
-            .setMessage("设定自首次发现签到活动至开始尝试自动提交的等待时间（0 - 300 秒）：")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 0..300) {
-                    Toast.makeText(this, "请输入 0 到 300 之间的秒数", Toast.LENGTH_SHORT).show()
-                } else {
-                    tcPrefs.setRollcallAutoSignCustomSeconds(entered)
-                    tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_TIME)
-                    updateReminderSubtitles()
-                }
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showCustomRollcallAutoSignRatioDialog() {
-        val tcPrefs = TronClassPreferences.getInstance(this)
-        val currentRatio = tcPrefs.getRollcallAutoSignCustomRatio()
-        val input = android.widget.EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(currentRatio.toString())
-            setSelection(text.length)
-            hint = "请输入 1 到 100 之间的整数百分比"
-        }
-
-        val container = android.widget.FrameLayout(this).apply {
-            val padding = (24 * resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("自定义签到人数比例 (%)")
-            .setMessage("设定当班级已出勤人数达到指定比例后跟进提交（1% - 100%）：")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 1..100) {
-                    Toast.makeText(this, "请输入 1 到 100 之间的百分比", Toast.LENGTH_SHORT).show()
-                } else {
-                    tcPrefs.setRollcallAutoSignCustomRatio(entered)
-                    tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_RATIO)
-                    updateReminderSubtitles()
-                }
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showNotificationSettingsDialog() {
-        val bottomSheet = cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet()
-        bottomSheet.show(supportFragmentManager, "NotificationDiagnostic")
-    }
-
+    private fun showDarkModeDialog() = settingsDialogController.showDarkModeDialog()
+    private fun showPhoneNavModeDialog() = settingsDialogController.showPhoneNavModeDialog()
+    private fun updateReminderSubtitles() = settingsDialogController.updateReminderSubtitles()
+    private fun showCourseReminderAdvanceDialog() = settingsDialogController.showCourseReminderAdvanceDialog()
+    private fun showExamReminderAdvanceDialog() = settingsDialogController.showExamReminderAdvanceDialog()
+    private fun showTronClassDdlUrgentAdvanceDialog() = settingsDialogController.showTronClassDdlUrgentAdvanceDialog()
+    private fun showRollcallAutoSignDelayDialog() = settingsDialogController.showRollcallAutoSignDelayDialog()
+    private fun showNotificationSettingsDialog() = settingsDialogController.showNotificationSettingsDialog()
     private fun refreshProfile() {
         binding.swipeRefreshProfile.isRefreshing = true
         lifecycleScope.launch {
@@ -2988,103 +2199,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) {
-        val existing = supportFragmentManager.findFragmentByTag(AuthorDisclaimerBottomSheet.TAG) as? AuthorDisclaimerBottomSheet
-        existing?.dismiss()
-        val sheet = AuthorDisclaimerBottomSheet.newInstance(allowDismiss = allowDismiss).apply {
-            onAgreedListener = {
-                AuthPreferences(this@MainActivity).setDisclaimerAgreed(true)
-            }
-            onDisagreedListener = {
-                finishAffinity()
-            }
-        }
-        sheet.show(supportFragmentManager, AuthorDisclaimerBottomSheet.TAG)
-    }
-
-    private var isSyncingConfig = false
-
-    private fun syncRemoteConfig(isManual: Boolean, force: Boolean = false) {
-        if (isSyncingConfig) return
-        if (!isManual && !force && !RemoteConfigManager.shouldPerformDailySync(this)) {
-            Log.d("MainActivity", "Daily sync already completed today (${RemoteConfigManager.getLastDailySyncDate(this)}), skipping")
-            return
-        }
-
-        isSyncingConfig = true
-        val wasDailySyncPending = RemoteConfigManager.shouldPerformDailySync(this)
-        lifecycleScope.launch {
-            try {
-                val result = RemoteConfigManager.fetchConfig(this@MainActivity)
-                result.onSuccess { config ->
-                    RemoteConfigManager.markDailySyncCompleted(this@MainActivity)
-                    binding.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
-                    val semConfig = config.semesterConfig
-                    binding.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
-
-                    // Calibrate all local tables' start dates and weeks
-                    val calibrated = RemoteConfigManager.calibrateTablesAndSync(this@MainActivity, config)
-                    if (calibrated) {
-                        val allTables = db.tableDao.getAllTables()
-                        val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
-                        if (autoTarget != null) {
-                            db.tableDao.setDefaultTable(autoTarget.table.id)
-                            currentTable = autoTarget.table
-                            currentWeek = autoTarget.week
-                        }
-                        reloadTimetableFromDb()
-                        Toast.makeText(this@MainActivity, "已根据最新校历与调休安排自动校准课表", Toast.LENGTH_SHORT).show()
-                    } else {
-                        scheduleAdapter?.refreshAllFragments()
-                    }
-
-                    // Update reminders according to holidays & adjustments
-                    CourseReminderManager.scheduleUpcomingReminders(this@MainActivity)
-
-                    if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
-                        showUpdateDialog(config.appVersion, isManual = isManual)
-                    } else if (isManual) {
-                        Toast.makeText(this@MainActivity, "当前已是最新版本，校历与调休配置已同步", Toast.LENGTH_SHORT).show()
-                    } else if (wasDailySyncPending) {
-                        // Daily first launch check: if there is an adjustment today, give a friendly reminder
-                        val todayStr = RemoteConfigManager.getTodayDateString()
-                        val todayAdjustments = RemoteConfigManager.getAdjustmentsForDate(todayStr)
-                        if (todayAdjustments.isNotEmpty()) {
-                            val adj = todayAdjustments.first()
-                            val msg = if (adj.type == "HOLIDAY_OFF") "今日【${adj.name}】放假停课" else "今日调休: ${adj.remark}"
-                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }.onFailure { error ->
-                    Log.e("MainActivity", "Remote config sync failed", error)
-                    if (RemoteConfigManager.isUpdateAvailable(BuildConfig.VERSION_CODE) &&
-                        RemoteConfigManager.getLatestVersion().forceUpdate
-                    ) {
-                        showUpdateDialog(RemoteConfigManager.getLatestVersion(), isManual = false)
-                    } else if (isManual) {
-                        val msg = if (error is com.google.gson.JsonSyntaxException) "云端配置文件格式错误(JSON语法)" else "同步云端配置失败: ${error.message ?: "请检查网络"}"
-                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                    }
-                }
-            } finally {
-                isSyncingConfig = false
-            }
-        }
-    }
-
-    private fun showUpdateDialog(versionInfo: AppVersionInfo, isManual: Boolean = false) {
-        UpdateDialogHelper.showUpdateDialog(this, versionInfo, forceShow = isManual)
-    }
-
-    private fun MaterialAlertDialogBuilder.safeShow() {
-        if (!this@MainActivity.isFinishing && !this@MainActivity.isDestroyed) {
-            try {
-                show()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
+    private fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) = settingsDialogController.showAuthorDisclaimerDialog(allowDismiss)
+    private fun syncRemoteConfig(isManual: Boolean, force: Boolean = false) = settingsDialogController.syncRemoteConfig(isManual, force)
+    private fun showUpdateDialog(versionInfo: AppVersionInfo, isManual: Boolean = false) = settingsDialogController.showUpdateDialog(versionInfo, isManual)
 
     // ==========================================
     // --- 9. TronClass Native Embedded Page ---
