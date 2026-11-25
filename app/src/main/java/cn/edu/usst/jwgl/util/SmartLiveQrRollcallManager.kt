@@ -5,10 +5,10 @@ import android.graphics.Bitmap
 import android.util.Log
 import cn.edu.usst.jwgl.data.model.LiveDeviceViewDto
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
-import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.ChaoXingQrPayload
 import cn.edu.usst.jwgl.data.network.LiveUsstClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
+import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -40,13 +40,19 @@ class SmartLiveQrRollcallManager(private val context: Context) {
 
     private val liveClient by lazy { LiveUsstClient(context) }
     private val tronClassClient by lazy { TronClassClient(context) }
-    private val chaoXingClient by lazy { ChaoXingClient(context) }
 
-    private val barcodeScanner by lazy {
-        val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-        BarcodeScanning.getClient(options)
+    private var scannerInitError: String? = null
+
+    private val barcodeScanner: BarcodeScanner? by lazy {
+        runCatching {
+            val options = BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build()
+            BarcodeScanning.getClient(options)
+        }.onFailure { t ->
+            scannerInitError = "${t.javaClass.simpleName}: ${t.message ?: "ML Kit 初始化失败"}"
+            Log.e(TAG, "Failed to initialize ML Kit BarcodeScanner", t)
+        }.getOrNull()
     }
 
     /**
@@ -82,117 +88,145 @@ class SmartLiveQrRollcallManager(private val context: Context) {
         chaoXingClassId: String? = null,
         maxDurationSeconds: Int = 120,
         intervalMs: Long = 2500L,
+        designatedLiveCourseId: Long? = null,
+        testOnlyNoSubmit: Boolean = false,
+        preferredViewNumProvider: (() -> Int?)? = null,
+        onViewsDiscovered: ((List<LiveDeviceViewDto>) -> Unit)? = null,
         onFrameCaptured: (FrameObservation) -> Unit,
         onCompleted: (Boolean, String) -> Unit
     ) = withContext(Dispatchers.IO) {
-        val rollcallId = rollcall.getEffectiveId()
-        Log.i(TAG, "Starting monitorAndAutoSign for rollcallId=$rollcallId, course=$courseName, room=$classroom, maxSec=$maxDurationSeconds")
+        try {
+            val rollcallId = rollcall.getEffectiveId()
+            Log.i(
+                TAG,
+                "Starting monitorAndAutoSign for rollcallId=$rollcallId, course=$courseName, room=$classroom, designatedLiveId=$designatedLiveCourseId, testOnly=$testOnlyNoSubmit, maxSec=$maxDurationSeconds"
+            )
 
-        // 1. 搜索录播系统直播状态
-        val courseRecord = liveClient.searchLiveCourse(courseName, classroom).getOrNull()
-        if (courseRecord == null) {
-            val msg = "未检索到【$courseName】对应教室的在线录播"
-            Log.w(TAG, msg)
-            withContext(Dispatchers.Main) {
-                onCompleted(false, msg)
-            }
-            return@withContext
-        }
-
-        // 2. 获取直播间各机位列表
-        val views = liveClient.fetchLiveVideoInfos(courseRecord.id).getOrNull()
-        if (views.isNullOrEmpty()) {
-            val msg = "录播间暂无可用机位推流"
-            Log.w(TAG, msg)
-            withContext(Dispatchers.Main) {
-                onCompleted(false, msg)
-            }
-            return@withContext
-        }
-
-        // 3. 智能候选机位
-        val candidates = liveClient.selectOptimalCandidateViews(views)
-        if (candidates.isEmpty()) {
-            val msg = "未找到大屏或有效候选机位"
-            Log.w(TAG, msg)
-            withContext(Dispatchers.Main) {
-                onCompleted(false, msg)
-            }
-            return@withContext
-        }
-
-        val startTime = System.currentTimeMillis()
-        var frameCounter = 0
-        var candidateIndex = 0
-
-        while (isActive && (System.currentTimeMillis() - startTime) < maxDurationSeconds * 1000L) {
-            frameCounter++
-            // 轮换或优先采纳机位
-            val targetView = if (candidates.size == 1) {
-                candidates[0]
+            // 1. 定位录播系统直播间 ID
+            val liveCourseId = if (designatedLiveCourseId != null && designatedLiveCourseId > 0L) {
+                designatedLiveCourseId
             } else {
-                candidates[candidateIndex % candidates.size]
+                val searchRes = liveClient.searchLiveCourse(courseName, classroom)
+                if (searchRes.isFailure) {
+                    val msg = searchRes.exceptionOrNull()?.message ?: "检索直播课程失败"
+                    Log.w(TAG, "searchLiveCourse failed: $msg")
+                    withContext(Dispatchers.Main) {
+                        onCompleted(false, msg)
+                    }
+                    return@withContext
+                }
+                val courseRecord = searchRes.getOrNull()
+                if (courseRecord == null) {
+                    val msg = "未检索到【$courseName】对应教室的在线录播"
+                    Log.w(TAG, msg)
+                    withContext(Dispatchers.Main) {
+                        onCompleted(false, msg)
+                    }
+                    return@withContext
+                }
+                courseRecord.id
             }
-            candidateIndex++
 
-            val viewUrl = targetView.getFullPlayUrl()
-            if (viewUrl.isNullOrBlank()) {
-                delay(intervalMs)
-                continue
-            }
-
-            Log.i(TAG, "Sampling frame #$frameCounter from [${targetView.viewName}]...")
-            val decodedFrame = FlvKeyframeExtractor.extractFirstKeyframeDetailed(viewUrl, needBitmap = true)
-
-            if (decodedFrame != null) {
-                val qr = scanQrCode(decodedFrame.inputImage)
-                val observation = FrameObservation(
-                    frameIndex = frameCounter,
-                    viewName = targetView.viewName ?: "大屏机位",
-                    bitmap = decodedFrame.bitmap,
-                    detectedQr = qr,
-                    message = if (!qr.isNullOrBlank()) "🎉 成功捕获到二维码！" else "已获取 ${decodedFrame.width}x${decodedFrame.height} 画面帧，未检测到二维码"
-                )
-
+            // 2. 获取直播间各机位列表
+            val viewsRes = liveClient.fetchLiveVideoInfos(liveCourseId)
+            if (viewsRes.isFailure) {
+                val msg = viewsRes.exceptionOrNull()?.message ?: "获取录播机位失败"
+                Log.w(TAG, "fetchLiveVideoInfos failed: $msg")
                 withContext(Dispatchers.Main) {
-                    onFrameCaptured(observation)
+                    onCompleted(false, msg)
+                }
+                return@withContext
+            }
+            val views = viewsRes.getOrDefault(emptyList())
+            val playableViews = views.filter { !it.chanNameMainPlayUrl.isNullOrBlank() }
+            if (playableViews.isEmpty()) {
+                val msg = "录播间暂无可用机位推流"
+                Log.w(TAG, msg)
+                withContext(Dispatchers.Main) {
+                    onCompleted(false, msg)
+                }
+                return@withContext
+            }
+
+            if (onViewsDiscovered != null) {
+                withContext(Dispatchers.Main) {
+                    onViewsDiscovered(playableViews)
+                }
+            }
+
+            // 3. 智能候选机位（若智能过滤为空则回退全部可用机位）
+            val candidates = liveClient.selectOptimalCandidateViews(playableViews)
+                .ifEmpty { playableViews }
+
+            val startTime = System.currentTimeMillis()
+            var frameCounter = 0
+            var candidateIndex = 0
+
+            while (isActive && (System.currentTimeMillis() - startTime) < maxDurationSeconds * 1000L) {
+                frameCounter++
+                val preferredViewNum = preferredViewNumProvider?.invoke()
+                val targetView = if (preferredViewNum != null) {
+                    playableViews.firstOrNull { it.deviViewNum == preferredViewNum }
+                        ?: candidates[candidateIndex % candidates.size]
+                } else if (candidates.size == 1) {
+                    candidates[0]
+                } else {
+                    candidates[candidateIndex % candidates.size]
+                }
+                candidateIndex++
+
+                val viewUrl = targetView.getFullPlayUrl()
+                if (viewUrl.isNullOrBlank()) {
+                    delay(intervalMs)
+                    continue
                 }
 
-                if (!qr.isNullOrBlank()) {
-                    Log.i(TAG, "QR code detected: $qr")
-                    val isChaoXing = !chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()
-                    if (isChaoXing || ChaoXingQrPayload.isChaoXingQrUrl(qr)) {
-                        val expectedId = rollcallId.takeIf { it > 0L }
-                        val parsedCx = ChaoXingQrPayload.parse(qr, expectedId).getOrNull()
-                        if (parsedCx != null && isChaoXing) {
-                            val submitRes = chaoXingClient.submitSign(
-                                courseId = chaoXingCourseId!!,
-                                classId = chaoXingClassId!!,
-                                activeId = parsedCx.activeId,
-                                signType = "二维码签到",
-                                enc = parsedCx.enc,
-                                signCode = parsedCx.code,
-                                allowRejectedRetry = true
-                            )
-                            val cxResult = submitRes.getOrNull()
-                            val success = cxResult?.isSuccess == true
-                            val summaryMsg = cxResult?.message ?: submitRes.exceptionOrNull()?.message ?: "提交失败"
-                            if (success || (!summaryMsg.contains("过期") && !summaryMsg.contains("失效") && !summaryMsg.contains("刷新"))) {
-                                RollcallNotificationHelper.notifyLiveQrResult(
-                                    context = context,
-                                    rollcallId = parsedCx.activeId,
-                                    courseName = courseName,
-                                    success = success,
-                                    viewName = targetView.viewName ?: "大屏机位",
-                                    message = summaryMsg
-                                )
-                                withContext(Dispatchers.Main) {
-                                    onCompleted(success, summaryMsg)
-                                }
-                                return@withContext
-                            }
+                Log.i(TAG, "Sampling frame #$frameCounter from [${targetView.viewName}]...")
+                val attempt = try {
+                    FlvKeyframeExtractor.extractFirstKeyframeWithDiagnostics(viewUrl, needBitmap = true)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Log.e(TAG, "extractFirstKeyframeWithDiagnostics threw ${t.javaClass.simpleName}", t)
+                    FlvKeyframeExtractor.ExtractionAttempt(
+                        errorReason = "抽帧异常: ${t.javaClass.simpleName}: ${t.message ?: "未知错误"}"
+                    )
+                }
+                val decodedFrame = attempt.frame
+
+                if (decodedFrame != null) {
+                    val qr = scanQrCode(decodedFrame.inputImage)
+                    val observationMsg = if (!qr.isNullOrBlank()) {
+                        if (testOnlyNoSubmit) {
+                            describeDetectedQrForTest(qr)
+                        } else {
+                            "成功捕获到二维码"
                         }
+                    } else if (scannerInitError != null) {
+                        "已获取 ${decodedFrame.width}x${decodedFrame.height} 画面帧（识码器不可用: $scannerInitError）"
                     } else {
+                        "已获取 ${decodedFrame.width}x${decodedFrame.height} 画面帧，未检测到二维码"
+                    }
+
+                    val observation = FrameObservation(
+                        frameIndex = frameCounter,
+                        viewName = targetView.viewName,
+                        bitmap = decodedFrame.bitmap,
+                        detectedQr = qr,
+                        message = observationMsg
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        onFrameCaptured(observation)
+                    }
+
+                    if (!qr.isNullOrBlank()) {
+                        Log.i(TAG, "QR code detected: $qr")
+                        if (testOnlyNoSubmit) {
+                            delay(intervalMs)
+                            continue
+                        }
+
                         val parsed = tronClassClient.parseRollcallQr(qr)
                         if (parsed != null) {
                             val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
@@ -209,7 +243,7 @@ class SmartLiveQrRollcallManager(private val context: Context) {
                                 rollcallId = rollcallId,
                                 courseName = courseName,
                                 success = primarySuccess,
-                                viewName = targetView.viewName ?: "大屏机位",
+                                viewName = targetView.viewName,
                                 message = summaryMsg
                             )
 
@@ -219,44 +253,81 @@ class SmartLiveQrRollcallManager(private val context: Context) {
                             return@withContext
                         }
                     }
+                } else {
+                    val obs = FrameObservation(
+                        frameIndex = frameCounter,
+                        viewName = targetView.viewName,
+                        bitmap = null,
+                        detectedQr = null,
+                        message = attempt.errorReason ?: "第 $frameCounter 帧解码等待中..."
+                    )
+                    withContext(Dispatchers.Main) {
+                        onFrameCaptured(obs)
+                    }
                 }
-            } else {
-                val obs = FrameObservation(
-                    frameIndex = frameCounter,
-                    viewName = targetView.viewName ?: "大屏机位",
-                    bitmap = null,
-                    detectedQr = null,
-                    message = "第 $frameCounter 帧解码等待中..."
-                )
-                withContext(Dispatchers.Main) {
-                    onFrameCaptured(obs)
-                }
+
+                delay(intervalMs)
             }
 
-            delay(intervalMs)
+            withContext(Dispatchers.Main) {
+                onCompleted(false, "已持续追帧 ${maxDurationSeconds}s，未在大屏上发现有效二维码")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.e(TAG, "monitorAndAutoSign failed unexpectedly", t)
+            withContext(Dispatchers.Main) {
+                onCompleted(false, "抓帧流程异常: ${t.javaClass.simpleName}: ${t.message ?: "未知错误"}")
+            }
         }
+    }
 
-        withContext(Dispatchers.Main) {
-            onCompleted(false, "已持续追帧 ${maxDurationSeconds}s，未在大屏上发现有效二维码")
+    private fun describeDetectedQrForTest(rawQr: String): String {
+        if (ChaoXingQrPayload.isChaoXingQrUrl(rawQr)) {
+            val cx = ChaoXingQrPayload.parse(rawQr).getOrNull()
+            return if (cx != null) {
+                "识别到学习通签到码 (activeId=${cx.activeId})，测试模式不提交"
+            } else {
+                "识别到学习通链接二维码: ${rawQr.take(80)}"
+            }
         }
+        val tc = tronClassClient.parseRollcallQr(rawQr)
+        if (tc != null) {
+            return "识别到畅课签到码 (rollcallId=${tc.rollcallId})，测试模式不提交"
+        }
+        return "识别到二维码内容: ${rawQr.take(80)}"
     }
 
     /**
      * 将 InputImage 传入 ML Kit 进行异步扫码并挂起返回
      */
     private suspend fun scanQrCode(image: InputImage): String? = suspendCancellableCoroutine { continuation ->
-        barcodeScanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                val result = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue
-                if (continuation.isActive) {
-                    continuation.resume(result)
-                }
+        val scanner = barcodeScanner
+        if (scanner == null) {
+            if (continuation.isActive) {
+                continuation.resume(null)
             }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "ML Kit barcode scan failure: ${e.message}")
-                if (continuation.isActive) {
-                    continuation.resume(null)
+            return@suspendCancellableCoroutine
+        }
+        try {
+            scanner.process(image)
+                .addOnSuccessListener { barcodes ->
+                    val result = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue
+                    if (continuation.isActive) {
+                        continuation.resume(result)
+                    }
                 }
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "ML Kit barcode scan failure: ${e.message}")
+                    if (continuation.isActive) {
+                        continuation.resume(null)
+                    }
+                }
+        } catch (t: Throwable) {
+            Log.e(TAG, "ML Kit barcodeScanner.process threw ${t.javaClass.simpleName}", t)
+            if (continuation.isActive) {
+                continuation.resume(null)
             }
+        }
     }
 }
