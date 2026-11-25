@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.util
 
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -23,27 +27,45 @@ object RollcallNotificationHelper {
 
     const val NOTIFICATION_ID_FOREGROUND = 88001
 
+    internal fun shouldWakeScreenBeforeNotify(silent: Boolean, hasFullScreenIntent: Boolean): Boolean =
+        !silent && !hasFullScreenIntent
+
     /**
-     * 发现课堂签到时尝试直接呼出锁屏/桌面弹窗（若开关开启）
-     * @return 是否成功拉起弹窗
+     * 发现课堂签到时按前台 Activity 路由尝试呼出强弹窗。
+     * 仅在前台 Activity 已恢复且未被拦截时返回 true；后台弹窗由独立悬浮窗通道负责并确认附着后才静默通知。
      */
     fun launchAlertPopupIfEnabled(context: Context, intent: Intent): Boolean {
-        val prefs = TronClassPreferences.getInstance(context)
-        if (!prefs.isRollcallPopupEnabled()) return false
+        if (resolvePopupRoute(context) != RollcallPopupRoute.FOREGROUND_ACTIVITY) {
+            return false
+        }
         return try {
             context.startActivity(intent)
             true
         } catch (e: Exception) {
-            Log.d("RollcallNotifHelper", "Direct background startActivity prevented: ${e.message}")
+            Log.d("RollcallNotifHelper", "Foreground startActivity failed: ${e.message}")
             false
         }
     }
 
+    private fun resolvePopupRoute(context: Context): RollcallPopupRoute {
+        val prefs = TronClassPreferences.getInstance(context)
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        return RollcallPopupRouter.decide(
+            popupEnabled = prefs.isRollcallPopupEnabled(),
+            hasResumedActivity = RollcallOverlayAlert.hasResumedActivity(),
+            isScreenInteractive = powerManager?.isInteractive ?: true,
+            isKeyguardLocked = keyguardManager?.isKeyguardLocked ?: false,
+            canDrawOverlays = NotificationDiagnosticHelper.isOverlayPermissionGranted(context)
+        )
+    }
+
     /**
-     * 取消指定课堂签到关联的全部系统通知（实现处理完毕后即时消隐）
+     * 取消指定课堂签到关联的全部系统通知与悬浮窗（实现处理完毕后即时消隐）
      */
     fun cancelRollcallNotification(context: Context, rollcallId: Long) {
         if (rollcallId <= 0) return
+        RollcallOverlayAlert.dismissIfMatching(rollcallId)
         val baseId = (rollcallId % 100000L).toInt()
         val notifManager = NotificationManagerCompat.from(context)
         val idsToCancel = intArrayOf(
@@ -122,7 +144,8 @@ object RollcallNotificationHelper {
         classroom: String? = null,
         latitude: Double? = null,
         longitude: Double? = null,
-        scope: Double? = null
+        scope: Double? = null,
+        shouldShowPopup: () -> Boolean = { true }
     ) {
         createChannels(context)
 
@@ -209,13 +232,21 @@ object RollcallNotificationHelper {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             builder.setFullScreenIntent(fullScreenPendingIntent, true)
-            val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
-            if (popupShown) {
-                builder.setSilent(true)
-                builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            }
+            dispatchAlertNotificationWithPopup(
+                context = context,
+                notifId = notifId,
+                rollcallId = rollcallId,
+                courseName = courseName,
+                typeDisplayName = "雷达定位签到",
+                builder = builder,
+                actionPendingIntent = pendingIntent,
+                actionLabel = "选择点位签到",
+                alertIntent = alertIntent,
+                shouldShowPopup = shouldShowPopup
+            )
+            return
         }
-        applyAlertStyling(context, builder, !success, notifId, pendingIntent, if (!success) "选择点位签到" else "查看详情")
+        applyAlertStyling(context, builder, false, notifId, pendingIntent, "查看详情")
 
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
@@ -226,7 +257,12 @@ object RollcallNotificationHelper {
     /**
      * 数字口令签到通知（高优先级全屏/横幅提醒，点击直接打开九宫格数字输入弹窗）
      */
-    fun notifyNumberRollcall(context: Context, rollcallId: Long, courseName: String?) {
+    fun notifyNumberRollcall(
+        context: Context,
+        rollcallId: Long,
+        courseName: String?,
+        shouldShowPopup: () -> Boolean = { true }
+    ) {
         createChannels(context)
 
         val notifId = ((rollcallId % 100000L).toInt() + 30000)
@@ -277,18 +313,18 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         builder.setFullScreenIntent(fullScreenPendingIntent, true)
-        val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
-        if (popupShown) {
-            builder.setSilent(true)
-            builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        }
-
-        applyAlertStyling(context, builder, true, notifId, pendingIntent, "输入签到码")
-
-        try {
-            NotificationManagerCompat.from(context).notify(notifId, builder.build())
-        } catch (_: SecurityException) {
-        }
+        dispatchAlertNotificationWithPopup(
+            context = context,
+            notifId = notifId,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            typeDisplayName = "数字口令签到",
+            builder = builder,
+            actionPendingIntent = pendingIntent,
+            actionLabel = "输入签到码",
+            alertIntent = alertIntent,
+            shouldShowPopup = shouldShowPopup
+        )
     }
 
     /**
@@ -370,7 +406,12 @@ object RollcallNotificationHelper {
     /**
      * 二维码扫码签到通知
      */
-    fun notifyQrRollcall(context: Context, rollcallId: Long, courseName: String?) {
+    fun notifyQrRollcall(
+        context: Context,
+        rollcallId: Long,
+        courseName: String?,
+        shouldShowPopup: () -> Boolean = { true }
+    ) {
         createChannels(context)
 
         val notifId = ((rollcallId % 100000L).toInt() + 40000)
@@ -421,18 +462,18 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         builder.setFullScreenIntent(fullScreenPendingIntent, true)
-        val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
-        if (popupShown) {
-            builder.setSilent(true)
-            builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        }
-
-        applyAlertStyling(context, builder, true, notifId, pendingIntent, "打开扫码相机")
-
-        try {
-            NotificationManagerCompat.from(context).notify(notifId, builder.build())
-        } catch (_: SecurityException) {
-        }
+        dispatchAlertNotificationWithPopup(
+            context = context,
+            notifId = notifId,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            typeDisplayName = "二维码签到",
+            builder = builder,
+            actionPendingIntent = pendingIntent,
+            actionLabel = "打开扫码相机",
+            alertIntent = alertIntent,
+            shouldShowPopup = shouldShowPopup
+        )
     }
 
     /**
@@ -516,7 +557,13 @@ object RollcallNotificationHelper {
     /**
      * 其他类型签到通知
      */
-    fun notifyGenericRollcall(context: Context, rollcallId: Long, courseName: String?, typeDesc: String) {
+    fun notifyGenericRollcall(
+        context: Context,
+        rollcallId: Long,
+        courseName: String?,
+        typeDesc: String,
+        shouldShowPopup: () -> Boolean = { true }
+    ) {
         createChannels(context)
 
         val notifId = ((rollcallId % 100000L).toInt() + 50000)
@@ -558,18 +605,18 @@ object RollcallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         builder.setFullScreenIntent(fullScreenPendingIntent, true)
-        val popupShown = launchAlertPopupIfEnabled(context, alertIntent)
-        if (popupShown) {
-            builder.setSilent(true)
-            builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        }
-
-        applyAlertStyling(context, builder, true, notifId, pendingIntent, "前往处理")
-
-        try {
-            NotificationManagerCompat.from(context).notify(notifId, builder.build())
-        } catch (_: SecurityException) {
-        }
+        dispatchAlertNotificationWithPopup(
+            context = context,
+            notifId = notifId,
+            rollcallId = rollcallId,
+            courseName = courseName,
+            typeDisplayName = typeDesc,
+            builder = builder,
+            actionPendingIntent = pendingIntent,
+            actionLabel = "前往处理",
+            alertIntent = alertIntent,
+            shouldShowPopup = shouldShowPopup
+        )
     }
 
     /**
@@ -674,15 +721,89 @@ object RollcallNotificationHelper {
         }
     }
 
+    private fun dispatchAlertNotificationWithPopup(
+        context: Context,
+        notifId: Int,
+        rollcallId: Long,
+        courseName: String?,
+        typeDisplayName: String,
+        builder: NotificationCompat.Builder,
+        actionPendingIntent: PendingIntent?,
+        actionLabel: String,
+        alertIntent: Intent,
+        shouldShowPopup: () -> Boolean
+    ) {
+        fun postNotification(silent: Boolean, hasFullScreenIntent: Boolean = false) {
+            applyAlertStyling(
+                context = context,
+                builder = builder,
+                isWarningOrActionNeeded = true,
+                notifId = notifId,
+                actionPendingIntent = actionPendingIntent,
+                actionLabel = actionLabel,
+                silent = silent,
+                hasFullScreenIntent = hasFullScreenIntent
+            )
+            try {
+                NotificationManagerCompat.from(context).notify(notifId, builder.build())
+            } catch (_: SecurityException) {
+            }
+        }
+
+        when (resolvePopupRoute(context)) {
+            RollcallPopupRoute.FOREGROUND_ACTIVITY -> {
+                if (!shouldShowPopup()) return
+                val launched = try {
+                    context.startActivity(alertIntent)
+                    true
+                } catch (e: Exception) {
+                    Log.d("RollcallNotifHelper", "Foreground startActivity failed: ${e.message}")
+                    false
+                }
+                postNotification(silent = launched)
+            }
+            RollcallPopupRoute.BACKGROUND_OVERLAY -> {
+                RollcallOverlayAlert.show(
+                    context = context,
+                    rollcallId = rollcallId,
+                    courseName = courseName,
+                    typeName = typeDisplayName,
+                    actionIntent = alertIntent,
+                    shouldShow = shouldShowPopup,
+                    vibrate = false,
+                    onShown = { postNotification(silent = false, hasFullScreenIntent = false) },
+                    onUnavailable = { postNotification(silent = false, hasFullScreenIntent = false) }
+                )
+            }
+            RollcallPopupRoute.NOTIFICATION_ONLY -> {
+                val appContext = context.applicationContext
+                val popupEnabled = TronClassPreferences.getInstance(appContext).isRollcallPopupEnabled()
+                postNotification(silent = false, hasFullScreenIntent = popupEnabled)
+                if (popupEnabled) {
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                        if (pm != null && !pm.isInteractive) {
+                            NotificationDiagnosticHelper.wakeScreenBriefly(appContext, 5000L)
+                        }
+                    }, 650L)
+                }
+            }
+        }
+    }
+
     private fun applyAlertStyling(
         context: Context,
         builder: NotificationCompat.Builder,
         isWarningOrActionNeeded: Boolean,
         notifId: Int,
         actionPendingIntent: PendingIntent? = null,
-        actionLabel: String = "立即处理"
+        actionLabel: String = "立即处理",
+        silent: Boolean = false,
+        hasFullScreenIntent: Boolean = false
     ) {
-        NotificationDiagnosticHelper.wakeScreenBriefly(context, 5000L)
+        if (shouldWakeScreenBeforeNotify(silent, hasFullScreenIntent)) {
+            NotificationDiagnosticHelper.wakeScreenBriefly(context, 5000L)
+        }
         val alertColor = if (isWarningOrActionNeeded) {
             Color.parseColor("#E53935") // 鲜艳警示红
         } else {
@@ -693,9 +814,14 @@ object RollcallNotificationHelper {
 
         builder.setColor(alertColor)
             .setColorized(true)
-            .setPriority(if (isWarningOrActionNeeded) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
-            .setVibrate(if (isWarningOrActionNeeded) longArrayOf(0, 400, 120, 400, 120, 400) else longArrayOf(0, 250, 100, 250))
             .apply {
+                if (silent) {
+                    setSilent(true)
+                    setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                } else {
+                    setPriority(if (isWarningOrActionNeeded) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
+                    setVibrate(if (isWarningOrActionNeeded) longArrayOf(0, 400, 120, 400, 120, 400) else longArrayOf(0, 250, 100, 250))
+                }
                 if (largeIcon != null) setLargeIcon(largeIcon)
             }
 

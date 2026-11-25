@@ -1,6 +1,7 @@
 package cn.edu.usst.jwgl.util
 
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
+import cn.edu.usst.jwgl.service.RollcallMonitorService
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.Calendar
@@ -144,5 +145,134 @@ class RollcallMonitorTest {
             courseName = "电路原理"
         )
         assertEquals("qr_code", qrRollcall.getNormalizedType())
+    }
+
+    @Test
+    fun testSelectActionableRollcalls_filtersExpiredInvalidAndHandled() {
+        val activeUnhandled = TronClassRollcall(id = 101L, type = "number", isExpired = false)
+        val expired = TronClassRollcall(id = 102L, type = "number", isExpired = true)
+        val alreadyHandled = TronClassRollcall(id = 103L, type = "radar", isExpired = false)
+        val invalidId = TronClassRollcall(id = 0L, rollcallId = -1L, type = "qr_code", isExpired = false)
+
+        val result = RollcallMonitorService.selectActionableRollcalls(
+            list = listOf(activeUnhandled, expired, alreadyHandled, invalidId),
+            isHandled = { it == 103L }
+        )
+
+        assertEquals(listOf(101L), result.map { it.getEffectiveId() })
+    }
+
+    @Test
+    fun testRollcallPopupRouter_decideRoutesSafely() {
+        assertEquals(
+            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRouter.decide(
+                popupEnabled = false,
+                hasResumedActivity = true,
+                isScreenInteractive = true,
+                isKeyguardLocked = false,
+                canDrawOverlays = true
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRouter.decide(
+                popupEnabled = true,
+                hasResumedActivity = true,
+                isScreenInteractive = false,
+                isKeyguardLocked = false,
+                canDrawOverlays = true
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRouter.decide(
+                popupEnabled = true,
+                hasResumedActivity = true,
+                isScreenInteractive = true,
+                isKeyguardLocked = true,
+                canDrawOverlays = true
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.FOREGROUND_ACTIVITY,
+            RollcallPopupRouter.decide(
+                popupEnabled = true,
+                hasResumedActivity = true,
+                isScreenInteractive = true,
+                isKeyguardLocked = false,
+                canDrawOverlays = false
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.BACKGROUND_OVERLAY,
+            RollcallPopupRouter.decide(
+                popupEnabled = true,
+                hasResumedActivity = false,
+                isScreenInteractive = true,
+                isKeyguardLocked = false,
+                canDrawOverlays = true
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRouter.decide(
+                popupEnabled = true,
+                hasResumedActivity = false,
+                isScreenInteractive = true,
+                isKeyguardLocked = false,
+                canDrawOverlays = false
+            )
+        )
+    }
+
+    @Test
+    fun testChannelAvailability_respectsGroupBlockedAndImportance() {
+        assertFalse(NotificationDiagnosticHelper.evaluateChannelAvailability(null, 1, false))
+        assertFalse(NotificationDiagnosticHelper.evaluateChannelAvailability(0, 1, false))
+        assertFalse(NotificationDiagnosticHelper.evaluateChannelAvailability(3, 4, false))
+        assertFalse(NotificationDiagnosticHelper.evaluateChannelAvailability(4, 4, true))
+        assertTrue(NotificationDiagnosticHelper.evaluateChannelAvailability(4, 4, false))
+    }
+
+    @Test
+    fun testRollcallPermissionSnapshot_needsGuidanceAndMissingItems() {
+        val ready = NotificationDiagnosticHelper.RollcallPermissionSnapshot(
+            notificationsEnabled = true,
+            alertChannelHigh = true,
+            overlayGranted = true,
+            ignoringBatteryOptimizations = true,
+            fullScreenIntentGranted = true
+        )
+        assertFalse(ready.needsGuidance)
+        assertTrue(ready.missingItems().isEmpty())
+
+        val partial = NotificationDiagnosticHelper.RollcallPermissionSnapshot(
+            notificationsEnabled = true,
+            alertChannelHigh = false,
+            overlayGranted = false,
+            ignoringBatteryOptimizations = true,
+            fullScreenIntentGranted = true
+        )
+        assertTrue(partial.needsGuidance)
+        assertEquals(2, partial.missingItems().size)
+
+        val missingFullScreen = NotificationDiagnosticHelper.RollcallPermissionSnapshot(
+            notificationsEnabled = true,
+            alertChannelHigh = true,
+            overlayGranted = true,
+            ignoringBatteryOptimizations = true,
+            fullScreenIntentGranted = false
+        )
+        assertTrue(missingFullScreen.needsGuidance)
+        assertEquals(1, missingFullScreen.missingItems().size)
+    }
+
+    @Test
+    fun testShouldWakeScreenBeforeNotify_neverPreWakesForFullScreenIntent() {
+        assertFalse(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = false, hasFullScreenIntent = true))
+        assertFalse(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = true, hasFullScreenIntent = true))
+        assertFalse(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = true, hasFullScreenIntent = false))
+        assertTrue(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = false, hasFullScreenIntent = false))
     }
 }

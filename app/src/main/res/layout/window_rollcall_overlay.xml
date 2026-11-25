@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_rollcall_overlay"
+    android:overScrollMode="never">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_badge_rounded"
+                android:backgroundTint="@color/primary_container"
+                android:contentDescription="@null"
+                android:padding="6dp"
+                android:src="@drawable/ic_radar"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:accessibilityHeading="true"
+                android:text="课堂签到开始了"
+                android:textColor="@color/primary"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvOverlayCourseName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvOverlayType"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="请及时确认签到状态，此提醒将在 60 秒后自动关闭。"
+            android:textColor="@color/text_tertiary"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOverlayClose"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="48dp"
+                android:text="关闭"
+                android:textColor="@color/text_secondary"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/border" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOverlayAction"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1.2"
+                android:minHeight="48dp"
+                android:text="立即签到"
+                android:textColor="@color/on_primary"
+                app:backgroundTint="@color/primary"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

@@ -1,10 +1,12 @@
 package cn.edu.usst.jwgl.ui.common
 
+import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,9 +24,25 @@ import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
 class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
+    companion object {
+        private const val ARG_TARGET_CHANNEL_ID = "arg_target_channel_id"
+
+        fun newInstance(
+            targetChannelId: String = NotificationDiagnosticHelper.CHANNEL_COURSE
+        ): NotificationDiagnosticBottomSheet = NotificationDiagnosticBottomSheet().apply {
+            arguments = Bundle().apply {
+                putString(ARG_TARGET_CHANNEL_ID, targetChannelId)
+            }
+        }
+    }
+
+    private val targetChannelId: String
+        get() = arguments?.getString(ARG_TARGET_CHANNEL_ID) ?: NotificationDiagnosticHelper.CHANNEL_COURSE
+
     private lateinit var tvDeviceBrandTitle: TextView
     private lateinit var tvDeviceSpecificTips: TextView
     private lateinit var btnOpenManufacturerSettings: MaterialButton
+    private lateinit var btnOpenManufacturerPopupSettings: MaterialButton
 
     private lateinit var tvStatusNotifTotal: TextView
     private lateinit var btnSetNotifTotal: MaterialButton
@@ -40,6 +58,9 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
     private lateinit var tvStatusOverlay: TextView
     private lateinit var btnSetOverlay: MaterialButton
+
+    private lateinit var tvStatusFullScreenIntent: TextView
+    private lateinit var btnSetFullScreenIntent: MaterialButton
 
     private lateinit var btnTestRollcallAlert: MaterialButton
     private lateinit var btnSendTestNotification: MaterialButton
@@ -76,6 +97,7 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         tvDeviceBrandTitle = v.findViewById(R.id.tvDeviceBrandTitle)
         tvDeviceSpecificTips = v.findViewById(R.id.tvDeviceSpecificTips)
         btnOpenManufacturerSettings = v.findViewById(R.id.btnOpenManufacturerSettings)
+        btnOpenManufacturerPopupSettings = v.findViewById(R.id.btnOpenManufacturerPopupSettings)
 
         tvStatusNotifTotal = v.findViewById(R.id.tvStatusNotifTotal)
         btnSetNotifTotal = v.findViewById(R.id.btnSetNotifTotal)
@@ -92,6 +114,9 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         tvStatusOverlay = v.findViewById(R.id.tvStatusOverlay)
         btnSetOverlay = v.findViewById(R.id.btnSetOverlay)
 
+        tvStatusFullScreenIntent = v.findViewById(R.id.tvStatusFullScreenIntent)
+        btnSetFullScreenIntent = v.findViewById(R.id.btnSetFullScreenIntent)
+
         btnTestRollcallAlert = v.findViewById(R.id.btnTestRollcallAlert)
         btnSendTestNotification = v.findViewById(R.id.btnSendTestNotification)
         btnRefreshDiagnostic = v.findViewById(R.id.btnRefreshDiagnostic)
@@ -104,29 +129,30 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
         val tips = when (NotificationDiagnosticHelper.getDeviceManufacturer()) {
             NotificationDiagnosticHelper.Manufacturer.XIAOMI ->
-                "小米 HyperOS / MIUI：请在应用权限中开启【自启动】与【后台无限制】。并在通知管理中将「悬浮通知」和「锁屏通知」打开，即可在上课前触发状态栏焦点胶囊。"
+                "小米 HyperOS / MIUI：请在应用权限中开启【自启动】、【后台无限制】、【后台弹出界面】与【锁屏显示】，并在通知管理中开启「悬浮通知」和「锁屏通知」。"
             NotificationDiagnosticHelper.Manufacturer.HUAWEI ->
-                "华为 HarmonyOS：请进入设置 -> 应用和服务 -> 应用启动管理，将掌上理工改为【手动管理】，允许自启动、关联启动和后台活动。"
+                "华为 HarmonyOS：请在应用启动管理中将掌上理工改为【手动管理】（允许自启动/关联启动/后台活动），并在权限管理中允许【悬浮窗】与【后台弹窗】。"
             NotificationDiagnosticHelper.Manufacturer.HONOR ->
-                "荣耀 MagicOS：请在权限管理中允许自启动与悬浮通知，系统将在状态栏胶囊与 YOYO 建议中展示上课及考试提醒。"
+                "荣耀 MagicOS：请在权限管理中允许【自启动】、【后台弹窗】与【悬浮通知】，并开启锁屏显示以保障签到及时弹出。"
             NotificationDiagnosticHelper.Manufacturer.OPPO ->
-                "OPPO / 一加 (ColorOS)：请进入权限与隐私 -> 自启动管理，允许掌上理工自启动，并在通知管理中勾选「横幅通知」以激活流体云交互。"
+                "OPPO / 一加 (ColorOS)：请在应用权限中开启【自启动】、【悬浮窗】及【后台弹出界面】，并在通知管理中勾选「横幅通知」与「锁屏通知」。"
             NotificationDiagnosticHelper.Manufacturer.VIVO ->
-                "vivo / iQOO (OriginOS)：请进入电池管理将掌上理工设为【允许高耗电后台运行】，并在应用权限中开启自启动以保障原子通知正常弹出。"
+                "vivo / iQOO (OriginOS)：请在权限管理中同时开启【自启动】、【悬浮窗】、【后台弹出界面】与【锁屏显示】，并将电池策略设为「允许后台高耗电」。"
             NotificationDiagnosticHelper.Manufacturer.MEIZU ->
-                "魅族 Flyme：请在手机管家 -> 权限管理中开启自启动，并将掌上理工加入后台允许运行白名单。"
+                "魅族 Flyme：请在手机管家 -> 权限管理中开启【自启动】、【悬浮窗】与【后台弹出界面】，并将掌上理工加入后台白名单。"
             NotificationDiagnosticHelper.Manufacturer.SAMSUNG ->
                 "三星 One UI：请进入电池和设备维护 -> 电池 -> 后台使用限制，将掌上理工添加到【从不休眠的应用程序】中。"
             NotificationDiagnosticHelper.Manufacturer.AOSP ->
-                "原生 Android / AOSP 系统：建议在系统设置中将电池优化设为【无限制】，并开启横幅悬浮与锁屏通知即可。"
+                "原生 Android / AOSP 系统：建议在系统设置中将电池优化设为【无限制】，并开启横幅悬浮、锁屏通知与全屏通知权限。"
             NotificationDiagnosticHelper.Manufacturer.OTHER ->
-                "请确保开启横幅悬浮通知、锁屏通知，并允许后台无限制电池策略，以保证提醒准时送达。"
+                "请确保开启横幅悬浮通知、锁屏通知、后台弹窗与无限制电池策略，以保证提醒准时送达。"
         }
         tvDeviceSpecificTips.text = tips
 
         val isAosp = NotificationDiagnosticHelper.getDeviceManufacturer() == NotificationDiagnosticHelper.Manufacturer.AOSP ||
                 NotificationDiagnosticHelper.getDeviceManufacturer() == NotificationDiagnosticHelper.Manufacturer.OTHER
         btnOpenManufacturerSettings.text = if (isAosp) "配置原生电池优化策略" else "前往厂商后台与自启动管理"
+        btnOpenManufacturerPopupSettings.visibility = if (isAosp) View.GONE else View.VISIBLE
     }
 
     private fun setupListeners() {
@@ -142,6 +168,10 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             NotificationDiagnosticHelper.openManufacturerAutoStartSettings(requireContext())
         }
 
+        btnOpenManufacturerPopupSettings.setOnClickListener {
+            NotificationDiagnosticHelper.openManufacturerPopupPermissionSettings(requireContext())
+        }
+
         btnSetNotifTotal.setOnClickListener {
             NotificationDiagnosticHelper.openAppNotificationSettings(requireContext())
         }
@@ -149,7 +179,7 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         btnSetHeadsUp.setOnClickListener {
             NotificationDiagnosticHelper.openChannelSettings(
                 requireContext(),
-                NotificationDiagnosticHelper.CHANNEL_COURSE
+                targetChannelId
             )
         }
 
@@ -163,6 +193,10 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
         btnSetOverlay.setOnClickListener {
             NotificationDiagnosticHelper.openOverlayPermissionSettings(requireContext())
+        }
+
+        btnSetFullScreenIntent.setOnClickListener {
+            NotificationDiagnosticHelper.openFullScreenIntentSettings(requireContext())
         }
 
         btnTestRollcallAlert.setOnClickListener {
@@ -211,6 +245,14 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             }
         } else {
             dismiss()
+            RollcallNotificationHelper.cancelRollcallNotification(ctx, 99999L)
+            val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val delayWakeLock = runCatching {
+                pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "usst_jwgl:RollcallTestDelayLock")?.apply {
+                    setReferenceCounted(false)
+                    acquire(delayMs + 3_000L)
+                }
+            }.getOrNull()
             Toast.makeText(
                 ctx,
                 "⏳ 倒计时 5 秒！请立即按下电源键关闭屏幕，测试锁屏直接唤醒弹窗",
@@ -218,11 +260,13 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             ).show()
 
             Handler(Looper.getMainLooper()).postDelayed({
-                NotificationDiagnosticHelper.wakeScreenBriefly(ctx, 8000L)
-                RollcallNotificationHelper.notifyNumberRollcall(ctx, 99999L, "【模拟测试】高等数学（上）")
                 try {
-                    ctx.startActivity(alertIntent)
-                } catch (_: Exception) {}
+                    RollcallNotificationHelper.notifyNumberRollcall(ctx, 99999L, "【模拟测试】高等数学（上）")
+                } finally {
+                    runCatching {
+                        if (delayWakeLock?.isHeld == true) delayWakeLock.release()
+                    }
+                }
             }, delayMs)
         }
     }
@@ -247,14 +291,23 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         // 2. 悬浮横幅与胶囊权限
         val headsUpAllowed = NotificationDiagnosticHelper.isChannelHeadsUpAllowed(
             context,
-            NotificationDiagnosticHelper.CHANNEL_COURSE
+            targetChannelId
         )
+        val isRollcallTarget = targetChannelId == NotificationDiagnosticHelper.CHANNEL_ROLLCALL_ALERT
         if (headsUpAllowed) {
-            tvStatusHeadsUp.text = "✅ 允许横幅悬浮与状态栏胶囊"
+            tvStatusHeadsUp.text = if (isRollcallTarget) {
+                "✅ 签到通知渠道已开启横幅与高重要性"
+            } else {
+                "✅ 允许横幅悬浮与状态栏胶囊"
+            }
             tvStatusHeadsUp.setTextColor(Color.parseColor("#2E7D32"))
             btnSetHeadsUp.text = "查看渠道"
         } else {
-            tvStatusHeadsUp.text = "⚠️ 当前渠道可能被静默，建议点击开启「悬浮通知」"
+            tvStatusHeadsUp.text = if (isRollcallTarget) {
+                "⚠️ 签到通知渠道未达高重要性或被渠道组屏蔽，请点击开启「悬浮通知」"
+            } else {
+                "⚠️ 当前渠道可能被静默或被渠道组屏蔽，建议点击开启「悬浮通知」"
+            }
             tvStatusHeadsUp.setTextColor(Color.parseColor("#E65100"))
             btnSetHeadsUp.text = "去设置"
         }
@@ -299,6 +352,20 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
             tvStatusOverlay.setTextColor(Color.parseColor("#E65100"))
             btnSetOverlay.text = "去授权"
             btnSetOverlay.isEnabled = true
+        }
+
+        // 6. 锁屏全屏弹窗权限 (Android 14+)
+        val fullScreenGranted = NotificationDiagnosticHelper.canUseFullScreenIntent(context)
+        if (fullScreenGranted) {
+            tvStatusFullScreenIntent.text = "✅ 允许锁屏全屏弹窗 (息屏可直接点亮弹出)"
+            tvStatusFullScreenIntent.setTextColor(Color.parseColor("#2E7D32"))
+            btnSetFullScreenIntent.text = "已开启"
+            btnSetFullScreenIntent.isEnabled = false
+        } else {
+            tvStatusFullScreenIntent.text = "❌ 未授权「全屏通知」，Android 14+ 锁屏弹窗将被系统静默拦截！"
+            tvStatusFullScreenIntent.setTextColor(Color.parseColor("#C62828"))
+            btnSetFullScreenIntent.text = "去授权"
+            btnSetFullScreenIntent.isEnabled = true
         }
     }
 }

@@ -229,24 +229,76 @@ object NotificationDiagnosticHelper {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
+    data class RollcallPermissionSnapshot(
+        val notificationsEnabled: Boolean,
+        val alertChannelHigh: Boolean,
+        val overlayGranted: Boolean,
+        val ignoringBatteryOptimizations: Boolean,
+        val fullScreenIntentGranted: Boolean = true
+    ) {
+        val needsGuidance: Boolean
+            get() = !notificationsEnabled || !alertChannelHigh || !overlayGranted || !ignoringBatteryOptimizations || !fullScreenIntentGranted
+
+        fun missingItems(): List<String> = buildList {
+            if (!notificationsEnabled) add("通知总开关")
+            if (!alertChannelHigh) add("签到通知渠道（高重要性/横幅）")
+            if (!overlayGranted) add("悬浮窗权限（后台居中弹窗）")
+            if (!ignoringBatteryOptimizations) add("忽略电池优化（防止息屏中断）")
+            if (!fullScreenIntentGranted) add("锁屏全屏弹窗权限（Android 14+ 全屏通知）")
+        }
+    }
+
+    internal fun evaluateChannelAvailability(
+        channelImportance: Int?,
+        minImportance: Int,
+        isGroupBlocked: Boolean
+    ): Boolean = channelImportance != null && channelImportance >= minImportance && !isGroupBlocked
+
+    private fun isChannelGroupBlocked(nm: NotificationManager, channel: NotificationChannel): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
+        val groupId = channel.group ?: return false
+        return runCatching {
+            nm.getNotificationChannelGroup(groupId)?.isBlocked == true
+        }.getOrDefault(false)
+    }
+
     /**
-     * 检查某个通知渠道是否有效且被开启
+     * 检查某个通知渠道是否有效且被开启（含 Android 9+ 渠道组屏蔽检测）
      */
     fun isChannelEnabled(context: Context, channelId: String): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return areNotificationsEnabled(context)
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         val channel = nm.getNotificationChannel(channelId) ?: return false
-        return channel.importance != NotificationManager.IMPORTANCE_NONE
+        return evaluateChannelAvailability(
+            channelImportance = channel.importance,
+            minImportance = NotificationManager.IMPORTANCE_MIN,
+            isGroupBlocked = isChannelGroupBlocked(nm, channel)
+        )
     }
 
     /**
-     * 检查渠道是否允许横幅浮动通知 (IMPORTANCE_HIGH 及以上)
+     * 检查渠道是否允许横幅浮动通知 (IMPORTANCE_HIGH 及以上且未被渠道组屏蔽)
      */
     fun isChannelHeadsUpAllowed(context: Context, channelId: String): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         val channel = nm.getNotificationChannel(channelId) ?: return false
-        return channel.importance >= NotificationManager.IMPORTANCE_HIGH
+        return evaluateChannelAvailability(
+            channelImportance = channel.importance,
+            minImportance = NotificationManager.IMPORTANCE_HIGH,
+            isGroupBlocked = isChannelGroupBlocked(nm, channel)
+        )
+    }
+
+    fun inspectRollcallPermissions(context: Context): RollcallPermissionSnapshot {
+        runCatching { initNotificationChannels(context) }
+        return RollcallPermissionSnapshot(
+            notificationsEnabled = areNotificationsEnabled(context),
+            alertChannelHigh = isChannelHeadsUpAllowed(context, CHANNEL_ROLLCALL_ALERT),
+            overlayGranted = isOverlayPermissionGranted(context),
+            ignoringBatteryOptimizations = isIgnoringBatteryOptimizations(context),
+            fullScreenIntentGranted = canUseFullScreenIntent(context)
+        )
     }
 
     /**
@@ -279,6 +331,18 @@ object NotificationDiagnosticHelper {
     fun isOverlayPermissionGranted(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+    }
+
+    /**
+     * 是否允许锁屏全屏弹窗通知 (Android 14 / API 34+ 需显式授权)
+     */
+    fun canUseFullScreenIntent(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.canUseFullScreenIntent() ?: true
         } else {
             true
         }
@@ -564,6 +628,23 @@ object NotificationDiagnosticHelper {
     }
 
     /**
+     * 打开锁屏全屏通知权限设置页 (Android 14+)
+     */
+    fun openFullScreenIntentSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                return
+            } catch (_: Exception) {}
+        }
+        openAppNotificationSettings(context)
+    }
+
+    /**
      * 打开精确闹钟设置页 (Android 12+)
      */
     fun openExactAlarmSettings(context: Context) {
@@ -649,6 +730,64 @@ object NotificationDiagnosticHelper {
         }
 
         // 降级：打开常规应用详情
+        openAppDetailsSettings(context)
+        return false
+    }
+
+    /**
+     * 尝试跳转国产定制 ROM 的私有「后台弹出界面 / 锁屏显示」权限设置页
+     */
+    fun openManufacturerPopupPermissionSettings(context: Context): Boolean {
+        val manufacturer = getDeviceManufacturer()
+        val pkg = context.packageName
+        val intents = mutableListOf<Intent>()
+
+        when (manufacturer) {
+            Manufacturer.XIAOMI -> {
+                intents.add(Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", pkg))
+                intents.add(
+                    Intent().setComponent(
+                        ComponentName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                    ).putExtra("extra_pkgname", pkg)
+                )
+            }
+            Manufacturer.VIVO -> {
+                intents.add(
+                    Intent().setComponent(
+                        ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.SoftPermissionDetailActivity")
+                    ).putExtra("packagename", pkg)
+                )
+            }
+            Manufacturer.OPPO -> {
+                intents.add(
+                    Intent().setComponent(
+                        ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.floatwindow.FloatWindowListActivity")
+                    )
+                )
+                intents.add(
+                    Intent().setComponent(
+                        ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.floatwindow.FloatWindowListActivity")
+                    )
+                )
+            }
+            Manufacturer.HUAWEI, Manufacturer.HONOR -> {
+                intents.add(
+                    Intent().setComponent(
+                        ComponentName("com.huawei.systemmanager", "com.huawei.permissionmanager.ui.MainActivity")
+                    )
+                )
+            }
+            else -> {}
+        }
+
+        for (intent in intents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                return true
+            } catch (_: Exception) {}
+        }
+
         openAppDetailsSettings(context)
         return false
     }

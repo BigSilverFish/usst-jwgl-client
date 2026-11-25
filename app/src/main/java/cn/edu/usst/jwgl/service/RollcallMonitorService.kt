@@ -2,8 +2,10 @@ package cn.edu.usst.jwgl.service
 
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
@@ -11,15 +13,18 @@ import android.location.LocationManager
 import android.Manifest
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
+import cn.edu.usst.jwgl.data.network.RollcallPollingSource
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.util.CoordinateUtils
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
+import cn.edu.usst.jwgl.util.RollcallOverlayAlert
 import cn.edu.usst.jwgl.util.RollcallScheduleHelper
 import cn.edu.usst.jwgl.util.ScheduledClassSession
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
@@ -30,20 +35,15 @@ class RollcallMonitorService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var pollJob: Job? = null
+    @Volatile
+    private var activeSession: ScheduledClassSession? = null
     private val inFlightRollcalls = ConcurrentHashMap.newKeySet<Long>()
     private val retryAttempts = ConcurrentHashMap<Long, Int>()
-    private val inFlightChaoXingSigns = ConcurrentHashMap.newKeySet<Long>()
-    private val chaoXingRetryAttempts = ConcurrentHashMap<Long, Int>()
-
     private val tronClassClient by lazy { TronClassClient(this) }
-    private val chaoXingClient by lazy { cn.edu.usst.jwgl.data.network.ChaoXingClient(this) }
     private val prefs by lazy { TronClassPreferences.getInstance(this) }
     private val smartLiveQrManager by lazy { cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager(this) }
-
-    @Volatile
-    private var cachedChaoXingCourses: List<cn.edu.usst.jwgl.data.model.ChaoXingCourse> = emptyList()
-    @Volatile
-    private var lastChaoXingCourseFetchMs: Long = 0L
+    private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var screenOnReceiver: BroadcastReceiver? = null
 
     companion object {
         private const val TAG = "RollcallMonitorService"
@@ -52,8 +52,16 @@ class RollcallMonitorService : Service() {
         const val ACTION_CHECK_NOW = "cn.edu.usst.jwgl.action.CHECK_NOW"
 
         private const val POLL_INTERVAL_MS = 20_000L // 20 秒轮询一次
+        private const val WAKE_LOCK_RENEW_TIMEOUT_MS = 3 * 60 * 1000L // 3 分钟滚动租约
         private const val MAX_AUTO_SIGN_ATTEMPTS = 3
-        private const val CHAOXING_COURSE_CACHE_TTL_MS = 30 * 60 * 1000L
+
+        internal fun selectActionableRollcalls(
+            list: List<TronClassRollcall>,
+            isHandled: (Long) -> Boolean
+        ): List<TronClassRollcall> = list.filter { rollcall ->
+            val rollcallId = rollcall.getEffectiveId()
+            rollcallId > 0L && !rollcall.isExpired && !isHandled(rollcallId)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -64,8 +72,8 @@ class RollcallMonitorService : Service() {
             return START_NOT_STICKY
         }
 
-        // 校验开关与登录状态（畅课或超星任一已登录即可运行）
-        if (!prefs.isRollcallMonitorEnabled() || (!prefs.isLoggedIn() && !chaoXingClient.isLoggedIn())) {
+        // 校验开关与登录状态（仅针对一网畅学）
+        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
             Log.i(TAG, "Monitor disabled or not logged in, stopping service.")
             stopMonitoringAndSelf()
             return START_NOT_STICKY
@@ -81,9 +89,14 @@ class RollcallMonitorService : Service() {
 
         // 处于上课时段，启动/保持前台服务常驻
         promoteToForeground(currentSession)
+        acquireOrRenewCpuWakeLock()
+        registerScreenOnReceiver()
 
-        // 启动轮询协程
+        // 启动共享轮询源与课程边界监听
         startPolling(currentSession)
+        if (intent?.action == ACTION_CHECK_NOW) {
+            RollcallPollingSource.getInstance(this).refresh()
+        }
 
         return START_STICKY
     }
@@ -113,76 +126,77 @@ class RollcallMonitorService : Service() {
 
     private fun startPolling(initialSession: ScheduledClassSession) {
         pollJob?.cancel()
+        activeSession = initialSession
+        val pollingSource = RollcallPollingSource.getInstance(this)
+
         pollJob = serviceScope.launch {
-            var activeSession: ScheduledClassSession? = initialSession
+            // 1. 课表边界与课间 15 分钟状态守护（独立于共享网络退避与订阅激活状态）
+            launch {
+                while (isActive) {
+                    try {
+                        acquireOrRenewCpuWakeLock()
+                        val now = System.currentTimeMillis()
+                        val previousSession = activeSession
+                        val session = RollcallScheduleHelper.getCurrentSession(this@RollcallMonitorService, now)
 
-            while (isActive) {
-                try {
-                    val now = System.currentTimeMillis()
-                    val session = RollcallScheduleHelper.getCurrentSession(this@RollcallMonitorService, now)
-                    activeSession = session
-
-                    if (session == null) {
-                        // 当前课程及其缓冲区已结束
-                        val nextSession = RollcallScheduleHelper.getNextUpcomingSessionToday(this@RollcallMonitorService, now)
-                        val gapMinutes = if (nextSession != null) {
-                            (nextSession.bufferStartTimeMillis - now) / (60 * 1000L)
-                        } else 999L
-
-                        if (nextSession != null && gapMinutes in 0..15) {
-                            // 课间休息 <= 15 分钟，保持监听并更新前台常驻通知
-                            updateForegroundNotification(nextSession, "课间休息中 · 即将进入【${nextSession.courseName}】")
-                            delay(POLL_INTERVAL_MS)
-                            continue
+                        if (session != null) {
+                            val sessionChanged = previousSession == null ||
+                                previousSession.courseName != session.courseName ||
+                                previousSession.startTimeMillis != session.startTimeMillis
+                            activeSession = session
+                            if (sessionChanged) {
+                                updateForegroundNotification(session, null)
+                                pollingSource.refresh()
+                            }
                         } else {
-                            // 上课时段结束，安排下次闹钟并退出
-                            Log.i(TAG, "Class session finished. Scheduling next alarm.")
-                            RollcallMonitorScheduler.scheduleNext(this@RollcallMonitorService)
-                            stopMonitoringAndSelf()
-                            break
+                            activeSession = null
+                            val nextSession = RollcallScheduleHelper.getNextUpcomingSessionToday(this@RollcallMonitorService, now)
+                            val gapMinutes = if (nextSession != null) {
+                                (nextSession.bufferStartTimeMillis - now) / (60 * 1000L)
+                            } else 999L
+
+                            if (nextSession != null && gapMinutes in 0..15) {
+                                updateForegroundNotification(nextSession, "课间休息中 · 即将进入【${nextSession.courseName}】")
+                            } else {
+                                Log.i(TAG, "Class session finished. Scheduling next alarm.")
+                                RollcallMonitorScheduler.scheduleNext(this@RollcallMonitorService)
+                                stopMonitoringAndSelf()
+                                break
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error in rollcall schedule watcher: ${e.message}", e)
                     }
-
-                    // 检查签到
-                    checkRollcallsOnce(session)
-
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error in rollcall monitor loop: ${e.message}", e)
+                    delay(POLL_INTERVAL_MS)
                 }
+            }
 
-                delay(POLL_INTERVAL_MS)
+            // 2. 订阅共享轮询流，消除与直播页面的双倍轮询
+            launch {
+                pollingSource.observe(
+                    intervalMillis = POLL_INTERVAL_MS,
+                    enabled = { activeSession != null && prefs.isRollcallMonitorEnabled() && prefs.isLoggedIn() }
+                ).collect { res ->
+                    val session = activeSession ?: return@collect
+                    if (!res.isSuccess) {
+                        Log.d(TAG, "fetchOngoingRollcalls returned failure: ${res.exceptionOrNull()?.message}")
+                        return@collect
+                    }
+                    handleTronClassRollcalls(session, res.getOrDefault(emptyList()))
+                }
             }
         }
     }
 
-    private suspend fun checkRollcallsOnce(session: ScheduledClassSession) {
-        if (prefs.isLoggedIn()) {
-            checkTronClassRollcalls(session)
-        }
-        if (chaoXingClient.isLoggedIn()) {
-            checkChaoXingLocationSigns(session)
-        }
-    }
+    private fun handleTronClassRollcalls(session: ScheduledClassSession, list: List<TronClassRollcall>) {
+        val actionable = selectActionableRollcalls(list) { prefs.isRollcallHandled(it) }
+        if (actionable.isEmpty()) return
 
-    private suspend fun checkTronClassRollcalls(session: ScheduledClassSession) {
-        val res = tronClassClient.fetchOngoingRollcalls()
-        if (!res.isSuccess) {
-            Log.d(TAG, "fetchOngoingRollcalls returned failure: ${res.exceptionOrNull()?.message}")
-            return
-        }
+        val activeJob = pollJob
+        val shouldShowPopup = { activeJob?.isActive == true }
 
-        val list = res.getOrDefault(emptyList())
-        if (list.isEmpty()) return
-
-        for (rollcall in list) {
+        for (rollcall in actionable) {
             val rollcallId = rollcall.getEffectiveId()
-            if (rollcallId <= 0L) continue
-
-            // 判断是否已处理
-            if (prefs.isRollcallHandled(rollcallId)) {
-                continue
-            }
-
             val normType = rollcall.getNormalizedType()
             val cName = rollcall.courseName ?: session.courseName
 
@@ -194,7 +208,12 @@ class RollcallMonitorService : Service() {
                 prefs.markRollcallHandled(rollcallId)
                 Log.i(TAG, "Auto-sign disabled, notifying user for manual rollcall: id=$rollcallId, type=$normType")
                 when (normType) {
-                    "number" -> RollcallNotificationHelper.notifyNumberRollcall(this, rollcallId, cName)
+                    "number" -> RollcallNotificationHelper.notifyNumberRollcall(
+                        this,
+                        rollcallId,
+                        cName,
+                        shouldShowPopup = shouldShowPopup
+                    )
                     "radar" -> {
                         val room = rollcall.classroom ?: session.room
                         RollcallNotificationHelper.notifyRadarResult(
@@ -207,21 +226,29 @@ class RollcallMonitorService : Service() {
                             classroom = room,
                             latitude = rollcall.latitude,
                             longitude = rollcall.longitude,
-                            scope = rollcall.scope
+                            scope = rollcall.scope,
+                            shouldShowPopup = shouldShowPopup
                         )
                     }
-                    "qr_code" -> RollcallNotificationHelper.notifyQrRollcall(this, rollcallId, cName)
+                    "qr_code" -> RollcallNotificationHelper.notifyQrRollcall(
+                        this,
+                        rollcallId,
+                        cName,
+                        shouldShowPopup = shouldShowPopup
+                    )
                     "self_registration" -> RollcallNotificationHelper.notifyGenericRollcall(
                         this,
                         rollcallId,
                         cName,
-                        "自主签到"
+                        "自主签到",
+                        shouldShowPopup = shouldShowPopup
                     )
                     else -> RollcallNotificationHelper.notifyGenericRollcall(
                         this,
                         rollcallId,
                         cName,
-                        rollcall.getTypeDisplayName()
+                        rollcall.getTypeDisplayName(),
+                        shouldShowPopup = shouldShowPopup
                     )
                 }
             } else {
@@ -404,41 +431,62 @@ class RollcallMonitorService : Service() {
         val room = rollcall.classroom ?: matchedSession.room
         val courseName = rollcall.courseName ?: matchedSession.courseName
 
-        // 1. 准备降级备选坐标（优先本机原生定位 GCJ-02，未获取到则降级为教师基准点或教学楼基准）
-        val building = CoordinateUtils.findMatchingBuilding(room)
+        val matchedBuilding = CoordinateUtils.findMatchingBuilding(room)
             ?: CoordinateUtils.findMatchingBuilding(courseName)
-            ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" }
-            ?: CoordinateUtils.USST_BUILDINGS.first()
 
-        val fallbackLat: Double
-        val fallbackLng: Double
-        val fallbackAccuracy: Double
-        val fallbackSource: String
+        // 1. 按优先级构造常规候选点位（教师下发参考点 -> 本机新鲜高精度定位 -> 精准匹配教学楼）
+        val primaryCandidates = mutableListOf<TronClassClient.RadarCandidatePoint>()
+        val teacherLat = rollcall.latitude
+        val teacherLng = rollcall.longitude
+        if (teacherLat != null && teacherLng != null && !(teacherLat == 0.0 && teacherLng == 0.0)) {
+            val jitterLat = (Math.random() - 0.5) * 0.00003
+            val jitterLng = (Math.random() - 0.5) * 0.00003
+            primaryCandidates.add(
+                TronClassClient.RadarCandidatePoint(
+                    latitude = teacherLat + jitterLat,
+                    longitude = teacherLng + jitterLng,
+                    accuracy = 5.0,
+                    label = "教师基准点"
+                )
+            )
+        }
 
         val deviceLoc = getFreshDeviceLocation()
         if (deviceLoc != null) {
             val (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(deviceLoc.latitude, deviceLoc.longitude)
-            fallbackLat = gcjLat
-            fallbackLng = gcjLng
-            fallbackAccuracy = if (deviceLoc.hasAccuracy()) deviceLoc.accuracy.toDouble() else 15.0
-            fallbackSource = "本机定位"
-        } else {
-            fallbackLat = rollcall.latitude ?: building.latitude
-            fallbackLng = rollcall.longitude ?: building.longitude
-            fallbackAccuracy = if (rollcall.latitude != null) 5.0 else 15.0
-            fallbackSource = if (rollcall.latitude != null) "教师基准点" else "教学楼(${building.name})"
+            primaryCandidates.add(
+                TronClassClient.RadarCandidatePoint(
+                    latitude = gcjLat,
+                    longitude = gcjLng,
+                    accuracy = deviceLoc.accuracy.toDouble(),
+                    label = "本机定位"
+                )
+            )
         }
 
-        Log.i(TAG, "Auto signing radar rollcall $rollcallId: prioritizing Trilateration Solver (fallback=$fallbackSource)")
+        if (matchedBuilding != null) {
+            primaryCandidates.add(
+                TronClassClient.RadarCandidatePoint(
+                    latitude = matchedBuilding.latitude,
+                    longitude = matchedBuilding.longitude,
+                    accuracy = 15.0,
+                    label = "教学楼(${matchedBuilding.name})"
+                )
+            )
+        }
 
-        // 2. 优先采用校园三点测距反解（单次反解、多账号各自独立设备码分发；未收敛时平滑降级为本机/预设坐标）
-        val results = tronClassClient.batchAnswerTrilaterationRollcall(
+        Log.i(
+            TAG,
+            "Auto signing radar rollcall $rollcallId: candidates=${primaryCandidates.joinToString(" -> ") { it.label }.ifBlank { "none" }} (trilateration fallback enabled)"
+        )
+
+        // 2. 常规点位优先，仅在明确超距并带回距离时复用已有观测点进入三点定位回退
+        val results = tronClassClient.batchAnswerRadarWithTrilaterationFallback(
             rollcallId = rollcallId,
+            primaryCandidates = primaryCandidates,
             classroom = room,
             courseName = courseName,
-            fallbackLatitude = fallbackLat,
-            fallbackLongitude = fallbackLng,
-            fallbackAccuracy = fallbackAccuracy
+            allowTrilaterationFallback = true
         )
 
         val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
@@ -470,7 +518,7 @@ class RollcallMonitorService : Service() {
                 context = this,
                 rollcallId = rollcallId,
                 courseName = courseName,
-                building = building,
+                building = matchedBuilding,
                 success = primarySuccess,
                 message = details,
                 classroom = room,
@@ -485,7 +533,7 @@ class RollcallMonitorService : Service() {
             RollcallNotificationHelper.cancelRollcallNotification(this, rollcallId)
             updateForegroundNotification(
                 matchedSession,
-                "已自动签到【$courseName】(${building.name})"
+                "已自动签到【$courseName】(${matchedBuilding?.name ?: "智能定位"})"
             )
         }
         return isTerminal
@@ -634,170 +682,6 @@ class RollcallMonitorService : Service() {
         return isTerminal
     }
 
-    /**
-     * 轮询超星学习通进行中的“位置签到”，在后台自动按教师要求坐标或匹配教学楼坐标提交。
-     */
-    private suspend fun checkChaoXingLocationSigns(session: ScheduledClassSession) {
-        val now = System.currentTimeMillis()
-        if (cachedChaoXingCourses.isEmpty() || now - lastChaoXingCourseFetchMs > CHAOXING_COURSE_CACHE_TTL_MS) {
-            val fetched = chaoXingClient.fetchCourses().getOrNull()
-            if (!fetched.isNullOrEmpty()) {
-                cachedChaoXingCourses = fetched
-                lastChaoXingCourseFetchMs = now
-            }
-        }
-        if (cachedChaoXingCourses.isEmpty()) return
-
-        val activePairs = chaoXingClient.fetchActiveSignsForCourses(cachedChaoXingCourses).getOrNull() ?: return
-        val account = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        val store = cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this, "chaoxing")
-
-        for ((course, item) in activePairs) {
-            if (item.resolvedSignTypeName != "位置签到") continue
-            val activeId = item.id
-            if (activeId <= 0L) continue
-            if (prefs.isRollcallHandled(activeId)) continue
-            if (account.isNotBlank() && store.state(account, activeId) != null) {
-                prefs.markRollcallHandled(activeId)
-                continue
-            }
-
-            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled() && DeveloperModeManager.isDeveloperMode(this)
-            val delaySeconds = prefs.getRollcallAutoSignEffectiveDelaySeconds()
-
-            if (!isAutoSignEnabled) {
-                prefs.markRollcallHandled(activeId)
-                RollcallNotificationHelper.notifyGenericRollcall(
-                    this,
-                    activeId,
-                    course.courseName,
-                    "超星位置签到"
-                )
-                continue
-            }
-
-            if (!inFlightChaoXingSigns.add(activeId)) continue
-            val attempt = chaoXingRetryAttempts[activeId] ?: 0
-            val waitSec = if (attempt == 0) delaySeconds else 0
-
-            Log.i(TAG, "Detected ChaoXing location sign: activeId=$activeId, course=${course.courseName}, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS")
-            if (attempt == 0) {
-                updateForegroundNotification(
-                    session,
-                    "检测到超星【${course.courseName}】位置签到，将在 ${delaySeconds} 秒后尝试自动提交"
-                )
-            }
-
-            serviceScope.launch {
-                try {
-                    if (waitSec > 0) {
-                        delay(waitSec * 1000L)
-                    }
-                    if (!isActive) return@launch
-
-                    val isFinalAttempt = attempt + 1 >= MAX_AUTO_SIGN_ATTEMPTS
-                    val isTerminal = handleChaoXingLocationAutoSign(course, item, session, isFinalAttempt)
-                    if (isTerminal || isFinalAttempt) {
-                        prefs.markRollcallHandled(activeId)
-                        chaoXingRetryAttempts.remove(activeId)
-                    } else {
-                        chaoXingRetryAttempts[activeId] = attempt + 1
-                    }
-                } finally {
-                    inFlightChaoXingSigns.remove(activeId)
-                }
-            }
-        }
-    }
-
-    private suspend fun handleChaoXingLocationAutoSign(
-        course: cn.edu.usst.jwgl.data.model.ChaoXingCourse,
-        item: cn.edu.usst.jwgl.data.model.ChaoXingActiveItem,
-        currentSession: ScheduledClassSession,
-        isFinalAttempt: Boolean
-    ): Boolean {
-        val activeId = item.id
-        val hintName = "${item.nameOne.orEmpty()} ${item.nameTwo.orEmpty()}".trim()
-        val detail = chaoXingClient.fetchSignDetail(
-            activeId = activeId,
-            courseId = course.courseId,
-            classId = course.classId,
-            initialOtherId = item.otherId,
-            initialHintName = hintName
-        ).getOrNull()
-
-        if (detail?.isAlreadySigned == true || detail?.isExpired == true) {
-            return true
-        }
-
-        val hasTeacherCoords = detail?.latitude != null && detail.longitude != null &&
-            detail.latitude != 0.0 && detail.longitude != 0.0
-        val matchedSession = RollcallScheduleHelper.findMatchingClassSession(this, course.courseName) ?: currentSession
-
-        val targetLat: Double
-        val targetLng: Double
-        val targetAddress: String
-        val locationLabel: String
-
-        if (hasTeacherCoords) {
-            val jitterLat = (Math.random() - 0.5) * 0.00003
-            val jitterLng = (Math.random() - 0.5) * 0.00003
-            targetLat = detail!!.latitude!! + jitterLat
-            targetLng = detail.longitude!! + jitterLng
-            targetAddress = detail.locationText?.takeIf { it.isNotBlank() } ?: "上海理工大学"
-            locationLabel = "教师指定位置 ($targetAddress)"
-        } else {
-            val room = matchedSession.room
-            val building = CoordinateUtils.findMatchingBuilding(room)
-                ?: CoordinateUtils.findMatchingBuilding(course.courseName)
-                ?: CoordinateUtils.USST_BUILDINGS.find { it.id == "b_516_1j_e" }
-                ?: CoordinateUtils.USST_BUILDINGS.first()
-            targetLat = building.latitude
-            targetLng = building.longitude
-            targetAddress = detail?.locationText?.takeIf { it.isNotBlank() } ?: "上海理工大学 ${building.name}"
-            locationLabel = "${building.name} (${building.campus})"
-        }
-
-        val submitRes = chaoXingClient.submitSign(
-            courseId = course.courseId,
-            classId = course.classId,
-            activeId = activeId,
-            signType = "位置签到",
-            latitude = targetLat,
-            longitude = targetLng,
-            address = targetAddress,
-            allowRejectedRetry = false
-        )
-
-        val result = submitRes.getOrNull()
-        val success = result?.isSuccess == true
-        val message = result?.message ?: submitRes.exceptionOrNull()?.message ?: "提交失败"
-        val account = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        val storeState = if (account.isNotBlank()) {
-            cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this, "chaoxing").state(account, activeId)
-        } else null
-        val isTerminal = success || storeState == "rejected" || isFinalAttempt
-
-        if (isTerminal) {
-            RollcallNotificationHelper.notifyChaoXingLocationResult(
-                context = this,
-                activeId = activeId,
-                courseName = course.courseName,
-                locationLabel = locationLabel,
-                success = success,
-                message = message
-            )
-        }
-
-        if (success) {
-            updateForegroundNotification(
-                matchedSession,
-                "已自动超星位置签到【${course.courseName}】"
-            )
-        }
-        return isTerminal
-    }
-
     private fun getFreshDeviceLocation(): Location? {
         val finePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
         val coarsePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -812,7 +696,12 @@ class RollcallMonitorService : Service() {
             try {
                 if (lm.isProviderEnabled(p)) {
                     val loc = lm.getLastKnownLocation(p)
-                    if (loc != null && (now - loc.time) <= 30 * 60 * 1000L) {
+                    if (loc != null &&
+                        (now - loc.time) in 0L..(5 * 60 * 1000L) &&
+                        loc.hasAccuracy() &&
+                        loc.accuracy > 0f &&
+                        loc.accuracy <= 100f
+                    ) {
                         if (bestLoc == null || loc.accuracy < bestLoc.accuracy) {
                             bestLoc = loc
                         }
@@ -823,16 +712,95 @@ class RollcallMonitorService : Service() {
         return bestLoc
     }
 
+    private fun filterChaoXingCoursesForSession(
+        courses: List<cn.edu.usst.jwgl.data.model.ChaoXingCourse>,
+        sessionCourseName: String
+    ): List<cn.edu.usst.jwgl.data.model.ChaoXingCourse> {
+        val targetNorm = sessionCourseName.replace(Regex("""[（(].*?[）)]"""), "")
+            .replace(Regex("""\s+"""), "")
+            .lowercase()
+        if (targetNorm.isBlank()) return emptyList()
+        return courses.filter { cx ->
+            val cxNorm = cx.courseName.replace(Regex("""[（(].*?[）)]"""), "")
+                .replace(Regex("""\s+"""), "")
+                .lowercase()
+            cxNorm.isNotBlank() && (cxNorm == targetNorm || cxNorm.contains(targetNorm) || targetNorm.contains(cxNorm))
+        }.take(3)
+    }
+
+    private fun acquireOrRenewCpuWakeLock() {
+        runCatching {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            val lock = cpuWakeLock ?: pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "usst_jwgl:RollcallMonitorCpuLock"
+            ).apply {
+                setReferenceCounted(false)
+                cpuWakeLock = this
+            }
+            lock.acquire(WAKE_LOCK_RENEW_TIMEOUT_MS)
+        }.onFailure {
+            Log.w(TAG, "Failed to acquire CPU wake lock: ${it.message}")
+        }
+    }
+
+    private fun releaseCpuWakeLock() {
+        runCatching {
+            val lock = cpuWakeLock
+            cpuWakeLock = null
+            if (lock?.isHeld == true) {
+                lock.release()
+            }
+        }
+    }
+
+    private fun registerScreenOnReceiver() {
+        if (screenOnReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_SCREEN_ON && activeSession != null) {
+                    RollcallPollingSource.getInstance(this@RollcallMonitorService).refresh()
+                }
+            }
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                IntentFilter(Intent.ACTION_SCREEN_ON),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            screenOnReceiver = receiver
+        }.onFailure {
+            Log.w(TAG, "Failed to register screen-on receiver: ${it.message}")
+        }
+    }
+
+    private fun unregisterScreenOnReceiver() {
+        val receiver = screenOnReceiver ?: return
+        screenOnReceiver = null
+        runCatching {
+            unregisterReceiver(receiver)
+        }
+    }
+
     private fun stopMonitoringAndSelf() {
+        RollcallOverlayAlert.dismiss()
+        activeSession = null
         pollJob?.cancel()
         pollJob = null
+        unregisterScreenOnReceiver()
+        releaseCpuWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        RollcallOverlayAlert.dismiss()
         pollJob?.cancel()
+        unregisterScreenOnReceiver()
+        releaseCpuWakeLock()
         serviceScope.cancel()
         Log.i(TAG, "RollcallMonitorService destroyed.")
     }
