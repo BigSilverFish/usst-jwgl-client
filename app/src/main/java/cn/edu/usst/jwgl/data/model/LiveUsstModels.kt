@@ -20,7 +20,7 @@ object LiveCameraConstant {
         VIEW_STUDENT_1 -> "学生全景"
         VIEW_STUDENT_2 -> "学生特写"
         VIEW_PPT -> "PPT大屏采集卡"
-        VIEW_MOVIE -> "电影模式"
+        VIEW_MOVIE -> "电子白板"
         VIEW_COMPOSITE -> "合成通道"
         else -> "机位 $viewNum"
     }
@@ -49,14 +49,16 @@ data class LiveCourseRecord(
     @SerializedName("teclTeacNames") val teclTeacNames: List<String>?,
     @SerializedName("courBeginTime") val courBeginTime: Long?,
     @SerializedName("courEndTime") val courEndTime: Long?,
+    @SerializedName("liveStartTime") val liveStartTime: Long? = null,
+    @SerializedName("liveEndTime") val liveEndTime: Long? = null,
     @SerializedName("courStatus") val courStatus: Int?
 ) {
     /**
      * 判断当前时间是否在直播区间内
      */
     fun isCurrentlyLive(currentTimeMillis: Long = System.currentTimeMillis()): Boolean {
-        val start = courBeginTime ?: return false
-        val end = courEndTime ?: return false
+        val start = liveStartTime ?: courBeginTime ?: return false
+        val end = liveEndTime ?: courEndTime ?: return false
         // 允许提前 10 分钟以及延后 15 分钟的容错范围
         return currentTimeMillis in (start - 10 * 60 * 1000L)..(end + 15 * 60 * 1000L)
     }
@@ -92,8 +94,11 @@ data class LiveDeviceViewDto(
      * 获取带鉴权 Token 的最终可直接拉流的推流 URL
      */
     fun getFullPlayUrl(): String? {
-        val baseUrl = chanNameMainPlayUrl ?: return null
-        val token = mainTokenStr ?: return baseUrl
+        val baseUrl = chanNameMainPlayUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val token = mainTokenStr?.trim()?.takeIf { it.isNotEmpty() } ?: return baseUrl
+        if (baseUrl.contains("account_token=")) {
+            return baseUrl
+        }
         return if (baseUrl.contains("?")) {
             "$baseUrl&account_token=$token"
         } else {
