@@ -10,7 +10,7 @@ import cn.edu.usst.jwgl.data.model.AccountProfile
 class AuthPreferences(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-    private val securePrefs: SharedPreferences = createSecurePrefs(context)
+    private val securePrefs: SharedPreferences by lazy { getOrCreateSecurePrefs(context) }
 
     companion object {
         private const val TAG = "AuthPreferences"
@@ -22,9 +22,16 @@ class AuthPreferences(private val context: Context) {
         private const val KEY_DISCLAIMER_AGREED = "pref_disclaimer_agreed"
         private const val KEY_INITIAL_SYNC_COMPLETED = "pref_initial_sync_completed"
         private const val KEY_MIGRATED = "pref_migrated_to_encrypted"
+        private const val KEY_VAULT_MIGRATED = "pref_migrated_to_vault"
         private const val KEY_LAST_LOGIN_STUDENT_ID = "pref_last_login_student_id"
 
         private val volatileMemoryFallback = InMemorySharedPreferences()
+
+        @Volatile
+        private var cachedSecurePrefs: SharedPreferences? = null
+
+        @Volatile
+        private var migrationCheckedInProcess = false
 
         fun currentStudentId(context: Context): String {
             val app = context.applicationContext
@@ -34,6 +41,16 @@ class AuthPreferences(private val context: Context) {
                 ""
             }
             return activeId.ifBlank { AuthPreferences(app).getStudentId() }
+        }
+
+        private fun getOrCreateSecurePrefs(context: Context): SharedPreferences {
+            return cachedSecurePrefs ?: synchronized(this) {
+                cachedSecurePrefs ?: createSecurePrefs(context.applicationContext).also {
+                    if (it !== volatileMemoryFallback) {
+                        cachedSecurePrefs = it
+                    }
+                }
+            }
         }
 
         private fun createSecurePrefs(context: Context): SharedPreferences {
@@ -107,8 +124,15 @@ class AuthPreferences(private val context: Context) {
     }
 
     init {
-        migrateFromPlaintext()
-        autoMigrateToVaultIfNeed()
+        if (!migrationCheckedInProcess) {
+            synchronized(AuthPreferences::class.java) {
+                if (!migrationCheckedInProcess) {
+                    migrateFromPlaintext()
+                    autoMigrateToVaultIfNeed()
+                    migrationCheckedInProcess = true
+                }
+            }
+        }
     }
 
     /**
@@ -135,6 +159,7 @@ class AuthPreferences(private val context: Context) {
      * 平滑将当前单账号信息无损导入多账号保险箱
      */
     private fun autoMigrateToVaultIfNeed() {
+        if (prefs.getBoolean(KEY_VAULT_MIGRATED, false)) return
         try {
             val vault = AccountVault.getInstance(context)
             val currentId = securePrefs.getString(KEY_STUDENT_ID, null) ?: prefs.getString(KEY_STUDENT_ID, "") ?: ""
@@ -143,6 +168,7 @@ class AuthPreferences(private val context: Context) {
             if (currentId.isNotBlank()) {
                 vault.migrateFromLegacyAuthIfNeed(currentId, currentPwd, isAuto)
             }
+            prefs.edit().putBoolean(KEY_VAULT_MIGRATED, true).apply()
         } catch (e: Exception) {
             Log.w(TAG, "autoMigrateToVaultIfNeed failed", e)
         }
@@ -309,13 +335,11 @@ class AuthPreferences(private val context: Context) {
             Log.w(TAG, "Logout: Failed to clear Jwgl session", e)
         }
 
-        // 2. 清理 WebView Cookie
+        // 2. 清理 WebView Cookie 及直录播会话
         try {
-            val cookieManager = android.webkit.CookieManager.getInstance()
-            cookieManager.removeAllCookies(null)
-            cookieManager.flush()
+            cn.edu.usst.jwgl.data.network.LiveUsstClient.clearSession(context)
         } catch (e: Exception) {
-            Log.w(TAG, "Logout: Failed to clear WebView cookies", e)
+            Log.w(TAG, "Logout: Failed to clear LiveUsst/WebView session", e)
         }
 
         // 3. 清理畅课会话与缓存

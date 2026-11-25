@@ -1,15 +1,40 @@
 package cn.edu.usst.jwgl.util
 
 import android.content.Context
+import android.os.Looper
 import android.util.Log
 import android.webkit.CookieManager
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.JwglClient
 import okhttp3.Cookie
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 object CookieSyncHelper {
     private const val TAG = "CookieSyncHelper"
+
+    /**
+     * 清理 Android WebView CookieManager 中的全部 Cookie。
+     * 在后台线程调用时等待异步回调完成后 flush，避免多账号切换后旧站点 Cookie 立即回流。
+     */
+    fun clearWebViewCookiesBlocking(timeoutMs: Long = 1500L) {
+        try {
+            val cookieManager = CookieManager.getInstance()
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                cookieManager.removeAllCookies(null)
+                cookieManager.flush()
+                return
+            }
+            val latch = CountDownLatch(1)
+            cookieManager.removeAllCookies { latch.countDown() }
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            cookieManager.flush()
+            Log.d(TAG, "Cleared Android WebView CookieManager cookies")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear WebView cookies", e)
+        }
+    }
 
     /**
      * 将 JwglClient (OkHttp) 中的 CAS SSO 与教务会话 Cookie 同步至 Android 系统的 WebView CookieManager

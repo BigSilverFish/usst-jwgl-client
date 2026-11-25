@@ -35,10 +35,51 @@ class LiveUsstClient(private val context: Context) {
         private const val AUTHORIZE_URL =
             "https://live.usst.edu.cn/jy-application-resourcemanage/oauth2/authorize?json=0&returnUri=https%3A%2F%2Flive.usst.edu.cn%2Fjy-mobile-resourcemanage-ui%2F%23%2FliveList%3Ftype%3Dcas"
 
+        private const val PREF_LIVE_SESSION = "live_usst_session"
+        private const val KEY_LIVE_SESSION_STUDENT_ID = "live_session_student_id"
+
         @Volatile
         private var cachedJwtToken: String? = null
         @Volatile
+        private var cachedTokenStudentId: String? = null
+        @Volatile
         private var tokenExpireTimeMillis: Long = 0L
+
+        internal fun isCachedTokenValidFor(
+            studentId: String,
+            nowMillis: Long = System.currentTimeMillis()
+        ): Boolean {
+            val token = cachedJwtToken
+            if (token.isNullOrBlank() || nowMillis >= tokenExpireTimeMillis) {
+                return false
+            }
+            return studentId.isBlank() || cachedTokenStudentId == studentId
+        }
+
+        internal fun setCachedTokenForTest(
+            token: String?,
+            studentId: String?,
+            expireAtMillis: Long
+        ) {
+            cachedJwtToken = token
+            cachedTokenStudentId = studentId?.trim()?.takeIf { it.isNotEmpty() }
+            tokenExpireTimeMillis = expireAtMillis
+        }
+
+        fun clearSession(context: Context? = null) {
+            cachedJwtToken = null
+            cachedTokenStudentId = null
+            tokenExpireTimeMillis = 0L
+            if (context != null) {
+                runCatching {
+                    context.getSharedPreferences(PREF_LIVE_SESSION, Context.MODE_PRIVATE)
+                        .edit()
+                        .remove(KEY_LIVE_SESSION_STUDENT_ID)
+                        .apply()
+                }
+            }
+            CookieSyncHelper.clearWebViewCookiesBlocking()
+        }
     }
 
     private val okHttpClient: OkHttpClient by lazy {
@@ -96,15 +137,31 @@ class LiveUsstClient(private val context: Context) {
     }
 
     /**
-     * 设置或注入 Jwt-Token
+     * 设置或注入 Jwt-Token（绑定当前学号以防止多账号切换串会话）
      */
-    fun setJwtToken(token: String, validDurationMillis: Long = 2 * 3600 * 1000L) {
+    fun setJwtToken(
+        token: String,
+        validDurationMillis: Long = 2 * 3600 * 1000L,
+        studentId: String? = null
+    ) {
+        val resolvedStudentId = studentId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: runCatching { AuthPreferences(context).getStudentId().trim().takeIf { it.isNotEmpty() } }.getOrNull()
         cachedJwtToken = token
+        cachedTokenStudentId = resolvedStudentId
         tokenExpireTimeMillis = System.currentTimeMillis() + validDurationMillis
+        if (!resolvedStudentId.isNullOrBlank()) {
+            runCatching {
+                context.getSharedPreferences(PREF_LIVE_SESSION, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_LIVE_SESSION_STUDENT_ID, resolvedStudentId)
+                    .apply()
+            }
+        }
     }
 
     fun clearCachedToken() {
         cachedJwtToken = null
+        cachedTokenStudentId = null
         tokenExpireTimeMillis = 0L
     }
 
@@ -112,35 +169,50 @@ class LiveUsstClient(private val context: Context) {
      * 获取有效的 Jwt-Token
      */
     suspend fun ensureJwtToken(forceRefresh: Boolean = false): String? = withContext(Dispatchers.IO) {
-        if (!forceRefresh && !cachedJwtToken.isNullOrBlank() && System.currentTimeMillis() < tokenExpireTimeMillis) {
+        val authPrefs = AuthPreferences(context)
+        val studentId = authPrefs.getStudentId().trim()
+        val password = authPrefs.getPassword()
+        val storedLiveStudentId = runCatching {
+            context.getSharedPreferences(PREF_LIVE_SESSION, Context.MODE_PRIVATE)
+                .getString(KEY_LIVE_SESSION_STUDENT_ID, null)
+                ?.trim()
+        }.getOrNull()
+
+        val accountChanged = studentId.isNotBlank() &&
+            ((cachedTokenStudentId != null && cachedTokenStudentId != studentId) || storedLiveStudentId != studentId)
+
+        if (!forceRefresh && !accountChanged && isCachedTokenValidFor(studentId)) {
             return@withContext cachedJwtToken
         }
 
-        if (forceRefresh) {
+        if (forceRefresh || accountChanged) {
             clearCachedToken()
+            if (accountChanged) {
+                Log.i(TAG, "Account changed for live session (prev=$storedLiveStudentId, cur=$studentId), purging WebView cookies")
+                CookieSyncHelper.clearWebViewCookiesBlocking()
+            }
         }
 
         // 先将教务/CAS 会话同步至 WebView CookieManager
         CookieSyncHelper.syncJwglCookiesToWebView()
 
-        // 1. 快速路径：如果已有 live.usst.edu.cn 有效会话 Cookie，直接调用 /oauth2/token 换取 jwt_token
-        fetchTokenFromEndpoint()?.let { token ->
-            setJwtToken(token)
-            Log.i(TAG, "Obtained jwt_token directly from /oauth2/token (${token.take(8)}...)")
-            return@withContext token
+        // 1. 快速路径：仅在未发生账号切换且非强制刷新时，尝试利用已有 live.usst.edu.cn Cookie 直接换取 jwt_token
+        if (!accountChanged && !forceRefresh) {
+            fetchTokenFromEndpoint()?.let { token ->
+                setJwtToken(token, studentId = studentId)
+                Log.i(TAG, "Obtained jwt_token directly from /oauth2/token (${token.take(8)}...)")
+                return@withContext token
+            }
         }
 
         // 2. 使用已保存凭据走 CAS SSO 静默授权进入 live.usst.edu.cn
-        val authPrefs = AuthPreferences(context)
-        val studentId = authPrefs.getStudentId()
-        val password = authPrefs.getPassword()
         if (studentId.isNotBlank() && password.isNotBlank()) {
             val preAuth = JwglClient.preAuthCasService(AUTHORIZE_URL, studentId, password)
             CookieSyncHelper.syncJwglCookiesToWebView()
             preAuth.onSuccess { finalUrl ->
                 Log.d(TAG, "CAS pre-auth for live finished, finalUrl=$finalUrl")
                 extractTokenFromUrl(finalUrl)?.let { token ->
-                    setJwtToken(token)
+                    setJwtToken(token, studentId = studentId)
                     Log.i(TAG, "Extracted jwt_token from CAS finalUrl (${token.take(8)}...)")
                     return@withContext token
                 }
@@ -150,7 +222,7 @@ class LiveUsstClient(private val context: Context) {
         } else {
             // 无保存密码时（例如仅 WebView SSO 登录），尝试沿既有 Cookie 走 OAuth2 重定向
             followAuthorizeRedirectsForToken()?.let { token ->
-                setJwtToken(token)
+                setJwtToken(token, studentId = studentId)
                 Log.i(TAG, "Extracted jwt_token from OAuth2 redirects (${token.take(8)}...)")
                 return@withContext token
             }
@@ -159,7 +231,7 @@ class LiveUsstClient(private val context: Context) {
         // 3. 与前端 CasLogin 对齐：触发 authority/me 后再请求 /oauth2/token
         probeAuthorityMe()
         fetchTokenFromEndpoint()?.let { token ->
-            setJwtToken(token)
+            setJwtToken(token, studentId = studentId)
             Log.i(TAG, "Obtained jwt_token from /oauth2/token after auth (${token.take(8)}...)")
             return@withContext token
         }
