@@ -19,7 +19,9 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.ui.tronclass.RollcallAlertActivity
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.RollcallAlertMode
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
+import cn.edu.usst.jwgl.util.RollcallOverlayAlert
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
 class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
@@ -63,6 +65,7 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
     private lateinit var btnSetFullScreenIntent: MaterialButton
 
     private lateinit var btnTestRollcallAlert: MaterialButton
+    private lateinit var btnTestRollcallBanner: MaterialButton
     private lateinit var btnSendTestNotification: MaterialButton
     private lateinit var btnRefreshDiagnostic: ImageButton
     private lateinit var btnCloseDiagnostic: ImageButton
@@ -118,6 +121,7 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         btnSetFullScreenIntent = v.findViewById(R.id.btnSetFullScreenIntent)
 
         btnTestRollcallAlert = v.findViewById(R.id.btnTestRollcallAlert)
+        btnTestRollcallBanner = v.findViewById(R.id.btnTestRollcallBanner)
         btnSendTestNotification = v.findViewById(R.id.btnSendTestNotification)
         btnRefreshDiagnostic = v.findViewById(R.id.btnRefreshDiagnostic)
         btnCloseDiagnostic = v.findViewById(R.id.btnCloseDiagnostic)
@@ -216,6 +220,25 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
                 .show()
         }
 
+        btnTestRollcallBanner.setOnClickListener {
+            val options = arrayOf(
+                "立即模拟：自动签到探测中横幅（蓝色）",
+                "立即模拟：自动签到失败红色横幅",
+                "延迟 5 秒模拟（切回桌面或锁屏，测试后台悬浮横幅）"
+            )
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("模拟课堂签到悬浮横幅测试")
+                .setItems(options) { _, which ->
+                    when (which) {
+                        0 -> testRollcallBanner(0L, RollcallOverlayAlert.BannerTone.INFO)
+                        1 -> testRollcallBanner(0L, RollcallOverlayAlert.BannerTone.WARNING)
+                        2 -> testRollcallBanner(5000L, RollcallOverlayAlert.BannerTone.WARNING)
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+
         btnSendTestNotification.setOnClickListener {
             NotificationDiagnosticHelper.sendDiagnosticTestNotification(requireContext())
             Toast.makeText(
@@ -261,7 +284,45 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
 
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
-                    RollcallNotificationHelper.notifyNumberRollcall(ctx, 99999L, "【模拟测试】高等数学（上）")
+                    RollcallNotificationHelper.notifyNumberRollcall(
+                        context = ctx,
+                        rollcallId = 99999L,
+                        courseName = "【模拟测试】高等数学（上）",
+                        overrideMode = RollcallAlertMode.POPUP
+                    )
+                } finally {
+                    runCatching {
+                        if (delayWakeLock?.isHeld == true) delayWakeLock.release()
+                    }
+                }
+            }, delayMs)
+        }
+    }
+
+    private fun testRollcallBanner(delayMs: Long, tone: RollcallOverlayAlert.BannerTone) {
+        val ctx = requireContext().applicationContext
+        if (delayMs <= 0L) {
+            dismiss()
+            RollcallNotificationHelper.sendTestRollcallBanner(ctx, tone)
+        } else {
+            dismiss()
+            RollcallNotificationHelper.cancelRollcallNotification(ctx, 99998L)
+            val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val delayWakeLock = runCatching {
+                pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "usst_jwgl:RollcallBannerTestDelayLock")?.apply {
+                    setReferenceCounted(false)
+                    acquire(delayMs + 3_000L)
+                }
+            }.getOrNull()
+            Toast.makeText(
+                ctx,
+                "⏳ 倒计时 5 秒！请切回桌面或锁屏，测试后台悬浮横幅提醒",
+                Toast.LENGTH_LONG
+            ).show()
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    RollcallNotificationHelper.sendTestRollcallBanner(ctx, tone)
                 } finally {
                     runCatching {
                         if (delayWakeLock?.isHeld == true) delayWakeLock.release()

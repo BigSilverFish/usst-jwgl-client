@@ -64,7 +64,8 @@ class SmartLiveQrRollcallManager(private val context: Context) {
     suspend fun tryAutoSignFromLive(
         rollcall: TronClassRollcall,
         courseName: String,
-        classroom: String? = null
+        classroom: String? = null,
+        notifyOnFailure: Boolean = true
     ): Boolean {
         var signSuccess = false
         monitorAndAutoSign(
@@ -73,6 +74,7 @@ class SmartLiveQrRollcallManager(private val context: Context) {
             classroom = classroom,
             maxDurationSeconds = 25,
             intervalMs = 2500L,
+            notifyOnFailure = notifyOnFailure,
             onFrameCaptured = { _ -> },
             onCompleted = { success, _ -> signSuccess = success }
         )
@@ -93,6 +95,7 @@ class SmartLiveQrRollcallManager(private val context: Context) {
         intervalMs: Long = 2500L,
         designatedLiveCourseId: Long? = null,
         testOnlyNoSubmit: Boolean = false,
+        notifyOnFailure: Boolean = true,
         preferredViewNumProvider: (() -> Int?)? = null,
         onViewsDiscovered: ((List<LiveDeviceViewDto>) -> Unit)? = null,
         onFrameCaptured: (FrameObservation) -> Unit,
@@ -323,14 +326,16 @@ class SmartLiveQrRollcallManager(private val context: Context) {
                                 continue
                             }
 
-                            RollcallNotificationHelper.notifyLiveQrResult(
-                                context = context,
-                                rollcallId = rollcallId,
-                                courseName = courseName,
-                                success = primarySuccess,
-                                viewName = targetView.viewName,
-                                message = summaryMsg
-                            )
+                            if (primarySuccess || notifyOnFailure) {
+                                RollcallNotificationHelper.notifyLiveQrResult(
+                                    context = context,
+                                    rollcallId = rollcallId,
+                                    courseName = courseName,
+                                    success = primarySuccess,
+                                    viewName = targetView.viewName,
+                                    message = summaryMsg
+                                )
+                            }
 
                             withContext(Dispatchers.Main) {
                                 onBatchResults?.invoke(results)

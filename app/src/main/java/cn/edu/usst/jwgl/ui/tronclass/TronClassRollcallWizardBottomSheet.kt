@@ -17,6 +17,7 @@ import cn.edu.usst.jwgl.databinding.DialogTronclassRollcallWizardBinding
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet
 import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.util.RollcallPermissionGuide
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
@@ -201,7 +202,7 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
         // 4. 底部辅助操作
         binding.btnDiagnostic.setOnClickListener {
             dismiss()
-            NotificationDiagnosticBottomSheet()
+            NotificationDiagnosticBottomSheet.newInstance(NotificationDiagnosticHelper.CHANNEL_ROLLCALL_ALERT)
                 .show(parentFragmentManager, "NotificationDiagnostic")
         }
 

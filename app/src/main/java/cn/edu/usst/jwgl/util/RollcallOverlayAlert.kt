@@ -6,6 +6,8 @@ import android.app.Application
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
@@ -19,11 +21,14 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.tronclass.RollcallAlertActivity
+import com.google.android.material.button.MaterialButton
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
@@ -33,8 +38,15 @@ import kotlin.math.roundToInt
  * is granted and no foreground activity is resumed.
  */
 object RollcallOverlayAlert {
+    enum class BannerTone {
+        INFO,
+        SUCCESS,
+        WARNING
+    }
+
     private const val TAG = "RollcallOverlayAlert"
     private const val TIMEOUT_MS = 60_000L
+    private const val BANNER_TIMEOUT_MS = 6_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val requestSequence = AtomicLong()
@@ -49,6 +61,7 @@ object RollcallOverlayAlert {
     private var activeView: View? = null
     private var activeWindowManager: WindowManager? = null
     private var activeRollcallId: Long? = null
+    private var activeIsTopBanner: Boolean = false
     private var timeoutRunnable: Runnable? = null
 
     fun initialize(app: Application) {
@@ -81,7 +94,7 @@ object RollcallOverlayAlert {
             if (requestSequence.get() != request || !shouldShow()) {
                 return@onMain
             }
-            if (activeRollcallId == rollcallId && activeView?.parent != null) {
+            if (activeRollcallId == rollcallId && activeView?.parent != null && !activeIsTopBanner) {
                 safeInvoke(onShown)
                 return@onMain
             }
@@ -143,9 +156,10 @@ object RollcallOverlayAlert {
                 activeView = content
                 activeWindowManager = windowManager
                 activeRollcallId = rollcallId
+                activeIsTopBanner = false
 
                 if (vibrate) {
-                    vibrateBriefly(app)
+                    vibratePattern(app, longArrayOf(0, 250, 100, 250))
                 }
                 timeoutRunnable = Runnable {
                     if (activeView === content) {
@@ -156,6 +170,160 @@ object RollcallOverlayAlert {
                 safeInvoke(onShown)
             } catch (e: Exception) {
                 Log.w(TAG, "Unable to show rollcall overlay", e)
+                dismissWindow()
+                safeInvoke(onUnavailable)
+            }
+        }
+    }
+
+    /**
+     * 方案 2：顶部非抢焦点悬浮横幅（不遮挡屏幕、不使背景变暗、6 秒自动收起）
+     */
+    fun showTopBanner(
+        context: Context,
+        rollcallId: Long,
+        title: String,
+        subtitle: String,
+        tone: BannerTone = BannerTone.INFO,
+        actionLabel: String? = null,
+        actionIntent: Intent? = null,
+        shouldShow: () -> Boolean = { true },
+        vibrate: Boolean = true,
+        timeoutMs: Long = BANNER_TIMEOUT_MS,
+        onShown: () -> Unit = {},
+        onUnavailable: () -> Unit = {}
+    ) {
+        val request = requestSequence.incrementAndGet()
+        onMain {
+            if (requestSequence.get() != request || !shouldShow()) {
+                return@onMain
+            }
+            dismissWindow()
+            try {
+                val app = (context.applicationContext as? Application) ?: application
+                if (app == null || !NotificationDiagnosticHelper.isOverlayPermissionGranted(app)) {
+                    safeInvoke(onUnavailable)
+                    return@onMain
+                }
+                initialize(app)
+
+                val themedContext = ContextThemeWrapper(app, R.style.Theme_UsstJwgl)
+                val content = LayoutInflater.from(themedContext)
+                    .inflate(R.layout.window_rollcall_banner_overlay, null)
+
+                val accentColor = when (tone) {
+                    BannerTone.INFO -> Color.parseColor("#1E88E5")
+                    BannerTone.SUCCESS -> Color.parseColor("#2E7D32")
+                    BannerTone.WARNING -> Color.parseColor("#E53935")
+                }
+                val badgeBgColor = when (tone) {
+                    BannerTone.INFO -> Color.parseColor("#1F1E88E5")
+                    BannerTone.SUCCESS -> Color.parseColor("#1F2E7D32")
+                    BannerTone.WARNING -> Color.parseColor("#1FE53935")
+                }
+                val iconRes = if (tone == BannerTone.SUCCESS) R.drawable.ic_check_circle else R.drawable.ic_radar
+
+                val ivIcon = content.findViewById<ImageView>(R.id.ivBannerIcon)
+                ivIcon.setImageResource(iconRes)
+                ivIcon.imageTintList = ColorStateList.valueOf(accentColor)
+                ivIcon.backgroundTintList = ColorStateList.valueOf(badgeBgColor)
+
+                content.findViewById<TextView>(R.id.tvBannerTitle).apply {
+                    text = title
+                    setTextColor(accentColor)
+                }
+                content.findViewById<TextView>(R.id.tvBannerSubtitle).text = subtitle
+
+                val btnAction = content.findViewById<MaterialButton>(R.id.btnBannerAction)
+                if (!actionLabel.isNullOrBlank() && actionIntent != null) {
+                    btnAction.visibility = View.VISIBLE
+                    btnAction.text = actionLabel
+                    btnAction.backgroundTintList = ColorStateList.valueOf(accentColor)
+                    btnAction.setOnClickListener {
+                        launchFromOverlay(app, rollcallId, actionIntent)
+                        dismiss()
+                    }
+                } else {
+                    btnAction.visibility = View.GONE
+                }
+
+                content.findViewById<ImageButton>(R.id.btnBannerClose).setOnClickListener {
+                    dismiss()
+                }
+                if (actionIntent != null) {
+                    content.setOnClickListener {
+                        launchFromOverlay(app, rollcallId, actionIntent)
+                        dismiss()
+                    }
+                }
+
+                val windowManager = app.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                    ?: throw IllegalStateException("WindowManager unavailable")
+                val metrics = themedContext.resources.displayMetrics
+                val width = minOf(
+                    (420 * metrics.density).roundToInt(),
+                    metrics.widthPixels - (24 * metrics.density).roundToInt()
+                ).coerceAtLeast(1)
+
+                val statusBarResId = themedContext.resources.getIdentifier("status_bar_height", "dimen", "android")
+                val statusBarHeight = if (statusBarResId > 0) {
+                    themedContext.resources.getDimensionPixelSize(statusBarResId)
+                } else {
+                    (28 * metrics.density).roundToInt()
+                }
+
+                @Suppress("DEPRECATION")
+                val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    WindowManager.LayoutParams.TYPE_PHONE
+                }
+
+                val params = WindowManager.LayoutParams(
+                    width,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    windowType,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                    y = statusBarHeight + (10 * metrics.density).roundToInt()
+                }
+
+                content.alpha = 0f
+                content.translationY = -48f
+                windowManager.addView(content, params)
+                check(content.parent != null) { "Banner overlay view did not attach" }
+                content.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(220L)
+                    .start()
+
+                activeView = content
+                activeWindowManager = windowManager
+                activeRollcallId = rollcallId
+                activeIsTopBanner = true
+
+                if (vibrate) {
+                    val pattern = when (tone) {
+                        BannerTone.INFO -> longArrayOf(0, 140)
+                        BannerTone.SUCCESS -> longArrayOf(0, 160, 80, 160)
+                        BannerTone.WARNING -> longArrayOf(0, 320, 100, 320)
+                    }
+                    vibratePattern(app, pattern)
+                }
+                timeoutRunnable = Runnable {
+                    if (activeView === content) {
+                        dismissWindow()
+                    }
+                }.also { mainHandler.postDelayed(it, timeoutMs) }
+
+                safeInvoke(onShown)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to show top banner overlay", e)
                 dismissWindow()
                 safeInvoke(onUnavailable)
             }
@@ -179,6 +347,14 @@ object RollcallOverlayAlert {
         }
     }
 
+    fun dismissBannerIfMatching(rollcallId: Long) {
+        onMain {
+            if (activeRollcallId == rollcallId && activeIsTopBanner) {
+                dismissWindow()
+            }
+        }
+    }
+
     private fun dismissWindow() {
         timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         timeoutRunnable = null
@@ -187,6 +363,7 @@ object RollcallOverlayAlert {
         activeView = null
         activeWindowManager = null
         activeRollcallId = null
+        activeIsTopBanner = false
         if (view != null && wm != null) {
             runCatching {
                 wm.removeViewImmediate(view)
@@ -249,10 +426,9 @@ object RollcallOverlayAlert {
         }
     }
 
-    private fun vibrateBriefly(context: Context) {
+    private fun vibratePattern(context: Context, pattern: LongArray) {
         runCatching {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
-            val pattern = longArrayOf(0, 250, 100, 250)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
             } else {

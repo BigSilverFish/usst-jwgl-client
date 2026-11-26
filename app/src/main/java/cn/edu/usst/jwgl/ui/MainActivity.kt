@@ -678,7 +678,6 @@ class MainActivity : AppCompatActivity() {
         pb.switchTronClassDdlUrgent.isChecked = tcPrefs.isDdlReminderUrgentEnabled()
         pb.switchRollcallMonitor.isChecked = tcPrefs.isRollcallMonitorEnabled()
         pb.switchRollcallAutoSign.isChecked = tcPrefs.isRollcallAutoSignEnabled()
-        pb.switchRollcallPopup.isChecked = tcPrefs.isRollcallPopupEnabled()
         pb.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
         pb.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
         pb.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
@@ -840,13 +839,8 @@ class MainActivity : AppCompatActivity() {
             settingsDialogController.showLiveFrameTestDialog()
         }
 
-        pb.rowRollcallPopup.setOnClickListener { pb.switchRollcallPopup.toggle() }
-        pb.switchRollcallPopup.setOnCheckedChangeListener { _, isChecked ->
-            tcPrefs.setRollcallPopupEnabled(isChecked)
-            updateReminderSubtitles()
-            if (isChecked && !NotificationDiagnosticHelper.isOverlayPermissionGranted(this)) {
-                Toast.makeText(this, "建议前往系统诊断授予悬浮窗权限以激活桌面弹窗", Toast.LENGTH_SHORT).show()
-            }
+        pb.rowRollcallPopup.setOnClickListener {
+            settingsDialogController.showRollcallAlertModeDialog()
         }
 
         pb.rowPowerfulReminder.setOnClickListener { pb.switchPowerfulReminder.toggle() }

@@ -9,6 +9,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.data.model.TronClassTodo
+import cn.edu.usst.jwgl.util.RollcallAlertMode
 import java.util.UUID
 
 class TronClassPreferences(private val context: Context) {
@@ -53,6 +54,9 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_ROLLCALL_AUTO_SIGN_CUSTOM_SECONDS = "tc_rollcall_auto_sign_custom_seconds"
         private const val KEY_ROLLCALL_AUTO_SIGN_CUSTOM_RATIO = "tc_rollcall_auto_sign_custom_ratio"
         private const val KEY_ROLLCALL_POPUP_ENABLED = "tc_rollcall_popup_enabled"
+        private const val KEY_ROLLCALL_ALERT_MODE = "tc_rollcall_alert_mode"
+        const val ALERT_MODE_POPUP = "popup"
+        const val ALERT_MODE_BANNER_ONLY = "banner_only"
         private const val KEY_ROLLCALL_CHAOXING_MONITOR_ENABLED = "tc_rollcall_chaoxing_monitor_enabled"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
         private const val KEY_ROLLCALL_CHAOXING_HANDLED_IDS = "tc_rollcall_chaoxing_handled_ids"
@@ -612,12 +616,41 @@ class TronClassPreferences(private val context: Context) {
     }
 
     /**
+     * 签到提醒呈现模式：强弹窗提醒 vs 仅悬浮横幅提醒
+     * 首次读取时自动兼容旧版 tc_rollcall_popup_enabled 开关状态
+     */
+    fun getRollcallAlertMode(): RollcallAlertMode {
+        if (prefs.contains(KEY_ROLLCALL_ALERT_MODE)) {
+            return when (prefs.getString(KEY_ROLLCALL_ALERT_MODE, ALERT_MODE_POPUP)) {
+                ALERT_MODE_BANNER_ONLY -> RollcallAlertMode.BANNER_ONLY
+                else -> RollcallAlertMode.POPUP
+            }
+        }
+        return if (prefs.getBoolean(KEY_ROLLCALL_POPUP_ENABLED, true)) {
+            RollcallAlertMode.POPUP
+        } else {
+            RollcallAlertMode.BANNER_ONLY
+        }
+    }
+
+    fun setRollcallAlertMode(mode: RollcallAlertMode) {
+        val rawMode = when (mode) {
+            RollcallAlertMode.BANNER_ONLY -> ALERT_MODE_BANNER_ONLY
+            RollcallAlertMode.POPUP -> ALERT_MODE_POPUP
+        }
+        prefs.edit()
+            .putString(KEY_ROLLCALL_ALERT_MODE, rawMode)
+            .putBoolean(KEY_ROLLCALL_POPUP_ENABLED, mode == RollcallAlertMode.POPUP)
+            .apply()
+    }
+
+    /**
      * 发现课堂签到时直接全屏/桌面弹窗强提醒（配合系统 Full-Screen Intent 及悬浮弹窗）
      */
-    fun isRollcallPopupEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_POPUP_ENABLED, true)
+    fun isRollcallPopupEnabled(): Boolean = getRollcallAlertMode() == RollcallAlertMode.POPUP
 
     fun setRollcallPopupEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_ROLLCALL_POPUP_ENABLED, enabled).apply()
+        setRollcallAlertMode(if (enabled) RollcallAlertMode.POPUP else RollcallAlertMode.BANNER_ONLY)
     }
 
     /**

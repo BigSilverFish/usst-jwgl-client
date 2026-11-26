@@ -889,7 +889,7 @@
                             android:id="@+id/tvRollcallPopupTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="签到弹窗提醒"
+                            android:text="签到提醒方式"
                             android:textColor="@color/text_primary"
                             android:textSize="15sp"
                             android:textStyle="bold" />
@@ -904,10 +904,14 @@
                             android:textSize="12.5sp" />
                     </LinearLayout>
 
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchRollcallPopup"
+                    <TextView
+                        android:id="@+id/tvRollcallAlertModeValue"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:text="强弹窗 ›"
+                        android:textColor="@color/primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
 
                 <View

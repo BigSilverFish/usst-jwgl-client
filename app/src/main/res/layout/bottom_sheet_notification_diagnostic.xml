@@ -501,6 +501,17 @@
                 android:textSize="14sp"
                 app:cornerRadius="12dp" />
 
+            <!-- 模拟测试悬浮横幅按钮 -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTestRollcallBanner"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="10dp"
+                android:text="模拟测试悬浮横幅提醒（探测 / 失败横幅）"
+                android:textSize="14sp"
+                app:cornerRadius="12dp" />
+
             <!-- 底部测试按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSendTestNotification"

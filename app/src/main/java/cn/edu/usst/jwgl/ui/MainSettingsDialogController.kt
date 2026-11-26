@@ -30,6 +30,7 @@ import cn.edu.usst.jwgl.ui.tronclass.LiveQrRollcallBottomSheetDialog
 import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.RollcallAlertMode
 import cn.edu.usst.jwgl.util.ThemeManager
 import cn.edu.usst.jwgl.util.UpdateDialogHelper
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
@@ -225,16 +226,25 @@ internal class MainSettingsDialogController(
             "已关闭 · 仅后台监听并发通知，不自动提交签到"
         }
 
-        val isPopupEnabled = tcPrefs.isRollcallPopupEnabled()
+        val alertMode = tcPrefs.getRollcallAlertMode()
         val hasOverlay = NotificationDiagnosticHelper.isOverlayPermissionGranted(activity)
-        if (pb.switchRollcallPopup.isChecked != isPopupEnabled) {
-            pb.switchRollcallPopup.isChecked = isPopupEnabled
-        }
-        pb.tvRollcallPopupSubtitle.text = if (isPopupEnabled) {
-            if (hasOverlay) "已开启 · 亮屏并在桌面居中提醒"
-            else "已开启 · 锁屏点亮提醒 (桌面展示需悬浮窗权限)"
-        } else {
-            "已关闭 · 仅通过通知栏提醒"
+        when (alertMode) {
+            RollcallAlertMode.POPUP -> {
+                pb.tvRollcallAlertModeValue.text = "强弹窗 ›"
+                pb.tvRollcallPopupSubtitle.text = if (hasOverlay) {
+                    "亮屏居中弹窗 + 锁屏唤醒（自动签到探测先发横幅，失败再弹窗）"
+                } else {
+                    "锁屏点亮提醒（授权悬浮窗权限后支持亮屏桌面居中弹窗）"
+                }
+            }
+            RollcallAlertMode.BANNER_ONLY -> {
+                pb.tvRollcallAlertModeValue.text = "仅横幅 ›"
+                pb.tvRollcallPopupSubtitle.text = if (hasOverlay) {
+                    "顶部轻量悬浮横幅 + 高优通知，不弹居中窗与锁屏全屏页"
+                } else {
+                    "高优系统悬浮横幅提醒，不弹居中窗与锁屏全屏页"
+                }
+            }
         }
 
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(activity)
@@ -243,6 +253,34 @@ internal class MainSettingsDialogController(
         } else {
             "标准模式 · 息屏较久时可能出现轻微延迟"
         }
+    }
+
+    fun showRollcallAlertModeDialog() {
+        val tcPrefs = TronClassPreferences.getInstance(activity)
+        val currentMode = tcPrefs.getRollcallAlertMode()
+        val options = arrayOf(
+            "强弹窗提醒（默认）\n亮屏居中弹窗 + 锁屏唤醒；自动签到先发横幅，失败再弹窗",
+            "仅悬浮横幅提醒\n顶部轻量浮条 / 系统横幅，不弹居中窗与锁屏全屏页；自动签到失败亦仅发高优红色横幅"
+        )
+        val checkedItem = if (currentMode == RollcallAlertMode.BANNER_ONLY) 1 else 0
+
+        MaterialAlertDialogBuilder(activity)
+            .setTitle("选择签到提醒方式")
+            .setSingleChoiceItems(options, checkedItem) { dialog, which ->
+                val newMode = if (which == 1) RollcallAlertMode.BANNER_ONLY else RollcallAlertMode.POPUP
+                tcPrefs.setRollcallAlertMode(newMode)
+                updateReminderSubtitles()
+                if (!NotificationDiagnosticHelper.isOverlayPermissionGranted(activity)) {
+                    Toast.makeText(
+                        activity,
+                        "建议前往「通知与弹窗运行诊断」开启悬浮窗权限，以获得最佳桌面提醒效果",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .safeShow()
     }
 
     fun showCourseReminderAdvanceDialog() {

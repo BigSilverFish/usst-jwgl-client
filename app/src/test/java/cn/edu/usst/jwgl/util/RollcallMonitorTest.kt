@@ -168,13 +168,23 @@ class RollcallMonitorTest {
     @Test
     fun testRollcallPopupRouter_decideRoutesSafely() {
         assertEquals(
-            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRoute.TOP_BANNER_OVERLAY,
             RollcallPopupRouter.decide(
                 popupEnabled = false,
                 hasResumedActivity = true,
                 isScreenInteractive = true,
                 isKeyguardLocked = false,
                 canDrawOverlays = true
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRouter.decide(
+                popupEnabled = false,
+                hasResumedActivity = true,
+                isScreenInteractive = true,
+                isKeyguardLocked = false,
+                canDrawOverlays = false
             )
         )
         assertEquals(
@@ -225,6 +235,59 @@ class RollcallMonitorTest {
                 isScreenInteractive = true,
                 isKeyguardLocked = false,
                 canDrawOverlays = false
+            )
+        )
+    }
+
+    @Test
+    fun testRollcallPopupRouter_resolveEffectiveMode_andBannerRoutes() {
+        // 自动签到探测中与自动签到成功均强制走仅悬浮横幅
+        assertEquals(
+            RollcallAlertMode.BANNER_ONLY,
+            RollcallPopupRouter.resolveEffectiveMode(RollcallAlertMode.POPUP, RollcallAlertStage.AUTO_SIGN_DETECTED)
+        )
+        assertEquals(
+            RollcallAlertMode.BANNER_ONLY,
+            RollcallPopupRouter.resolveEffectiveMode(RollcallAlertMode.POPUP, RollcallAlertStage.AUTO_SIGN_SUCCEEDED)
+        )
+        assertEquals(
+            RollcallAlertMode.BANNER_ONLY,
+            RollcallPopupRouter.resolveEffectiveMode(RollcallAlertMode.BANNER_ONLY, RollcallAlertStage.AUTO_SIGN_DETECTED)
+        )
+
+        // 自动签到失败回退严格遵守用户所选提醒模式
+        assertEquals(
+            RollcallAlertMode.POPUP,
+            RollcallPopupRouter.resolveEffectiveMode(RollcallAlertMode.POPUP, RollcallAlertStage.AUTO_SIGN_FAILED_FALLBACK)
+        )
+        assertEquals(
+            RollcallAlertMode.BANNER_ONLY,
+            RollcallPopupRouter.resolveEffectiveMode(RollcallAlertMode.BANNER_ONLY, RollcallAlertStage.AUTO_SIGN_FAILED_FALLBACK)
+        )
+        assertEquals(
+            RollcallAlertMode.BANNER_ONLY,
+            RollcallPopupRouter.resolveEffectiveMode(RollcallAlertMode.BANNER_ONLY, RollcallAlertStage.MANUAL_DETECTED)
+        )
+
+        // BANNER_ONLY 在锁屏或无悬浮窗权限时降级为 NOTIFICATION_ONLY
+        assertEquals(
+            RollcallPopupRoute.NOTIFICATION_ONLY,
+            RollcallPopupRouter.decide(
+                effectiveMode = RollcallAlertMode.BANNER_ONLY,
+                hasResumedActivity = false,
+                isScreenInteractive = true,
+                isKeyguardLocked = true,
+                canDrawOverlays = true
+            )
+        )
+        assertEquals(
+            RollcallPopupRoute.TOP_BANNER_OVERLAY,
+            RollcallPopupRouter.decide(
+                effectiveMode = RollcallAlertMode.BANNER_ONLY,
+                hasResumedActivity = false,
+                isScreenInteractive = true,
+                isKeyguardLocked = false,
+                canDrawOverlays = true
             )
         )
     }
