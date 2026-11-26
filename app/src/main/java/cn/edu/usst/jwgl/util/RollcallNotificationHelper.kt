@@ -188,7 +188,12 @@ object RollcallNotificationHelper {
             "上课签到守护中 · 正在检测签到"
         }
 
-        val subText = lastActionStatus ?: "驻留后台自动检测点名 · 雷达自动签到"
+        val defaultSubText = if (DeveloperModeManager.isDeveloperMode(context)) {
+            "驻留后台自动检测点名 · 雷达自动签到"
+        } else {
+            "驻留后台实时检测课堂点名"
+        }
+        val subText = lastActionStatus ?: defaultSubText
 
         return NotificationCompat.Builder(context, CHANNEL_ID_SERVICE)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -306,12 +311,19 @@ object RollcallNotificationHelper {
         )
         val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
 
+        val isDevMode = DeveloperModeManager.isDeveloperMode(context)
         val isWarning = tone == RollcallOverlayAlert.BannerTone.WARNING
-        val title = if (isWarning) "自动签到未成功，请手动签到" else "检测到签到 · 即将自动提交"
-        val summary = if (isWarning) {
-            "【模拟测试】高等数学（上）· 失败回退高优红色悬浮横幅，点击立即手动签到"
-        } else {
-            "【模拟测试】高等数学（上）· 雷达定位签到 · 将在 10秒后 尝试自动提交"
+        val title = when {
+            isDevMode && isWarning -> "自动签到未成功，请手动签到"
+            isDevMode -> "检测到签到 · 即将自动提交"
+            isWarning -> "收到课堂签到提醒，请手动签到"
+            else -> "检测到课堂签到（模拟）"
+        }
+        val summary = when {
+            isDevMode && isWarning -> "【模拟测试】高等数学（上）· 失败回退高优红色悬浮横幅，点击立即手动签到"
+            isDevMode -> "【模拟测试】高等数学（上）· 雷达定位签到 · 将在 10秒后 尝试自动提交"
+            isWarning -> "【模拟测试】高等数学（上）· 高优红色悬浮横幅提醒，点击立即前往签到"
+            else -> "【模拟测试】高等数学（上）· 常规顶部悬浮横幅提醒"
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)

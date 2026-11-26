@@ -231,10 +231,10 @@ internal class MainSettingsDialogController(
         when (alertMode) {
             RollcallAlertMode.POPUP -> {
                 pb.tvRollcallAlertModeValue.text = "强弹窗 ›"
-                pb.tvRollcallPopupSubtitle.text = if (hasOverlay) {
-                    "亮屏居中弹窗 + 锁屏唤醒（自动签到探测先发横幅，失败再弹窗）"
-                } else {
-                    "锁屏点亮提醒（授权悬浮窗权限后支持亮屏桌面居中弹窗）"
+                pb.tvRollcallPopupSubtitle.text = when {
+                    isDevMode && hasOverlay -> "亮屏居中弹窗 + 锁屏唤醒（自动签到探测先发横幅，失败再弹窗）"
+                    hasOverlay -> "亮屏居中弹窗 + 锁屏唤醒，发现课堂点名立即提醒"
+                    else -> "锁屏点亮提醒（授权悬浮窗权限后支持亮屏桌面居中弹窗）"
                 }
             }
             RollcallAlertMode.BANNER_ONLY -> {
@@ -258,10 +258,18 @@ internal class MainSettingsDialogController(
     fun showRollcallAlertModeDialog() {
         val tcPrefs = TronClassPreferences.getInstance(activity)
         val currentMode = tcPrefs.getRollcallAlertMode()
-        val options = arrayOf(
-            "强弹窗提醒（默认）\n亮屏居中弹窗 + 锁屏唤醒；自动签到先发横幅，失败再弹窗",
-            "仅悬浮横幅提醒\n顶部轻量浮条 / 系统横幅，不弹居中窗与锁屏全屏页；自动签到失败亦仅发高优红色横幅"
-        )
+        val isDevMode = DeveloperModeManager.isDeveloperMode(activity)
+        val options = if (isDevMode) {
+            arrayOf(
+                "强弹窗提醒（默认）\n亮屏居中弹窗 + 锁屏唤醒；自动签到先发横幅，失败再弹窗",
+                "仅悬浮横幅提醒\n顶部轻量浮条 / 系统横幅，不弹居中窗与锁屏全屏页；自动签到失败亦仅发高优红色横幅"
+            )
+        } else {
+            arrayOf(
+                "强弹窗提醒（默认）\n亮屏居中弹窗 + 锁屏唤醒，发现课堂点名立即弹出提醒",
+                "仅悬浮横幅提醒\n顶部轻量浮条 / 系统横幅，不弹居中窗与锁屏全屏页"
+            )
+        }
         val checkedItem = if (currentMode == RollcallAlertMode.BANNER_ONLY) 1 else 0
 
         MaterialAlertDialogBuilder(activity)

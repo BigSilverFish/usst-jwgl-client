@@ -18,6 +18,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.ui.tronclass.RollcallAlertActivity
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.util.RollcallAlertMode
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
@@ -221,11 +222,20 @@ class NotificationDiagnosticBottomSheet : BottomSheetDialogFragment() {
         }
 
         btnTestRollcallBanner.setOnClickListener {
-            val options = arrayOf(
-                "立即模拟：自动签到探测中横幅（蓝色）",
-                "立即模拟：自动签到失败红色横幅",
-                "延迟 5 秒模拟（切回桌面或锁屏，测试后台悬浮横幅）"
-            )
+            val isDevMode = DeveloperModeManager.isDeveloperMode(requireContext())
+            val options = if (isDevMode) {
+                arrayOf(
+                    "立即模拟：自动签到探测中横幅（蓝色）",
+                    "立即模拟：自动签到失败红色横幅",
+                    "延迟 5 秒模拟（切回桌面或锁屏，测试后台悬浮横幅）"
+                )
+            } else {
+                arrayOf(
+                    "立即模拟：常规课堂提醒横幅（蓝色）",
+                    "立即模拟：高优签到警示横幅（红色）",
+                    "延迟 5 秒模拟（切回桌面或锁屏，测试后台悬浮横幅）"
+                )
+            }
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle("模拟课堂签到悬浮横幅测试")
                 .setItems(options) { _, which ->

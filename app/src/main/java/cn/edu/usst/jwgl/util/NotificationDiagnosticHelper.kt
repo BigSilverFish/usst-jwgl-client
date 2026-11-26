@@ -120,7 +120,7 @@ object NotificationDiagnosticHelper {
             "课堂签到提醒与通知",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "检测到课堂点名或自动签到状态时的即时横幅与胶囊提醒"
+            description = "检测到课堂点名状态时的即时横幅与胶囊提醒"
             enableVibration(true)
             vibrationPattern = vibrationPatternRollcall
             setSound(defaultSound, audioAttributes)
