@@ -12,6 +12,7 @@ import cn.edu.usst.jwgl.data.model.LiveDeviceViewDto
 import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.databinding.DialogLiveQrRollcallBinding
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -76,6 +77,11 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        if (!DeveloperModeManager.isDeveloperMode(requireContext())) {
+            dismissAllowingStateLoss()
+            onFallbackCameraListener?.invoke()
+            return
+        }
         setupViews()
         startLiveTracking()
     }

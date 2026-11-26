@@ -22,6 +22,7 @@ import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.UnifiedCourse
 import cn.edu.usst.jwgl.data.network.ChaoXingQrPayload
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
@@ -178,7 +179,8 @@ internal class TronClassRollcallUiCoordinator(
                 }
 
                 "口令签到" -> {
-                    val detectedCode = signDetail?.signCode ?: ""
+                    val isDev = DeveloperModeManager.isDeveloperMode(ctx)
+                    val detectedCode = if (isDev) signDetail?.signCode.orEmpty() else ""
                     val input = EditText(ctx).apply {
                         hint = "请输入签到码/口令"
                         if (detectedCode.isNotBlank()) {
@@ -256,7 +258,12 @@ internal class TronClassRollcallUiCoordinator(
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val effectiveEnc = enc ?: signDetail?.signCode
+            val isDev = DeveloperModeManager.isDeveloperMode(ctx)
+            val effectiveEnc = if (signType == "口令签到" && !isDev) {
+                enc
+            } else {
+                enc ?: signDetail?.signCode
+            }
             val effectiveSignCode = signCodeOverride ?: if (signType == "二维码签到") null else effectiveEnc
             val res = chaoXingClient.submitSign(
                 courseId = course.courseId,
@@ -463,9 +470,14 @@ internal class TronClassRollcallUiCoordinator(
         val ctx = context ?: return
         val parsed = tronClassClient.parseRollcallQr(rawContents)
         if (parsed != null) {
-            val accounts = try {
-                cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
-            } catch (_: Exception) {
+            val isDev = DeveloperModeManager.isDeveloperMode(ctx)
+            val accounts = if (isDev) {
+                try {
+                    cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else {
                 emptyList()
             }
 
@@ -627,10 +639,17 @@ internal class TronClassRollcallUiCoordinator(
     }
 
     fun dispatchRollcallByType(rollcall: TronClassRollcall) {
+        val isDev = context?.let { DeveloperModeManager.isDeveloperMode(it) } ?: false
         when (rollcall.getNormalizedType()) {
             "radar" -> showTronClassRadarRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
             "number" -> showTronClassNumberRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            "qr_code" -> showLiveQrRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName, rollcall.classroom)
+            "qr_code" -> {
+                if (isDev) {
+                    showLiveQrRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName, rollcall.classroom)
+                } else {
+                    startTronClassQrScan()
+                }
+            }
             else -> showManualRollcallGuideDialog(rollcall.getEffectiveId(), rollcall.courseName)
         }
     }
@@ -858,6 +877,20 @@ internal class TronClassRollcallUiCoordinator(
         chaoXingCourseId: String? = null,
         chaoXingClassId: String? = null
     ) {
+        val isDev = context?.let { DeveloperModeManager.isDeveloperMode(it) } ?: false
+        if (!isDev) {
+            if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
+                pendingChaoXingQrCourseId = chaoXingCourseId
+                pendingChaoXingQrClassId = chaoXingClassId
+                pendingChaoXingQrActiveId = rollcallId
+                pendingChaoXingQrCourseName = courseName
+                val intent = Intent(fragment.requireContext(), MlKitScannerActivity::class.java)
+                tronClassMlKitScannerLauncher.launch(intent)
+            } else {
+                startTronClassQrScan()
+            }
+            return
+        }
         val dialog = if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
             LiveQrRollcallBottomSheetDialog.newChaoXingInstance(
                 activeId = rollcallId,

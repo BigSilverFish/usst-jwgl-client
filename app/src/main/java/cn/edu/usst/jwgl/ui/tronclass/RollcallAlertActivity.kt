@@ -26,7 +26,6 @@ import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.ui.MainActivity
-import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
 import cn.edu.usst.jwgl.util.CoordinateUtils
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
@@ -137,6 +136,9 @@ class RollcallAlertActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateAutoFetchButtonVisibility()
+        if (rollcallType == TYPE_RADAR) {
+            updateRadarSectionForDevMode()
+        }
     }
 
     private fun setupWindowFlags() {
@@ -257,12 +259,20 @@ class RollcallAlertActivity : AppCompatActivity() {
                     }
                 }
                 TYPE_RADAR -> {
-                    submitRadarLocation()
+                    if (DeveloperModeManager.isDeveloperMode(this)) {
+                        submitRadarLocation()
+                    } else {
+                        openRealRadarRollcallInMain()
+                    }
                 }
                 TYPE_QR, TYPE_LIVE_QR -> {
-                    // 跳转至扫码页面
-                    val qrIntent = Intent(this, MlKitScannerActivity::class.java).apply {
+                    // 跳转主界面一网畅学页并由带回调的扫码器启动，避免扫码结果丢失
+                    val qrIntent = Intent(this, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra(MainActivity.EXTRA_TAB, 8)
+                        putExtra("extra_open_qr_scan", true)
+                        putExtra("extra_rollcall_id", rollcallId)
+                        putExtra("extra_course_name", courseName)
                     }
                     startActivity(qrIntent)
                     finish()
@@ -285,6 +295,44 @@ class RollcallAlertActivity : AppCompatActivity() {
         btnAutoFetchCode.visibility = if (rollcallType == TYPE_NUMBER && isDev) View.VISIBLE else View.GONE
     }
 
+    private fun updateRadarSectionForDevMode() {
+        tvRollcallTypeBadge.text = "雷达定位签到"
+        if (DeveloperModeManager.isDeveloperMode(this)) {
+            tvRollcallStatusTip.text = "需确认基准教学楼点位以完成签到"
+            layoutNumberSection.visibility = View.GONE
+            layoutLocationSection.visibility = View.VISIBLE
+            layoutGenericSection.visibility = View.GONE
+
+            val matched = buildingName
+                ?: CoordinateUtils.findMatchingBuilding(classroom)?.name
+                ?: "军工路第一教学楼"
+            tvTargetBuilding.text = matched
+            btnConfirmSign.text = "一键选点签到"
+        } else {
+            tvRollcallStatusTip.text = "请前往使用本机真实定位完成雷达签到"
+            layoutNumberSection.visibility = View.GONE
+            layoutLocationSection.visibility = View.GONE
+            layoutGenericSection.visibility = View.VISIBLE
+            tvGenericMessage.text = "检测到课堂雷达点名，点击下方按钮使用手机本机定位签到"
+            btnConfirmSign.text = "前往定位签到"
+        }
+    }
+
+    private fun openRealRadarRollcallInMain() {
+        val mainIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TAB, 8)
+            putExtra("extra_open_radar_rollcall", true)
+            putExtra("extra_rollcall_id", rollcallId)
+            putExtra("extra_course_name", courseName)
+            putExtra("extra_classroom", classroom)
+            if (targetLatitude != null) putExtra("extra_latitude", targetLatitude!!)
+            if (targetLongitude != null) putExtra("extra_longitude", targetLongitude!!)
+        }
+        startActivity(mainIntent)
+        finish()
+    }
+
     private fun bindDataToUI() {
         tvAlertCourseName.text = courseName ?: "当前课堂点名"
         updateAutoFetchButtonVisibility()
@@ -300,17 +348,7 @@ class RollcallAlertActivity : AppCompatActivity() {
                 focusCodeInput()
             }
             TYPE_RADAR -> {
-                tvRollcallTypeBadge.text = "雷达定位签到"
-                tvRollcallStatusTip.text = "需确认基准教学楼点位以完成签到"
-                layoutNumberSection.visibility = View.GONE
-                layoutLocationSection.visibility = View.VISIBLE
-                layoutGenericSection.visibility = View.GONE
-
-                val matched = buildingName
-                    ?: CoordinateUtils.findMatchingBuilding(classroom)?.name
-                    ?: "军工路第一教学楼"
-                tvTargetBuilding.text = matched
-                btnConfirmSign.text = "一键选点签到"
+                updateRadarSectionForDevMode()
             }
             TYPE_QR, TYPE_LIVE_QR -> {
                 tvRollcallTypeBadge.text = if (rollcallType == TYPE_LIVE_QR) "动态二维码" else "扫码签到"
@@ -433,6 +471,10 @@ class RollcallAlertActivity : AppCompatActivity() {
     }
 
     private fun submitRadarLocation() {
+        if (!DeveloperModeManager.isDeveloperMode(this)) {
+            openRealRadarRollcallInMain()
+            return
+        }
         if (isSubmitting) return
         isSubmitting = true
         setSubmittingUI(true, "正在提交基准教学楼坐标...")

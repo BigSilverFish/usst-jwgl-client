@@ -257,9 +257,24 @@ class SmartLiveQrRollcallManager(private val context: Context) {
                                 continue
                             }
 
-                            val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
-                            lastBatchResults = results
                             val currentStudentId = AuthPreferences.currentStudentId(context)
+                            val results = if (DeveloperModeManager.isDeveloperMode(context)) {
+                                tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
+                            } else {
+                                val singleRes = tronClassClient.answerQRRollcall(parsed.rollcallId, parsed.qrData)
+                                val submitResult = singleRes.getOrNull()
+                                listOf(
+                                    MultiAccountRollcallResult(
+                                        studentId = currentStudentId,
+                                        studentName = currentStudentId.ifBlank { "当前账号" },
+                                        success = submitResult?.success == true,
+                                        message = submitResult?.message
+                                            ?: singleRes.exceptionOrNull()?.message
+                                            ?: "签到未成功"
+                                    )
+                                )
+                            }
+                            lastBatchResults = results
                             val primarySuccess = MultiAccountRollcallResult.isPrimaryAccountSuccess(results, currentStudentId)
                             val primaryResult = MultiAccountRollcallResult.findPrimaryResult(results, currentStudentId)
                             val successCount = results.count { it.success }

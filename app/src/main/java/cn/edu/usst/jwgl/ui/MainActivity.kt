@@ -1132,7 +1132,9 @@ class MainActivity : AppCompatActivity() {
 
         if (intent.getBooleanExtra("extra_open_qr_scan", false)) {
             switchTab(MainTab.TRONCLASS)
-            startActivity(Intent(this, cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity::class.java))
+            binding.root.postDelayed({
+                getTronClassFragment()?.startTronClassQrScan()
+            }, 300)
         }
 
         if (intent.getBooleanExtra("extra_trigger_smart_rollcall", false)) {

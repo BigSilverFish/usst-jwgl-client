@@ -1829,7 +1829,7 @@ class TronClassFragment : Fragment() {
     // --- 课堂签到调度与交互 ---
 
     private fun clearPendingChaoXingQrTarget() = rollcallCoordinator.clearPendingChaoXingQrTarget()
-    private fun startTronClassQrScan() = rollcallCoordinator.startTronClassQrScan()
+    fun startTronClassQrScan() = rollcallCoordinator.startTronClassQrScan()
     private fun handleScannedQrResult(rawContents: String) = rollcallCoordinator.handleScannedQrResult(rawContents)
     fun triggerSmartRollcall() = rollcallCoordinator.triggerSmartRollcall()
     private fun dispatchRollcallByType(rollcall: TronClassRollcall) = rollcallCoordinator.dispatchRollcallByType(rollcall)
