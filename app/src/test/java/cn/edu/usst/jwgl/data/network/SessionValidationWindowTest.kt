@@ -31,4 +31,15 @@ class SessionValidationWindowTest {
         window.record("a", null)
         assertFalse(window.contains("a", "one"))
     }
+
+    @Test fun invalidateAndClearIsolateSwitchedAccounts() {
+        val window = SessionValidationWindow(now = { 10L })
+        window.record("a", "one")
+        window.record("b", "two")
+        window.invalidate("a")
+        assertFalse(window.contains("a", "one"))
+        assertTrue(window.contains("b", "two"))
+        window.clear()
+        assertFalse(window.contains("b", "two"))
+    }
 }

@@ -5,6 +5,7 @@ import android.util.Log
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.model.ChaoXingLoginResponse
+import cn.edu.usst.jwgl.util.ChaoXingRiskControlException
 import cn.edu.usst.jwgl.util.CookieSyncHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,7 +30,7 @@ import java.util.concurrent.TimeUnit
  */
 object ChaoXingSsoClient {
     private const val TAG = "ChaoXingSsoClient"
-    private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    private const val USER_AGENT = ChaoXingRequestGuard.DEFAULT_MOBILE_WEB_UA
 
     const val DIRECT_CAS_URL = "https://ids6.usst.edu.cn/authserver/login?service=https%3A%2F%2Ftyrzfw.chaoxing.com%2Fauth3%2Fusst%2Fcas%2Findex"
     const val SSO_ENTRY_URL = "https://tyrzfw.chaoxing.com/auth3/usst/cas/init?isLogout=0&refer=https%3A%2F%2Fi.chaoxing.com&casinfo=&casenc=&casfrom=login"
@@ -48,13 +49,32 @@ object ChaoXingSsoClient {
      * @param context Android 上下文
      * @param forceEntry 是否强制从 tyrzfw 入口发起（默认先试 direct ids6）
      */
-    suspend fun loginWithCas(context: Context, forceEntry: Boolean = false): Result<Map<String, String>> = withContext(Dispatchers.IO) {
+    suspend fun loginWithCas(
+        context: Context,
+        forceEntry: Boolean = false,
+        targetStudentId: String? = null
+    ): Result<Map<String, String>> = withContext(Dispatchers.IO) {
+        try {
+            ChaoXingRequestGuard.checkCircuitOrThrow(context)
+        } catch (e: ChaoXingRiskControlException) {
+            return@withContext Result.failure(e)
+        }
         val authPrefs = AuthPreferences(context)
-        val studentId = authPrefs.getStudentId()
-        val password = authPrefs.getPassword()
+        val studentId = targetStudentId?.trim()?.takeIf { it.isNotEmpty() } ?: authPrefs.getStudentId().trim()
+        if (studentId.isBlank()) {
+            return@withContext Result.failure(IOException("无法确认目标学生学号"))
+        }
+        val vaultPwd = try {
+            cn.edu.usst.jwgl.data.local.AccountVault.getInstance(context).getAccountPassword(studentId)
+        } catch (_: Exception) {
+            ""
+        }
+        val password = vaultPwd.ifBlank {
+            if (studentId == authPrefs.getStudentId().trim()) authPrefs.getPassword() else ""
+        }
 
-        // 1. 获取已有 JwglClient 的 CAS Cookies
-        val jwglCookies = JwglClient.getCookies()
+        // 1. 仅获取明确归属当前目标学号的 CAS Cookies，严禁跨账号复用 CASTGC
+        val jwglCookies = JwglClient.getCookiesForStudent(studentId)
         val casCookieMap = LinkedHashMap<String, String>()
         for (c in jwglCookies) {
             if (c.domain.contains("usst.edu.cn") || c.name.equals("CASTGC", ignoreCase = true)) {
@@ -81,6 +101,7 @@ object ChaoXingSsoClient {
             try {
                 Log.d(TAG, "Starting ChaoXing SSO follow chain from: $startUrl (has CASTGC: ${casCookieMap.containsKey("CASTGC")})")
                 val success = followChain(
+                    context = context,
                     startUrl = startUrl,
                     studentId = studentId,
                     password = password,
@@ -91,6 +112,12 @@ object ChaoXingSsoClient {
                 if (success && chaoxingCookieMap.isNotEmpty()) {
                     val cookieStr = chaoxingCookieMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
                     var uid = chaoxingCookieMap["_uid"] ?: chaoxingCookieMap["UID"] ?: ""
+                    val prefs = ChaoXingPreferences(context)
+                    val conflictOwner = prefs.findConflictingStudentForUid(studentId, uid)
+                    if (conflictOwner != null) {
+                        Log.w(TAG, "ChaoXing UID $uid already belongs to $conflictOwner, rejecting save for $studentId")
+                        return@withContext Result.failure(IOException("超星返回会话归属异常（UID 与账号 $conflictOwner 冲突），已拦截保存"))
+                    }
 
                     // 实例化超星客户端并执行有效性校验
                     val cxClient = ChaoXingClient(context)
@@ -99,15 +126,19 @@ object ChaoXingSsoClient {
                     // 校验会话
                     val isValid = cxClient.checkSessionValid(studentId)
                     if (isValid) {
-                        val prefs = ChaoXingPreferences(context)
                         if (uid.isEmpty()) {
-                            uid = prefs.getUid() ?: ""
+                            uid = prefs.getUid(studentId) ?: ""
+                        }
+                        val postValidConflict = prefs.findConflictingStudentForUid(studentId, uid)
+                        if (postValidConflict != null) {
+                            prefs.clearSession(studentId)
+                            return@withContext Result.failure(IOException("超星会话归属冲突 ($postValidConflict)，已清理"))
                         }
                         prefs.saveLoginSession(
                             cookies = cookieStr,
                             uid = uid,
                             studentNo = studentId,
-                            userName = prefs.getUserName().ifEmpty { studentId },
+                            userName = prefs.getUserName(studentId).ifEmpty { studentId },
                             schoolId = "207",
                             schoolName = "上海理工大学"
                         )
@@ -116,9 +147,13 @@ object ChaoXingSsoClient {
                         Log.d(TAG, "ChaoXing SSO successful! UID=$uid, cookies count=${chaoxingCookieMap.size}")
                         return@withContext Result.success(chaoxingCookieMap)
                     } else {
+                        prefs.clearSession(studentId)
                         Log.w(TAG, "ChaoXing SSO chain completed but checkSessionValid returned false on $startUrl")
                     }
                 }
+            } catch (e: ChaoXingRiskControlException) {
+                Log.w(TAG, "ChaoXing SSO halted by risk control: ${e.message}")
+                return@withContext Result.failure(e)
             } catch (e: Exception) {
                 Log.e(TAG, "ChaoXing SSO attempt error on $startUrl", e)
                 lastException = e
@@ -129,6 +164,7 @@ object ChaoXingSsoClient {
     }
 
     private fun followChain(
+        context: Context,
         startUrl: String,
         studentId: String,
         password: String,
@@ -176,10 +212,27 @@ object ChaoXingSsoClient {
                 reqBuilder.get()
             }
 
+            val isCxHost = ChaoXingRequestGuard.isChaoXingHost(host)
+            if (isCxHost) {
+                ChaoXingRequestGuard.checkCircuitOrThrow(context)
+                ChaoXingRequestGuard.awaitPacingSlot()
+            }
+
             val resp = client.newCall(reqBuilder.build()).execute()
             val code = resp.code
             val setCookies = resp.headers("Set-Cookie")
             val bodyStr = resp.body?.string() ?: ""
+
+            if (isCxHost) {
+                val riskSignal = ChaoXingRequestGuard.detectRiskSignal(code, currentUrl, bodyStr.take(8192))
+                if (riskSignal != null) {
+                    val until = ChaoXingRequestGuard.tripCircuit(context, riskSignal)
+                    throw ChaoXingRiskControlException(
+                        until,
+                        ChaoXingRequestGuard.buildCooldownMessage(until, riskSignal.reason)
+                    )
+                }
+            }
 
             // 吸收当前跳的 Set-Cookie
             for (header in setCookies) {

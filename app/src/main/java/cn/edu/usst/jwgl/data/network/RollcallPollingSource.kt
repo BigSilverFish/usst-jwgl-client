@@ -40,6 +40,10 @@ class RollcallPollingSource private constructor(context: Context) {
             .map { it.result }
     }
 
+    fun refresh() {
+        source.refresh()
+    }
+
     companion object {
         @Volatile private var instance: RollcallPollingSource? = null
         fun getInstance(context: Context): RollcallPollingSource = instance ?: synchronized(this) {

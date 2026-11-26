@@ -1,4 +1,4 @@
-package cn.edu.usst.jwgl.ui.grades
+﻿package cn.edu.usst.jwgl.ui.grades
 
 import android.graphics.Typeface
 import android.content.res.Configuration
@@ -65,18 +65,18 @@ class GradesFragment : Fragment() {
     val binding get() = _binding!!
 
     private val gradeAdapter = CourseGradeAdapter()
-    private val academicCourseAdapter = AcademicCourseAdapter()
+    internal val academicCourseAdapter = AcademicCourseAdapter()
     private var gradeReport: GradeReport? = null
-    private var academicProgress: AcademicProgress? = null
-    private var selectedGradeSemesterTitle: String = ""
-    private var selectedCategoryId: String = ""
-    private var isCreditNodeMode: Boolean = false
+    internal var academicProgress: AcademicProgress? = null
+    internal var selectedGradeSemesterTitle: String = ""
+    internal var selectedCategoryId: String = ""
+    internal var isCreditNodeMode: Boolean = false
     private var lastHeaderHeightPx: Int = 0
     private var lastBottomPaddingPx: Int = 0
-    private var lastMasterReport: GradeReport? = null
-    private var lastMasterProgress: AcademicProgress? = null
-    private val categoryCoursesMap = mutableMapOf<String, List<AcademicCourse>>()
-    private val categoryLoadingSet = mutableSetOf<String>()
+    internal var lastMasterReport: GradeReport? = null
+    internal var lastMasterProgress: AcademicProgress? = null
+    internal val categoryCoursesMap = mutableMapOf<String, List<AcademicCourse>>()
+    internal val categoryLoadingSet = mutableSetOf<String>()
     private data class MasterRowHolder(
         val itemKey: String,
         val card: com.google.android.material.card.MaterialCardView,
@@ -84,10 +84,10 @@ class GradesFragment : Fragment() {
         val tvBadge: TextView
     )
     private val masterRowHolders = mutableListOf<MasterRowHolder>()
-    private var isTabletLandscapeMode: Boolean = false
+    internal var isTabletLandscapeMode: Boolean = false
     private var gridSpacingDecoration: RecyclerView.ItemDecoration? = null
 
-    private val cacheManager by lazy {
+    internal val cacheManager by lazy {
         DataCacheManager.getInstance(requireContext())
     }
 
@@ -240,7 +240,7 @@ class GradesFragment : Fragment() {
         )
     }
 
-    private val expandedCategoryIds = mutableSetOf<String>()
+    internal val expandedCategoryIds = mutableSetOf<String>()
 
     private fun switchGradeMode(creditNodeMode: Boolean) {
         if (isCreditNodeMode == creditNodeMode) return
@@ -260,7 +260,7 @@ class GradesFragment : Fragment() {
         }
     }
 
-    private fun updateCreditNodeVisibility() {
+    internal fun updateCreditNodeVisibility() {
         if (_binding == null) return
         if (isCreditNodeMode) {
             if (isTabletLandscapeMode) {
@@ -394,7 +394,7 @@ class GradesFragment : Fragment() {
         updateAcademicUI(progress)
     }
 
-    private fun updateAcademicUI(progress: AcademicProgress) {
+    internal fun updateAcademicUI(progress: AcademicProgress) {
         if (_binding == null) return
 
         binding.tvCreditsTitle.text = "方案要求学分"
@@ -435,401 +435,15 @@ class GradesFragment : Fragment() {
     /**
      * 手机竖屏模式：一级一级可展开/折叠的培养方案树状图
      */
-    private val treeNodeViewsMap = mutableMapOf<String, LinearLayout>()
+    internal val treeNodeViewsMap = mutableMapOf<String, LinearLayout>()
 
-    private fun renderAcademicTree(progress: AcademicProgress) {
-        if (_binding == null) return
-        val container = binding.llAcademicTreeContainer
-        container.removeAllViews()
-        treeNodeViewsMap.clear()
-        val ctx = requireContext()
-        val density = resources.displayMetrics.density
+    internal val bindingOrNull get() = _binding
+    private val treeRenderer by lazy { AcademicCreditTreeRenderer(this) }
+    private val masterPaneBinder by lazy { GradesMasterPaneBinder(this) }
 
-        // 默认展开顶层大类
-        if (expandedCategoryIds.isEmpty()) {
-            progress.categories.forEach { expandedCategoryIds.add(it.id) }
-        }
-
-        fun buildNodeView(cat: CreditCategory, depth: Int): View {
-            val nodeLayout = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            }
-
-            val card = com.google.android.material.card.MaterialCardView(ctx).apply {
-                radius = (if (depth == 0) 14 else 10) * density
-                cardElevation = if (depth == 0) (1 * density) else 0f
-                strokeWidth = (1 * density).toInt()
-                strokeColor = ContextCompat.getColor(ctx, R.color.border)
-                setCardBackgroundColor(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (depth == 0) R.color.surface else R.color.surface_variant
-                    )
-                )
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = (if (depth == 0) 8 else 6) * density.toInt()
-                    bottomMargin = 2 * density.toInt()
-                }
-                layoutParams = lp
-                isClickable = true
-                isFocusable = true
-            }
-
-            val cardInner = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                val pVer = (if (depth == 0) 14 else 10) * density.toInt()
-                val pHor = (if (depth == 0) 14 else 12) * density.toInt()
-                setPadding(pHor, pVer, pHor, pVer)
-            }
-
-            val headerRow = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-
-            val tvTitle = TextView(ctx).apply {
-                text = cat.name
-                textSize = if (depth == 0) 14.5f else 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(ContextCompat.getColor(ctx, R.color.text_primary))
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            headerRow.addView(tvTitle)
-
-            if (cat.passed) {
-                val tvPassed = TextView(ctx).apply {
-                    text = "已达标"
-                    textSize = 10.5f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    setTextColor(ContextCompat.getColor(ctx, R.color.grade_green_text))
-                    setBackgroundResource(R.drawable.badge_bg)
-                    setPadding((6 * density).toInt(), (2 * density).toInt(), (6 * density).toInt(), (2 * density).toInt())
-                }
-                headerRow.addView(tvPassed)
-            } else if (cat.missing > 0) {
-                val tvMissing = TextView(ctx).apply {
-                    text = "缺 ${String.format("%.1f", cat.missing)}"
-                    textSize = 10.5f
-                    setTextColor(ContextCompat.getColor(ctx, R.color.primary))
-                    setBackgroundResource(R.drawable.badge_bg)
-                    setPadding((6 * density).toInt(), (2 * density).toInt(), (6 * density).toInt(), (2 * density).toInt())
-                }
-                headerRow.addView(tvMissing)
-            }
-
-            val ivArrow = android.widget.ImageView(ctx).apply {
-                val isExp = expandedCategoryIds.contains(cat.id)
-                setImageResource(R.drawable.ic_arrow_drop_down)
-                rotation = if (isExp) 180f else 0f
-                layoutParams = LinearLayout.LayoutParams((22 * density).toInt(), (22 * density).toInt()).apply {
-                    marginStart = (4 * density).toInt()
-                }
-                setColorFilter(ContextCompat.getColor(ctx, R.color.text_secondary))
-            }
-            headerRow.addView(ivArrow)
-            cardInner.addView(headerRow)
-
-            // 进度指示条
-            val progressView = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    (5 * density).toInt()
-                ).apply {
-                    topMargin = (8 * density).toInt()
-                }
-                max = 100
-                setProgress((cat.progress * 100).toInt())
-                progressTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (cat.passed) R.color.grade_green_text else R.color.primary
-                    )
-                )
-            }
-            cardInner.addView(progressView)
-
-            val tvSub = TextView(ctx).apply {
-                text = "已修 ${String.format("%.1f", cat.earned)} / 要求 ${String.format("%.1f", cat.required)} 学分"
-                textSize = 11f
-                setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-                setPadding(0, (5 * density).toInt(), 0, 0)
-            }
-            cardInner.addView(tvSub)
-
-            if (cat.isLeaf && cat.id.isNotEmpty()) {
-                val isExp = expandedCategoryIds.contains(cat.id)
-                val tvLeafAction = TextView(ctx).apply {
-                    tag = "action_${cat.id}"
-                    text = if (isExp) "收起课程明细" else "展开课程明细"
-                    textSize = 11f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    setTextColor(ContextCompat.getColor(ctx, R.color.primary))
-                    setPadding(0, (6 * density).toInt(), 0, 0)
-                }
-                cardInner.addView(tvLeafAction)
-            }
-
-            card.addView(cardInner)
-            nodeLayout.addView(card)
-
-            val contentContainer = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                tag = "content_${cat.id}"
-            }
-            nodeLayout.addView(contentContainer)
-            treeNodeViewsMap[cat.id] = contentContainer
-
-            if (!cat.isLeaf) {
-                contentContainer.setPadding((12 * density).toInt(), 0, 0, 0)
-                for (child in cat.children) {
-                    contentContainer.addView(buildNodeView(child, depth + 1))
-                }
-            } else if (cat.id.isNotEmpty()) {
-                contentContainer.setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
-                if (expandedCategoryIds.contains(cat.id)) {
-                    populateLeafCoursesContainer(contentContainer, cat.id, density)
-                }
-            }
-
-            contentContainer.visibility = if (expandedCategoryIds.contains(cat.id)) View.VISIBLE else View.GONE
-
-            card.setOnClickListener {
-                val wasExpanded = expandedCategoryIds.contains(cat.id)
-                if (wasExpanded) {
-                    expandedCategoryIds.remove(cat.id)
-                    ivArrow.rotation = 0f
-                    contentContainer.visibility = View.GONE
-                    if (cat.isLeaf) {
-                        cardInner.findViewWithTag<TextView>("action_${cat.id}")?.text = "展开课程明细"
-                    }
-                } else {
-                    expandedCategoryIds.add(cat.id)
-                    ivArrow.rotation = 180f
-                    contentContainer.visibility = View.VISIBLE
-                    if (cat.isLeaf) {
-                        cardInner.findViewWithTag<TextView>("action_${cat.id}")?.text = "收起课程明细"
-                        if (contentContainer.childCount == 0 || categoryCoursesMap[cat.id].isNullOrEmpty()) {
-                            populateLeafCoursesContainer(contentContainer, cat.id, density)
-                        }
-                    }
-                }
-            }
-
-            return nodeLayout
-        }
-
-        for (category in progress.categories) {
-            container.addView(buildNodeView(category, depth = 0))
-        }
-    }
-
-    private fun populateLeafCoursesContainer(container: LinearLayout, categoryId: String, density: Float) {
-        val ctx = container.context
-        container.removeAllViews()
-        val courses = categoryCoursesMap[categoryId]
-        if (courses.isNullOrEmpty()) {
-            if (categoryLoadingSet.contains(categoryId)) {
-                val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        gravity = android.view.Gravity.CENTER_HORIZONTAL
-                        topMargin = (8 * density).toInt()
-                        bottomMargin = (8 * density).toInt()
-                    }
-                }
-                container.addView(pb)
-            } else if (courses != null && courses.isEmpty()) {
-                val emptyTv = TextView(ctx).apply {
-                    text = "该分类下暂无课程明细（点击重新拉取）"
-                    textSize = 11.5f
-                    setTextColor(ContextCompat.getColor(ctx, R.color.primary))
-                    setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
-                    setOnClickListener {
-                        categoryCoursesMap.remove(categoryId)
-                        populateLeafCoursesContainer(container, categoryId, density)
-                    }
-                }
-                container.addView(emptyTv)
-            } else {
-                val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        gravity = android.view.Gravity.CENTER_HORIZONTAL
-                        topMargin = (8 * density).toInt()
-                        bottomMargin = (8 * density).toInt()
-                    }
-                }
-                container.addView(pb)
-                loadCategoryCourses(categoryId)
-            }
-        } else {
-            for (course in courses) {
-                container.addView(buildTreeCourseRow(ctx, course, density))
-            }
-        }
-    }
-
-    private fun buildTreeCourseRow(ctx: android.content.Context, course: AcademicCourse, density: Float): View {
-        val row = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(0, (5 * density).toInt(), 0, (5 * density).toInt())
-        }
-
-        val col = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        val tvName = TextView(ctx).apply {
-            text = course.name
-            textSize = 12.5f
-            setTextColor(ContextCompat.getColor(ctx, R.color.text_primary))
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        col.addView(tvName)
-
-        val detailText = listOfNotNull(
-            course.code.takeIf { it.isNotEmpty() },
-            course.term.takeIf { it.isNotEmpty() },
-            if (course.score.isNotEmpty()) "成绩: ${course.score}" else null
-        ).joinToString(" · ")
-
-        if (detailText.isNotEmpty()) {
-            val tvDetail = TextView(ctx).apply {
-                text = detailText
-                textSize = 10.5f
-                setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            }
-            col.addView(tvDetail)
-        }
-        row.addView(col)
-
-        val tvCredits = TextView(ctx).apply {
-            text = "${course.credits}学分"
-            textSize = 10.5f
-            setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            setPadding(0, 0, (8 * density).toInt(), 0)
-        }
-        row.addView(tvCredits)
-
-        val badge = TextView(ctx).apply {
-            text = course.statusLabel
-            textSize = 10.5f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            val (bgColor, textColor) = when {
-                course.isPassed -> Pair(ContextCompat.getColor(ctx, R.color.grade_green_bg), ContextCompat.getColor(ctx, R.color.grade_green_text))
-                course.isInProgress -> Pair(ContextCompat.getColor(ctx, R.color.primary_container), ContextCompat.getColor(ctx, R.color.primary))
-                course.isFailed -> Pair(ContextCompat.getColor(ctx, R.color.grade_red_bg), ContextCompat.getColor(ctx, R.color.grade_red_text))
-                course.isSubstituted -> Pair(ContextCompat.getColor(ctx, R.color.grade_blue_bg), ContextCompat.getColor(ctx, R.color.grade_blue_text))
-                else -> Pair(ContextCompat.getColor(ctx, R.color.surface_variant), ContextCompat.getColor(ctx, R.color.text_secondary))
-            }
-            val d = android.graphics.drawable.GradientDrawable().apply {
-                setColor(bgColor)
-                cornerRadius = 6 * density
-            }
-            background = d
-            setTextColor(textColor)
-            setPadding((6 * density).toInt(), (2 * density).toInt(), (6 * density).toInt(), (2 * density).toInt())
-        }
-        row.addView(badge)
-        return row
-    }
-
-    private fun flattenCreditCategories(categories: List<CreditCategory>): List<CreditCategory> {
-        val out = mutableListOf<CreditCategory>()
-        fun collect(cat: CreditCategory) {
-            if (cat.isLeaf) {
-                out.add(cat)
-            } else {
-                cat.children.forEach { collect(it) }
-            }
-        }
-        categories.forEach { collect(it) }
-        return out
-    }
-
-    private fun loadCategoryCourses(categoryId: String) {
-        val cached = categoryCoursesMap[categoryId]
-        if (!cached.isNullOrEmpty()) {
-            academicCourseAdapter.submitList(cached) {
-                if (_binding != null && isTabletLandscapeMode) {
-                    binding.rvGrades.scrollToPosition(0)
-                }
-            }
-            binding.tvGradesCountSummary.text = "本节点 ${cached.size} 门课程"
-            return
-        }
-
-        if (categoryLoadingSet.contains(categoryId)) return
-        categoryLoadingSet.add(categoryId)
-        binding.gradesProgressBar.visibility = View.VISIBLE
-
-        val studentId = AuthPreferences(requireContext()).getStudentId()
-        viewLifecycleOwner.lifecycleScope.launch {
-            val result = JwglClient.fetchCreditCategoryCourses(categoryId, studentId, context = requireContext())
-            if (_binding == null) return@launch
-            categoryLoadingSet.remove(categoryId)
-            binding.gradesProgressBar.visibility = View.GONE
-
-            result.onSuccess { courses ->
-                categoryCoursesMap[categoryId] = courses
-                if (courses.isNotEmpty()) {
-                    academicProgress?.let { prog ->
-                        val updated = prog.copy(coursesByCategory = categoryCoursesMap.filterValues { it.isNotEmpty() })
-                        academicProgress = updated
-                        cacheManager.saveAcademicProgress(updated)
-                    }
-                }
-                if (isCreditNodeMode) {
-                    if (isTabletLandscapeMode && selectedCategoryId == categoryId) {
-                        academicCourseAdapter.submitList(courses) {
-                            if (_binding != null && isTabletLandscapeMode) {
-                                binding.rvGrades.scrollToPosition(0)
-                            }
-                        }
-                        binding.tvGradesCountSummary.text = "本节点 ${courses.size} 门课程"
-                    } else if (!isTabletLandscapeMode) {
-                        val container = treeNodeViewsMap[categoryId]
-                        if (container != null) {
-                            val density = resources.displayMetrics.density
-                            populateLeafCoursesContainer(container, categoryId, density)
-                        } else {
-                            academicProgress?.let { renderAcademicTree(it) }
-                        }
-                    }
-                }
-            }.onFailure { err ->
-                categoryCoursesMap.remove(categoryId)
-                if (!isTabletLandscapeMode) {
-                    val container = treeNodeViewsMap[categoryId]
-                    if (container != null) {
-                        val density = resources.displayMetrics.density
-                        populateLeafCoursesContainer(container, categoryId, density)
-                    }
-                }
-                if (isAdded) {
-                    Toast.makeText(requireContext(), "课程明细拉取失败: ${err.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    /**
-     * 弹出学分节点选择对话框（竖屏手机模式下点击顶栏触发）
-     */
+    private fun renderAcademicTree(progress: AcademicProgress) = treeRenderer.renderAcademicTree(progress)
+    internal fun flattenCreditCategories(categories: List<CreditCategory>): List<CreditCategory> = treeRenderer.flattenCreditCategories(categories)
+    internal fun loadCategoryCourses(categoryId: String) = treeRenderer.loadCategoryCourses(categoryId)
     fun showCreditCategoryPicker() {
         val progress = academicProgress ?: return
         val list = flattenCreditCategories(progress.categories)
@@ -920,7 +534,7 @@ class GradesFragment : Fragment() {
         updateGradesUI(report)
     }
 
-    private fun updateGradesUI(report: GradeReport) {
+    internal fun updateGradesUI(report: GradeReport) {
         if (_binding == null) return
         updateCreditNodeVisibility()
 
@@ -1231,259 +845,9 @@ class GradesFragment : Fragment() {
     /**
      * 平板横屏左侧主从学期选择卡片填充
      */
-    private fun populateGradesSemesterMasterList(report: GradeReport) {
-        if (_binding == null) return
-        val container = binding.llGradesSemesterMasterList
-        if (lastMasterReport === report && masterRowHolders.size == report.semesters.size + 1) {
-            updateMasterRowSelectionStyles()
-            return
-        }
-
-        container.removeAllViews()
-        masterRowHolders.clear()
-        lastMasterReport = report
-        val density = resources.displayMetrics.density
-
-        fun addMasterRow(
-            semesterKey: String,
-            title: String,
-            subtitle: String,
-            gpaBadge: String,
-            isSelected: Boolean
-        ) {
-            val ctx = requireContext()
-            val rowCard = com.google.android.material.card.MaterialCardView(ctx).apply {
-                radius = 12 * density
-                cardElevation = 0f
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = (8 * density).toInt()
-                }
-                layoutParams = lp
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    if (selectedGradeSemesterTitle == semesterKey) return@setOnClickListener
-                    selectedGradeSemesterTitle = semesterKey
-                    updateGradesUI(report)
-                }
-            }
-
-            val rowInner = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                val hPad = (12 * density).toInt()
-                val vPad = (10 * density).toInt()
-                setPadding(hPad, vPad, hPad, vPad)
-            }
-
-            val textCol = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-
-            val tvTitle = TextView(ctx).apply {
-                text = title
-                textSize = 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-
-            val tvSub = TextView(ctx).apply {
-                text = subtitle
-                textSize = 11f
-                setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-                setPadding(0, (2 * density).toInt(), 0, 0)
-            }
-
-            textCol.addView(tvTitle)
-            textCol.addView(tvSub)
-            rowInner.addView(textCol)
-
-            val tvGpa = TextView(ctx).apply {
-                text = gpaBadge
-                textSize = 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-            rowInner.addView(tvGpa)
-            rowCard.addView(rowInner)
-            container.addView(rowCard)
-            masterRowHolders.add(MasterRowHolder(semesterKey, rowCard, tvTitle, tvGpa))
-            applyMasterRowStyle(rowCard, tvTitle, tvGpa, isSelected)
-        }
-
-        val allCount = report.semesters.sumOf { it.courses.size }
-        addMasterRow(
-            semesterKey = "",
-            title = "全部学期 (汇总)",
-            subtitle = "$allCount 门 · ${String.format("%.1f", report.totalCredits)} 学分 · 均分 ${String.format("%.2f", report.cumulativeWeightedScore)}",
-            gpaBadge = "GPA ${String.format("%.2f", report.cumulativeGpa)}",
-            isSelected = selectedGradeSemesterTitle.isEmpty()
-        )
-
-        for (sem in report.semesters) {
-            val formatted = formatSemesterTitle(sem.semesterTitle)
-            addMasterRow(
-                semesterKey = sem.semesterTitle,
-                title = formatted,
-                subtitle = "${sem.courses.size} 门 · ${String.format("%.1f", sem.totalCredits)} 学分 · 均分 ${String.format("%.2f", sem.weightedAverageScore)}",
-                gpaBadge = "GPA ${String.format("%.2f", sem.weightedGpa)}",
-                isSelected = selectedGradeSemesterTitle == sem.semesterTitle
-            )
-        }
-    }
-
-    private fun updateMasterRowSelectionStyles() {
-        val currentKey = if (isCreditNodeMode) selectedCategoryId else selectedGradeSemesterTitle
-        for (holder in masterRowHolders) {
-            applyMasterRowStyle(
-                holder.card,
-                holder.tvTitle,
-                holder.tvBadge,
-                currentKey == holder.itemKey
-            )
-        }
-    }
-
-    /**
-     * 平板横屏左侧学分节点列表填充
-     */
-    private fun populateCreditNodeMasterList(progress: AcademicProgress) {
-        if (_binding == null) return
-        val container = binding.llGradesSemesterMasterList
-        val flatList = flattenCreditCategories(progress.categories)
-        if (lastMasterProgress === progress && masterRowHolders.size == flatList.size) {
-            updateMasterRowSelectionStyles()
-            return
-        }
-
-        container.removeAllViews()
-        masterRowHolders.clear()
-        lastMasterProgress = progress
-        lastMasterReport = null
-        val density = resources.displayMetrics.density
-
-        for (cat in flatList) {
-            val ctx = requireContext()
-            val rowCard = com.google.android.material.card.MaterialCardView(ctx).apply {
-                radius = 12 * density
-                cardElevation = 0f
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = (8 * density).toInt()
-                }
-                layoutParams = lp
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    if (selectedCategoryId == cat.id) return@setOnClickListener
-                    selectedCategoryId = cat.id
-                    updateAcademicUI(progress)
-                }
-            }
-
-            val rowInner = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                val hPad = (12 * density).toInt()
-                val vPad = (10 * density).toInt()
-                setPadding(hPad, vPad, hPad, vPad)
-            }
-
-            val topRow = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-
-            val tvTitle = TextView(ctx).apply {
-                text = cat.name
-                textSize = 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            topRow.addView(tvTitle)
-
-            val tvBadge = TextView(ctx).apply {
-                text = if (cat.passed) "达标" else if (cat.missing > 0) "缺${String.format("%.1f", cat.missing)}" else "进行中"
-                textSize = 11.5f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (cat.passed) R.color.grade_green_text else R.color.primary
-                    )
-                )
-            }
-            topRow.addView(tvBadge)
-            rowInner.addView(topRow)
-
-            // 模块修读进度条
-            val pb = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    (4 * density).toInt()
-                ).apply {
-                    topMargin = (6 * density).toInt()
-                }
-                max = 100
-                setProgress((cat.progress * 100).toInt())
-                progressTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(
-                        ctx,
-                        if (cat.passed) R.color.grade_green_text else R.color.primary
-                    )
-                )
-            }
-            rowInner.addView(pb)
-
-            val tvSub = TextView(ctx).apply {
-                text = "已修 ${String.format("%.1f", cat.earned)} / 要求 ${String.format("%.1f", cat.required)} 学分"
-                textSize = 11f
-                setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-                setPadding(0, (4 * density).toInt(), 0, 0)
-            }
-            rowInner.addView(tvSub)
-
-            rowCard.addView(rowInner)
-            container.addView(rowCard)
-            masterRowHolders.add(MasterRowHolder(cat.id, rowCard, tvTitle, tvBadge))
-            applyMasterRowStyle(rowCard, tvTitle, tvBadge, selectedCategoryId == cat.id)
-        }
-    }
-
-    private fun applyMasterRowStyle(
-        rowCard: com.google.android.material.card.MaterialCardView,
-        tvTitle: TextView,
-        tvGpa: TextView,
-        isSelected: Boolean
-    ) {
-        val ctx = context ?: return
-        val density = resources.displayMetrics.density
-        rowCard.strokeWidth = ((if (isSelected) 1.5f else 0.8f) * density).toInt()
-        rowCard.strokeColor = ContextCompat.getColor(
-            ctx,
-            if (isSelected) R.color.primary else R.color.border
-        )
-        rowCard.setCardBackgroundColor(
-            ContextCompat.getColor(
-                ctx,
-                if (isSelected) R.color.primary_container else R.color.surface_variant
-            )
-        )
-        val textColor = ContextCompat.getColor(
-            ctx,
-            if (isSelected) R.color.primary else R.color.text_primary
-        )
-        tvTitle.setTextColor(textColor)
-        tvGpa.setTextColor(textColor)
-    }
-
-    /**
-     * 学业排名查询
-     * 原理：下载排名证明 PDF -> 解析内容 -> 删除临时 PDF -> 呈现草稿样式对话框
-     */
+    private fun populateGradesSemesterMasterList(report: GradeReport) = masterPaneBinder.populateGradesSemesterMasterList(report)
+    internal fun updateMasterRowSelectionStyles() = masterPaneBinder.updateMasterRowSelectionStyles()
+    private fun populateCreditNodeMasterList(progress: AcademicProgress) = masterPaneBinder.populateCreditNodeMasterList(progress)
     private fun queryAndShowRanking() {
         if (!isAdded) return
         val auth = AuthPreferences(requireContext())
@@ -1616,7 +980,7 @@ class GradesFragment : Fragment() {
         }
     }
 
-    private fun formatSemesterTitle(title: String): String {
+    internal fun formatSemesterTitle(title: String): String {
         val singleLine = title.replace("\r\n", " ").replace("\n", " ").replace(Regex("\\s+"), " ").trim()
         val regex = Regex("(\\d{4}-\\d{4}学年)\\s*(第.+?学期)")
         return if (regex.containsMatchIn(singleLine)) {

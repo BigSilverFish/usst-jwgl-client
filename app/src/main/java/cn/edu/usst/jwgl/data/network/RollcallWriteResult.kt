@@ -1,7 +1,14 @@
 package cn.edu.usst.jwgl.data.network
 
 import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+
+internal enum class RollcallVerificationState {
+    CONFIRMED,
+    NOT_CONFIRMED,
+    UNAVAILABLE
+}
 
 internal data class RollcallWriteResult(val result: RollcallSubmitResult, val state: String)
 
@@ -66,4 +73,58 @@ internal fun extractDistance(root: com.google.gson.JsonObject?): Double? {
         return null
     }
     return findIn(root)
+}
+
+internal fun parseStudentRollcallsVerification(body: String, targetStudentId: String): RollcallVerificationState {
+    val expected = targetStudentId.trim()
+    if (expected.isBlank() || body.isBlank()) return RollcallVerificationState.UNAVAILABLE
+    val root = try {
+        JsonParser.parseString(body).takeIf { it.isJsonObject }?.asJsonObject
+    } catch (_: Exception) {
+        null
+    } ?: return RollcallVerificationState.UNAVAILABLE
+
+    val arr = root.get("student_rollcalls")?.takeIf { it.isJsonArray }?.asJsonArray
+        ?: root.get("data")?.takeIf { it.isJsonArray }?.asJsonArray
+        ?: return RollcallVerificationState.UNAVAILABLE
+    if (arr.size() == 0) return RollcallVerificationState.UNAVAILABLE
+
+    fun optStr(obj: JsonObject, key: String): String {
+        val el = obj.get(key) ?: return ""
+        return if (el.isJsonPrimitive) el.asString.trim() else ""
+    }
+
+    val attendedStatuses = setOf(
+        "on_call",
+        "on_call_fine",
+        "on_call_arrive_late",
+        "on_call_leave_early",
+        "on_call_arrive_late_leave_early",
+        "present",
+        "attended",
+        "late",
+        "leave_early"
+    )
+
+    for (elem in arr) {
+        if (!elem.isJsonObject) continue
+        val entry = elem.asJsonObject
+        val uNo = listOf("user_no", "student_no", "user_id")
+            .firstNotNullOfOrNull { k -> optStr(entry, k).takeIf { it.isNotBlank() && it != "null" } }
+            ?: continue
+        if (!uNo.equals(expected, ignoreCase = true)) continue
+
+        val status = listOf("student_status", "student_rollcall_status", "rollcall_status", "status")
+            .firstNotNullOfOrNull { k -> optStr(entry, k).takeIf { it.isNotBlank() && it != "null" } }
+            ?.lowercase()
+            ?.trim()
+            .orEmpty()
+
+        return if (status in attendedStatuses) {
+            RollcallVerificationState.CONFIRMED
+        } else {
+            RollcallVerificationState.NOT_CONFIRMED
+        }
+    }
+    return RollcallVerificationState.UNAVAILABLE
 }

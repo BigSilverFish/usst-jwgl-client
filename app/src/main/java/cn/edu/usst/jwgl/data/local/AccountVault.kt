@@ -23,7 +23,7 @@ class AccountVault private constructor(context: Context) {
 
     private val appContext = context.applicationContext
     private val metaPrefs: SharedPreferences = appContext.getSharedPreferences(META_PREF_NAME, Context.MODE_PRIVATE)
-    private val securePrefs: SharedPreferences = createSecurePrefs(appContext)
+    private val securePrefs: SharedPreferences by lazy { createSecurePrefs(appContext) }
     private val gson = Gson()
 
     companion object {

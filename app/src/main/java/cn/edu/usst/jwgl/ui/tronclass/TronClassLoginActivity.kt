@@ -31,6 +31,7 @@ class TronClassLoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTronclassLoginBinding
     private lateinit var client: TronClassClient
     private var isTokenExchanging = false
+    private var targetStudentId: String = ""
 
     companion object {
         private const val TAG = "TronClassLoginActivity"
@@ -61,27 +62,27 @@ class TronClassLoginActivity : AppCompatActivity() {
 
     private fun startUnifiedAuthFlow() {
         val auth = AuthPreferences(this)
-        val studentId = auth.getStudentId()
+        val studentId = auth.getStudentId().trim()
         val password = auth.getPassword()
+        targetStudentId = studentId
 
-        // 1. 同步教务系统现有 Cookie 至 WebView (尤其是 CASTGC)
-        CookieSyncHelper.syncJwglCookiesToWebView()
-
-        // 2. 若教务会话尚未建立或已过期，但已保存账号密码，则静默发起一次 SSO 会话同步
-        if (!JwglClient.hasValidSession() && studentId.isNotEmpty() && password.isNotEmpty()) {
-            binding.layoutLoading.visibility = View.VISIBLE
-            binding.tvLoadingMsg.text = "正在同步学校统一身份认证 (SSO) 会话..."
-            lifecycleScope.launch(Dispatchers.IO) {
-                val loginRes = JwglClient.login(studentId, password)
-                withContext(Dispatchers.Main) {
-                    if (loginRes.isSuccess) {
-                        CookieSyncHelper.syncJwglCookiesToWebView()
-                    }
-                    loadOAuthUrl()
+        binding.layoutLoading.visibility = View.VISIBLE
+        binding.tvLoadingMsg.text = "正在清理旧会话并同步学校统一身份认证 (SSO)..."
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                // 先清空 WebView 中残留的 Keycloak (1906.usst.edu.cn:8600) 与 CAS 旧 Cookie，防止换票串号
+                CookieSyncHelper.clearWebViewCookiesBlocking()
+                val ownerMatch = JwglClient.getSessionOwnerStudentId() == studentId
+                if ((!JwglClient.hasValidSession() || !ownerMatch) && studentId.isNotEmpty() && password.isNotEmpty()) {
+                    JwglClient.login(studentId, password)
+                }
+                if (JwglClient.getSessionOwnerStudentId() == studentId) {
+                    CookieSyncHelper.syncJwglCookiesToWebView()
                 }
             }
-        } else {
-            loadOAuthUrl()
+            if (!isFinishing && !isDestroyed) {
+                loadOAuthUrl()
+            }
         }
     }
 
@@ -261,16 +262,24 @@ class TronClassLoginActivity : AppCompatActivity() {
         binding.tvLoadingMsg.text = "认证成功，正在换取畅课登录凭证..."
 
         lifecycleScope.launch {
-            val result = client.loginWithAuthCode(code)
+            val expectedSid = targetStudentId.ifBlank { AuthPreferences.currentStudentId(this@TronClassLoginActivity).trim() }
+            val result = client.loginWithAuthCode(code, studentId = expectedSid.ifBlank { null })
             if (result.isSuccess) {
                 setResult(RESULT_OK)
                 finish()
             } else {
                 isTokenExchanging = false
-                binding.webView.visibility = View.VISIBLE
-                binding.layoutLoading.visibility = View.GONE
                 val err = result.exceptionOrNull()?.message ?: "换取登录凭证失败"
                 Toast.makeText(this@TronClassLoginActivity, err, Toast.LENGTH_LONG).show()
+                if (err.contains("不匹配")) {
+                    withContext(Dispatchers.IO) {
+                        CookieSyncHelper.clearWebViewCookiesBlocking()
+                    }
+                    loadOAuthUrl()
+                } else {
+                    binding.webView.visibility = View.VISIBLE
+                    binding.layoutLoading.visibility = View.GONE
+                }
             }
         }
     }

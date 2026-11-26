@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
+import cn.edu.usst.jwgl.util.RollcallOverlayAlert
 import cn.edu.usst.jwgl.util.ThemeManager
 
 class UsstApplication : Application() {
@@ -17,6 +18,7 @@ class UsstApplication : Application() {
         migrateIncompatibleCachesOnUpgrade()
         // Apply saved theme mode early before activities inflate
         ThemeManager.applySavedTheme(this)
+        RollcallOverlayAlert.initialize(this)
         RemoteConfigManager.init(this)
 
         // 预先注册所有重要提醒通知渠道（高优先级、声音、横幅、震动）

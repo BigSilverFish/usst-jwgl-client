@@ -28,6 +28,7 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         const val EXTRA_COURSE_ID = "extra_course_id"
         const val EXTRA_IS_URGENT = "extra_is_urgent"
         const val EXTRA_DEADLINE_MILLIS = "extra_deadline_millis"
+        const val EXTRA_STUDENT_ID = "extra_student_id"
 
         fun createNotificationChannel(context: Context) {
             NotificationDiagnosticHelper.initNotificationChannels(context)
@@ -37,6 +38,12 @@ class TronClassDdlReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val todoId = intent.getLongExtra(EXTRA_TODO_ID, 0L)
         if (todoId == 0L) return
+
+        val alarmStudentId = intent.getStringExtra(EXTRA_STUDENT_ID)
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+        if (currentStudentId.isBlank() || (!alarmStudentId.isNullOrBlank() && alarmStudentId.trim() != currentStudentId.trim())) {
+            return
+        }
 
         val todoTitle = intent.getStringExtra(EXTRA_TODO_TITLE) ?: "作业"
         val courseName = intent.getStringExtra(EXTRA_COURSE_NAME) ?: "课程"
@@ -48,9 +55,9 @@ class TronClassDdlReceiver : BroadcastReceiver() {
         if (isUrgent && !prefs.isDdlReminderUrgentEnabled()) return
         if (!isUrgent && !prefs.isDdlReminder24hEnabled()) return
 
-        // 检查去重缓存，避免重复弹窗
+        // 检查去重缓存，避免重复弹窗（按账号隔离）
         val sp = context.getSharedPreferences(PREF_DDL_NOTIFIED, Context.MODE_PRIVATE)
-        val notifyKey = if (isUrgent) "todo_${todoId}_notified_urgent" else "todo_${todoId}_notified_24h"
+        val notifyKey = "${currentStudentId}_todo_${todoId}_notified_${if (isUrgent) "urgent" else "24h"}"
         if (sp.getBoolean(notifyKey, false)) return
 
         // 若已有本地缓存且该作业已被移除（已提交），则不再提醒

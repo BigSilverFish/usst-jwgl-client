@@ -14,6 +14,10 @@ import kotlin.math.*
 object TrilaterationSolver {
 
     private const val EARTH_RADIUS = 6378137.0 // 地球平均半径 (米)
+    const val MIN_ANCHOR_SEPARATION_METERS = 80.0
+    const val MAX_REUSABLE_DISTANCE_METERS = 3000.0
+    const val MIN_TRIANGLE_ALTITUDE_METERS = 40.0
+    const val MAX_ACCEPTABLE_RMSE_METERS = 50.0
 
     /**
      * 单个基准锚点的测距观测数据
@@ -211,5 +215,131 @@ object TrilaterationSolver {
             ?: CoordinateUtils.USST_BUILDINGS[15] // 四教
 
         return listOf(a1, a2, a3)
+    }
+
+    /**
+     * 判断候选观测点是否满足几何复用条件（有效范围 <= 3000m，且与已有观测点间距均 >= 80m），满足则纳入观测池
+     */
+    fun tryAddObservation(observations: MutableList<AnchorObservation>, candidate: AnchorObservation): Boolean {
+        if (!candidate.latitude.isFinite() || !candidate.longitude.isFinite() ||
+            candidate.latitude !in -90.0..90.0 || candidate.longitude !in -180.0..180.0
+        ) {
+            return false
+        }
+        if (!candidate.distanceMeters.isFinite() ||
+            candidate.distanceMeters < 0.0 ||
+            candidate.distanceMeters > MAX_REUSABLE_DISTANCE_METERS
+        ) {
+            return false
+        }
+        val tooClose = observations.any { obs ->
+            CoordinateUtils.calculateDistance(
+                obs.latitude, obs.longitude,
+                candidate.latitude, candidate.longitude
+            ) < MIN_ANCHOR_SEPARATION_METERS
+        }
+        if (tooClose) return false
+        observations.add(candidate)
+        return true
+    }
+
+    /**
+     * 获取校园候选补测锚点列表：优先包含课程匹配校区核心三角点，再补充同校区其它教学楼以防与已有观测点重合
+     */
+    fun getCandidateAnchors(
+        classroom: String? = null,
+        courseName: String? = null
+    ): List<CoordinateUtils.CampusBuilding> {
+        val primary = getCampusAnchors(classroom, courseName)
+        val targetCampus = primary.firstOrNull()?.campus
+        val seenIds = primary.mapTo(mutableSetOf()) { it.id }
+        val result = primary.toMutableList()
+        if (targetCampus != null) {
+            for (b in CoordinateUtils.USST_BUILDINGS) {
+                if (b.campus == targetCampus && seenIds.add(b.id)) {
+                    result.add(b)
+                }
+            }
+        }
+        return result
+    }
+
+    /**
+     * 基于已有观测点，从候选锚点中选择几何构型最优的下一个补测点：
+     * - 已有 1 点：优先距离最远的点，拉开基线；
+     * - 已有 >=2 点：在局部切平面内挑选构成三角形面积最大且高 >= 40m 的点，避免近似共线放大误差。
+     */
+    fun selectNextBestAnchor(
+        observations: List<AnchorObservation>,
+        candidates: List<CoordinateUtils.CampusBuilding>,
+        excludedIds: Set<String> = emptySet()
+    ): CoordinateUtils.CampusBuilding? {
+        val eligible = candidates.filter { cand ->
+            cand.id !in excludedIds && observations.all { obs ->
+                CoordinateUtils.calculateDistance(
+                    cand.latitude, cand.longitude,
+                    obs.latitude, obs.longitude
+                ) >= MIN_ANCHOR_SEPARATION_METERS
+            }
+        }
+        if (eligible.isEmpty()) return null
+        if (observations.isEmpty()) return eligible.first()
+        if (observations.size == 1) {
+            val first = observations[0]
+            return eligible.maxByOrNull {
+                CoordinateUtils.calculateDistance(it.latitude, it.longitude, first.latitude, first.longitude)
+            }
+        }
+
+        val p1 = observations[0]
+        val p2 = observations[1]
+        val cosLat0 = cos(Math.toRadians(p1.latitude))
+        fun toLocal(lat: Double, lon: Double): Pair<Double, Double> {
+            val x = Math.toRadians(lon - p1.longitude) * EARTH_RADIUS * cosLat0
+            val y = Math.toRadians(lat - p1.latitude) * EARTH_RADIUS
+            return Pair(x, y)
+        }
+
+        val (x2, y2) = toLocal(p2.latitude, p2.longitude)
+        val base = hypot(x2, y2)
+        if (base <= 1e-3) return eligible.firstOrNull()
+
+        var bestCand: CoordinateUtils.CampusBuilding? = null
+        var maxArea = -1.0
+        for (cand in eligible) {
+            val (xc, yc) = toLocal(cand.latitude, cand.longitude)
+            val area = 0.5 * abs(x2 * yc - y2 * xc)
+            val altitude = (2.0 * area) / base
+            if (altitude >= MIN_TRIANGLE_ALTITUDE_METERS && area > maxArea) {
+                maxArea = area
+                bestCand = cand
+            }
+        }
+        return bestCand
+    }
+
+    /**
+     * 校验三点反解结果是否在物理和数学合理阈值内
+     */
+    fun isAcceptableSolution(result: SolveResult?, observations: List<AnchorObservation>): Boolean {
+        if (result == null) return false
+        if (!result.latitude.isFinite() || !result.longitude.isFinite() ||
+            result.latitude !in -90.0..90.0 || result.longitude !in -180.0..180.0
+        ) {
+            return false
+        }
+        if (!result.residualRmse.isFinite() || result.residualRmse > MAX_ACCEPTABLE_RMSE_METERS) {
+            return false
+        }
+        if (observations.isNotEmpty()) {
+            val distFromFirst = CoordinateUtils.calculateDistance(
+                result.latitude, result.longitude,
+                observations.first().latitude, observations.first().longitude
+            )
+            if (distFromFirst > MAX_REUSABLE_DISTANCE_METERS + 1000.0) {
+                return false
+            }
+        }
+        return true
     }
 }

@@ -191,13 +191,21 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                 // 1. 更新本地当前激活账号及凭据
                 auth.setActiveAccount(account.studentId)
 
-                // 2. 清理旧账号网络会话状态
+                // 2. 清理旧账号网络会话与系统级提醒闹钟状态
                 withContext(Dispatchers.IO) {
                     JwglClient.clearSession()
                     LiveUsstClient.clearSession(context)
+                    cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context).clearMemoryCache()
+                    val cxClient = ChaoXingClient(context)
+                    cxClient.invalidateVerifiedSession(account.studentId)
                     if (oldStudentId.isNotBlank() && oldStudentId != account.studentId) {
+                        cxClient.invalidateVerifiedSession(oldStudentId)
                         TronClassPreferences(context).clearSession(oldStudentId)
                         ChaoXingPreferences(context).clearSession(oldStudentId)
+                        cn.edu.usst.jwgl.util.CourseReminderManager.cancelAllReminders(context)
+                        cn.edu.usst.jwgl.util.CourseReminderManager.cancelAllExamReminders(context, oldStudentId)
+                        cn.edu.usst.jwgl.worker.TronClassDdlScheduler.cancelAllExactAlarms(context)
+                        cn.edu.usst.jwgl.worker.RollcallMonitorScheduler.cancel(context)
                     }
                 }
 
@@ -220,7 +228,7 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                     ) {
                         withContext(Dispatchers.IO) {
                             try {
-                                ChaoXingClient(context).loginWithCasSso()
+                                ChaoXingClient(context).ensureSession(account.studentId, allowSilentLogin = true)
                             } catch (_: Exception) {}
                         }
                     }
@@ -284,9 +292,17 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                     withContext(Dispatchers.IO) {
                         JwglClient.clearSession()
                         LiveUsstClient.clearSession(context)
+                        cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context).clearMemoryCache()
+                        val cxClient = ChaoXingClient(context)
+                        cxClient.invalidateVerifiedSession(account.studentId)
                         if (oldStudentId.isNotBlank() && oldStudentId != account.studentId) {
+                            cxClient.invalidateVerifiedSession(oldStudentId)
                             TronClassPreferences(context).clearSession(oldStudentId)
                             ChaoXingPreferences(context).clearSession(oldStudentId)
+                            cn.edu.usst.jwgl.util.CourseReminderManager.cancelAllReminders(context)
+                            cn.edu.usst.jwgl.util.CourseReminderManager.cancelAllExamReminders(context, oldStudentId)
+                            cn.edu.usst.jwgl.worker.TronClassDdlScheduler.cancelAllExactAlarms(context)
+                            cn.edu.usst.jwgl.worker.RollcallMonitorScheduler.cancel(context)
                         }
                     }
 
@@ -317,7 +333,7 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                         ) {
                             withContext(Dispatchers.IO) {
                                 try {
-                                    ChaoXingClient(context).loginWithCasSso()
+                                    ChaoXingClient(context).ensureSession(account.studentId, allowSilentLogin = true)
                                 } catch (_: Exception) {}
                             }
                         }
@@ -394,7 +410,7 @@ class AccountSwitchBottomSheet : BottomSheetDialogFragment() {
                         )
                         vault.saveOrUpdateAccount(accountProfile, password, isAutoLogin)
                         if (profile != null) {
-                            DataCacheManager(context).saveProfile(profile)
+                            DataCacheManager(context).saveProfile(profile, studentId)
                         }
 
                         Toast.makeText(context, "账号 ${accountProfile.studentName} 添加成功", Toast.LENGTH_SHORT).show()

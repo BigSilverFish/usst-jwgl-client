@@ -22,6 +22,7 @@ object CourseReminderManager {
     private const val KEY_EXAM_ADVANCE_MINS = "exam_advance_mins"
     private const val KEY_POWERFUL_REMINDER = "powerful_reminder_enabled"
     private const val KEY_ACTIVE_SEMESTER = "active_semester_key"
+    private const val KEY_SCHEDULED_EXAM_CODES = "scheduled_exam_request_codes"
 
     // Official USST Section start times (Hour, Minute)
     val SECTION_START_TIMES = mapOf(
@@ -149,13 +150,19 @@ object CourseReminderManager {
             return
         }
 
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+        if (currentStudentId.isBlank()) {
+            cancelAllReminders(context)
+            return
+        }
+
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
         // Step 1: Cancel previous reminders in window
         cancelAllReminders(context)
 
         // Step 2: Load active timetable & time details
-        val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context)
+        val db = cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context, currentStudentId)
         val activeTable = db.tableDao.getDefaultTable()
         val times = db.timeDetailDao.getTimeDetails(activeTable.timeTable)
         val advanceMins = getCourseReminderAdvanceMinutes(context)
@@ -236,6 +243,7 @@ object CourseReminderManager {
                         putExtra(CourseReminderReceiver.EXTRA_SECTION, "第${node}节")
                         putExtra(CourseReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode)
                         putExtra(CourseReminderReceiver.EXTRA_ADVANCE_MINUTES, advanceMins)
+                        putExtra(CourseReminderReceiver.EXTRA_STUDENT_ID, currentStudentId)
                     }
 
                     val pendingIntent = PendingIntent.getBroadcast(
@@ -391,12 +399,19 @@ object CourseReminderManager {
             return
         }
 
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+        if (currentStudentId.isBlank()) {
+            cancelAllExamReminders(context)
+            return
+        }
+
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        cancelAllExamReminders(context)
+        cancelAllExamReminders(context, currentStudentId)
 
         val advanceMins = getExamReminderAdvanceMinutes(context)
         val now = System.currentTimeMillis()
         var scheduledExamsCount = 0
+        val scheduledCodes = mutableSetOf<String>()
 
         for ((idx, exam) in exams.withIndex()) {
             val startMillis = exam.getExamStartTimeMillis() ?: continue
@@ -412,6 +427,7 @@ object CourseReminderManager {
                     putExtra(CourseReminderReceiver.EXTRA_START_TIME, exam.getTimeRangeString())
                     putExtra(CourseReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode)
                     putExtra(CourseReminderReceiver.EXTRA_ADVANCE_MINUTES, advanceMins)
+                    putExtra(CourseReminderReceiver.EXTRA_STUDENT_ID, currentStudentId)
                 }
 
                 val pendingIntent = PendingIntent.getBroadcast(
@@ -437,6 +453,7 @@ object CourseReminderManager {
                     // Exams are critical events; always schedule with setAlarmClock for highest priority
                     val alarmClockInfo = AlarmManager.AlarmClockInfo(reminderMillis, showPendingIntent)
                     alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+                    scheduledCodes.add(requestCode.toString())
                     scheduledExamsCount++
                     Log.d(TAG, "Scheduled exam AlarmClock for ${exam.courseName} ($advanceMins mins before) at $reminderMillis")
                 } catch (e: Exception) {
@@ -447,6 +464,7 @@ object CourseReminderManager {
                         } else {
                             alarmManager.setExact(AlarmManager.RTC_WAKEUP, reminderMillis, pendingIntent)
                         }
+                        scheduledCodes.add(requestCode.toString())
                         scheduledExamsCount++
                     } catch (e2: Exception) {
                         Log.e(TAG, "Failed fallback exam reminder for ${exam.courseName}", e2)
@@ -454,18 +472,49 @@ object CourseReminderManager {
                 }
             }
         }
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_SCHEDULED_EXAM_CODES, scheduledCodes)
+            .apply()
         Log.d(TAG, "Scheduled $scheduledExamsCount exam reminders.")
     }
 
-    fun cancelAllExamReminders(context: Context) {
+    fun cancelAllExamReminders(context: Context, studentId: String? = null) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val cachedExams = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getAllCachedExams()
-        for ((idx, exam) in cachedExams.withIndex()) {
+        val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val savedCodes = sp.getStringSet(KEY_SCHEDULED_EXAM_CODES, emptySet()).orEmpty()
+        for (rawCode in savedCodes) {
+            rawCode.toIntOrNull()?.let { cancelPendingIntent(context, alarmManager, it) }
+        }
+        sp.edit().remove(KEY_SCHEDULED_EXAM_CODES).apply()
+
+        val cacheMgr = DataCacheManager(context)
+        val cachedLists = buildList {
+            if (!studentId.isNullOrBlank()) {
+                addAll(cacheMgr.getAllCachedExams(studentId))
+            }
+            addAll(cacheMgr.getAllCachedExams(null))
+        }
+        for ((idx, exam) in cachedLists.withIndex()) {
             val req1 = 20000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
             val req2 = 30000 + (exam.courseCode.hashCode().let { if (it < 0) -it else it } % 8000) + (idx % 100)
             cancelPendingIntent(context, alarmManager, req1)
             cancelPendingIntent(context, alarmManager, req2)
         }
         Log.d(TAG, "Cancelled all exam reminders.")
+    }
+
+    fun rescheduleAllForActiveAccount(context: Context) {
+        cancelAllReminders(context)
+        cancelAllExamReminders(context)
+        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+        if (currentStudentId.isBlank()) return
+        if (isReminderEnabled(context)) {
+            scheduleUpcomingReminders(context)
+        }
+        if (isExamReminderEnabled(context)) {
+            val exams = DataCacheManager(context).getAllCachedExams(currentStudentId)
+            scheduleExamReminders(context, exams)
+        }
     }
 }

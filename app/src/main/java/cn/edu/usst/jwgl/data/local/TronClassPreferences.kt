@@ -14,12 +14,8 @@ import java.util.UUID
 class TronClassPreferences(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-    private val securePrefs: SharedPreferences = getOrCreateSecurePrefs(context)
+    private val securePrefs: SharedPreferences by lazy { getOrCreateSecurePrefs(context) }
     private val gson = Gson()
-
-    init {
-        migratePlaintextTokensIfNeeded()
-    }
 
     private fun getAccountPrefix(studentId: String? = null): String {
         val sid = if (!studentId.isNullOrBlank()) studentId else {
@@ -30,52 +26,6 @@ class TronClassPreferences(private val context: Context) {
             }
         }
         return if (sid.isNotBlank()) "${sid}_" else ""
-    }
-
-    private fun migratePlaintextTokensIfNeeded() {
-        val legacyUserNo = prefs.getString(KEY_USER_NO, null) ?: securePrefs.getString(KEY_USER_NO, null)
-        val legacySessionId = prefs.getString(KEY_SESSION_ID, null) ?: securePrefs.getString(KEY_SESSION_ID, null)
-
-        if (!legacySessionId.isNullOrBlank()) {
-            val targetStudentId = legacyUserNo?.takeIf { it.isNotBlank() }
-                ?: try { AuthPreferences.currentStudentId(context) } catch (_: Exception) { "" }
-
-            if (targetStudentId.isNotBlank()) {
-                val prefix = getAccountPrefix(targetStudentId)
-                val oldRefreshToken = prefs.getString(KEY_REFRESH_TOKEN, null) ?: securePrefs.getString(KEY_REFRESH_TOKEN, null)
-                val oldUserId = prefs.getLong(KEY_USER_ID, 0L).let { if (it > 0) it else securePrefs.getLong(KEY_USER_ID, 0L) }
-                val oldUserName = prefs.getString(KEY_USER_NAME, null) ?: securePrefs.getString(KEY_USER_NAME, null)
-                val oldUserEmail = prefs.getString(KEY_USER_EMAIL, null) ?: securePrefs.getString(KEY_USER_EMAIL, null)
-
-                securePrefs.edit().apply {
-                    putString(prefix + KEY_SESSION_ID, legacySessionId)
-                    if (!oldRefreshToken.isNullOrBlank()) putString(prefix + KEY_REFRESH_TOKEN, oldRefreshToken)
-                    if (oldUserId > 0) putLong(prefix + KEY_USER_ID, oldUserId)
-                    if (!oldUserName.isNullOrBlank()) putString(prefix + KEY_USER_NAME, oldUserName)
-                    if (!legacyUserNo.isNullOrBlank()) putString(prefix + KEY_USER_NO, legacyUserNo)
-                    if (!oldUserEmail.isNullOrBlank()) putString(prefix + KEY_USER_EMAIL, oldUserEmail)
-                }.apply()
-            }
-
-            // 彻底抹除全局无前缀遗留，防止跨账号读取污染
-            securePrefs.edit().apply {
-                remove(KEY_SESSION_ID)
-                remove(KEY_REFRESH_TOKEN)
-                remove(KEY_USER_ID)
-                remove(KEY_USER_NAME)
-                remove(KEY_USER_NO)
-                remove(KEY_USER_EMAIL)
-            }.apply()
-
-            prefs.edit().apply {
-                remove(KEY_SESSION_ID)
-                remove(KEY_REFRESH_TOKEN)
-                remove(KEY_USER_ID)
-                remove(KEY_USER_NAME)
-                remove(KEY_USER_NO)
-                remove(KEY_USER_EMAIL)
-            }.apply()
-        }
     }
 
     companion object {
@@ -107,6 +57,9 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
         private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
         private const val KEY_UNBOUND_COURSE_PAIRS = "tc_unbound_course_pairs"
+        private const val KEY_DUAL_PLATFORM_MODE_ENABLED = "tc_dual_platform_mode_enabled"
+        private const val KEY_DUAL_PLATFORM_RISK_ACK = "tc_dual_platform_risk_acknowledged"
+        private const val KEY_LEGACY_TOKEN_MIGRATED = "tc_legacy_token_migrated"
 
         const val STRATEGY_NO_DELAY = "no_delay"
         const val STRATEGY_DELAY_10S = "delay_10s"
@@ -134,6 +87,9 @@ class TronClassPreferences(private val context: Context) {
         private var cachedSecurePrefs: SharedPreferences? = null
 
         @Volatile
+        private var tokenMigrationCheckedInProcess = false
+
+        @Volatile
         private var defaultInstance: TronClassPreferences? = null
         private val learningSnapshots = mutableMapOf<String, Pair<List<*>, String>>()
 
@@ -144,8 +100,68 @@ class TronClassPreferences(private val context: Context) {
         }
 
         private fun getOrCreateSecurePrefs(context: Context): SharedPreferences {
-            return cachedSecurePrefs ?: synchronized(this) {
-                cachedSecurePrefs ?: createSecurePrefs(context.applicationContext).also { cachedSecurePrefs = it }
+            val appCtx = context.applicationContext
+            val secure = cachedSecurePrefs ?: synchronized(this) {
+                cachedSecurePrefs ?: createSecurePrefs(appCtx).also { cachedSecurePrefs = it }
+            }
+            migratePlaintextTokensIfNeeded(appCtx, secure)
+            return secure
+        }
+
+        private fun migratePlaintextTokensIfNeeded(context: Context, securePrefs: SharedPreferences) {
+            if (tokenMigrationCheckedInProcess) return
+            synchronized(this) {
+                if (tokenMigrationCheckedInProcess) return
+                val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                if (prefs.getBoolean(KEY_LEGACY_TOKEN_MIGRATED, false)) {
+                    tokenMigrationCheckedInProcess = true
+                    return
+                }
+                val legacyUserNo = prefs.getString(KEY_USER_NO, null) ?: securePrefs.getString(KEY_USER_NO, null)
+                val legacySessionId = prefs.getString(KEY_SESSION_ID, null) ?: securePrefs.getString(KEY_SESSION_ID, null)
+
+                if (!legacySessionId.isNullOrBlank()) {
+                    val targetStudentId = legacyUserNo?.takeIf { it.isNotBlank() }
+                        ?: try { AuthPreferences.currentStudentId(context) } catch (_: Exception) { "" }
+
+                    if (targetStudentId.isNotBlank()) {
+                        val prefix = "${targetStudentId}_"
+                        val oldRefreshToken = prefs.getString(KEY_REFRESH_TOKEN, null) ?: securePrefs.getString(KEY_REFRESH_TOKEN, null)
+                        val oldUserId = prefs.getLong(KEY_USER_ID, 0L).let { if (it > 0) it else securePrefs.getLong(KEY_USER_ID, 0L) }
+                        val oldUserName = prefs.getString(KEY_USER_NAME, null) ?: securePrefs.getString(KEY_USER_NAME, null)
+                        val oldUserEmail = prefs.getString(KEY_USER_EMAIL, null) ?: securePrefs.getString(KEY_USER_EMAIL, null)
+
+                        securePrefs.edit().apply {
+                            putString(prefix + KEY_SESSION_ID, legacySessionId)
+                            if (!oldRefreshToken.isNullOrBlank()) putString(prefix + KEY_REFRESH_TOKEN, oldRefreshToken)
+                            if (oldUserId > 0) putLong(prefix + KEY_USER_ID, oldUserId)
+                            if (!oldUserName.isNullOrBlank()) putString(prefix + KEY_USER_NAME, oldUserName)
+                            if (!legacyUserNo.isNullOrBlank()) putString(prefix + KEY_USER_NO, legacyUserNo)
+                            if (!oldUserEmail.isNullOrBlank()) putString(prefix + KEY_USER_EMAIL, oldUserEmail)
+                        }.apply()
+                    }
+
+                    // 彻底抹除全局无前缀遗留，防止跨账号读取污染
+                    securePrefs.edit().apply {
+                        remove(KEY_SESSION_ID)
+                        remove(KEY_REFRESH_TOKEN)
+                        remove(KEY_USER_ID)
+                        remove(KEY_USER_NAME)
+                        remove(KEY_USER_NO)
+                        remove(KEY_USER_EMAIL)
+                    }.apply()
+
+                    prefs.edit().apply {
+                        remove(KEY_SESSION_ID)
+                        remove(KEY_REFRESH_TOKEN)
+                        remove(KEY_USER_ID)
+                        remove(KEY_USER_NAME)
+                        remove(KEY_USER_NO)
+                        remove(KEY_USER_EMAIL)
+                    }.apply()
+                }
+                prefs.edit().putBoolean(KEY_LEGACY_TOKEN_MIGRATED, true).apply()
+                tokenMigrationCheckedInProcess = true
             }
         }
 
@@ -640,14 +656,25 @@ class TronClassPreferences(private val context: Context) {
     }
 
     /**
-     * 双平台融合模式开关（默认为 true）
+     * 双平台融合模式开关（默认为 false，即纯畅课模式）
      */
     fun isDualPlatformModeEnabled(): Boolean {
-        return prefs.getBoolean("tc_dual_platform_mode_enabled", true)
+        return prefs.getBoolean(KEY_DUAL_PLATFORM_MODE_ENABLED, false)
     }
 
     fun setDualPlatformModeEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("tc_dual_platform_mode_enabled", enabled).apply()
+        prefs.edit().putBoolean(KEY_DUAL_PLATFORM_MODE_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 用户是否已在弹窗中手动输入确认开启双平台融合模式的风险告知
+     */
+    fun isDualPlatformRiskAcknowledged(): Boolean {
+        return prefs.getBoolean(KEY_DUAL_PLATFORM_RISK_ACK, false)
+    }
+
+    fun setDualPlatformRiskAcknowledged(acknowledged: Boolean) {
+        prefs.edit().putBoolean(KEY_DUAL_PLATFORM_RISK_ACK, acknowledged).apply()
     }
 
     /**

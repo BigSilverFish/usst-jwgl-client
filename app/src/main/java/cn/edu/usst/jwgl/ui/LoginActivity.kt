@@ -32,20 +32,32 @@ class LoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 若当前并非 Task 根 Activity（例如应用在后台时点击桌面图标重新唤起），直接关闭自身把已有栈顶页面拉回前台，避免重复创建 MainActivity
+        if (!isTaskRoot &&
+            intent?.hasCategory(Intent.CATEGORY_LAUNCHER) == true &&
+            intent?.action == Intent.ACTION_MAIN
+        ) {
+            finish()
+            return
+        }
+
         authPrefs = AuthPreferences(this)
-        cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager(this)
+        cacheManager = cn.edu.usst.jwgl.data.local.DataCacheManager.getInstance(this)
 
         val savedId = authPrefs.getStudentId()
         val isAutoEnabled = authPrefs.isAutoLoginEnabled()
         val isFromLogout = intent.getBooleanExtra(EXTRA_FROM_LOGOUT, false)
         val hasAgreed = authPrefs.hasAgreedDisclaimer()
 
-        // 极速冷启动快道：若用户已登录且有本地缓存档案，直接跳转 MainActivity，跳过登录页 XML 解析与视图渲染
+        // 极速冷启动快道：优先走零 Keystore 开销的明文概要直接跳转 MainActivity，完整加密档案由 MainActivity 后台水合
         if (hasAgreed && isAutoEnabled && savedId.isNotEmpty() && !isFromLogout) {
-            val cachedProfile = cacheManager.getProfile()
+            val fastProfileHint = cacheManager.getFastProfileHint(savedId)
+            val cachedProfile = fastProfileHint ?: cacheManager.getProfile(savedId)
             if (cachedProfile != null) {
                 val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
                     putExtra(MainActivity.EXTRA_PROFILE, cachedProfile)
+                    putExtra(MainActivity.EXTRA_FAST_PROFILE_HINT, fastProfileHint != null)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 }
                 startActivity(intent)
                 overridePendingTransition(0, 0)

@@ -157,7 +157,7 @@ class ScheduleWeekFragment : Fragment() {
             db.tableDao.getDefaultTable()
         }
         val times = db.timeDetailDao.getTimeDetails(table.timeTable)
-        val allCourses = db.courseBaseDao.getCourseOfTable(table.id)
+        val allCourses = act?.getTableCoursesCached(table.id) ?: db.courseBaseDao.getCourseOfTable(table.id)
 
         val curWeek = CourseUtils.countWeek(table.startDate)
         val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)

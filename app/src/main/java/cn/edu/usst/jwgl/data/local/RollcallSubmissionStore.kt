@@ -24,6 +24,15 @@ class RollcallSubmissionStore(context: Context, private val platform: String = "
         prefs.getString(key(account, rollcallId), null)
     }
 
+    fun invalidateConfirmed(account: String, rollcallId: Long): Boolean = synchronized(lock) {
+        if (account.isBlank() || rollcallId <= 0) return false
+        val k = key(account, rollcallId)
+        if (prefs.getString(k, null) == "confirmed") {
+            return prefs.edit().remove(k).commit()
+        }
+        true
+    }
+
     private fun key(account: String, rollcallId: Long) = "$platform|${account.length}:$account|$rollcallId"
     companion object { private val lock = Any() }
 }

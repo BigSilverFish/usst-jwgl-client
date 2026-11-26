@@ -20,21 +20,27 @@ class TronClassTodoAdapter(
     private val onTronClassClick: ((TronClassTodo) -> Unit)? = null
 ) : RecyclerView.Adapter<TronClassTodoAdapter.TodoViewHolder>() {
 
-    private var items: List<UnifiedTodo> = emptyList()
+    private val differ = HomeAdapterDiffer<UnifiedTodo>(this) { it.unifiedId }
     var isMultiPlatformMode: Boolean = false
     var onChaoXingClickListener: ((UnifiedTodo) -> Unit)? = null
     var onUnifiedClickListener: ((UnifiedTodo) -> Unit)? = null
 
     fun updateData(newItems: List<TronClassTodo>) {
-        this.items = newItems.map { UnifiedTodo.fromTronClass(it) }
         this.isMultiPlatformMode = false
-        notifyDataSetChanged()
+        differ.submit(
+            items = newItems.map { UnifiedTodo.fromTronClass(it) },
+            multiPlatform = false,
+            presentationBucket = System.currentTimeMillis() / 60_000L
+        )
     }
 
     fun updateUnifiedData(newItems: List<UnifiedTodo>, multiPlatform: Boolean = false) {
-        this.items = newItems
         this.isMultiPlatformMode = multiPlatform
-        notifyDataSetChanged()
+        differ.submit(
+            items = newItems,
+            multiPlatform = multiPlatform,
+            presentationBucket = System.currentTimeMillis() / 60_000L
+        )
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TodoViewHolder {
@@ -47,19 +53,20 @@ class TronClassTodoAdapter(
     }
 
     override fun onBindViewHolder(holder: TodoViewHolder, position: Int) {
-        holder.bind(items[position])
+        val row = differ.getItem(position)
+        holder.bind(row.item, row.multiPlatform)
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = differ.itemCount
 
     inner class TodoViewHolder(private val binding: ItemTronclassTodoBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(todo: UnifiedTodo) {
+        fun bind(todo: UnifiedTodo, multiPlatform: Boolean) {
             val context = binding.root.context
 
             // 1. 课程名称与平台徽章 (支持双轨模式动态徽标)
-            if (isMultiPlatformMode) {
+            if (multiPlatform) {
                 val badgeText = if (todo.platform.isChaoXing) "【学习通】" else "【畅课】"
                 val badgeColor = todo.platform.getBrandColor()
                 val ssb = SpannableStringBuilder(badgeText).apply {

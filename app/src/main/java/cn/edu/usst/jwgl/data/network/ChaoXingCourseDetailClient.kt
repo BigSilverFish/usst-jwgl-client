@@ -5,12 +5,10 @@ import android.util.Log
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.model.*
+import cn.edu.usst.jwgl.util.ChaoXingRiskControlException
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -39,1235 +37,65 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
     companion object {
         private const val TAG = "ChaoXingCourseDetail"
-        private val staticGson = Gson()
+        private const val MAX_HOMEWORK_DETAIL_PROBES = 5
 
-        /**
-         * 从 cards 页面 HTML 解析 mArg 中的 attachments 列表
-         */
-        fun parseAttachmentsFromHtml(html: String): List<ChaoXingCourseAttachment> {
-            val marg = extractMarg(html) ?: return emptyList()
-            val raw = marg["attachments"] as? List<*> ?: return emptyList()
-            val out = mutableListOf<ChaoXingCourseAttachment>()
+        fun parseAttachmentsFromHtml(html: String): List<ChaoXingCourseAttachment> =
+            ChaoXingHtmlParser.parseAttachmentsFromHtml(html)
 
-            for (item in raw) {
-                if (item !is Map<*, *>) continue
-                val property = item["property"] as? Map<*, *>
-                val fields = property ?: item
+        fun normalizeChaoXingImageUrl(src: String): String =
+            ChaoXingHtmlParser.normalizeChaoXingImageUrl(src)
 
-                val objectId = (fields["objectid"] ?: item["objectId"] ?: "").toString().trim()
-                val name = (fields["name"] ?: fields["title"] ?: "").toString().trim()
-                if (objectId.isEmpty() || name.isEmpty()) continue
+        fun parseExamsFromHtml(html: String): List<ChaoXingExam> =
+            ChaoXingHtmlParser.parseExamsFromHtml(html)
 
-                val size = when (val s = fields["size"]) {
-                    is Number -> s.toLong()
-                    is String -> s.toLongOrNull() ?: 0L
-                    else -> 0L
-                }
-                val isVideo = item["type"]?.toString() == "video" ||
-                        name.endsWith(".mp4", ignoreCase = true) ||
-                        name.endsWith(".flv", ignoreCase = true) ||
-                        name.endsWith(".wmv", ignoreCase = true) ||
-                        name.endsWith(".avi", ignoreCase = true) ||
-                        name.endsWith(".rmvb", ignoreCase = true) ||
-                        name.endsWith(".mpg", ignoreCase = true) ||
-                        name.endsWith(".mov", ignoreCase = true)
+        fun parseWorkListHtml(html: String, course: ChaoXingCourse): MutableList<ChaoXingWork> =
+            ChaoXingHtmlParser.parseWorkListHtml(html, course)
 
-                out.add(
-                    ChaoXingCourseAttachment(
-                        objectId = objectId,
-                        name = name,
-                        size = size,
-                        isVideo = isVideo
-                    )
-                )
-            }
-            return out
-        }
+        fun extractWorkEnc(html: String): String =
+            ChaoXingHtmlParser.extractWorkEnc(html)
 
-        private fun extractMarg(html: String): Map<String, Any?>? {
-            val pattern = Regex("""mArg\s*=\s*\{""")
-            for (match in pattern.findAll(html)) {
-                val start = html.indexOf('{', match.range.first)
-                if (start < 0) continue
-                val end = matchingBrace(html, start)
-                if (end < 0) continue
-                try {
-                    val jsonStr = html.substring(start, end + 1)
-                    val type = object : TypeToken<Map<String, Any?>>() {}.type
-                    val decoded = staticGson.fromJson<Map<String, Any?>>(jsonStr, type)
-                    if (decoded != null && decoded.containsKey("attachments")) {
-                        return decoded
-                    }
-                } catch (_: Exception) {}
-            }
-            return null
-        }
-
-        private fun matchingBrace(text: String, openIndex: Int): Int {
-            var depth = 0
-            var inString = false
-            var escaped = false
-            for (i in openIndex until text.length) {
-                val ch = text[i]
-                if (inString) {
-                    if (escaped) {
-                        escaped = false
-                    } else if (ch == '\\') {
-                        escaped = true
-                    } else if (ch == '"') {
-                        inString = false
-                    }
-                    continue
-                }
-                if (ch == '"') {
-                    inString = true
-                } else if (ch == '{') {
-                    depth++
-                } else if (ch == '}') {
-                    depth--
-                    if (depth == 0) return i
-                }
-            }
-            return -1
-        }
-
-        fun normalizeChaoXingImageUrl(src: String): String {
-            val s = src.trim()
-            return when {
-                s.startsWith("//") -> "https:$s"
-                s.startsWith("http://") -> "https://" + s.substring(7)
-                s.startsWith("https://") -> s
-                s.startsWith("/ananas/") || s.startsWith("/star3/") -> "https://p.ananas.chaoxing.com$s"
-                s.startsWith("/") -> "https://mooc1.chaoxing.com$s"
-                else -> s
-            }
-        }
-
-        fun parseExamsFromHtml(html: String): List<ChaoXingExam> {
-            val out = mutableListOf<ChaoXingExam>()
-            val blocks = Regex("""<li>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL).findAll(html)
-            for (block in blocks) {
-                val body = block.groupValues[1]
-                if (!body.contains("overHidden2") && !body.contains("status")) continue
-
-                val rawTitle = Regex("""<p class="overHidden2[^"]*"[^>]*>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
-                    .find(body)?.groupValues?.get(1) ?: ""
-                val title = stripHtml(rawTitle).ifBlank {
-                    stripHtml(Regex("""<h[1-6][^>]*>(.*?)</h[1-6]>""").find(body)?.groupValues?.get(1).orEmpty())
-                }
-                if (title.isBlank()) continue
-
-                val rawStatus = Regex("""<p class="status[^"]*"[^>]*>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
-                    .find(body)?.groupValues?.get(1) ?: ""
-                var status = stripHtml(rawStatus)
-
-                // 提取起止时间 / 剩余时间 / 截止时间
-                var remaining = Regex("""(?:起止时间|有效时间|测验时间|截止时间|时间)[:：\s]*([^<]+)""").find(body)?.groupValues?.get(1)?.trim().orEmpty()
-                if (remaining.isBlank()) {
-                    remaining = Regex("""\d{4}[-/.]\d{1,2}[-/.]\d{1,2}[^<]*""").find(body)?.value?.trim().orEmpty()
-                }
-                if (remaining.isBlank()) {
-                    remaining = Regex("""剩余[^<]*""").find(body)?.value?.trim().orEmpty()
-                }
-                if (remaining.isBlank()) {
-                    val timeDoc = org.jsoup.Jsoup.parseBodyFragment(body)
-                    remaining = timeDoc.select(".time, .c_999, .date, .time_box, .end-time, .status-time").text().trim()
-                }
-
-                val scoreBlock = Regex("""class="numspan"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
-                    .find(body)?.groupValues?.get(1) ?: ""
-                var score = Regex("""\d+(?:\.\d+)?""").find(scoreBlock)?.value ?: ""
-                if (score.isBlank()) {
-                    score = Regex("""class="score"[^>]*>(\d+(?:\.\d+)?)""").find(body)?.groupValues?.get(1)
-                        ?: Regex("""(?:得分|成绩)[:：\s]*(\d+(?:\.\d+)?)""").find(body)?.groupValues?.get(1)
-                        ?: ""
-                }
-
-                if (score.isBlank()) {
-                    if (body.contains("未公布") || body.contains("不公布") || body.contains("成绩未公布") || status.contains("未公布")) {
-                        score = "教师未公布得分"
-                    } else if (body.contains("待批") || body.contains("待评阅") || status.contains("待批") || status.contains("待评阅")) {
-                        score = "待批改"
-                    }
-                }
-
-                // 提取 examAnswerId (答卷作答 ID) 与 examId (测验发布 ID)
-                var examId = ""
-                var examAnswerId = ""
-
-                // 1. 匹配 viewExamAnswer('9634389', '169191524')，超星原生参数规范：(examId, examAnswerId)
-                val viewAnswerMatch = Regex("""viewExam(?:Answer)?\s*\(\s*['"]?(\d+)['"]?(?:\s*,\s*['"]?(\d+)['"]?)?""").find(body)
-                if (viewAnswerMatch != null) {
-                    val p1 = viewAnswerMatch.groupValues[1]
-                    val p2 = viewAnswerMatch.groupValues.getOrNull(2).orEmpty()
-                    if (p2.isNotBlank()) {
-                        examId = p1
-                        examAnswerId = p2
-                    } else {
-                        examId = p1
-                        examAnswerId = p1
-                    }
-                }
-
-                // 2. 匹配 goTest('...', 9634389)
-                if (examId.isBlank()) {
-                    examId = Regex("""goTest\('[^']*',\s*['"]?(\d+)['"]?""").find(body)?.groupValues?.get(1).orEmpty()
-                }
-
-                // 3. 从各类 URL 或属性中提取
-                if (examId.isBlank()) {
-                    examId = Regex("""(?:examId|paperId|testId)[=:]\s*['"]?(\d+)['"]?""").find(body)?.groupValues?.get(1).orEmpty()
-                }
-                if (examAnswerId.isBlank()) {
-                    examAnswerId = Regex("""(?:examAnswerId|answerId)[=:]\s*['"]?(\d+)['"]?""").find(body)?.groupValues?.get(1).orEmpty()
-                }
-
-                // 4. 兜底提取 id=(\d+)
-                if (examId.isBlank()) {
-                    examId = Regex("""\bid=(\d+)""").find(body)?.groupValues?.get(1).orEmpty()
-                }
-                if (examId.isBlank() && examAnswerId.isNotBlank()) {
-                    examId = examAnswerId
-                }
-
-                val rawAnalysis = Regex("""href="(https://stat2-ans[^"]+)"""").find(body)?.groupValues?.get(1) ?: ""
-                val analysisUrl = rawAnalysis.replace("&amp;", "&")
-
-                var taskUrl = Regex("""(?:href=['"]|data=['"]|window\.open\(['"]|location\.href\s*=\s*['"])(/[^'"]*(?:exam|test|preview|paper|look)[^'"]*)""").find(body)?.groupValues?.get(1)?.replace("&amp;", "&").orEmpty()
-                if (taskUrl.isBlank() && examAnswerId.isNotBlank() && examId.isNotBlank()) {
-                    taskUrl = "/exam-ans/exam/test/look?examId=$examId&examAnswerId=$examAnswerId"
-                }
-
-                out.add(
-                    ChaoXingExam(
-                        id = examId,
-                        title = title,
-                        status = status,
-                        remaining = remaining,
-                        score = score,
-                        analysisUrl = analysisUrl,
-                        taskUrl = taskUrl,
-                        examAnswerId = examAnswerId
-                    )
-                )
-            }
-            return out
-        }
-
-        fun parseWorkListHtml(html: String, course: ChaoXingCourse): MutableList<ChaoXingWork> {
-            val out = mutableListOf<ChaoXingWork>()
-            if (html.isBlank()) return out
-
-            try {
-                val doc = org.jsoup.Jsoup.parse(html)
-                val lis = doc.select("li[onclick*='goTask'], li[data*='workId'], ul.work-list > li, .work-list > li")
-                for (li in lis) {
-                    val dataUrl = li.attr("data").ifBlank { li.select("a").attr("href") }
-                    val workId = Regex("""(?:workId|workid|taskrefId)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
-                        ?: Regex("""[0-9]+""").find(li.attr("id"))?.value
-                        ?: ""
-                    if (workId.isBlank() && dataUrl.isBlank()) continue
-
-                    val label = li.attr("aria-label")
-                    var title = ""
-                    var status = ""
-                    if (label.contains(";")) {
-                        val parts = label.split(";")
-                        title = parts.first().trim()
-                        status = parts.drop(1).joinToString(";").trim()
-                    }
-
-                    if (title.isBlank()) {
-                        title = li.select(".overHidden2, p.title, .title, .item-title, h3, a, p").text().trim()
-                    }
-                    if (status.isBlank()) {
-                        status = li.select(".status, .state, span.status, p.status, span").text().trim()
-                    }
-
-                    var timeRaw = extractDeadlineFromText(li.text(), li.html(), li.attr("aria-label"))
-                    if (timeRaw.isBlank()) {
-                        val elemTime = li.select(".time, .end-time, .status-time, div.time, span.time, p.time, .date").text().trim()
-                        timeRaw = cleanDeadline(elemTime)
-                    }
-                    val isExpired = li.select(".icon-zy-g").isNotEmpty() ||
-                            li.html().contains("icon-zy-g") ||
-                            li.html().contains("task-work-gray") ||
-                            status.contains("已截止") ||
-                            status.contains("已过期") ||
-                            status.contains("已逾期") ||
-                            status.contains("已结束")
-
-                    out.add(
-                        ChaoXingWork(
-                            workId = workId.ifBlank { System.currentTimeMillis().toString() },
-                            title = title.ifBlank { "课程作业" },
-                            courseName = course.courseName,
-                            statusText = status.ifBlank { "未交" },
-                            deadline = timeRaw,
-                            expired = isExpired,
-                            taskUrl = dataUrl.replace("&amp;", "&")
-                        )
-                    )
-                }
-                if (out.isNotEmpty()) return out
-            } catch (_: Exception) {}
-
-            val tagRe = Regex("""<li[^>]*goTask\(this\)[^>]*>""")
-            val matches = tagRe.findAll(html).toList()
-
-            for (m in matches) {
-                val tag = m.value
-                val dataUrl = extractAttr(tag, "data") ?: continue
-                if (dataUrl.isBlank()) continue
-
-                val workId = Regex("""workId=(\d+)""").find(dataUrl)?.groupValues?.get(1) ?: continue
-                val label = extractAttr(tag, "aria-label") ?: ""
-
-                var title = ""
-                var status = ""
-                if (label.contains(";")) {
-                    val parts = label.split(";")
-                    title = parts.first().trim()
-                    status = parts.drop(1).joinToString(";").trim()
-                } else {
-                    title = label.trim()
-                }
-
-                val bodyStart = m.range.last + 1
-                val bodyEnd = html.indexOf("</li>", bodyStart)
-                val body = if (bodyEnd > bodyStart) html.substring(bodyStart, bodyEnd) else ""
-
-                if (title.isBlank()) {
-                    val rawTitle = Regex("""class="overHidden2[^"]*"[^>]*>([^<]+)<""").find(body)?.groupValues?.get(1) ?: "作业"
-                    title = rawTitle.trim()
-                }
-                if (status.isBlank()) {
-                    val rawStatus = Regex("""class="status[^"]*"[^>]*>([^<]+)<""").find(body)?.groupValues?.get(1) ?: ""
-                    status = rawStatus.trim()
-                }
-
-                val timeRaw = Regex("""class="time[^"]*"[^>]*>(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
-                    .find(body)?.groupValues?.get(1) ?: ""
-                var timeText = cleanDeadline(stripHtml(timeRaw))
-                if (timeText.isBlank()) {
-                    timeText = extractDeadlineFromText(body, body, label)
-                }
-
-                out.add(
-                    ChaoXingWork(
-                        workId = workId,
-                        title = title,
-                        courseName = course.courseName,
-                        statusText = status,
-                        deadline = timeText,
-                        expired = body.contains("icon-zy-g") || body.contains("task-work-gray") ||
-                                status.contains("已截止") || status.contains("已过期") || status.contains("已逾期"),
-                        taskUrl = dataUrl.replace("&amp;", "&")
-                    )
-                )
-            }
-            return out
-        }
-
-        fun extractWorkEnc(html: String): String {
-            if (html.isBlank()) return ""
-            // 1. id="workEnc" ... value="..."
-            Regex("""id=["']workEnc["'][^>]*value=["']([^"']+)["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
-            // 2. value="..." ... id="workEnc"
-            Regex("""value=["']([^"']+)["'][^>]*id=["']workEnc["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
-            // 3. name="workEnc" ... value="..."
-            Regex("""name=["']workEnc["'][^>]*value=["']([^"']+)["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
-            // 4. value="..." ... name="workEnc"
-            Regex("""value=["']([^"']+)["'][^>]*name=["']workEnc["']""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
-            // 5. JavaScript / JSON: workEnc = "...", 'workEnc': "...", etc.
-            Regex("""['"]?workEnc['"]?\s*[:=,]\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
-            // 6. URL query parameter: /mooc2/work/list?...enc=...
-            Regex("""/mooc2/work/list\?[^"']*enc=([a-zA-Z0-9_-]+)""").find(html)?.groupValues?.get(1)?.let { if (it.isNotBlank()) return it.trim() }
-            return ""
-        }
-
-        fun parseStuWorkHtmlForCourse(html: String, course: ChaoXingCourse): List<ChaoXingWork> {
-            val out = mutableListOf<ChaoXingWork>()
-            if (html.isBlank()) return out
-            try {
-                val doc = org.jsoup.Jsoup.parse(html)
-                val items = doc.select("ul.stu-work-list > li, .work-list > li, ul > li[data], li[data], li[onclick*='goTask']")
-
-                val cleanTargetCourse = course.courseName
-                    .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
-                    .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
-                    .replace(Regex("""\s+"""), "")
-                    .lowercase()
-                    .trim()
-
-                for (el in items) {
-                    val dataUrl = el.attr("data").ifBlank { el.select("a").attr("href") }
-                    if (dataUrl.isBlank()) continue
-
-                    val workId = Regex("""(?:workId|workid|taskrefId)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1)
-                        ?: Regex("""[0-9]+""").find(el.attr("id"))?.value
-                        ?: ""
-                    val cId = Regex("""(?:courseId|courseid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: ""
-                    val clazzId = Regex("""(?:classId|clazzId|clazzid)=([0-9]+)""").find(dataUrl)?.groupValues?.get(1) ?: ""
-
-                    // 1. 标题提取 (优先读取 div[role=option] > p，其次读取 .title, 兜底读取 aria-label)
-                    var title = el.select("div[role='option'] > p, p").firstOrNull()?.text()?.trim().orEmpty()
-                    if (title.isBlank()) {
-                        title = el.select(".title, .item-title, p.title, h3").text().trim()
-                    }
-                    if (title.isBlank()) {
-                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
-                        title = Regex("""作业名称(.*?)作业状态""").find(aria)?.groupValues?.get(1)?.trim().orEmpty()
-                    }
-
-                    // 2. 状态与课程名称 (超星 stu-work 中通常由 div[role=option] 下的两个 span 分别承载状态与课程名称)
-                    val optionSpans = el.select("div[role='option'] > span")
-                    var statusText = ""
-                    var courseName = ""
-                    if (optionSpans.isNotEmpty()) {
-                        statusText = optionSpans[0].text().trim()
-                        if (optionSpans.size >= 2) {
-                            courseName = optionSpans[1].text().trim().replace("《", "").replace("》", "").replace("...", "")
-                        }
-                    }
-
-                    if (statusText.isBlank()) {
-                        statusText = el.select(".status, .state, span.status").text().trim()
-                    }
-                    if (statusText.isBlank()) {
-                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
-                        statusText = Regex("""作业状态(.*?)课程""").find(aria)?.groupValues?.get(1)?.trim().orEmpty()
-                    }
-                    if (statusText.isBlank()) {
-                        statusText = "已交"
-                    }
-
-                    if (courseName.isBlank()) {
-                        courseName = el.select(".course-name, .course, span.course-name").text().trim()
-                    }
-                    if (courseName.isBlank()) {
-                        val aria = el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") }
-                        courseName = Regex("""课程(.*)""").find(aria)?.groupValues?.get(1)?.trim().orEmpty().replace("...", "")
-                    }
-
-                    // 3. 课程归属判定 (多重判定：courseId 匹配、classId 匹配、课程名双向包含匹配，且严格保持实验课与非实验课互斥)
-                    val cleanItemCourse = courseName
-                        .replace(Regex("""\(?[0-9]{4}-[0-9]{4}-[0-9]+\)?"""), "")
-                        .replace(Regex("""\[.*?\]|【.*?】|\(.*?\)|（.*?）"""), "")
-                        .replace(Regex("""\s+"""), "")
-                        .lowercase()
-                        .trim()
-
-                    val isTargetLab = course.courseName.contains("实验") || cleanTargetCourse.contains("实验")
-                    val isItemLab = courseName.contains("实验") || title.contains("实验") || cleanItemCourse.contains("实验")
-
-                    val idMatch = (cId.isNotBlank() && cId == course.courseId) ||
-                            (clazzId.isNotBlank() && clazzId == course.classId)
-                    val nameMatch = if (isTargetLab != isItemLab) false else {
-                        (cleanItemCourse.isNotBlank() && cleanTargetCourse.isNotBlank() &&
-                                (cleanItemCourse == cleanTargetCourse || cleanItemCourse.contains(cleanTargetCourse) || cleanTargetCourse.contains(cleanItemCourse))) ||
-                        (courseName.isNotBlank() && (courseName == course.courseName || courseName.contains(course.courseName) || course.courseName.contains(courseName)))
-                    }
-                    val matchCourse = idMatch || nameMatch
-
-                    if (!matchCourse) continue
-
-                    var timeStr = extractDeadlineFromText(el.text(), el.html(), el.select("[aria-label]").attr("aria-label").ifBlank { el.attr("aria-label") })
-                    if (timeStr.isBlank()) {
-                        val elemTime = el.select(".time, .end-time, .status-time, span.time, div.time, p.time, .date").text().trim()
-                        timeStr = cleanDeadline(elemTime)
-                    }
-                    val isExpired = el.select(".icon-zy-g").isNotEmpty() ||
-                            el.html().contains("icon-zy-g") ||
-                            el.html().contains("task-work-gray") ||
-                            statusText.contains("已截止") ||
-                            statusText.contains("已过期") ||
-                            statusText.contains("已逾期") ||
-                            statusText.contains("已结束")
-
-                    out.add(
-                        ChaoXingWork(
-                            workId = workId.ifBlank { System.currentTimeMillis().toString() },
-                            title = title.ifBlank { "课程作业" },
-                            courseName = course.courseName,
-                            statusText = statusText,
-                            deadline = timeStr,
-                            expired = isExpired,
-                            taskUrl = dataUrl.replace("&amp;", "&")
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "parseStuWorkHtmlForCourse error: ${e.message}")
-            }
-            return out
-        }
+        fun parseStuWorkHtmlForCourse(html: String, course: ChaoXingCourse): List<ChaoXingWork> =
+            ChaoXingHtmlParser.parseStuWorkHtmlForCourse(html, course)
 
         private fun isGraded(status: String): Boolean =
             status.contains("已完成") || status.contains("已批阅")
 
-        private fun extractAttr(tag: String, name: String): String? {
-            val match = Regex("""$name="([^"]*)"""").find(tag)
-            return match?.groupValues?.get(1)?.replace("&amp;", "&")
-        }
+        fun cleanDeadline(raw: String?): String =
+            ChaoXingHtmlParser.cleanDeadline(raw)
 
-        private fun stripHtml(html: String): String {
-            return html
-                .replace(Regex("""<[^>]+>"""), "")
-                .replace("&nbsp;", " ")
-                .replace(Regex("""\s+"""), " ")
-                .trim()
-        }
+        fun extractDeadlineFromText(text: String, html: String = "", aria: String = ""): String =
+            ChaoXingHtmlParser.extractDeadlineFromText(text, html, aria)
 
-        /**
-         * 清理并规范化截止时间格式，去除前缀标签，标准化日期连接符
-         */
-        fun cleanDeadline(raw: String?): String {
-            if (raw.isNullOrBlank()) return ""
-            var s = raw.trim()
-            // 剔除括号内容，如 (剩 1 天 1 小时)、(已截止)
-            // 仅当括号外有包含数字的内容时才剔除括号；若整个字符串均在括号内则剥去括号保留其内容
-            val withoutBrackets = s.replace(Regex("""\([^)]*\)|（[^）]*）"""), "").trim()
-            if (withoutBrackets.any { it.isDigit() }) {
-                s = withoutBrackets
-            } else {
-                s = s.replace(Regex("""^[（(]|[)）]$"""), "").trim()
-            }
-            val prefixes = listOf(
-                "截止时间：", "截止时间:", "截止时间",
-                "截止：", "截止:", "截止",
-                "提交截止：", "提交截止:", "提交截止",
-                "结束时间：", "结束时间:", "结束时间",
-                "作答时间：", "作答时间:", "作答时间",
-                "起止时间：", "起止时间:", "起止时间",
-                "有效时间：", "有效时间:", "有效时间",
-                "考试时间：", "考试时间:", "考试时间",
-                "开放时间：", "开放时间:", "开放时间",
-                "时间范围：", "时间范围:", "时间范围"
-            )
-            for (p in prefixes) {
-                if (s.startsWith(p)) {
-                    s = s.substring(p.length).trim()
-                }
-            }
-            s = s.replace(Regex("""^[^0-9]{0,10}[:：]\s*"""), "").trim()
+        fun cleanTeacherComment(commentEl: org.jsoup.nodes.Element?): String =
+            ChaoXingHtmlParser.cleanTeacherComment(commentEl)
 
-            // 若传入时间区间如 "10-21 17:58 至 10-27 17:58"，提取区间终点作为截止时间
-            val rangeDelimiters = listOf("至", "到", "～", "~", "—", " - ")
-            for (delim in rangeDelimiters) {
-                if (s.contains(delim)) {
-                    val endPart = s.substringAfterLast(delim).trim()
-                    if (endPart.any { it.isDigit() }) {
-                        s = endPart
-                        break
-                    }
-                }
-            }
-            s = s.replace(Regex("""(\d{4})年(\d{1,2})月(\d{1,2})日?"""), "$1-$2-$3")
-            s = s.replace(Regex("""(\d{1,2})月(\d{1,2})日?"""), "$1-$2")
-            s = s.replace('/', '-').replace('.', '-')
-            s = s.replace(Regex("""(?:截止|结束|前完成)$"""), "").trim()
-            return s.replace("\u00A0", " ").trim()
-        }
+        fun cleanTeacherCommentText(raw: String?): String =
+            ChaoXingHtmlParser.cleanTeacherCommentText(raw)
 
-        /**
-         * 从文本、HTML 或 aria-label 中智能提取作业截止时间
-         * 涵盖“作答时间/起止时间: xx 至 xx”、“截止时间: xx”等超星全形态格式
-         */
-        fun extractDeadlineFromText(text: String, html: String = "", aria: String = ""): String {
-            val datePat = """(?:(?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)"""
-            val rangeRegex = Regex(
-                """(?:作答时间|起止时间|有效时间|考试时间|开放时间|时间范围)[:：]?\s*[\s\S]*?(?:至|到|~|～|—|\s+-\s+)\s*($datePat)"""
-            )
-            val ddlRegex = Regex(
-                """(?:截止时间|提交截止|结束时间|截止)[:：]?\s*($datePat)"""
-            )
-            val dualDateRegex = Regex(
-                """$datePat\s*(?:至|到|~|～|—|\s+-\s+)\s*($datePat)"""
-            )
-            val reverseDdlRegex = Regex(
-                """($datePat)\s*(?:前完成|截止|结束)"""
-            )
+        fun parseQuestionsFromHtml(html: String): List<ChaoXingQuestionItem> =
+            ChaoXingQuestionParser.parseQuestionsFromHtml(html)
 
-            // 0. 若存在 HTML，优先通过 Jsoup 精准分析常用时间容器（如 rightBord、time、end-time 等）
-            if (html.isNotBlank() && html.contains("<")) {
-                try {
-                    val doc = org.jsoup.Jsoup.parse(html)
-                    val targetedEls = doc.select(".rightBord, .detailsHead, .infoHead, .time, .end-time, .status-time, .work-time, .date")
-                    for (el in targetedEls) {
-                        val t = el.text().trim()
-                        val mRange = rangeRegex.find(t)
-                        if (mRange != null) {
-                            val ddl = cleanDeadline(mRange.groupValues[1])
-                            if (ddl.isNotBlank()) return ddl
-                        }
-                        val mDdl = ddlRegex.find(t)
-                        if (mDdl != null) {
-                            val ddl = cleanDeadline(mDdl.groupValues[1])
-                            if (ddl.isNotBlank()) return ddl
-                        }
-                        val mReverse = reverseDdlRegex.find(t)
-                        if (mReverse != null) {
-                            val ddl = cleanDeadline(mReverse.groupValues[1])
-                            if (ddl.isNotBlank()) return ddl
-                        }
-                        val mDual = dualDateRegex.find(t)
-                        if (mDual != null) {
-                            val ddl = cleanDeadline(mDual.groupValues[1])
-                            if (ddl.isNotBlank()) return ddl
-                        }
-                    }
-                    val wholeDocText = doc.text().trim()
-                    val mRangeWhole = rangeRegex.find(wholeDocText)
-                    if (mRangeWhole != null) {
-                        val ddl = cleanDeadline(mRangeWhole.groupValues[1])
-                        if (ddl.isNotBlank()) return ddl
-                    }
-                    val mDdlWhole = ddlRegex.find(wholeDocText)
-                    if (mDdlWhole != null) {
-                        val ddl = cleanDeadline(mDdlWhole.groupValues[1])
-                        if (ddl.isNotBlank()) return ddl
-                    }
-                    val mReverseWhole = reverseDdlRegex.find(wholeDocText)
-                    if (mReverseWhole != null) {
-                        val ddl = cleanDeadline(mReverseWhole.groupValues[1])
-                        if (ddl.isNotBlank()) return ddl
-                    }
-                    val mDualWhole = dualDateRegex.find(wholeDocText)
-                    if (mDualWhole != null) {
-                        val ddl = cleanDeadline(mDualWhole.groupValues[1])
-                        if (ddl.isNotBlank()) return ddl
-                    }
-                } catch (_: Exception) {}
-            }
+        fun parseOptionsFromQuestionElement(qEl: org.jsoup.nodes.Element): List<ChaoXingQuestionOption> =
+            ChaoXingQuestionParser.parseOptionsFromQuestionElement(qEl)
 
-            // 1. 遍历 candidates (aria, text)
-            val candidates = listOf(aria, text)
-            for (src in candidates) {
-                if (src.isBlank()) continue
-                val cleanSrc = if (src.contains("<")) src.replace(Regex("<[^>]+>"), " ").replace("&nbsp;", " ") else src
-                val mRange = rangeRegex.find(cleanSrc)
-                if (mRange != null) {
-                    val ddl = cleanDeadline(mRange.groupValues[1])
-                    if (ddl.isNotBlank()) return ddl
-                }
-                val mDdl = ddlRegex.find(cleanSrc)
-                if (mDdl != null) {
-                    val ddl = cleanDeadline(mDdl.groupValues[1])
-                    if (ddl.isNotBlank()) return ddl
-                }
-                val mReverse = reverseDdlRegex.find(cleanSrc)
-                if (mReverse != null) {
-                    val ddl = cleanDeadline(mReverse.groupValues[1])
-                    if (ddl.isNotBlank()) return ddl
-                }
-                val mDual = dualDateRegex.find(cleanSrc)
-                if (mDual != null) {
-                    val ddl = cleanDeadline(mDual.groupValues[1])
-                    if (ddl.isNotBlank()) return ddl
-                }
-            }
-
-            // 2. 兜底直接匹配独立日期
-            val mStandalone = Regex("""(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?\s+\d{1,2}:\d{1,2})""").find(text)
-            if (mStandalone != null) {
-                return cleanDeadline(mStandalone.groupValues[1])
-            }
-
-            return ""
-        }
-
-        /**
-         * 清理教师评语，剔除网页模板占位词（如“教师批阅”、“教师批语”等表头文字），避免未批阅时误显
-         */
-        fun cleanTeacherComment(commentEl: org.jsoup.nodes.Element?): String {
-            if (commentEl == null) return ""
-            val pText = commentEl.select("p, .text, .content").text().trim()
-            val rawText = if (pText.isNotBlank()) pText else commentEl.text().trim()
-            return cleanTeacherCommentText(rawText)
-        }
-
-        fun cleanTeacherCommentText(raw: String?): String {
-            if (raw.isNullOrBlank()) return ""
-            val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
-            val validLines = mutableListOf<String>()
-            val prefixes = listOf(
-                "教师批阅：", "教师批阅:", "教师批阅",
-                "教师批语：", "教师批语:", "教师批语",
-                "教师评语：", "教师评语:", "教师评语",
-                "批阅人：", "批阅人:", "批阅人",
-                "批改人：", "批改人:", "批改人",
-                "批阅：", "批阅:", "批阅",
-                "评语：", "评语:", "评语"
-            )
-            val placeholders = setOf(
-                "", "暂无", "暂无评语", "暂无批语", "未批阅", "未批改", "待批阅", "待批改",
-                "教师批阅", "教师批语", "教师评语", "批阅", "等待批阅", "等待教师批阅"
-            )
-
-            for (line in lines) {
-                var s = line
-                s = s.replace(Regex("""^第\d+题(?:批语|评语|批阅)[:：]?\s*"""), "").trim()
-                for (p in prefixes) {
-                    if (s.startsWith(p)) {
-                        s = s.substring(p.length).trim()
-                    }
-                }
-                if (s.isNotBlank() && s !in placeholders) {
-                    validLines.add(line)
-                }
-            }
-            return validLines.joinToString("\n").trim()
-        }
-
-        /**
-         * 解析答卷或做题页面 HTML 中的全部题目结构
-         */
-        /**
-         * 解析答卷或做题页面 HTML 中的全部题目结构与选项
-         */
-        fun parseQuestionsFromHtml(html: String): List<ChaoXingQuestionItem> {
-            val list = mutableListOf<ChaoXingQuestionItem>()
-            if (html.isBlank()) return list
-            try {
-                val doc = Jsoup.parse(html)
-                // 1. 抓取所有可能代表具体题目的候选容器 (涵盖移动端 singleQuesId, questionLi, questionBlock 及 PC 端 TiMu)
-                // 注意：.fanyaMarking 和 .mark_item 分别是全卷与题型大段祖先容器，必须排除，防止全卷或大题折叠为单题
-                val rawCandidates = doc.select(".singleQuesId, div[class*='singleQues'], .questionLi, .questionBlock, .TiMu:not(.fanyaMarking):not(.mark_item), .padlr30:not(.mark_item)")
-                val effectiveCandidates = if (rawCandidates.isNotEmpty()) rawCandidates else doc.select(".TiMu, .mark_item")
-                // 关键防嵌套过滤：如果某个候选元素的祖先中已有其他候选元素，则该元素为嵌套的内部容器，应予过滤，只保留最外层完整题目容器
-                val rawSet = effectiveCandidates.toSet()
-                val topElements = effectiveCandidates.filter { el ->
-                    el.parents().none { it in rawSet }
-                }
-
-                Log.d(TAG, "parseQuestionsFromHtml: topElements size=${topElements.size}")
-
-                val seenSignatures = mutableSetOf<String>()
-                var questionIndex = 1
-
-                for (qEl in topElements) {
-                    // 题型与分值提取 (支持移动端 colorShallow、totalScore，以及 PC 端 newZy_TItle、stemGray 等)
-                    val typeScoreEl = qEl.select(".colorShallow, .newZy_TItle, .stemGray, .question-type, .type, .colorDeep, .type_tit, .color888, .font14").firstOrNull()
-                    val typeScoreText = typeScoreEl?.text()?.trim().orEmpty()
-                    val totalScoreEl = qEl.select(".totalScore, .score, .numspan, .mark_score").firstOrNull()
-                    val scoreMatch = Regex("""(\d+(?:\.\d+)?)\s*分""").find(typeScoreText)
-                        ?: Regex("""(\d+(?:\.\d+)?)\s*分""").find(totalScoreEl?.text().orEmpty())
-                        ?: Regex("""[(（\[【]\s*(\d+(?:\.\d+)?)\s*分\s*[)）\]】]""").find(qEl.text())
-                        ?: Regex("""(?:分值[:：\s]*|共\s*)(\d+(?:\.\d+)?)\s*分""").find(qEl.text())
-                    val scoreText = scoreMatch?.groupValues?.get(1)?.let { "$it 分" } ?: ""
-
-                    // 1. 题干提取 (支持移动端 mark_name/qtContent 与 PC 端 Zy_TItle / stemDiv / Picdiv 等)
-                    val stemEl = qEl.select(".qtContent, .mark_name, .mark_title, .Zy_TItle, .newZy_TItle, .stemDiv .Picdiv, .Picdiv, .stemDiv, .workTextWrap, .font14, .stem_title, .title, .sub-title, .questionContent, .subject_title, .stem, .textWrap").firstOrNull()
-                    var cleanStem = ""
-                    var stemHtml = ""
-
-                    if (stemEl != null) {
-                        val stemClone = stemEl.clone()
-                        // 移除题型徽章与分值等标头标记，防止污染题干正文
-                        stemClone.select(".colorShallow, .totalScore, .score, .numspan, .type, .question-type, .color888, .stemGray, .mark_score").remove()
-                        for (img in stemClone.select("img")) {
-                            val src = img.attr("src").ifBlank { img.attr("data-src") }.ifBlank { img.attr("data-original") }
-                            if (src.isNotBlank()) {
-                                img.attr("src", normalizeChaoXingImageUrl(src))
-                            }
-                        }
-                        cleanStem = stemClone.text().trim()
-                        cleanStem = cleanStem.replace(Regex("""^\d+[.\u3001\s]+"""), "")
-                        cleanStem = cleanStem.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
-                        cleanStem = cleanStem.replace(Regex("""[(（\[【]?\d+(?:\.\d+)?\s*分[)）\]】]?\s*$"""), "").trim()
-
-                        var sHtml = stemClone.html().trim()
-                        sHtml = sHtml.replaceFirst(Regex("""^\s*\d+[.\u3001\s]+"""), "")
-                        sHtml = sHtml.replaceFirst(Regex("""^\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
-                        sHtml = sHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*\d+[.\u3001\s]+"""), "$1")
-                        sHtml = sHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "$1")
-                        stemHtml = sHtml.trim()
-                    }
-
-                    // 容器兜底提取：若未找到题干，剥离选项、作答框与评语，提取剩余内容
-                    if (cleanStem.isBlank()) {
-                        val fallbackEl = qEl.clone()
-                        fallbackEl.select(
-                            "script, style, .mark_letter, .Zy_ulTop, .Cy_ulTop, .Zy_ulTk, .ulOption, .stem_answer, " +
-                            ".Py_answer, .Py_tk, .stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer, " +
-                            ".true_answer, .rightAnswer, .rightAnswerContent, .standardAnswer, .correctAnswer, .trueAnswer, " +
-                            ".analysis, .myAnalysis, .analysisDiv, .explain, .fenxi, .grayDiv, .pingyu, .remark, .comment, .teach-comment, " +
-                            ".colorShallow, .totalScore, .score, .numspan, .mark_score, textarea, input, button"
-                        ).remove()
-                        for (img in fallbackEl.select("img")) {
-                            val src = img.attr("src").ifBlank { img.attr("data-src") }.ifBlank { img.attr("data-original") }
-                            if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
-                        }
-                        var fbText = fallbackEl.text().trim()
-                        fbText = fbText.replace(Regex("""^\d+[.\u3001\s]+"""), "")
-                        fbText = fbText.replace(Regex("""^[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
-                        fbText = fbText.replace(Regex("""[(（\[【]?\d+(?:\.\d+)?\s*分[)）\]】]?\s*$"""), "").trim()
-                        if (fbText.isNotBlank()) {
-                            cleanStem = fbText
-                            var fbHtml = fallbackEl.html().trim()
-                            fbHtml = fbHtml.replaceFirst(Regex("""^\s*\d+[.\u3001\s]+"""), "")
-                            fbHtml = fbHtml.replaceFirst(Regex("""^\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "")
-                            fbHtml = fbHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*\d+[.\u3001\s]+"""), "$1")
-                            fbHtml = fbHtml.replaceFirst(Regex("""^(<(?:p|span|div|b|strong)[^>]*>)\s*[(（\[【][^()（）\[\]【】]*题[^()（）\[\]【】]*[)）\]】]\s*"""), "$1")
-                            stemHtml = fbHtml.trim()
-                        }
-                    }
-
-                    if (stemHtml.isBlank()) stemHtml = cleanStem
-
-                    // 8. 题目 ID 提取
-                    var qId = qEl.attr("data").trim()
-                    if (qId.isBlank()) {
-                        qId = Regex("""\d+""").find(qEl.attr("id"))?.value.orEmpty()
-                    }
-                    if (qId.isBlank()) {
-                        qId = qEl.select("[id^='qb']").firstOrNull()?.let { Regex("""\d+""").find(it.attr("id"))?.value }.orEmpty()
-                    }
-                    if (qId.isBlank()) {
-                        qId = qEl.attr("questionid").trim()
-                    }
-                    if (qId.isBlank()) {
-                        qId = qEl.select("input[name*='id'], input[id*='id'], [data-singlequesid]").firstOrNull()?.let {
-                            it.attr("data-singlequesid").ifBlank { it.attr("value") }
-                        }.orEmpty()
-                    }
-
-                    // 避免重复题目条目入库 (根据 ID 或 Stem 签名去重)
-                    val signature = if (qId.isNotBlank()) "id_$qId" else "stem_${cleanStem.take(60)}"
-                    if (cleanStem.isNotBlank() && !seenSignatures.add(signature)) {
-                        continue
-                    }
-
-                    // 2. 提取题干中的教师附件或图片 (同时检索 stemEl 与 qEl)
-                    val teacherAtts = mutableListOf<ChaoXingCourseAttachment>()
-                    val attIframes = mutableListOf<org.jsoup.nodes.Element>()
-                    stemEl?.let { attIframes.addAll(it.select("iframe.attach-iframe, iframe[objectid]")) }
-                    attIframes.addAll(qEl.select("iframe.attach-iframe, iframe[objectid]").filter { it !in attIframes })
-                    for (iframe in attIframes) {
-                        val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
-                        val oid = iframe.attr("objectid")
-                        val fsStr = iframe.attr("filesize")
-                        if (oid.isNotBlank() && fn.isNotBlank()) {
-                            teacherAtts.add(
-                                ChaoXingCourseAttachment(
-                                    objectId = oid,
-                                    name = fn,
-                                    size = parseSizeStrToBytes(fsStr)
-                                )
-                            )
-                        }
-                    }
-
-                    // 3. 提取客观题选项列表 (支持 Zy_ulTop, Cy_ulTop, Zy_ulTk, ulOption, stem_answer 等)
-                    val options = parseOptionsFromQuestionElement(qEl)
-
-                    // 4. 学生作答提取 (支持 Py_answer, stuAnswerContent, stuAnswer 等)
-                    var cleanAns = ""
-                    var ansHtml = ""
-                    val pyAns = qEl.select(".Py_answer, .Py_tk").firstOrNull()
-                    if (pyAns != null) {
-                        for (img in pyAns.select("img")) {
-                            val src = img.attr("src").ifBlank { img.attr("data-src") }
-                            if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
-                        }
-                        val m = Regex("""(?:我的答案|学生答案)[:：\s]*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(pyAns.text())
-                        if (m != null) {
-                            cleanAns = m.groupValues[1].trim()
-                        }
-                        ansHtml = pyAns.html().trim()
-                    }
-                    if (cleanAns.isBlank()) {
-                        val ansEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer").firstOrNull()
-                        if (ansEl != null) {
-                            for (img in ansEl.select("img")) {
-                                val src = img.attr("src").ifBlank { img.attr("data-src") }
-                                if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
-                            }
-                        }
-                        ansHtml = ansEl?.html()?.trim().orEmpty()
-                        cleanAns = if (ansEl != null) {
-                            ansEl.text().replace(Regex("""^(?:我的答案|我的作答|学生答案)[:：\s]*"""), "").trim()
-                        } else {
-                            val m = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())
-                            m?.groupValues?.get(1)?.trim().orEmpty()
-                        }
-                    }
-                    if (cleanAns.isBlank() && options.isNotEmpty()) {
-                        val chosenLetters = options.filter { it.isSelected }.map { it.letter }
-                        if (chosenLetters.isNotEmpty()) {
-                            cleanAns = chosenLetters.joinToString(", ")
-                        }
-                    }
-
-                    // 5. 标准答案提取 (支持 Py_answer, true_answer, rightAnswer 等)
-                    var correctAns = ""
-                    if (pyAns != null) {
-                        val m = Regex("""(?:正确答案|标准答案|参考答案)[:：\s]*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:我的答案|学生答案|答案解析|解析|教师批阅|教师评语|$))""").find(pyAns.text())
-                        if (m != null) {
-                            correctAns = m.groupValues[1].trim()
-                        }
-                    }
-                    if (correctAns.isBlank()) {
-                        val rightEl = qEl.select(".true_answer, .rightAnswer, .rightAnswerContent, .standardAnswer, .correctAnswer, .trueAnswer").firstOrNull()
-                        correctAns = if (rightEl != null) {
-                            rightEl.text().replace(Regex("""^(?:正确答案|标准答案|参考答案)[:：\s]*"""), "").trim()
-                        } else {
-                            val m = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())
-                            m?.groupValues?.get(1)?.trim().orEmpty()
-                        }
-                    }
-                    if (correctAns.isBlank() && options.isNotEmpty()) {
-                        val rightLetters = options.filter { it.isCorrect }.map { it.letter }
-                        if (rightLetters.isNotEmpty()) {
-                            correctAns = rightLetters.joinToString(", ")
-                        }
-                    }
-
-                    // 6. 题目解析提取
-                    val expEl = qEl.select(".analysis, .myAnalysis, .analysisDiv, .explain, .fenxi, .Py_tk").firstOrNull()
-                    var explanation = if (expEl != null) {
-                        expEl.text().replace(Regex("""^(?:答案解析|解析|题目分析)[:：\s]*"""), "").trim()
-                    } else {
-                        val m = Regex("""(?:答案解析|解析|题目分析)[:：]\s*([^\r\n]+)""").find(qEl.text())
-                        m?.groupValues?.get(1)?.trim().orEmpty()
-                    }
-
-                    // 提取学生作答附件
-                    val studentAtts = mutableListOf<ChaoXingCourseAttachment>()
-                    val searchAnsEl = qEl.select(".stuAnswerContent, .optionDiv, .myAnswer, .my-answer, .stuAnswer, .Py_answer").firstOrNull()
-                    if (searchAnsEl != null) {
-                        for (iframe in searchAnsEl.select("iframe.attach-iframe, iframe[objectid]")) {
-                            val fn = iframe.attr("filename").ifBlank { iframe.attr("name") }
-                            val oid = iframe.attr("objectid")
-                            val fsStr = iframe.attr("filesize")
-                            if (oid.isNotBlank() && fn.isNotBlank()) {
-                                studentAtts.add(
-                                    ChaoXingCourseAttachment(
-                                        objectId = oid,
-                                        name = fn,
-                                        size = parseSizeStrToBytes(fsStr)
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    // 7. 教师评语提取
-                    val commentEl = qEl.select(".grayDiv, .pingyu, .remark, .comment, .teach-comment").firstOrNull()
-                    val commentText = cleanTeacherComment(commentEl)
-
-                    // 9. 精准解析题型 (结合属性、文本与选项结构智能判别，坚决杜绝把选择题误判为主观题)
-                    val (typeCode, typeName) = resolveQuestionType(qEl, typeScoreText, options)
-
-                    list.add(
-                        ChaoXingQuestionItem(
-                            index = questionIndex++,
-                            id = qId,
-                            typeCode = typeCode,
-                            typeName = typeName,
-                            scoreText = scoreText,
-                            stemHtml = stemHtml,
-                            cleanStem = cleanStem,
-                            options = options,
-                            correctAnswer = correctAns,
-                            explanation = explanation,
-                            myAnswerHtml = ansHtml,
-                            cleanMyAnswer = cleanAns,
-                            teacherComment = commentText,
-                            studentAttachments = studentAtts,
-                            teacherAttachments = teacherAtts
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "parseQuestionsFromHtml error: ${e.message}")
-            }
-            return list
-        }
-
-        /**
-         * 解析超星单道题目的全部选项卡片数据
-         */
-        fun parseOptionsFromQuestionElement(qEl: org.jsoup.nodes.Element): List<ChaoXingQuestionOption> {
-            val options = mutableListOf<ChaoXingQuestionOption>()
-
-            val pyAnsText = qEl.select(".Py_answer, .Py_tk").text().trim()
-            val myAnsText = qEl.select(".stuAnswer, .myAnswer, .my-answer, .stuAnswerContent").text().trim()
-            val rightAnsText = qEl.select(".true_answer, .rightAnswer, .rightAnswerContent, .standardAnswer, .correctAnswer, .trueAnswer").text().trim()
-            val myFallback = Regex("""(?:我的答案|我的作答|学生答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:正确答案|标准答案|参考答案|答案解析|解析|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
-            val rightFallback = Regex("""(?:正确答案|标准答案|参考答案)[:：]\s*([A-Za-z0-9,、\s\u4e00-\u9fa5✓✕对错正确错误]+?)(?=(?:答案解析|解析|学生答案|我的答案|教师批阅|教师评语|$))""").find(qEl.text())?.groupValues?.get(1).orEmpty()
-
-            val myFullStr = "$pyAnsText $myAnsText $myFallback"
-            val rightFullStr = "$pyAnsText $rightAnsText $rightFallback"
-
-            val myLetters = extractChoiceLetters(myFullStr)
-            val rightLetters = extractChoiceLetters(rightFullStr)
-
-            // 1. 常见超星选项列表选择器 (涵盖移动端 mark_letter, qtDetail 及 PC 端 Zy_ulTop, Cy_ulTop, Zy_ulTk, ulOption, stem_answer, answerList 等)
-            val optEls = qEl.select("""
-                ul.mark_letter > li,
-                ul.mark_letter li,
-                ul.qtDetail > li,
-                ul.qtDetail li,
-                ul[class*='letter'] li,
-                ul[class*='qtDetail'] li,
-                ul.Zy_ulTop > li,
-                ul.Zy_ulTop li,
-                ul.Cy_ulTop > li,
-                ul.Cy_ulTop li,
-                ul.Zy_ulTk > li,
-                ul.Zy_ulTk li,
-                ul.ulOption > li,
-                ul.ulOption li,
-                .stem_answer li,
-                .stem_answer .clearfix,
-                .answerList .clearfix,
-                .answerList .answerList_item,
-                .answerList > div,
-                .answerList li,
-                .options li,
-                .optionList li,
-                .option_list li,
-                ul.tiMu_ul li,
-                .choiceList .choice,
-                .choiceList li,
-                div[class*='answerBg'],
-                ul[class*='answer'] li,
-                ul[class*='option'] li,
-                ul[class*='ulTop'] li,
-                ul[class*='ulTk'] li
-            """.trimIndent())
-
-            val letterList = listOf("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
-
-            if (optEls.isNotEmpty()) {
-                for ((idx, optEl) in optEls.withIndex()) {
-                    val badgeEl = optEl.select(".num_option, .num, i.fl, em.fl, .option_num, span.fl, .letter, i, em").firstOrNull()
-                    var letter = badgeEl?.attr("data")?.trim().orEmpty()
-                    if (letter.isBlank()) {
-                        letter = optEl.attr("data").trim()
-                    }
-                    if (letter.isBlank()) {
-                        letter = badgeEl?.text()?.replace(Regex("""[^A-Za-z✓✕对错正确错误]"""), "")?.trim()?.uppercase().orEmpty()
-                    }
-                    val rawText = optEl.text().trim()
-
-                    if (letter.isBlank()) {
-                        val match = Regex("""^([A-Z])[.\u3001\s]""").find(rawText)
-                        if (match != null) {
-                            letter = match.groupValues[1]
-                        }
-                    }
-                    if (letter.isBlank()) {
-                        letter = if (idx < letterList.size) letterList[idx] else "${idx + 1}"
-                    }
-
-                    // 选项文本提取 (支持 a.after, .answer_p, .option_content, .text 等，完整保留图片)
-                    val contentEl = optEl.select("a.after, .answer_p, .option_content, .text, .fl:not(i):not(em):not(.num_option), p, a, div, span:not(.num_option)").firstOrNull()
-                    var content: String
-                    if (contentEl != null && contentEl.select("img").isNotEmpty()) {
-                        for (img in contentEl.select("img")) {
-                            val src = img.attr("src").ifBlank { img.attr("data-src") }
-                            if (src.isNotBlank()) img.attr("src", normalizeChaoXingImageUrl(src))
-                        }
-                        content = contentEl.html().trim()
-                    } else {
-                        content = contentEl?.text()?.trim() ?: rawText
-                        content = content.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
-                        if (content.isBlank() && rawText.isNotBlank()) {
-                            content = rawText.replace(Regex("""^[A-Za-z][.\u3001\s]*"""), "").trim()
-                        }
-                    }
-
-                    val isSelected = myLetters.contains(letter) ||
-                            optEl.hasClass("check_answer") || optEl.hasClass("check") ||
-                            optEl.hasClass("cur") || optEl.hasClass("active") ||
-                            optEl.hasClass("selected") || optEl.select("input[checked]").isNotEmpty()
-
-                    val isCorrect = rightLetters.contains(letter) ||
-                            optEl.hasClass("rightAnswer") || optEl.hasClass("correct") ||
-                            optEl.select(".rightAnswer, .colorGreen").isNotEmpty()
-
-                    if (content.isNotBlank() || letter.isNotBlank()) {
-                        options.add(
-                            ChaoXingQuestionOption(
-                                letter = letter,
-                                content = content,
-                                isSelected = isSelected,
-                                isCorrect = isCorrect
-                            )
-                        )
-                    }
-                }
-            } else {
-                // 2. 备选方案：检查题干或题干下内嵌段落中的 A. B. C. D. 选项行
-                val pElements = qEl.select(".Zy_TItle p, .stemDiv p, .Picdiv p, p")
-                val pOptions = mutableListOf<Pair<String, String>>()
-                for (p in pElements) {
-                    val text = p.text().trim()
-                    val m = Regex("""^([A-J])[.\u3001\s]+(.*)$""").find(text)
-                    if (m != null) {
-                        pOptions.add(Pair(m.groupValues[1].uppercase(), m.groupValues[2].trim()))
-                    }
-                }
-                if (pOptions.size >= 2) {
-                    for ((l, c) in pOptions) {
-                        options.add(
-                            ChaoXingQuestionOption(
-                                letter = l,
-                                content = c,
-                                isSelected = myLetters.contains(l),
-                                isCorrect = rightLetters.contains(l)
-                            )
-                        )
-                    }
-                }
-            }
-
-            return options
-        }
-
-        private fun extractChoiceLetters(text: String): Set<String> {
-            if (text.isBlank()) return emptySet()
-            val clean = Regex("""(?:我的答案|正确答案|标准答案|参考答案|学生答案)[:：\s]*""").replace(text, "").trim()
-            val set = mutableSetOf<String>()
-            Regex("""[A-Za-z]""").findAll(clean).forEach {
-                set.add(it.value.uppercase())
-            }
-            if (set.isEmpty()) {
-                if (clean.contains("对") || clean.contains("正确") || clean.equals("true", ignoreCase = true)) set.add("✓")
-                if (clean.contains("错") || clean.contains("错误") || clean.equals("false", ignoreCase = true)) set.add("✕")
-            }
-            return set
-        }
-
-        /**
-         * 智能判定题目类型编码与题型名称
-         */
         fun resolveQuestionType(
             qEl: org.jsoup.nodes.Element,
             typeScoreText: String,
             options: List<ChaoXingQuestionOption>
-        ): Pair<String, String> {
-            val allText = qEl.text()
-            val typeTextCandidates = qEl.select(".newZy_TItle, .Zy_TItle, .stemGray, .question-type, .type, .colorDeep, .color888, .type_tit, .stem_type, .font14, .stemDiv, .title").text()
-            val fullScan = "$typeScoreText $typeTextCandidates $allText"
+        ): Pair<String, String> =
+            ChaoXingQuestionParser.resolveQuestionType(qEl, typeScoreText, options)
 
-            val attrTypeId = qEl.attr("questiontypeid").ifBlank { qEl.attr("type") }.ifBlank {
-                qEl.select("input[name*='type'], input[id*='type'], [questiontypeid], [data-type]").firstOrNull()?.let {
-                    it.attr("questiontypeid").ifBlank { it.attr("data-type") }.ifBlank { it.attr("value") }
-                }.orEmpty()
-            }
+        fun formatSizeForChaoxing(bytes: Long): String =
+            ChaoXingHtmlParser.formatSizeForChaoxing(bytes)
 
-            val typeName = when {
-                fullScan.contains("多选题") || fullScan.contains("多选") || allText.contains("【多选题】") || allText.contains("(多选题") || allText.contains("（多选题") -> "多选题"
-                fullScan.contains("单选题") || fullScan.contains("单选") || allText.contains("【单选题】") || allText.contains("(单选题") || allText.contains("（单选题") -> "单选题"
-                fullScan.contains("判断题") || fullScan.contains("判断") || allText.contains("【判断题】") || allText.contains("(判断题") || allText.contains("（判断题") -> "判断题"
-                fullScan.contains("填空题") || fullScan.contains("填空") || allText.contains("【填空题】") || allText.contains("(填空题") || allText.contains("（填空题") -> "填空题"
-                fullScan.contains("简答题") || fullScan.contains("简答") || allText.contains("【简答题】") || allText.contains("(简答题") || allText.contains("（简答题") -> "简答题"
-                fullScan.contains("名词解释") -> "名词解释"
-                fullScan.contains("论述题") -> "论述题"
-                fullScan.contains("计算题") -> "计算题"
-                attrTypeId == "0" -> "单选题"
-                attrTypeId == "1" -> "多选题"
-                attrTypeId == "2" -> "填空题"
-                attrTypeId == "3" -> "判断题"
-                attrTypeId == "4" -> "简答题"
-                options.size == 2 && (allText.contains("正确") || allText.contains("错误") || allText.contains("对") || allText.contains("错") || options.any { it.letter in listOf("✓", "✕", "对", "错") }) -> "判断题"
-                options.isNotEmpty() && (qEl.select("input[type='checkbox']").isNotEmpty() || fullScan.contains("多选")) -> "多选题"
-                options.isNotEmpty() -> "单选题"
-                typeScoreText.isNotBlank() -> typeScoreText.replace(Regex("""[(（\[【\d.\s分)）\]】]"""), "").trim().ifBlank { "主观题" }
-                else -> "主观题"
-            }
+        fun encodeAttachmentName(jsonStr: String): String =
+            ChaoXingHtmlParser.encodeAttachmentName(jsonStr)
 
-            val typeCode = when (typeName) {
-                "单选题" -> "0"
-                "多选题" -> "1"
-                "填空题" -> "2"
-                "判断题" -> "3"
-                "简答题" -> "4"
-                "名词解释" -> "5"
-                "论述题" -> "6"
-                "计算题" -> "7"
-                else -> "4"
-            }
+        fun buildAttachmentIframeHtml(att: ChaoXingCourseAttachment): String =
+            ChaoXingHtmlParser.buildAttachmentIframeHtml(att)
 
-            return Pair(typeCode, typeName)
-        }
-
-        /**
-         * 格式化超星附件大小 (如 "8.49K", "131.88K", "2.50M", "1024B")
-         */
-        fun formatSizeForChaoxing(bytes: Long): String {
-            if (bytes <= 0L) return "0B"
-            val kb = bytes / 1024.0
-            val mb = kb / 1024.0
-            return when {
-                mb >= 1.0 -> String.format(Locale.US, "%.2fM", mb)
-                kb >= 1.0 -> String.format(Locale.US, "%.2fK", kb)
-                else -> "${bytes}B"
-            }
-        }
-
-        /**
-         * 兼容 Base64 编码 (兼容 Android 运行期与 JVM 单元测试)
-         */
-        fun encodeAttachmentName(jsonStr: String): String {
-            val urlEncoded = URLEncoder.encode(jsonStr, "UTF-8")
-            val bytes = urlEncoded.toByteArray(Charsets.UTF_8)
-            val androidB64 = try {
-                android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-            } catch (_: Throwable) {
-                null
-            }
-            if (!androidB64.isNullOrBlank()) {
-                return androidB64
-            }
-            return try {
-                java.util.Base64.getEncoder().encodeToString(bytes)
-            } catch (_: Throwable) {
-                ""
-            }
-        }
-
-        /**
-         * 构造超星 insertCloud 附件 iframe 嵌入标签
-         */
-        fun buildAttachmentIframeHtml(att: ChaoXingCourseAttachment): String {
-            val ext = att.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-            val sizeStr = formatSizeForChaoxing(att.size)
-            val jsonPayload = """{"objectid":"${att.objectId}","name":"${att.name}","type":"$ext","size":"$sizeStr"}"""
-            val encodedName = encodeAttachmentName(jsonPayload)
-            return """<div class="editor-iframe" contenteditable="false"><iframe class="attach-iframe" filename="${att.name}" filesize="$sizeStr" filetype="$ext" frameborder="0" module="insertAttach" name="$encodedName" objectid="${att.objectId}" scrolling="no" src="/ananas/common-modules/attachment/insertCloud.html" style="display: block; max-width: 620px; width: 100%; height: 74px;"></iframe></div>"""
-        }
-
-        fun parseSizeStrToBytes(sizeStr: String): Long {
-            if (sizeStr.isBlank()) return 0L
-            val trimmed = sizeStr.trim().uppercase()
-            return try {
-                when {
-                    trimmed.endsWith("KB") || trimmed.endsWith("K") -> {
-                        val num = trimmed.replace("KB", "").replace("K", "").trim().toDouble()
-                        (num * 1024).toLong()
-                    }
-                    trimmed.endsWith("MB") || trimmed.endsWith("M") -> {
-                        val num = trimmed.replace("MB", "").replace("M", "").trim().toDouble()
-                        (num * 1024 * 1024).toLong()
-                    }
-                    trimmed.endsWith("GB") || trimmed.endsWith("G") -> {
-                        val num = trimmed.replace("GB", "").replace("G", "").trim().toDouble()
-                        (num * 1024 * 1024 * 1024).toLong()
-                    }
-                    trimmed.endsWith("B") -> {
-                        trimmed.replace("B", "").trim().toLong()
-                    }
-                    else -> trimmed.toLongOrNull() ?: 0L
-                }
-            } catch (_: Exception) {
-                0L
-            }
-        }
+        fun parseSizeStrToBytes(sizeStr: String): Long =
+            ChaoXingHtmlParser.parseSizeStrToBytes(sizeStr)
     }
 
     private fun getEffectiveCpi(course: ChaoXingCourse, studentId: String?): String {
@@ -1588,6 +416,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
 
         var lastException: Exception? = null
         for (rawUrl in candidateUrls) {
+            if (ChaoXingRequestGuard.isCircuitOpen(context)) break
             try {
                 val fullUrl = if (cpi.isNotBlank() && !rawUrl.contains("cpi=") && !rawUrl.contains("personid=")) {
                     rawUrl + (if (rawUrl.contains("?")) "&cpi=$cpi&personid=$cpi" else "?cpi=$cpi&personid=$cpi")
@@ -1597,7 +426,7 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                     .url(fullUrl)
                     .header("Cookie", cookies)
                     .header("Referer", "https://mooc1.chaoxing.com/visit/interaction?courseid=$targetCourseId&clazzid=$targetClassId&personid=$cpi")
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    .header("User-Agent", ChaoXingRequestGuard.DEFAULT_MOBILE_WEB_UA)
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .get()
                     .build()
@@ -1705,6 +534,9 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                         return@withContext Result.success(examDetail)
                     }
                 }
+            } catch (e: ChaoXingRiskControlException) {
+                lastException = e
+                break
             } catch (e: Exception) {
                 lastException = e
             }
@@ -1845,20 +677,31 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 }
             }
 
-            // Channel 2: 无论 Channel 1 是否获取到，都拉取 STU_WORK_URL (全局作业列表通道) 进行智能补充或兜底
-            // 因为超星部分课程作业直接挂在全局作业平台中，且 STU_WORK_URL 包含已批阅与未交状态
+            // Channel 2: 优先复用 60 秒内存缓存的全局 STU_WORK_URL HTML，避免多门课重复请求同一全局接口
             try {
-                val stuWorkUrl = "https://mooc1-api.chaoxing.com/work/stu-work"
-                val reqStuWork = Request.Builder()
-                    .url(stuWorkUrl)
-                    .header("Cookie", cookies)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .get()
-                    .build()
+                val effectiveAccount = studentId ?: cn.edu.usst.jwgl.data.local.AuthPreferences(context).getStudentId()
+                val cachedStuWork = ChaoXingRequestGuard.getCachedStuWorkHtml(effectiveAccount)
+                val stuWorkHtml = if (!cachedStuWork.isNullOrBlank()) {
+                    cachedStuWork
+                } else if (!ChaoXingRequestGuard.isCircuitOpen(context)) {
+                    val stuWorkUrl = "https://mooc1-api.chaoxing.com/work/stu-work"
+                    val reqStuWork = Request.Builder()
+                        .url(stuWorkUrl)
+                        .header("Cookie", cookies)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .get()
+                        .build()
 
-                val respStuWork = okHttpClient.newCall(reqStuWork).execute()
-                val stuWorkHtml = respStuWork.body?.string() ?: ""
-                val stuWorks = parseStuWorkHtmlForCourse(stuWorkHtml, course)
+                    val respStuWork = okHttpClient.newCall(reqStuWork).execute()
+                    val fetchedHtml = respStuWork.body?.string() ?: ""
+                    if (respStuWork.isSuccessful && fetchedHtml.isNotBlank()) {
+                        ChaoXingRequestGuard.putCachedStuWorkHtml(effectiveAccount, fetchedHtml)
+                    }
+                    fetchedHtml
+                } else {
+                    ""
+                }
+                val stuWorks = if (stuWorkHtml.isNotBlank()) parseStuWorkHtmlForCourse(stuWorkHtml, course) else emptyList()
                 Log.w(TAG, "fetchHomeworks stu-work parsed ${stuWorks.size} works for course ${course.courseName}: ${stuWorks.map { "[${it.title}] ddl='${it.deadline}' status='${it.statusText}'" }}")
 
                 // 合并去重 (根据 workId)
@@ -1873,30 +716,23 @@ class ChaoXingCourseDetailClient(private val context: Context) {
                 Log.w(TAG, "fetchHomeworks STU_WORK_URL fallback error", e)
             }
 
-            // Step 3: 若需要补全已批阅/已完成作业的分数，并发补充
+            // Step 3: 若需要补全已批阅/已完成作业的分数，顺序限流补充（单次最多探测 5 项）
             if (withScores && allWorks.isNotEmpty()) {
                 val targets = allWorks.mapIndexedNotNull { index, work ->
                     if (isGraded(work.statusText) && work.score.isBlank()) Pair(index, work) else null
                 }
-                if (targets.isNotEmpty()) {
-                    coroutineScope {
-                        val scoreTasks = targets.map { pair ->
-                            async {
-                                val score = fetchWorkScore(pair.second, studentId).getOrDefault("")
-                                Pair(pair.first, score)
-                            }
-                        }
-                        val results = scoreTasks.awaitAll()
-                        for ((index, score) in results) {
-                            if (score.isNotBlank()) {
-                                allWorks[index] = allWorks[index].withScore(score)
-                            }
-                        }
+                var scoreProbeCount = 0
+                for ((index, work) in targets) {
+                    if (scoreProbeCount >= MAX_HOMEWORK_DETAIL_PROBES || ChaoXingRequestGuard.isCircuitOpen(context)) break
+                    scoreProbeCount++
+                    val score = fetchWorkScore(work, studentId).getOrDefault("")
+                    if (score.isNotBlank()) {
+                        allWorks[index] = allWorks[index].withScore(score)
                     }
                 }
             }
 
-            // Step 3b: 针对未提交且缺失有效截止时间的作业，并发探测并补全其截止时间
+            // Step 3b: 针对未提交且缺失有效截止时间的作业，优先查缓存，未命中时顺序限量探测（单次最多 5 项）
             val unsubmittedWithoutDdl = allWorks.mapIndexedNotNull { index, work ->
                 val ddlMs = ChaoXingClient.parseDdlMillis(work.deadline)
                 val hasExactDate = work.deadline.isNotBlank() && (work.deadline.contains("-") || work.deadline.contains("/"))
@@ -1904,35 +740,34 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             }
             if (unsubmittedWithoutDdl.isNotEmpty()) {
                 val cacheMgr = cn.edu.usst.jwgl.data.local.TronClassDataCacheManager.getInstance(context)
-                coroutineScope {
-                    val ddlTasks = unsubmittedWithoutDdl.map { pair ->
-                        async {
-                            val work = pair.second
-                            // 优先查二级缓存
-                            val cached = cacheMgr.getCachedChaoXingHomeworkDetail(work.workId)
-                            if (cached != null && !cached.deadline.isNullOrBlank()) {
-                                return@async Pair(pair.first, cleanDeadline(cached.deadline))
-                            }
-                            // 其次查全局待办缓存
-                            val cachedTodo = prefs.getCachedTodos(studentId).find { it.originalTodoId == work.workId }
-                            if (cachedTodo?.deadlineMillis != null) {
-                                val ddlStr = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(cachedTodo.deadlineMillis!!))
-                                return@async Pair(pair.first, ddlStr)
-                            }
-                            // 请求详情探测
-                            val detailRes = fetchHomeworkDetail(work, course, studentId)
-                            val ddl = cleanDeadline(detailRes.getOrNull()?.deadline.orEmpty())
-                            Pair(pair.first, ddl)
+                var ddlProbeCount = 0
+                for ((index, work) in unsubmittedWithoutDdl) {
+                    // 优先查二级缓存（不计入网络探测上限）
+                    val cached = cacheMgr.getCachedChaoXingHomeworkDetail(work.workId)
+                    var ddl = if (cached != null && !cached.deadline.isNullOrBlank()) {
+                        cleanDeadline(cached.deadline)
+                    } else {
+                        ""
+                    }
+                    // 其次查全局待办缓存（不计入网络探测上限）
+                    if (ddl.isBlank()) {
+                        val cachedTodo = prefs.getCachedTodos(studentId).find { it.originalTodoId == work.workId }
+                        if (cachedTodo?.deadlineMillis != null) {
+                            ddl = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(cachedTodo.deadlineMillis!!))
                         }
                     }
-                    val results = ddlTasks.awaitAll()
-                    for ((index, ddl) in results) {
-                        if (ddl.isNotBlank()) {
-                            val parsedMs = ChaoXingClient.parseDdlMillis(ddl)
-                            val isPast = parsedMs != null && parsedMs < System.currentTimeMillis()
-                            val isExp = allWorks[index].expired || isPast
-                            allWorks[index] = allWorks[index].copy(deadline = ddl, expired = isExp)
-                        }
+                    // 请求详情探测
+                    if (ddl.isBlank()) {
+                        if (ddlProbeCount >= MAX_HOMEWORK_DETAIL_PROBES || ChaoXingRequestGuard.isCircuitOpen(context)) continue
+                        ddlProbeCount++
+                        val detailRes = fetchHomeworkDetail(work, course, studentId)
+                        ddl = cleanDeadline(detailRes.getOrNull()?.deadline.orEmpty())
+                    }
+                    if (ddl.isNotBlank()) {
+                        val parsedMs = ChaoXingClient.parseDdlMillis(ddl)
+                        val isPast = parsedMs != null && parsedMs < System.currentTimeMillis()
+                        val isExp = allWorks[index].expired || isPast
+                        allWorks[index] = allWorks[index].copy(deadline = ddl, expired = isExp)
                     }
                 }
             }

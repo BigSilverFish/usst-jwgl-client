@@ -356,6 +356,9 @@ class SsoLoginActivity : AppCompatActivity() {
                 }
 
                 val finalStudentId = profile.studentId.ifEmpty { targetStudentId }
+                if (finalStudentId.isNotEmpty()) {
+                    JwglClient.markSessionOwner(finalStudentId)
+                }
                 val finalPassword = capturedPassword.ifEmpty { passedPassword }
 
                 // 3. 保存凭证与学籍信息（尊重用户在登录界面的记住密码/自动登录选择）

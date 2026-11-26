@@ -205,6 +205,9 @@ data class TronClassRollcall(
     @SerializedName("status")
     val status: String? = null,
 
+    @SerializedName("student_status", alternate = ["student_rollcall_status"])
+    val studentStatus: String? = null,
+
     @SerializedName("source")
     val source: String? = null,
 
@@ -462,6 +465,17 @@ data class TronClassSyllabus(
     val name: String? = null
 ) : Serializable
 
+fun formatTronClassFileSize(bytes: Long): String {
+    if (bytes <= 0) return "未知大小"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1.0 -> String.format(Locale.CHINA, "%.2f MB", mb)
+        kb >= 1.0 -> String.format(Locale.CHINA, "%.1f KB", kb)
+        else -> "$bytes B"
+    }
+}
+
 data class TronClassUpload(
     @SerializedName("id")
     val id: Long,
@@ -487,16 +501,7 @@ data class TronClassUpload(
     @SerializedName("videos")
     val videos: List<TronClassVideoMeta>? = null
 ) : Serializable {
-    fun getFormattedSize(): String {
-        if (size <= 0) return "未知大小"
-        val kb = size / 1024.0
-        val mb = kb / 1024.0
-        return when {
-            mb >= 1.0 -> String.format(Locale.CHINA, "%.2f MB", mb)
-            kb >= 1.0 -> String.format(Locale.CHINA, "%.1f KB", kb)
-            else -> "$size B"
-        }
-    }
+    fun getFormattedSize(): String = formatTronClassFileSize(size)
 
     fun getExtension(): String {
         val safeName = name ?: return ""
@@ -553,7 +558,15 @@ data class TronClassActivityItem(
         val allowDownload: Boolean = true
     ) : Serializable
 
-    fun getFirstUpload(): TronClassUpload? = uploads?.firstOrNull()
+    fun getAllUploads(): List<TronClassUpload> = (uploads ?: emptyList()).distinctBy { it.id }
+
+    fun getFirstUpload(): TronClassUpload? = getAllUploads().firstOrNull()
+
+    fun hasMultipleUploads(): Boolean = getAllUploads().size > 1
+
+    fun getTotalUploadSize(): Long = getAllUploads().sumOf { it.size.coerceAtLeast(0L) }
+
+    fun getFormattedTotalUploadSize(): String = formatTronClassFileSize(getTotalUploadSize())
 
     fun getCleanTitle(): String = (title ?: "").trim().ifBlank { "未命名课件或活动" }
 

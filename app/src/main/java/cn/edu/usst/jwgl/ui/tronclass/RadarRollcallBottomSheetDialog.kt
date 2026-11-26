@@ -24,8 +24,13 @@ import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.DialogRadarRollcallBinding
+import cn.edu.usst.jwgl.util.CoordinateSystem
 import cn.edu.usst.jwgl.util.CoordinateUtils
 import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.util.RadarLocationSelection
+import cn.edu.usst.jwgl.util.RollcallLocation
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -57,6 +62,9 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var selectedLongitude: Double = 121.557765
     private var selectedAccuracy: Double = 15.0
     private var selectedAddress: String = "上海理工大学"
+
+    private val locationSelection = RadarLocationSelection()
+    private var deviceLocationTimeoutJob: Job? = null
 
     private var onSignSuccessListener: (() -> Unit)? = null
     private var activeLocationListener: LocationListener? = null
@@ -265,6 +273,11 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             } else if (checkedId == R.id.rbModeCurrentGps) {
                 checkLocationPermissionAndFetch()
             } else if (checkedId == R.id.rbModeTrilateration) {
+                stopDeviceLocationUpdates()
+                locationSelection.select(RadarLocationSelection.Mode.TEACHER, null)
+                selectedLatitude = 0.0
+                selectedLongitude = 0.0
+                selectedAddress = ""
                 binding.tvCoordinatesDisplay.text = "等待三点测距反解..."
                 binding.tvSelectedBuildingCampus.text = "基准: 校园三点几何测距反解 (教师真实位置)"
                 binding.tvAccuracyTip.text = "算法拟合精度: ±1~5m"
@@ -307,6 +320,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun applyTeacherBeaconLocation() {
+        stopDeviceLocationUpdates()
         val baseLat = teacherLat ?: return
         val baseLng = teacherLng ?: return
         // 叠加自然物理微扰动 (±1.5 米, 约 ±0.000015 度)，防止被服务端风控判定为 0 距离假点
@@ -316,6 +330,16 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         selectedLongitude = baseLng + jitterLng
         selectedAccuracy = 5.0
         selectedAddress = locationAddress?.takeIf { it.isNotBlank() } ?: "上海理工大学"
+        locationSelection.select(
+            RadarLocationSelection.Mode.TEACHER,
+            RollcallLocation(
+                latitude = selectedLatitude,
+                longitude = selectedLongitude,
+                coordinateSystem = CoordinateSystem.GCJ02,
+                source = "教师端实时点名基准点",
+                accuracyMeters = selectedAccuracy
+            )
+        )
 
         binding.tvCoordinatesDisplay.text = String.format(
             Locale.CHINA,
@@ -375,10 +399,22 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun applyBuildingLocation(building: CoordinateUtils.CampusBuilding) {
+        stopDeviceLocationUpdates()
         selectedLatitude = building.latitude
         selectedLongitude = building.longitude
         selectedAccuracy = 15.0
         selectedAddress = "上海理工大学 ${building.name}"
+        locationSelection.select(
+            RadarLocationSelection.Mode.BUILDING,
+            RollcallLocation(
+                latitude = selectedLatitude,
+                longitude = selectedLongitude,
+                coordinateSystem = CoordinateSystem.GCJ02,
+                source = selectedAddress,
+                accuracyMeters = selectedAccuracy,
+                pointVersion = CoordinateUtils.BUILDING_POINT_VERSION
+            )
+        )
 
         binding.tvCoordinatesDisplay.text = String.format(
             Locale.CHINA,
@@ -390,7 +426,41 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.tvAccuracyTip.text = "基准精度: ±15m"
     }
 
+    private fun stopDeviceLocationUpdates() {
+        deviceLocationTimeoutJob?.cancel()
+        deviceLocationTimeoutJob = null
+        activeLocationListener?.let { listener ->
+            try {
+                val lm = context?.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                lm?.removeUpdates(listener)
+            } catch (_: Exception) {}
+        }
+        activeLocationListener = null
+    }
+
+    private fun toDeviceRollcallLocation(loc: Location): RollcallLocation {
+        val providerName = when (loc.provider) {
+            LocationManager.GPS_PROVIDER -> "卫星高精GPS"
+            LocationManager.NETWORK_PROVIDER -> "基站/Wi-Fi网络"
+            else -> "融合定位传感器"
+        }
+        return RollcallLocation(
+            latitude = loc.latitude,
+            longitude = loc.longitude,
+            coordinateSystem = CoordinateSystem.WGS84,
+            source = providerName,
+            observedAtMillis = loc.time,
+            accuracyMeters = if (loc.hasAccuracy()) loc.accuracy.toDouble() else null
+        )
+    }
+
     private fun checkLocationPermissionAndFetch() {
+        stopDeviceLocationUpdates()
+        locationSelection.select(RadarLocationSelection.Mode.DEVICE, null)
+        selectedLatitude = 0.0
+        selectedLongitude = 0.0
+        selectedAccuracy = 0.0
+
         val finePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
         val coarsePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
 
@@ -408,48 +478,68 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     @SuppressLint("MissingPermission")
     private fun fetchDeviceLocation() {
+        stopDeviceLocationUpdates()
+        val requestGen = locationSelection.beginDeviceRequest()
+        selectedLatitude = 0.0
+        selectedLongitude = 0.0
+        selectedAccuracy = 0.0
         binding.tvGpsStatus.text = "正在通过系统 GPS / 基站获取高精度坐标..."
+
         val locationManager = requireContext().getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         if (locationManager == null) {
+            locationSelection.cancelDeviceRequest()
             binding.tvGpsStatus.text = "设备无可用定位模块，建议切回教学楼基准"
             return
         }
 
-        var bestLocation: Location? = null
-        val maxCacheAgeMs = 10 * 60 * 1000L // 只采纳10分钟以内的有效近期缓存，避免使用校外历史旧坐标
         val now = System.currentTimeMillis()
-
-        // 尝试从 GPS 和 Network 获取最近的已缓存位置
+        var acceptedRawLoc: Location? = null
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
         for (provider in providers) {
             try {
                 if (locationManager.isProviderEnabled(provider)) {
                     val loc = locationManager.getLastKnownLocation(provider)
-                    if (loc != null && (now - loc.time) <= maxCacheAgeMs) {
-                        if (bestLocation == null || loc.accuracy < bestLocation.accuracy) {
-                            bestLocation = loc
-                        }
+                    if (loc != null && locationSelection.acceptDeviceLocation(requestGen, toDeviceRollcallLocation(loc), now)) {
+                        acceptedRawLoc = loc
                     }
                 }
-            } catch (ignored: Exception) {}
+            } catch (_: Exception) {}
         }
 
-        if (bestLocation != null) {
-            handleReceivedLocation(bestLocation)
+        val cachedAccepted = locationSelection.selected
+        if (cachedAccepted != null && acceptedRawLoc != null) {
+            renderAcceptedDeviceLocation(cachedAccepted, acceptedRawLoc)
+            if ((cachedAccepted.accuracyMeters ?: Double.MAX_VALUE) <= RadarLocationSelection.TARGET_DEVICE_ACCURACY_METERS) {
+                return
+            }
         }
 
-        // 同时发起实时单次定位监听以获得最新数据（并发向卫星和网络定位申请更新）
+        // 同时发起实时单次定位监听以获得最新高精数据（严格校验代次、2分钟有效期与100m精度门槛）
+        var updateRequested = false
         try {
             val listener = object : LocationListener {
                 override fun onLocationChanged(loc: Location) {
-                    if (_binding == null || !isAdded) {
+                    if (_binding == null || !isAdded || !locationSelection.isCurrentRequest(requestGen)) {
                         try { locationManager.removeUpdates(this) } catch (_: Exception) {}
-                        activeLocationListener = null
+                        if (activeLocationListener === this) activeLocationListener = null
                         return
                     }
-                    handleReceivedLocation(loc)
-                    try { locationManager.removeUpdates(this) } catch (_: Exception) {}
-                    activeLocationListener = null
+                    val candidate = toDeviceRollcallLocation(loc)
+                    if (locationSelection.acceptDeviceLocation(requestGen, candidate, System.currentTimeMillis())) {
+                        val normalized = locationSelection.selected
+                        if (normalized != null) {
+                            renderAcceptedDeviceLocation(normalized, loc)
+                        }
+                        if ((normalized?.accuracyMeters ?: Double.MAX_VALUE) <= RadarLocationSelection.TARGET_DEVICE_ACCURACY_METERS) {
+                            stopDeviceLocationUpdates()
+                        }
+                    } else if (locationSelection.selected == null && loc.hasAccuracy() && loc.accuracy > RadarLocationSelection.MAX_DEVICE_ACCURACY_METERS) {
+                        _binding?.tvGpsStatus?.text = String.format(
+                            Locale.CHINA,
+                            "已收到弱定位信号 (±%.0fm > 100m)，正在等待更精准定位...",
+                            loc.accuracy
+                        )
+                    }
                 }
                 override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
                 override fun onProviderEnabled(provider: String) {}
@@ -457,7 +547,6 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             }
             activeLocationListener = listener
 
-            var updateRequested = false
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
                 updateRequested = true
@@ -467,38 +556,53 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 updateRequested = true
             }
 
-            if (!updateRequested && bestLocation == null) {
+            if (!updateRequested && locationSelection.selected == null) {
+                locationSelection.cancelDeviceRequest()
+                activeLocationListener = null
                 binding.tvGpsStatus.text = "GPS与网络定位服务均未开启，请先在系统设置中开启定位"
+                return
             }
-        } catch (e: Exception) {
-            val b = _binding
-            if (b != null && bestLocation == null) {
-                b.tvGpsStatus.text = "GPS定位超时或未开启，建议使用教学楼基准定位"
+        } catch (_: Exception) {
+            activeLocationListener = null
+            if (locationSelection.selected == null) {
+                locationSelection.cancelDeviceRequest()
+                _binding?.tvGpsStatus?.text = "GPS定位启动失败或未开启，建议使用教学楼基准定位"
+            }
+            return
+        }
+
+        if (updateRequested) {
+            deviceLocationTimeoutJob = viewLifecycleOwner.lifecycleScope.launch {
+                delay(DEVICE_LOCATION_TIMEOUT_MS)
+                if (!isAdded || _binding == null || !locationSelection.isCurrentRequest(requestGen)) return@launch
+                activeLocationListener?.let { listener ->
+                    try { locationManager.removeUpdates(listener) } catch (_: Exception) {}
+                }
+                activeLocationListener = null
+                if (locationSelection.snapshotForSubmission(System.currentTimeMillis()) == null) {
+                    locationSelection.cancelDeviceRequest()
+                    val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+                    _binding?.tvGpsStatus?.text = if (isDev) {
+                        "本机定位超时 (20s)，请点击刷新重试或切换教学楼基准"
+                    } else {
+                        "本机定位超时 (20s) 或精度不足 (>100m)，请移至窗边后点击刷新重试"
+                    }
+                }
             }
         }
     }
 
-    private fun handleReceivedLocation(loc: Location) {
+    private fun renderAcceptedDeviceLocation(accepted: RollcallLocation, rawLoc: Location) {
         val b = _binding ?: return
         if (!isAdded) return
 
-        // 统一对齐官方 TronClass 规则：
-        // Android 系统底层原生定位输出均基于大地测量学 WGS-84 标准。
-        // 一网畅学官方前端在上传前无条件调用 handleWgs2gcj() 转为 GCJ-02 火星坐标。
-        // 此处严格转换为高精 GCJ-02，彻底消除 470 米跨坐标系断层！
-        val (finalLat, finalLng) = CoordinateUtils.wgs84ToGcj02(loc.latitude, loc.longitude)
-
-        selectedLatitude = finalLat
-        selectedLongitude = finalLng
-        selectedAccuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 15.0
+        // RadarLocationSelection.toGcj02() 已将 WGS-84 纠偏为 GCJ-02 火星坐标，直接使用避免二次偏转
+        selectedLatitude = accepted.latitude
+        selectedLongitude = accepted.longitude
+        selectedAccuracy = accepted.accuracyMeters ?: 15.0
         selectedAddress = locationAddress?.takeIf { it.isNotBlank() } ?: "上海理工大学"
 
-        val providerName = when (loc.provider) {
-            LocationManager.GPS_PROVIDER -> "卫星高精GPS"
-            LocationManager.NETWORK_PROVIDER -> "基站/Wi-Fi网络"
-            else -> "融合定位传感器"
-        }
-
+        val providerName = accepted.source
         b.tvGpsStatus.text = String.format(
             Locale.CHINA,
             "定位成功 (%s · 精度 ±%.0fm)",
@@ -515,7 +619,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位 ($providerName · 已纠偏至GCJ-02)"
 
         // 同步为教学楼模式提供智能吸附
-        autoSnapToNearestBuilding(loc)
+        autoSnapToNearestBuilding(rawLoc)
     }
 
     private fun startTrilaterationProbe(autoSubmitAfterSolve: Boolean = false) {
@@ -541,6 +645,26 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 when (probe) {
                     is TronClassClient.RadarProbeResult.InRange -> {
                         if (!isAdded || _binding == null) return@launch
+                        val isBatch = !isChaoXingMode &&
+                            DeveloperModeManager.isDeveloperMode(requireContext()) &&
+                            b.cbRadarSignAll.visibility == View.VISIBLE &&
+                            b.cbRadarSignAll.isChecked
+                        if (isBatch) {
+                            b.tvTrilaterationStatus.text = "锚点【${anchor.name}】命中范围，正在为其余账号分发签到..."
+                            val results = client.batchAnswerRadarRollcall(
+                                rollcallId = rollcallId,
+                                latitude = anchor.latitude,
+                                longitude = anchor.longitude,
+                                accuracy = 60.0
+                            )
+                            if (!isAdded) return@launch
+                            if (results.any { it.studentId == cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(requireContext()) && it.success }) {
+                                onSignSuccessListener?.invoke()
+                            }
+                            dismiss()
+                            showMultiAccountRollcallSummaryDialog(requireActivity(), results)
+                            return@launch
+                        }
                         b.tvTrilaterationStatus.text = "锚点【${anchor.name}】在范围内，已直接签到成功！"
                         Toast.makeText(requireContext(), "🎉 探针命中范围，签到成功！", Toast.LENGTH_SHORT).show()
                         onSignSuccessListener?.invoke()
@@ -582,11 +706,22 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 return@launch
             }
 
-            // 反解成功！将坐标应用到当前界面中
+            // 反解成功！仅当仍处于三点反解模式时才应用坐标
+            if (!b.rbModeTrilateration.isChecked) return@launch
             selectedLatitude = solved.latitude
             selectedLongitude = solved.longitude
             selectedAccuracy = 5.0
             selectedAddress = "三点定位反解教师位置"
+            locationSelection.select(
+                RadarLocationSelection.Mode.TEACHER,
+                RollcallLocation(
+                    latitude = selectedLatitude,
+                    longitude = selectedLongitude,
+                    coordinateSystem = CoordinateSystem.GCJ02,
+                    source = selectedAddress,
+                    accuracyMeters = selectedAccuracy
+                )
+            )
 
             b.tvCoordinatesDisplay.text = String.format(
                 Locale.CHINA,
@@ -614,20 +749,25 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     private fun submitRadarRollcall() {
         val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-        if (!isDev) {
-            if (!binding.rbModeCurrentGps.isChecked) {
-                Toast.makeText(requireContext(), "未开启开发者模式，仅允许使用手机本机定位签到", Toast.LENGTH_SHORT).show()
+        if (!isDev && !binding.rbModeCurrentGps.isChecked) {
+            Toast.makeText(requireContext(), "未开启开发者模式，仅允许使用手机本机定位签到", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val snapshot = locationSelection.snapshotForSubmission(System.currentTimeMillis())
+        if (binding.rbModeCurrentGps.isChecked) {
+            if (snapshot == null) {
+                if (activeLocationListener != null) {
+                    Toast.makeText(requireContext(), "正在获取有效本机定位（需2分钟内且精度≤100m），请稍候...", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), "尚未获取到有效定位或定位已过期，请点击刷新获取", Toast.LENGTH_SHORT).show()
+                    checkLocationPermissionAndFetch()
+                }
                 return
             }
-            if (binding.tvGpsStatus.text.toString().contains("正在")) {
-                Toast.makeText(requireContext(), "正在获取本机 GPS 定位，请稍候...", Toast.LENGTH_SHORT).show()
-                return
-            }
-            if (selectedLatitude == 0.0 && selectedLongitude == 0.0) {
-                Toast.makeText(requireContext(), "尚未获取到有效定位，请点击刷新获取", Toast.LENGTH_SHORT).show()
-                checkLocationPermissionAndFetch()
-                return
-            }
+            selectedLatitude = snapshot.latitude
+            selectedLongitude = snapshot.longitude
+            selectedAccuracy = snapshot.accuracyMeters ?: 15.0
         }
 
         if (rollcallId <= 0L) {
@@ -657,6 +797,12 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         if (binding.rbModeTrilateration.isChecked && selectedAddress != "三点定位反解教师位置") {
             startTrilaterationProbe(autoSubmitAfterSolve = true)
             return
+        }
+
+        if (!binding.rbModeCurrentGps.isChecked && snapshot != null) {
+            selectedLatitude = snapshot.latitude
+            selectedLongitude = snapshot.longitude
+            selectedAccuracy = snapshot.accuracyMeters ?: selectedAccuracy
         }
 
         binding.btnSubmitRadar.isEnabled = false
@@ -723,7 +869,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 b.progressRadarSubmitting.visibility = View.GONE
                 b.btnCancelRadar.isEnabled = true
 
-                if (results.any { it.success }) {
+                if (results.any { it.studentId == cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(requireContext()) && it.success }) {
                     onSignSuccessListener?.invoke()
                 }
                 dismiss()
@@ -796,17 +942,13 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        activeLocationListener?.let {
-            try {
-                val lm = context?.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-                lm?.removeUpdates(it)
-            } catch (_: Exception) {}
-        }
-        activeLocationListener = null
+        stopDeviceLocationUpdates()
+        locationSelection.cancelDeviceRequest()
         _binding = null
     }
 
     companion object {
+        private const val DEVICE_LOCATION_TIMEOUT_MS = 20_000L
         private const val ARG_ROLLCALL_ID = "arg_rollcall_id"
         private const val ARG_COURSE_NAME = "arg_course_name"
         private const val ARG_CLASSROOM = "arg_classroom"

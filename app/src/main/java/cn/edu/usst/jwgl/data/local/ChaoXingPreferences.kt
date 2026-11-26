@@ -38,6 +38,8 @@ class ChaoXingPreferences(private val context: Context) {
         private const val KEY_CACHED_TODOS = "cx_cached_todos"
         private const val KEY_CACHED_NOTICES = "cx_cached_notices"
         private const val KEY_CUSTOM_SEMESTERS = "cx_custom_semesters"
+        private const val KEY_RISK_COOLDOWN_UNTIL = "cx_risk_cooldown_until"
+        private const val KEY_RISK_COOLDOWN_REASON = "cx_risk_cooldown_reason"
         internal val sessionLock = Any()
 
         @Volatile
@@ -138,7 +140,7 @@ class ChaoXingPreferences(private val context: Context) {
         val prefix = getAccountPrefix(studentId)
         val name = securePrefs.getString(prefix + KEY_USER_NAME, null)
         if (!name.isNullOrBlank()) return name
-        val gName = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getProfile()?.name?.trim()
+        val gName = cn.edu.usst.jwgl.data.local.DataCacheManager(context).getProfile(studentId)?.name?.trim()
         if (!gName.isNullOrBlank()) return gName
         return "同学"
     }
@@ -156,6 +158,25 @@ class ChaoXingPreferences(private val context: Context) {
         val cookies = getCookies(studentId)
         val uid = getUid(studentId)
         return isLogged && !cookies.isNullOrBlank() && !uid.isNullOrBlank() && uid != "0"
+    }
+
+    /**
+     * 检查指定超星 UID 是否已被本地其他学号占用（防 SSO / WebView 串号）
+     */
+    fun findConflictingStudentForUid(targetStudentId: String, uid: String?): String? {
+        val normalizedUid = uid?.trim().orEmpty()
+        val normalizedTarget = targetStudentId.trim()
+        if (normalizedUid.isBlank() || normalizedUid == "0" || normalizedTarget.isBlank()) return null
+        val suffix = "_$KEY_UID"
+        for ((k, v) in securePrefs.all) {
+            if (k.endsWith(suffix) && v is String && v.trim() == normalizedUid) {
+                val owner = k.removeSuffix(suffix)
+                if (owner.isNotBlank() && owner != normalizedTarget) {
+                    return owner
+                }
+            }
+        }
+        return null
     }
 
     fun getLastLoginTime(studentId: String? = null): Long {
@@ -316,6 +337,24 @@ class ChaoXingPreferences(private val context: Context) {
             schoolId = securePrefs.getString(getAccountPrefix(studentId) + KEY_SCHOOL_ID, "207") ?: "207",
             schoolName = securePrefs.getString(getAccountPrefix(studentId) + KEY_SCHOOL_NAME, "上海理工大学") ?: "上海理工大学"
         )
+    }
+
+    fun getRiskCooldownUntil(): Long = prefs.getLong(KEY_RISK_COOLDOWN_UNTIL, 0L)
+
+    fun getRiskCooldownReason(): String = prefs.getString(KEY_RISK_COOLDOWN_REASON, "").orEmpty()
+
+    fun saveRiskCooldown(untilMillis: Long, reason: String) {
+        prefs.edit()
+            .putLong(KEY_RISK_COOLDOWN_UNTIL, untilMillis)
+            .putString(KEY_RISK_COOLDOWN_REASON, reason)
+            .apply()
+    }
+
+    fun clearRiskCooldown() {
+        prefs.edit()
+            .remove(KEY_RISK_COOLDOWN_UNTIL)
+            .remove(KEY_RISK_COOLDOWN_REASON)
+            .apply()
     }
 
     private class InMemorySharedPreferences : SharedPreferences {

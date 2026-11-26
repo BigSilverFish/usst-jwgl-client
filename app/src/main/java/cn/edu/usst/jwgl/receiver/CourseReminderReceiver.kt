@@ -30,14 +30,48 @@ class CourseReminderReceiver : BroadcastReceiver() {
         const val EXTRA_SECTION = "extra_section"
         const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
         const val EXTRA_ADVANCE_MINUTES = "extra_advance_minutes"
+        const val EXTRA_STUDENT_ID = "extra_student_id"
 
         fun createNotificationChannel(context: Context) {
             NotificationDiagnosticHelper.initNotificationChannels(context)
+        }
+
+        internal fun shouldDeliverReminderForAccount(alarmStudentId: String?, currentStudentId: String): Boolean {
+            val activeId = currentStudentId.trim()
+            if (activeId.isBlank()) return false
+            val ownerId = alarmStudentId?.trim().orEmpty()
+            return ownerId.isBlank() || ownerId == activeId
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val isExam = intent.getBooleanExtra(EXTRA_IS_EXAM, false)
+        val notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 10001)
+        val alarmStudentId = intent.getStringExtra(EXTRA_STUDENT_ID)
+        if (notifId != 9999) {
+            val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(context)
+            if (!shouldDeliverReminderForAccount(alarmStudentId, currentStudentId)) {
+                android.util.Log.w(
+                    "CourseReminderReceiver",
+                    "Dropping stale reminder for account=$alarmStudentId (active=$currentStudentId)"
+                )
+                val pendingResult = goAsync()
+                val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, _ ->
+                    try { pendingResult.finish() } catch (_: Exception) {}
+                }
+                kotlinx.coroutines.CoroutineScope(
+                    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO + exceptionHandler
+                ).launch {
+                    try {
+                        cn.edu.usst.jwgl.util.CourseReminderManager.rescheduleAllForActiveAccount(context)
+                    } finally {
+                        try { pendingResult.finish() } catch (_: Exception) {}
+                    }
+                }
+                return
+            }
+        }
+
         val courseName = intent.getStringExtra(EXTRA_COURSE_NAME) ?: if (isExam) "考试科目" else "课程"
         val classroom = intent.getStringExtra(EXTRA_CLASSROOM) ?: ""
         val teacher = intent.getStringExtra(EXTRA_TEACHER) ?: ""
@@ -45,7 +79,6 @@ class CourseReminderReceiver : BroadcastReceiver() {
         val section = intent.getStringExtra(EXTRA_SECTION) ?: ""
         val examNature = intent.getStringExtra(EXTRA_EXAM_NATURE) ?: "考试"
         val seatNumber = intent.getStringExtra(EXTRA_SEAT_NUMBER) ?: ""
-        val notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 10001)
         val advanceMins = intent.getIntExtra(EXTRA_ADVANCE_MINUTES, if (isExam) 30 else 15)
         val advanceText = cn.edu.usst.jwgl.util.CourseReminderManager.formatAdvanceMinutes(advanceMins)
 

@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.data.model.LiveDeviceViewDto
+import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.databinding.DialogLiveQrRollcallBinding
 import cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager
@@ -47,6 +48,7 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         get() = !chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()
 
     private var monitorJob: Job? = null
+    private var lastBatchResults: List<MultiAccountRollcallResult> = emptyList()
     private var onSignSuccessListener: (() -> Unit)? = null
     private var onFallbackCameraListener: (() -> Unit)? = null
 
@@ -209,6 +211,9 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                             binding.tvLiveDetailLog.text = observation.message
                         }
                     },
+                    onBatchResults = { results ->
+                        lastBatchResults = results
+                    },
                     onCompleted = { success, message ->
                         if (!isAdded || _binding == null) return@monitorAndAutoSign
                         binding.pbSearchingQr.visibility = View.GONE
@@ -216,21 +221,33 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                         if (success) {
                             binding.tvLiveFrameStatus.text = "✅ 签到成功！"
                             binding.tvLiveDetailLog.text = message
-                            Toast.makeText(requireContext(), "🎉 大屏扫码签到成功！", Toast.LENGTH_SHORT).show()
                             onSignSuccessListener?.invoke()
-                            dismiss()
+                            val act = activity
+                            if (lastBatchResults.size > 1 && lastBatchResults.any { !it.success } && act != null) {
+                                val resultsSnapshot = lastBatchResults.toList()
+                                dismiss()
+                                showMultiAccountRollcallSummaryDialog(act, resultsSnapshot, primarySuccess = true)
+                            } else {
+                                Toast.makeText(requireContext(), "🎉 大屏扫码签到成功！", Toast.LENGTH_SHORT).show()
+                                dismiss()
+                            }
                         } else if (isTestMode) {
                             binding.tvLiveFrameStatus.text = "测试采样已结束"
                             binding.tvLiveDetailLog.text = message
                             binding.tvFrameLoadingTip.text = message
                             binding.btnCloseLiveQr.text = "关闭"
                         } else {
-                            binding.tvLiveFrameStatus.text = "⚠️ 自动追帧已结束"
+                            binding.tvLiveFrameStatus.text = "⚠️ 本人签到未成功"
                             binding.tvLiveDetailLog.text = message
                             binding.btnCloseLiveQr.text = "关闭"
+                            val dialogMsg = if (lastBatchResults.size > 1) {
+                                buildMultiAccountSummaryMessage(lastBatchResults) + "\n\n是否切换为手机相机直接扫码重试？"
+                            } else {
+                                "$message\n\n是否立即切换为手机相机直接扫码？"
+                            }
                             MaterialAlertDialogBuilder(requireContext())
-                                .setTitle("大屏追帧提示")
-                                .setMessage(message + "\n\n是否立即切换为手机相机直接扫码？")
+                                .setTitle(if (lastBatchResults.size > 1) "大屏扫码签到未全部成功" else "大屏追帧提示")
+                                .setMessage(dialogMsg)
                                 .setPositiveButton("相机扫码") { _, _ ->
                                     dismiss()
                                     onFallbackCameraListener?.invoke()
@@ -253,6 +270,36 @@ class LiveQrRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 }
             }
         }
+    }
+
+    private fun buildMultiAccountSummaryMessage(results: List<MultiAccountRollcallResult>): String {
+        val sb = StringBuilder()
+        for (r in results) {
+            val icon = if (r.success) "🟢" else "🔴"
+            val status = if (r.statusName.isNotBlank()) " [${r.statusName}]" else ""
+            sb.append("$icon ${r.studentName} (${r.studentId})$status\n")
+            sb.append("   ${r.message.trim()}\n\n")
+        }
+        return sb.toString().trimEnd()
+    }
+
+    private fun showMultiAccountRollcallSummaryDialog(
+        activity: android.app.Activity,
+        results: List<MultiAccountRollcallResult>,
+        primarySuccess: Boolean
+    ) {
+        val successCount = results.count { it.success }
+        val totalCount = results.size
+        val title = if (primarySuccess) {
+            "📋 本人已签，部分账号未成功 ($successCount/$totalCount)"
+        } else {
+            "📋 大屏扫码结果 ($successCount/$totalCount 成功)"
+        }
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(title)
+            .setMessage(buildMultiAccountSummaryMessage(results))
+            .setPositiveButton("完成", null)
+            .show()
     }
 
     private fun stopTracking() {

@@ -18,56 +18,56 @@ import java.util.Locale
 class DataCacheManager(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-    private val securePrefs: SharedPreferences = getOrCreateSecurePrefs(context)
+    private val securePrefs: SharedPreferences by lazy { getOrCreateSecurePrefs(context) }
     private val gson = Gson()
     private val memGradeReport = java.util.concurrent.ConcurrentHashMap<String, GradeReport>()
 
     init {
-        migrateLegacyGlobalCachesIfNeeded()
+        migrateLegacyPlaintextCachesIfNeeded()
     }
 
-    private fun migrateLegacyGlobalCachesIfNeeded() {
-        val legacySid = try {
-            val authSp = context.getSharedPreferences("usst_jwgl_auth", Context.MODE_PRIVATE)
-            authSp.getString("auth_student_id", null) ?: authSp.getString("student_id", null)
-        } catch (_: Exception) { null }
+    private fun migrateLegacyPlaintextCachesIfNeeded() {
+        if (plaintextMigrationCheckedInProcess) return
+        synchronized(DataCacheManager::class.java) {
+            if (plaintextMigrationCheckedInProcess) return
+            if (prefs.getBoolean(KEY_LEGACY_PLAINTEXT_MIGRATED, false)) {
+                plaintextMigrationCheckedInProcess = true
+                return
+            }
 
-        if (!legacySid.isNullOrBlank()) {
-            val prefix = "${legacySid}_"
-            val editor = prefs.edit()
-            var changed = false
-            for ((k, v) in prefs.all) {
-                if (k.startsWith(PREFIX_TIMETABLE_JSON) && !k.contains("_cache_timetable_json_") && v is String) {
-                    editor.putString(prefix + k, v)
-                    editor.remove(k)
-                    changed = true
-                } else if (k.startsWith(PREFIX_TIMETABLE_TIME) && !k.contains("_cache_timetable_time_") && v is Long) {
-                    editor.putLong(prefix + k, v)
-                    editor.remove(k)
-                    changed = true
-                } else if (k.startsWith(PREFIX_EXAM_JSON) && !k.contains("_cache_exam_json_") && v is String) {
-                    editor.putString(prefix + k, v)
-                    editor.remove(k)
-                    changed = true
-                } else if (k.startsWith(PREFIX_EXAM_TIME) && !k.contains("_cache_exam_time_") && v is Long) {
-                    editor.putLong(prefix + k, v)
-                    editor.remove(k)
-                    changed = true
+            val legacySid = try {
+                val authSp = context.getSharedPreferences("usst_jwgl_auth", Context.MODE_PRIVATE)
+                authSp.getString("auth_student_id", null) ?: authSp.getString("student_id", null)
+            } catch (_: Exception) { null }
+
+            if (!legacySid.isNullOrBlank()) {
+                val prefix = "${legacySid}_"
+                val editor = prefs.edit()
+                var changed = false
+                for ((k, v) in prefs.all) {
+                    if (k.startsWith(PREFIX_TIMETABLE_JSON) && !k.contains("_cache_timetable_json_") && v is String) {
+                        editor.putString(prefix + k, v)
+                        editor.remove(k)
+                        changed = true
+                    } else if (k.startsWith(PREFIX_TIMETABLE_TIME) && !k.contains("_cache_timetable_time_") && v is Long) {
+                        editor.putLong(prefix + k, v)
+                        editor.remove(k)
+                        changed = true
+                    } else if (k.startsWith(PREFIX_EXAM_JSON) && !k.contains("_cache_exam_json_") && v is String) {
+                        editor.putString(prefix + k, v)
+                        editor.remove(k)
+                        changed = true
+                    } else if (k.startsWith(PREFIX_EXAM_TIME) && !k.contains("_cache_exam_time_") && v is Long) {
+                        editor.putLong(prefix + k, v)
+                        editor.remove(k)
+                        changed = true
+                    }
                 }
+                if (changed) editor.apply()
             }
-            if (changed) editor.apply()
 
-            val secEditor = securePrefs.edit()
-            val oldGrades = securePrefs.getString(KEY_GRADES_JSON, null) ?: prefs.getString(KEY_GRADES_JSON, null)
-            if (!oldGrades.isNullOrBlank()) {
-                val oldTime = securePrefs.getLong(KEY_GRADES_TIME, prefs.getLong(KEY_GRADES_TIME, System.currentTimeMillis()))
-                secEditor.putString(prefix + KEY_GRADES_JSON, oldGrades)
-                secEditor.putLong(prefix + KEY_GRADES_TIME, oldTime)
-                secEditor.remove(KEY_GRADES_JSON)
-                secEditor.remove(KEY_GRADES_TIME)
-                secEditor.apply()
-                prefs.edit().remove(KEY_GRADES_JSON).remove(KEY_GRADES_TIME).apply()
-            }
+            prefs.edit().putBoolean(KEY_LEGACY_PLAINTEXT_MIGRATED, true).apply()
+            plaintextMigrationCheckedInProcess = true
         }
     }
 
@@ -91,8 +91,17 @@ class DataCacheManager(private val context: Context) {
         private const val KEY_ACADEMIC_PROGRESS_JSON = "cache_academic_progress_json"
         private const val KEY_ACADEMIC_PROGRESS_TIME = "cache_academic_progress_time"
 
+        private const val KEY_LEGACY_PLAINTEXT_MIGRATED = "cache_legacy_plaintext_migrated"
+        private const val KEY_LEGACY_ENCRYPTED_MIGRATED = "cache_legacy_encrypted_migrated"
+
         @Volatile
         private var cachedSecurePrefs: SharedPreferences? = null
+
+        @Volatile
+        private var plaintextMigrationCheckedInProcess = false
+
+        @Volatile
+        private var encryptedMigrationCheckedInProcess = false
 
         @Volatile
         private var defaultInstance: DataCacheManager? = null
@@ -104,8 +113,46 @@ class DataCacheManager(private val context: Context) {
         }
 
         private fun getOrCreateSecurePrefs(context: Context): SharedPreferences {
-            return cachedSecurePrefs ?: synchronized(this) {
-                cachedSecurePrefs ?: createSecurePrefs(context.applicationContext).also { cachedSecurePrefs = it }
+            val appCtx = context.applicationContext
+            val secure = cachedSecurePrefs ?: synchronized(this) {
+                cachedSecurePrefs ?: createSecurePrefs(appCtx).also { cachedSecurePrefs = it }
+            }
+            migrateLegacyEncryptedCachesIfNeeded(appCtx, secure)
+            return secure
+        }
+
+        private fun migrateLegacyEncryptedCachesIfNeeded(context: Context, securePrefs: SharedPreferences) {
+            if (encryptedMigrationCheckedInProcess) return
+            synchronized(this) {
+                if (encryptedMigrationCheckedInProcess) return
+                val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                if (prefs.getBoolean(KEY_LEGACY_ENCRYPTED_MIGRATED, false)) {
+                    encryptedMigrationCheckedInProcess = true
+                    return
+                }
+
+                val legacySid = try {
+                    val authSp = context.getSharedPreferences("usst_jwgl_auth", Context.MODE_PRIVATE)
+                    authSp.getString("auth_student_id", null) ?: authSp.getString("student_id", null)
+                } catch (_: Exception) { null }
+
+                if (!legacySid.isNullOrBlank()) {
+                    val prefix = "${legacySid}_"
+                    val oldGrades = securePrefs.getString(KEY_GRADES_JSON, null) ?: prefs.getString(KEY_GRADES_JSON, null)
+                    if (!oldGrades.isNullOrBlank()) {
+                        val oldTime = securePrefs.getLong(KEY_GRADES_TIME, prefs.getLong(KEY_GRADES_TIME, System.currentTimeMillis()))
+                        securePrefs.edit()
+                            .putString(prefix + KEY_GRADES_JSON, oldGrades)
+                            .putLong(prefix + KEY_GRADES_TIME, oldTime)
+                            .remove(KEY_GRADES_JSON)
+                            .remove(KEY_GRADES_TIME)
+                            .apply()
+                        prefs.edit().remove(KEY_GRADES_JSON).remove(KEY_GRADES_TIME).apply()
+                    }
+                }
+
+                prefs.edit().putBoolean(KEY_LEGACY_ENCRYPTED_MIGRATED, true).apply()
+                encryptedMigrationCheckedInProcess = true
             }
         }
 
@@ -199,6 +246,32 @@ class DataCacheManager(private val context: Context) {
         securePrefs.edit().remove(keyJson).remove(keyTime).apply()
         if (prefs !== securePrefs) {
             prefs.edit().remove(keyJson).remove(keyTime).apply()
+        }
+    }
+
+    /**
+     * 零 Keystore 开销读取当前账号的轻量非敏感档案概要，仅用于冷启动首帧渲染与快道跳转。
+     * 完整加密档案由调用方在后台线程异步水合。
+     */
+    fun getFastProfileHint(studentId: String? = null): StudentProfile? {
+        return try {
+            val vault = AccountVault.getInstance(context)
+            val targetSid = if (!studentId.isNullOrBlank()) studentId else vault.getActiveAccountId()
+            if (targetSid.isBlank()) return null
+            val account = vault.getAccounts().find { it.studentId == targetSid } ?: return null
+            if (account.studentName.isBlank() && account.college.isBlank() && account.major.isBlank()) {
+                return null
+            }
+            StudentProfile(
+                studentId = account.studentId,
+                name = account.studentName,
+                college = account.college,
+                major = account.major,
+                className = account.className
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read fast profile hint", e)
+            null
         }
     }
 

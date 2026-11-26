@@ -15,6 +15,7 @@ import cn.edu.usst.jwgl.databinding.DialogTronclassRollcallWizardBinding
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet
 import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.util.RollcallPermissionGuide
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
 /**
@@ -127,6 +128,7 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
 
         // 监听开关
         binding.switchRollcallMonitor.setOnCheckedChangeListener { _, isChecked ->
+            val newlyEnabled = isChecked && !prefs.isRollcallMonitorEnabled()
             prefs.setRollcallMonitorEnabled(isChecked)
             RollcallMonitorScheduler.onPreferenceChanged(ctx)
             if (isChecked) {
@@ -135,6 +137,13 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
                 Toast.makeText(ctx, "已关闭上课签到后台监听", Toast.LENGTH_SHORT).show()
             }
             updateSwitchStates(prefs)
+            if (newlyEnabled) {
+                activity?.let { act ->
+                    RollcallPermissionGuide.guideIfNeeded(act) {
+                        if (isAdded) dismissAllowingStateLoss()
+                    }
+                }
+            }
         }
 
         binding.layoutMonitorRow.setOnClickListener {

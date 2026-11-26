@@ -357,7 +357,15 @@ class AuthPreferences(private val context: Context) {
             Log.w(TAG, "Logout: Failed to clear DataCacheManager", e)
         }
 
-        // 5. 清理本地课表数据库
+        // 5. 清理本地课表数据库与系统级闹钟提醒
+        try {
+            cn.edu.usst.jwgl.util.CourseReminderManager.cancelAllReminders(context)
+            cn.edu.usst.jwgl.util.CourseReminderManager.cancelAllExamReminders(context, currentId)
+            cn.edu.usst.jwgl.worker.TronClassDdlScheduler.cancel(context)
+            cn.edu.usst.jwgl.worker.RollcallMonitorScheduler.cancel(context)
+        } catch (e: Exception) {
+            Log.w(TAG, "Logout: Failed to cancel reminders/alarms", e)
+        }
         try {
             cn.edu.usst.jwgl.data.wakeup.AppDatabase.getDatabase(context).clearAllScheduleData()
             cn.edu.usst.jwgl.data.wakeup.AppDatabase.closeAll()

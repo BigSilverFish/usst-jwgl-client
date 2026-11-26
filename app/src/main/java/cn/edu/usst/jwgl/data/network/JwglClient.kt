@@ -29,6 +29,8 @@ object JwglClient {
 
     private val gson = Gson()
     private val cookieJar = MemoryCookieJar()
+    @Volatile
+    private var sessionOwnerStudentId: String? = null
 
     // Deterministic redirect handler for CAS SSO multi-domain chains
     private val redirectInterceptor = Interceptor { chain ->
@@ -105,12 +107,28 @@ object JwglClient {
     }
 
     fun clearSession() {
+        sessionOwnerStudentId = null
         cookieJar.clear()
     }
 
     fun getCookies(): List<okhttp3.Cookie> = cookieJar.getAllCookies()
 
-    fun addCookies(cookies: List<okhttp3.Cookie>) {
+    fun getCookiesForStudent(studentId: String?): List<okhttp3.Cookie> {
+        val target = studentId?.trim().orEmpty()
+        if (target.isBlank() || sessionOwnerStudentId != target) return emptyList()
+        return cookieJar.getAllCookies()
+    }
+
+    fun getSessionOwnerStudentId(): String? = sessionOwnerStudentId
+
+    fun markSessionOwner(studentId: String?) {
+        sessionOwnerStudentId = studentId?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun addCookies(cookies: List<okhttp3.Cookie>, ownerStudentId: String? = null) {
+        if (!ownerStudentId.isNullOrBlank()) {
+            sessionOwnerStudentId = ownerStudentId.trim()
+        }
         cookieJar.addCookies(cookies)
     }
 
@@ -155,6 +173,7 @@ object JwglClient {
             if (lt.isEmpty() || execution.isEmpty()) {
                 if (casUrl.contains("jwglxt") || casUrl.contains("index_initMenu")) {
                     val profile = fetchStudentProfile(studentId)
+                    sessionOwnerStudentId = profile.studentId.ifBlank { studentId.trim() }
                     return@withContext Result.success(profile)
                 }
                 return@withContext Result.failure(IOException("无法解析 CAS 认证令牌"))
@@ -202,6 +221,7 @@ object JwglClient {
             // 5. 校验获取学生档案
             Log.d(TAG, "Fetching student profile...")
             val profile = fetchStudentProfile(studentId)
+            sessionOwnerStudentId = profile.studentId.ifBlank { studentId.trim() }
             Log.d(TAG, "Fetched student profile successfully for ${profile.name}")
             Result.success(profile)
         } catch (e: Exception) {
@@ -566,51 +586,7 @@ object JwglClient {
      */
     internal fun calculateCumulativeGrades(
         allCourses: List<cn.edu.usst.jwgl.data.model.CourseGrade>
-    ): Triple<Double, Double, Double> {
-        val coursesByKey = linkedMapOf<String, MutableList<cn.edu.usst.jwgl.data.model.CourseGrade>>()
-        for (c in allCourses) {
-            val key = c.courseId.ifBlank { c.courseName }
-            if (key.isNotBlank()) {
-                coursesByKey.getOrPut(key) { mutableListOf() }.add(c)
-            }
-        }
-
-        var totalCredit = 0.0
-        var totalScoreWeighted = 0.0
-        var totalGpaWeighted = 0.0
-        var validScoreCredits = 0.0
-
-        for ((_, records) in coursesByKey) {
-            val passedRecords = records.filter { it.gpa > 0.0 || (it.overallScore.toDoubleOrNull() ?: 0.0) >= 60.0 }
-            val effective = if (passedRecords.isNotEmpty()) {
-                passedRecords.maxWithOrNull(
-                    compareBy<cn.edu.usst.jwgl.data.model.CourseGrade> { it.ksxz.contains("重修") }
-                        .thenBy { it.gpa }
-                        .thenBy { it.overallScore.toDoubleOrNull() ?: 0.0 }
-                ) ?: passedRecords.last()
-            } else {
-                records.maxByOrNull { it.overallScore.toDoubleOrNull() ?: 0.0 } ?: records.last()
-            }
-
-            val scoreVal = effective.overallScore.toDoubleOrNull() ?: 0.0
-            val isEffectivePassed = effective.gpa > 0.0 || scoreVal >= 60.0
-
-            if (isEffectivePassed) {
-                totalCredit += effective.credit
-            }
-
-            if (effective.credit > 0.0) {
-                totalScoreWeighted += scoreVal * effective.credit
-                totalGpaWeighted += effective.gpa * effective.credit
-                validScoreCredits += effective.credit
-            }
-        }
-
-        val cumulativeWeightedScore = if (validScoreCredits > 0) totalScoreWeighted / validScoreCredits else 0.0
-        val cumulativeGpa = if (validScoreCredits > 0) totalGpaWeighted / validScoreCredits else 0.0
-
-        return Triple(totalCredit, cumulativeWeightedScore, cumulativeGpa)
-    }
+    ): Triple<Double, Double, Double> = JwglAcademicParser.calculateCumulativeGrades(allCourses)
 
     /**
      * 拉取「学业情况 / 学分节点培养方案进展」
@@ -649,74 +625,8 @@ object JwglClient {
     /**
      * 解析培养方案树形节点
      */
-    internal fun parseAcademicProgress(html: String): cn.edu.usst.jwgl.data.model.AcademicProgress {
-        val pattern = java.util.regex.Pattern.compile(
-            "<p class='title1' id='p([0-9A-Za-z_-]+)' yxxf='([0-9.]*)' yqzdxf='([0-9.]*)' sftg='(\\d*)'>\"\\s*\\+\\s*\"([^\"&]+)&nbsp;"
-        )
-        val matcher = pattern.matcher(html)
-        val nodes = linkedMapOf<String, cn.edu.usst.jwgl.data.model.CreditCategory>()
-
-        while (matcher.find()) {
-            val id = matcher.group(1) ?: continue
-            val name = (matcher.group(5) ?: "").trim()
-            if (name.isEmpty() || nodes.containsKey(id)) continue
-
-            val earned = matcher.group(2)?.toDoubleOrNull() ?: 0.0
-            val required = matcher.group(3)?.toDoubleOrNull() ?: 0.0
-            val passed = matcher.group(4) == "1"
-            val parentId = findParentCategoryId(html, matcher.start())
-
-            nodes[id] = cn.edu.usst.jwgl.data.model.CreditCategory(
-                id = id,
-                parentId = parentId,
-                name = name,
-                earned = earned,
-                required = required,
-                passed = passed
-            )
-        }
-
-        if (nodes.isEmpty()) {
-            return cn.edu.usst.jwgl.data.model.AcademicProgress()
-        }
-
-        val ordered = nodes.values.toList()
-        // 根节点即培养方案要求总学分最大的节点
-        val root = ordered.maxByOrNull { it.required } ?: ordered.first()
-
-        val childMap = mutableMapOf<String, MutableList<cn.edu.usst.jwgl.data.model.CreditCategory>>()
-        for (node in ordered) {
-            if (node.id == root.id) continue
-            val parentId = if (nodes.containsKey(node.parentId)) node.parentId else root.id
-            childMap.getOrPut(parentId) { mutableListOf() }.add(node)
-        }
-
-        fun attach(node: cn.edu.usst.jwgl.data.model.CreditCategory): cn.edu.usst.jwgl.data.model.CreditCategory {
-            val children = (childMap[node.id] ?: emptyList()).map { attach(it) }
-            return node.copy(children = children)
-        }
-
-        val rootNode = attach(root)
-        return cn.edu.usst.jwgl.data.model.AcademicProgress(
-            majorName = root.name,
-            earned = root.earned,
-            required = root.required,
-            categories = rootNode.children,
-            updatedAt = System.currentTimeMillis()
-        )
-    }
-
-    private fun findParentCategoryId(html: String, nodeStart: Int): String {
-        val start = if (nodeStart > 3000) nodeStart - 3000 else 0
-        val window = html.substring(start, nodeStart)
-        val p = java.util.regex.Pattern.compile("fxfyqjd_id='([0-9A-Za-z_-]*)'")
-        val m = p.matcher(window)
-        var lastParent = ""
-        while (m.find()) {
-            lastParent = m.group(1) ?: ""
-        }
-        return lastParent
-    }
+    internal fun parseAcademicProgress(html: String): cn.edu.usst.jwgl.data.model.AcademicProgress =
+        JwglAcademicParser.parseAcademicProgress(html)
 
     /**
      * 拉取指定学分节点下的课程明细（双接口自动回退：优先 Kcxx，为空时回退至 FKcxx）
@@ -788,52 +698,8 @@ object JwglClient {
         return parseAcademicCourses(raw)
     }
 
-    internal fun parseAcademicCourses(raw: String): List<cn.edu.usst.jwgl.data.model.AcademicCourse> {
-        val trimmed = raw.trim()
-        if (!trimmed.startsWith("[")) return emptyList()
-        val listType = object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
-        val rawList: List<Map<String, Any?>> = try {
-            gson.fromJson(trimmed, listType) ?: emptyList()
-        } catch (e: Exception) {
-            return emptyList()
-        }
-
-        fun Map<String, Any?>.getVal(vararg keys: String): String {
-            for (key in keys) {
-                val v = this[key] ?: this[key.lowercase()] ?: this[key.uppercase()]
-                if (v != null) {
-                    val s = v.toString().trim()
-                    if (s.isNotEmpty()) return s
-                }
-            }
-            return ""
-        }
-
-        val out = mutableListOf<cn.edu.usst.jwgl.data.model.AcademicCourse>()
-        for (item in rawList) {
-            val name = item.getVal("KCMC", "kcmc")
-            if (name.isEmpty()) continue
-            val code = item.getVal("KCH", "kch", "KCH_ID", "kch_id")
-            val creditsStr = item.getVal("XF", "xf", "JHXF", "jhxf")
-            val credits = creditsStr.toDoubleOrNull() ?: 0.0
-            val xnm = item.getVal("XNMC", "xnmmc", "JYXDXNMC", "jyxdxnmmc", "CJXNMC", "cjxnmc")
-            val xqm = item.getVal("XQMMC", "xqmmc", "JYXDXQMC", "jyxdxqmc", "CJXQMC", "cjxqmc")
-            val term = "$xnm $xqm".trim()
-            val score = item.getVal("CJ", "cj", "MAXCJ", "maxcj", "BFZCJ", "bfzcj")
-            val xdzt = item.getVal("XDZT", "xdzt")
-            out.add(
-                cn.edu.usst.jwgl.data.model.AcademicCourse(
-                    name = name,
-                    code = code,
-                    credits = credits,
-                    term = term,
-                    score = score,
-                    status = cn.edu.usst.jwgl.data.model.AcademicCourse.statusOf(xdzt)
-                )
-            )
-        }
-        return out
-    }
+    internal fun parseAcademicCourses(raw: String): List<cn.edu.usst.jwgl.data.model.AcademicCourse> =
+        JwglAcademicParser.parseAcademicCourses(raw)
 
     suspend fun fetchTimetable(
         xnm: String = "2025",
@@ -926,159 +792,8 @@ object JwglClient {
         studentName: String = "",
         className: String = "",
         currentWeek: Int = 1
-    ): cn.edu.usst.jwgl.data.model.TimetableData {
-        val root = com.google.gson.JsonParser.parseString(body).asJsonObject
-        val items = if (root.has("items") && root.get("items").isJsonArray) {
-            root.getAsJsonArray("items")
-        } else {
-            com.google.gson.JsonArray()
-        }
-
-        val yearName = "$xnm-${(xnm.toIntOrNull() ?: 2025) + 1}"
-        val semName = if (xqm == "3") "1" else if (xqm == "12") "2" else xqm
-        val semTitle = "${yearName}学年 第${semName}学期"
-
-        val courses = mutableListOf<cn.edu.usst.jwgl.data.model.CourseItem>()
-        val unscheduledCourses = mutableListOf<cn.edu.usst.jwgl.data.model.UnscheduledCourseItem>()
-        val seenUnscheduledKeys = mutableSetOf<String>()
-        val courseColorMap = mutableMapOf<String, Int>()
-        var nextColor = 0
-
-        val sectionRegex = Regex("""(?:第)?([0-9]+)(?:-([0-9]+))?节""")
-        val weekRegex = Regex("""\{([^}]+)\}""")
-
-        for (el in items) {
-            if (!el.isJsonObject) continue
-            val item = el.asJsonObject
-            val courseName = item.optStr("kcmc")
-            if (courseName.isEmpty()) continue
-
-            val sksj = item.optStr("sksj")
-            val jxdd = item.optStr("jxdd")
-            val jsxx = item.optStr("jsxx")
-            val teacher = if (jsxx.contains("/")) {
-                val p = jsxx.split("/")
-                if (p.size >= 2) p[1].trim() else jsxx
-            } else jsxx
-
-            val credit = item.optStr("xf").toDoubleOrNull() ?: 0.0
-            val courseType = item.optStr("kcxz")
-            val courseCode = item.optStr("kch")
-            val classCode = item.optStr("jxbmc")
-                .ifEmpty { item.optStr("jxb") }
-                .ifEmpty { item.optStr("jxb_id") }
-
-            var examType = item.optStr("khfsmc").ifEmpty { item.optStr("khfs") }
-            if (examType.isEmpty()) {
-                examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
-            }
-
-            fun recordUnscheduled() {
-                val key = "${courseName}_${classCode.ifBlank { courseCode }}_$teacher"
-                if (seenUnscheduledKeys.add(key)) {
-                    unscheduledCourses.add(
-                        cn.edu.usst.jwgl.data.model.UnscheduledCourseItem(
-                            name = courseName,
-                            teacher = teacher,
-                            classCode = classCode,
-                            courseCode = courseCode,
-                            examType = examType,
-                            credit = credit,
-                            courseType = courseType
-                        )
-                    )
-                }
-            }
-
-            if (sksj.isEmpty() || sksj == "null") {
-                recordUnscheduled()
-                continue
-            }
-
-            val sksjParts = sksj.split(";", "；", "\n").map { it.trim() }.filter { it.isNotEmpty() }
-            if (sksjParts.isEmpty()) {
-                recordUnscheduled()
-                continue
-            }
-            val jxddParts = if (jxdd.isNotEmpty() && jxdd != "null") {
-                jxdd.split(";", "；", "\n").map { it.trim() }
-            } else emptyList()
-
-            for ((idx, sp) in sksjParts.withIndex()) {
-                val dayOfWeek = when {
-                    sp.contains("星期一") || sp.contains("周一") -> 1
-                    sp.contains("星期二") || sp.contains("周二") -> 2
-                    sp.contains("星期三") || sp.contains("周三") -> 3
-                    sp.contains("星期四") || sp.contains("周四") -> 4
-                    sp.contains("星期五") || sp.contains("周五") -> 5
-                    sp.contains("星期六") || sp.contains("周六") -> 6
-                    sp.contains("星期日") || sp.contains("星期天") || sp.contains("周日") -> 7
-                    else -> 1
-                }
-
-                val secMatch = sectionRegex.find(sp)
-                val startSection = secMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                val endSection = secMatch?.groupValues?.get(2)?.toIntOrNull() ?: startSection
-                val step = (endSection - startSection + 1).coerceIn(1, 6)
-                val rawSections = "$startSection-$endSection"
-
-                val weekMatch = weekRegex.find(sp)
-                val rawWeeks = weekMatch?.groupValues?.get(1)?.trim() ?: ""
-                val weeks = parseWeeks(rawWeeks)
-
-                val classroom = if (jxddParts.isNotEmpty()) {
-                    if (idx < jxddParts.size) jxddParts[idx] else jxddParts[0]
-                } else ""
-
-                val slotId = if (courseCode.isNotEmpty()) {
-                    "${courseCode}_${dayOfWeek}_${startSection}_${step}"
-                } else {
-                    "slot_${courseName.hashCode().let { kotlin.math.abs(it) }}_${dayOfWeek}_${startSection}_${step}"
-                }
-
-                val colorIdx = courseColorMap.getOrPut(courseName) {
-                    val c = nextColor
-                    nextColor++
-                    c
-                }
-
-                courses.add(
-                    cn.edu.usst.jwgl.data.model.CourseItem(
-                        id = slotId,
-                        name = courseName,
-                        teacher = teacher,
-                        classroom = classroom,
-                        dayOfWeek = dayOfWeek,
-                        startSection = startSection,
-                        step = step,
-                        rawSections = rawSections,
-                        weeks = weeks,
-                        rawWeeks = rawWeeks,
-                        credit = credit,
-                        courseType = courseType,
-                        colorIndex = colorIdx,
-                        courseCode = courseCode,
-                        examType = examType,
-                        classCode = classCode
-                    )
-                )
-            }
-        }
-
-        val scheduledNames = courses.map { it.name.trim() }.toSet()
-        val filteredUnscheduled = unscheduledCourses.filter { it.name.trim() !in scheduledNames }
-
-        return cn.edu.usst.jwgl.data.model.TimetableData(
-            academicYear = xnm,
-            semester = xqm,
-            semesterTitle = semTitle,
-            studentName = studentName,
-            className = className,
-            courses = courses.distinct(),
-            currentWeek = currentWeek,
-            unscheduledCourses = filteredUnscheduled
-        )
-    }
+    ): cn.edu.usst.jwgl.data.model.TimetableData =
+        JwglTimetableParser.parseFastTimetableJson(body, xnm, xqm, studentName, className, currentWeek)
 
     suspend fun fetchTimetableStandard(
         xnm: String = "2025",
@@ -1116,151 +831,13 @@ object JwglClient {
                 return@withContext Result.failure(IOException("未获取到有效的课表数据，会话可能已失效"))
             }
 
-            val json = org.json.JSONObject(body)
-            val kbList = json.optJSONArray("kbList") ?: org.json.JSONArray()
-            val sjkList = json.optJSONArray("sjkList") ?: org.json.JSONArray()
-            val xsxx = json.optJSONObject("xsxx")
-
-            val studentName = xsxx?.optString("XM", "") ?: ""
-            val className = xsxx?.optString("BJMC", "") ?: ""
-            val yearName = xsxx?.optString("XNMC", "$xnm-${(xnm.toIntOrNull() ?: 2025) + 1}")
-            val semName = xsxx?.optString("XQMMC", if (xqm == "3") "1" else if (xqm == "12") "2" else xqm)
-            val semTitle = "${yearName}学年 第${semName}学期"
-
-            val courses = mutableListOf<cn.edu.usst.jwgl.data.model.CourseItem>()
-            val unscheduledCourses = mutableListOf<cn.edu.usst.jwgl.data.model.UnscheduledCourseItem>()
-            val seenUnscheduledKeys = mutableSetOf<String>()
-            val courseColorMap = mutableMapOf<String, Int>()
-            var nextColor = 0
-
-            for (i in 0 until kbList.length()) {
-                val item = kbList.optJSONObject(i) ?: continue
-                val courseName = item.optString("kcmc", "").trim()
-                if (courseName.isEmpty()) continue
-
-                val teacher = item.optString("xm", "").trim()
-                val classroom = item.optString("cdmc", "").trim()
-                val dayRaw = item.optString("xqj", "").trim()
-                val dayOfWeek = dayRaw.toIntOrNull() ?: 1
-                val jcs = item.optString("jcs", "").trim()
-                val zcd = item.optString("zcd", "").trim()
-                val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
-                val courseType = item.optString("kcxz", "").trim()
-                val courseCode = item.optString("kch", item.optString("kch_id", "")).trim()
-                val classCode = item.optString("jxbmc", item.optString("jxb", "")).trim()
-
-                var examType = item.optString("khfsmc", item.optString("khfs", "")).trim()
-                if (examType.isEmpty()) {
-                    examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
-                }
-
-                if (jcs.isEmpty() || dayRaw.isEmpty()) {
-                    val key = "${courseName}_${classCode.ifBlank { courseCode }}_$teacher"
-                    if (seenUnscheduledKeys.add(key)) {
-                        unscheduledCourses.add(
-                            cn.edu.usst.jwgl.data.model.UnscheduledCourseItem(
-                                name = courseName,
-                                teacher = teacher,
-                                classCode = classCode,
-                                courseCode = courseCode,
-                                examType = examType,
-                                credit = credit,
-                                courseType = courseType
-                            )
-                        )
-                    }
-                    continue
-                }
-
-                // Parse sections (e.g. "6-7" -> start=6, step=2; "6-8" -> start=6, step=3)
-                val jcParts = jcs.split("-")
-                val startSection = jcParts.firstOrNull()?.toIntOrNull() ?: 1
-                val endSection = jcParts.lastOrNull()?.toIntOrNull() ?: startSection
-                val step = (endSection - startSection + 1).coerceIn(1, 6)
-
-                val slotId = if (courseCode.isNotEmpty()) {
-                    "${courseCode}_${dayOfWeek}_${startSection}_${step}"
-                } else {
-                    "slot_${courseName.hashCode().let { kotlin.math.abs(it) }}_${dayOfWeek}_${startSection}_${step}"
-                }
-
-                // Parse weeks (e.g. "3-18周", "1-16周(单)", "7-15周")
-                val weeks = parseWeeks(zcd)
-
-                val colorIdx = courseColorMap.getOrPut(courseName) {
-                    val c = nextColor
-                    nextColor++
-                    c
-                }
-
-                courses.add(
-                    cn.edu.usst.jwgl.data.model.CourseItem(
-                        id = slotId,
-                        name = courseName,
-                        teacher = teacher,
-                        classroom = classroom,
-                        dayOfWeek = dayOfWeek,
-                        startSection = startSection,
-                        step = step,
-                        rawSections = jcs,
-                        weeks = weeks,
-                        rawWeeks = zcd,
-                        credit = credit,
-                        courseType = courseType,
-                        colorIndex = colorIdx,
-                        courseCode = courseCode,
-                        examType = examType,
-                        classCode = classCode
-                    )
-                )
-            }
-
-            for (i in 0 until sjkList.length()) {
-                val item = sjkList.optJSONObject(i) ?: continue
-                val courseName = item.optString("kcmc", "").trim()
-                if (courseName.isEmpty()) continue
-
-                val teacher = item.optString("xm", item.optString("jsmc", "")).trim()
-                val credit = item.optString("xf", "0").toDoubleOrNull() ?: 0.0
-                val courseType = item.optString("kcxz", "").trim()
-                val courseCode = item.optString("kch", item.optString("kch_id", "")).trim()
-                val classCode = item.optString("jxbmc", item.optString("jxb", "")).trim()
-
-                var examType = item.optString("khfsmc", item.optString("khfs", "")).trim()
-                if (examType.isEmpty()) {
-                    examType = if (courseType.contains("考查") || courseType.contains("设计") || courseType.contains("实践") || courseName.contains("设计") || courseName.contains("实验")) "考查" else "考试"
-                }
-
-                val key = "${courseName}_${classCode.ifBlank { courseCode }}_$teacher"
-                if (seenUnscheduledKeys.add(key)) {
-                    unscheduledCourses.add(
-                        cn.edu.usst.jwgl.data.model.UnscheduledCourseItem(
-                            name = courseName,
-                            teacher = teacher,
-                            classCode = classCode,
-                            courseCode = courseCode,
-                            examType = examType,
-                            credit = credit,
-                            courseType = courseType
-                        )
-                    )
-                }
-            }
-
-            val scheduledNames = courses.map { it.name.trim() }.toSet()
-            val filteredUnscheduled = unscheduledCourses.filter { it.name.trim() !in scheduledNames }
-
-            val timetableData = cn.edu.usst.jwgl.data.model.TimetableData(
-                academicYear = xnm,
-                semester = xqm,
-                semesterTitle = semTitle,
-                studentName = studentName,
-                className = className,
-                courses = courses,
-                currentWeek = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getCurrentWeek(),
-                unscheduledCourses = filteredUnscheduled
+            val timetableData = JwglTimetableParser.parseStandardTimetableJson(
+                body = body,
+                xnm = xnm,
+                xqm = xqm,
+                currentWeek = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getCurrentWeek()
             )
-            Log.d(TAG, "Successfully parsed ${courses.size} timetable courses for $semTitle")
+            Log.d(TAG, "Successfully parsed ${timetableData.courses.size} timetable courses for ${timetableData.semesterTitle}")
             Result.success(timetableData)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching timetable", e)
@@ -1268,29 +845,7 @@ object JwglClient {
         }
     }
 
-    fun parseWeeks(zcd: String): List<Int> {
-        val result = mutableSetOf<Int>()
-        if (zcd.isEmpty()) return emptyList()
-        val segments = zcd.split(",", "，")
-        for (seg in segments) {
-            val isSingle = seg.contains("单")
-            val isDouble = seg.contains("双")
-            val clean = seg.replace("[^0-9-]".toRegex(), "")
-            if (clean.contains("-")) {
-                val parts = clean.split("-")
-                val start = parts.getOrNull(0)?.toIntOrNull() ?: continue
-                val end = parts.getOrNull(1)?.toIntOrNull() ?: start
-                for (w in start..end) {
-                    if (isSingle && w % 2 == 0) continue
-                    if (isDouble && w % 2 != 0) continue
-                    result.add(w)
-                }
-            } else {
-                clean.toIntOrNull()?.let { result.add(it) }
-            }
-        }
-        return result.sorted()
-    }
+    fun parseWeeks(zcd: String): List<Int> = JwglTimetableParser.parseWeeks(zcd)
 
     /**
      * 查询学生考试日程列表

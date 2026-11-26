@@ -3,7 +3,10 @@ package cn.edu.usst.jwgl.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import cn.edu.usst.jwgl.data.local.AuthPreferences
+import cn.edu.usst.jwgl.data.local.RollcallSubmissionStore
 import cn.edu.usst.jwgl.data.model.LiveDeviceViewDto
+import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.ChaoXingQrPayload
 import cn.edu.usst.jwgl.data.network.LiveUsstClient
@@ -93,6 +96,7 @@ class SmartLiveQrRollcallManager(private val context: Context) {
         preferredViewNumProvider: (() -> Int?)? = null,
         onViewsDiscovered: ((List<LiveDeviceViewDto>) -> Unit)? = null,
         onFrameCaptured: (FrameObservation) -> Unit,
+        onBatchResults: ((List<MultiAccountRollcallResult>) -> Unit)? = null,
         onCompleted: (Boolean, String) -> Unit
     ) = withContext(Dispatchers.IO) {
         try {
@@ -161,6 +165,8 @@ class SmartLiveQrRollcallManager(private val context: Context) {
             val startTime = System.currentTimeMillis()
             var frameCounter = 0
             var candidateIndex = 0
+            val triedQrTokens = mutableSetOf<String>()
+            var lastBatchResults: List<MultiAccountRollcallResult> = emptyList()
 
             while (isActive && (System.currentTimeMillis() - startTime) < maxDurationSeconds * 1000L) {
                 frameCounter++
@@ -229,13 +235,77 @@ class SmartLiveQrRollcallManager(private val context: Context) {
 
                         val parsed = tronClassClient.parseRollcallQr(qr)
                         if (parsed != null) {
+                            if (rollcallId > 0L && parsed.rollcallId != rollcallId) {
+                                Log.w(TAG, "Ignoring mismatched live QR rollcallId=${parsed.rollcallId}, expected=$rollcallId")
+                                withContext(Dispatchers.Main) {
+                                    onFrameCaptured(
+                                        FrameObservation(
+                                            frameIndex = frameCounter,
+                                            viewName = targetView.viewName,
+                                            bitmap = decodedFrame.bitmap,
+                                            detectedQr = null,
+                                            message = "检测到其他点名二维码 (ID:${parsed.rollcallId})，继续等待目标活动 (ID:$rollcallId)..."
+                                        )
+                                    )
+                                }
+                                delay(intervalMs)
+                                continue
+                            }
+                            val tokenKey = "${parsed.rollcallId}|${parsed.qrData}"
+                            if (!triedQrTokens.add(tokenKey)) {
+                                delay(intervalMs)
+                                continue
+                            }
+
                             val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
-                            val primarySuccess = results.firstOrNull()?.success == true
+                            lastBatchResults = results
+                            val currentStudentId = AuthPreferences.currentStudentId(context)
+                            val primarySuccess = MultiAccountRollcallResult.isPrimaryAccountSuccess(results, currentStudentId)
+                            val primaryResult = MultiAccountRollcallResult.findPrimaryResult(results, currentStudentId)
                             val successCount = results.count { it.success }
+                            val primaryMsg = primaryResult?.message?.takeIf { it.isNotBlank() }
+                                ?: results.firstOrNull()?.message
+                                ?: if (primarySuccess) "签到成功" else "签到未成功"
                             val summaryMsg = if (results.size > 1) {
-                                "$successCount/${results.size} 个账号签到成功"
+                                if (primarySuccess) {
+                                    "本人已签 ($successCount/${results.size} 个账号成功)"
+                                } else {
+                                    "本人未签上 ($successCount/${results.size} 个账号成功)：$primaryMsg"
+                                }
                             } else {
-                                results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
+                                primaryMsg
+                            }
+
+                            val storeState = if (currentStudentId.isNotBlank()) {
+                                RollcallSubmissionStore(context).state(currentStudentId, parsed.rollcallId)
+                            } else null
+                            val isExpiredQrFailure = !primarySuccess &&
+                                storeState == "rejected" &&
+                                (primaryMsg.contains("过期") || primaryMsg.contains("失效") ||
+                                    primaryMsg.contains("expired", ignoreCase = true) ||
+                                    primaryMsg.contains("invalid", ignoreCase = true)) &&
+                                !primaryMsg.contains("结束") &&
+                                !primaryMsg.contains("关闭") &&
+                                !primaryMsg.contains("授权失败")
+
+                            if (!primarySuccess && isExpiredQrFailure &&
+                                (System.currentTimeMillis() - startTime) < maxDurationSeconds * 1000L
+                            ) {
+                                Log.i(TAG, "QR rejected as expired for primary user, continuing live frame chase: $primaryMsg")
+                                withContext(Dispatchers.Main) {
+                                    onBatchResults?.invoke(results)
+                                    onFrameCaptured(
+                                        FrameObservation(
+                                            frameIndex = frameCounter,
+                                            viewName = targetView.viewName,
+                                            bitmap = decodedFrame.bitmap,
+                                            detectedQr = null,
+                                            message = "二维码已刷新/过期，正在自动追帧捕获最新二维码..."
+                                        )
+                                    )
+                                }
+                                delay(intervalMs)
+                                continue
                             }
 
                             RollcallNotificationHelper.notifyLiveQrResult(
@@ -248,6 +318,7 @@ class SmartLiveQrRollcallManager(private val context: Context) {
                             )
 
                             withContext(Dispatchers.Main) {
+                                onBatchResults?.invoke(results)
                                 onCompleted(primarySuccess, summaryMsg)
                             }
                             return@withContext
@@ -270,6 +341,9 @@ class SmartLiveQrRollcallManager(private val context: Context) {
             }
 
             withContext(Dispatchers.Main) {
+                if (lastBatchResults.isNotEmpty()) {
+                    onBatchResults?.invoke(lastBatchResults)
+                }
                 onCompleted(false, "已持续追帧 ${maxDurationSeconds}s，未在大屏上发现有效二维码")
             }
         } catch (e: CancellationException) {

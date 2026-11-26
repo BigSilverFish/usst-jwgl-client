@@ -103,11 +103,24 @@ class TronClassDdlWorker(
             }
         }
 
-        // 尝试拉取超星学习通作业待办并纳入双轨 DDL 预警
+        // 仅在双平台融合模式开启、已登录且未触发风控冷却时拉取超星待办
         try {
             val cxClient = cn.edu.usst.jwgl.data.network.ChaoXingClient(appContext)
-            if (cxClient.isLoggedIn()) {
-                val cxTodos = cxClient.fetchTodos().getOrDefault(emptyList())
+            if (prefs.isDualPlatformModeEnabled() && cxClient.isLoggedIn() &&
+                !cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard.isCircuitOpen(appContext)
+            ) {
+                val cxAccount = cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(appContext)
+                val cxTodos = if (cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard.isBackgroundSyncFresh(cxAccount)) {
+                    cn.edu.usst.jwgl.data.local.ChaoXingPreferences(appContext).getCachedTodos(cxAccount)
+                } else {
+                    val cxRes = cxClient.fetchTodos(resolveMissingDeadlines = false)
+                    if (cxRes.isSuccess) {
+                        cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard.markBackgroundSyncNow(cxAccount)
+                        cxRes.getOrDefault(emptyList())
+                    } else {
+                        cn.edu.usst.jwgl.data.local.ChaoXingPreferences(appContext).getCachedTodos(cxAccount)
+                    }
+                }
                 for (cxTodo in cxTodos) {
                     val endMillis = cxTodo.deadlineMillis ?: continue
                     val remainingMillis = endMillis - now

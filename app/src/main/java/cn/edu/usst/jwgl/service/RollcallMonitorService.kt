@@ -377,13 +377,7 @@ class RollcallMonitorService : Service() {
     private fun isPrimaryAccountSuccess(
         results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>,
         currentStudentId: String
-    ): Boolean {
-        if (results.isEmpty()) return false
-        if (currentStudentId.isNotBlank()) {
-            results.find { it.studentId == currentStudentId }?.let { return it.success }
-        }
-        return results.first().success
-    }
+    ): Boolean = cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult.isPrimaryAccountSuccess(results, currentStudentId)
 
     private suspend fun handleQrCodeAutoSign(
         rollcall: TronClassRollcall,
@@ -490,18 +484,31 @@ class RollcallMonitorService : Service() {
         )
 
         val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        val primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
+        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
 
         val successCount = results.count { it.success }
         val totalCount = results.size
+        var verificationRejected = false
 
-        // 权威查册复核闭环（recheck_on_call_fine）
+        // 权威查册复核闭环
         if (primarySuccess && currentStudentId.isNotBlank()) {
-            val confirmed = tronClassClient.recheckOnCallFine(rollcallId, currentStudentId)
-            Log.i(TAG, "Radar sign recheckOnCallFine result for $currentStudentId: $confirmed")
+            val verification = tronClassClient.verifyRollcallAttendance(
+                rollcallId = rollcallId,
+                studentId = currentStudentId,
+                expectedAccount = currentStudentId,
+                courseIdHint = rollcall.courseId
+            )
+            Log.i(TAG, "Radar sign verifyRollcallAttendance result for $currentStudentId: $verification")
+            if (verification == cn.edu.usst.jwgl.data.network.RollcallVerificationState.NOT_CONFIRMED) {
+                primarySuccess = false
+                verificationRejected = true
+                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).invalidateConfirmed(currentStudentId, rollcallId)
+            }
         }
 
-        val details = if (results.size > 1) {
+        val details = if (verificationRejected) {
+            "服务端花名册未检测到本人签到记录，请重新签到"
+        } else if (results.size > 1) {
             "$successCount/$totalCount 个账号签到成功"
         } else {
             results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
@@ -579,17 +586,30 @@ class RollcallMonitorService : Service() {
         val results = tronClassClient.batchAnswerNumberRollcall(rollcallId, numberCode)
 
         val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        val primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
+        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
         val successCount = results.count { it.success }
         val totalCount = results.size
+        var verificationRejected = false
 
-        // 权威查册复核闭环（recheck_on_call_fine）
+        // 权威查册复核闭环
         if (primarySuccess && currentStudentId.isNotBlank()) {
-            val confirmed = tronClassClient.recheckOnCallFine(rollcallId, currentStudentId)
-            Log.i(TAG, "Number sign recheckOnCallFine result for $currentStudentId: $confirmed")
+            val verification = tronClassClient.verifyRollcallAttendance(
+                rollcallId = rollcallId,
+                studentId = currentStudentId,
+                expectedAccount = currentStudentId,
+                courseIdHint = rollcall.courseId
+            )
+            Log.i(TAG, "Number sign verifyRollcallAttendance result for $currentStudentId: $verification")
+            if (verification == cn.edu.usst.jwgl.data.network.RollcallVerificationState.NOT_CONFIRMED) {
+                primarySuccess = false
+                verificationRejected = true
+                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).invalidateConfirmed(currentStudentId, rollcallId)
+            }
         }
 
-        val details = if (results.size > 1) {
+        val details = if (verificationRejected) {
+            "服务端花名册未检测到本人签到记录，请重新签到"
+        } else if (results.size > 1) {
             "$successCount/$totalCount 个账号签到成功"
         } else {
             results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
@@ -640,17 +660,30 @@ class RollcallMonitorService : Service() {
         val results = tronClassClient.batchAnswerSelfRegistrationRollcall(rollcallId)
         val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
         val primaryResult = results.find { it.studentId == currentStudentId } ?: results.firstOrNull()
-        val primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
+        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
+        var verificationRejected = false
 
-        // 2. 权威查册复核闭环：确认学号是否已成功标记为 on_call_fine
+        // 权威查册复核闭环
         if (primarySuccess && currentStudentId.isNotBlank()) {
-            val confirmed = tronClassClient.recheckOnCallFine(rollcallId, currentStudentId)
-            Log.i(TAG, "Self-Registration sign recheckOnCallFine result for $currentStudentId: $confirmed")
+            val verification = tronClassClient.verifyRollcallAttendance(
+                rollcallId = rollcallId,
+                studentId = currentStudentId,
+                expectedAccount = currentStudentId,
+                courseIdHint = rollcall.courseId
+            )
+            Log.i(TAG, "Self-Registration sign verifyRollcallAttendance result for $currentStudentId: $verification")
+            if (verification == cn.edu.usst.jwgl.data.network.RollcallVerificationState.NOT_CONFIRMED) {
+                primarySuccess = false
+                verificationRejected = true
+                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).invalidateConfirmed(currentStudentId, rollcallId)
+            }
         }
 
         val successCount = results.count { it.success }
         val totalCount = results.size
-        val details = if (results.size > 1) {
+        val details = if (verificationRejected) {
+            "服务端花名册未检测到本人签到记录，请重新签到"
+        } else if (results.size > 1) {
             "$successCount/$totalCount 个账号签到成功"
         } else {
             primaryResult?.message ?: if (primarySuccess) "签到成功" else "签到未成功"

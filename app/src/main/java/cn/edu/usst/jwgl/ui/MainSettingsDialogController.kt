@@ -124,7 +124,7 @@ internal class MainSettingsDialogController(
             .setTitle("深色模式")
             .setSingleChoiceItems(options, currentMode) { dialog, which ->
                 ThemeManager.setThemeMode(activity, which)
-                binding.tvDarkModeStatus.text = ThemeManager.getThemeModeName(which)
+                activity.profileBinding?.tvDarkModeStatus?.text = ThemeManager.getThemeModeName(which)
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -150,9 +150,11 @@ internal class MainSettingsDialogController(
     }
 
     fun updateReminderSubtitles() {
+        val pb = activity.profileBinding ?: return
+
         val courseMins = CourseReminderManager.getCourseReminderAdvanceMinutes(activity)
         val courseMinsStr = CourseReminderManager.formatAdvanceMinutes(courseMins)
-        binding.tvCourseReminderSubtitle.text = if (CourseReminderManager.isReminderEnabled(activity)) {
+        pb.tvCourseReminderSubtitle.text = if (CourseReminderManager.isReminderEnabled(activity)) {
             "提前 $courseMinsStr · 点击修改"
         } else {
             "已关闭 · 点击可设置提前时长"
@@ -160,44 +162,44 @@ internal class MainSettingsDialogController(
 
         val examMins = CourseReminderManager.getExamReminderAdvanceMinutes(activity)
         val examMinsStr = CourseReminderManager.formatAdvanceMinutes(examMins)
-        binding.tvExamReminderSubtitle.text = if (CourseReminderManager.isExamReminderEnabled(activity)) {
+        pb.tvExamReminderSubtitle.text = if (CourseReminderManager.isExamReminderEnabled(activity)) {
             "提前 $examMinsStr · 点击修改"
         } else {
             "已关闭 · 点击可设置提前时长"
         }
 
         val tcPrefs = TronClassPreferences.getInstance(activity)
-        binding.tvTronClassDdl24hSubtitle.text = if (tcPrefs.isDdlReminder24hEnabled()) {
+        pb.tvTronClassDdl24hSubtitle.text = if (tcPrefs.isDdlReminder24hEnabled()) {
             "截止前 24 小时首轮预警"
         } else {
             "已关闭首轮预警"
         }
 
         val urgentHours = tcPrefs.getDdlReminderUrgentHours()
-        binding.tvTronClassDdlUrgentSubtitle.text = if (tcPrefs.isDdlReminderUrgentEnabled()) {
+        pb.tvTronClassDdlUrgentSubtitle.text = if (tcPrefs.isDdlReminderUrgentEnabled()) {
             "提前 $urgentHours 小时 · 点击设置"
         } else {
             "已关闭 · 点击可设置提前时长"
         }
 
         val isMonitorEnabled = tcPrefs.isRollcallMonitorEnabled()
-        binding.tvRollcallMonitorSubtitle.text = if (isMonitorEnabled) {
+        pb.tvRollcallMonitorSubtitle.text = if (isMonitorEnabled) {
             "已开启 · 上课时驻留后台检测签到活动"
         } else {
             "已关闭 · 上课时驻留后台检测签到活动"
         }
 
         val isDevMode = DeveloperModeManager.isDeveloperMode(activity)
-        binding.rowRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        binding.dividerRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        binding.rowLiveQrTest.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        binding.dividerLiveQrTest.visibility = if (isDevMode) View.VISIBLE else View.GONE
+        pb.rowRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
+        pb.dividerRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
+        pb.rowLiveQrTest.visibility = if (isDevMode) View.VISIBLE else View.GONE
+        pb.dividerLiveQrTest.visibility = if (isDevMode) View.VISIBLE else View.GONE
 
         val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
         val strategyDisplay = tcPrefs.getRollcallAutoSignStrategyDisplayName()
-        binding.switchRollcallAutoSign.isEnabled = isMonitorEnabled
-        binding.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
-        binding.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
+        pb.switchRollcallAutoSign.isEnabled = isMonitorEnabled
+        pb.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
+        pb.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
             "未启用 · 需先开启上方的上课签到后台监听"
         } else if (isAutoSignEnabled) {
             "已开启 · 触发策略：$strategyDisplay (点击设置)"
@@ -207,8 +209,10 @@ internal class MainSettingsDialogController(
 
         val isPopupEnabled = tcPrefs.isRollcallPopupEnabled()
         val hasOverlay = NotificationDiagnosticHelper.isOverlayPermissionGranted(activity)
-        binding.switchRollcallPopup.isChecked = isPopupEnabled
-        binding.tvRollcallPopupSubtitle.text = if (isPopupEnabled) {
+        if (pb.switchRollcallPopup.isChecked != isPopupEnabled) {
+            pb.switchRollcallPopup.isChecked = isPopupEnabled
+        }
+        pb.tvRollcallPopupSubtitle.text = if (isPopupEnabled) {
             if (hasOverlay) "已开启 · 亮屏并在桌面居中提醒"
             else "已开启 · 锁屏点亮提醒 (桌面展示需悬浮窗权限)"
         } else {
@@ -216,7 +220,7 @@ internal class MainSettingsDialogController(
         }
 
         val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(activity)
-        binding.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
+        pb.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
             "已开启高优先级闹钟 · 状态栏常驻 ⏰ 图标，准时提醒"
         } else {
             "标准模式 · 息屏较久时可能出现轻微延迟"
@@ -617,9 +621,11 @@ internal class MainSettingsDialogController(
                 val result = RemoteConfigManager.fetchConfig(activity)
                 result.onSuccess { config ->
                     RemoteConfigManager.markDailySyncCompleted(activity)
-                    binding.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
                     val semConfig = config.semesterConfig
-                    binding.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
+                    activity.profileBinding?.let { pb ->
+                        pb.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
+                        pb.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
+                    }
 
                     // Calibrate all local tables' start dates and weeks
                     val calibrated = RemoteConfigManager.calibrateTablesAndSync(activity, config)

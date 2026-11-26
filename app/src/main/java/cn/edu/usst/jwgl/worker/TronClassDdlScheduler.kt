@@ -12,6 +12,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.TronClassTodo
 import cn.edu.usst.jwgl.receiver.TronClassDdlReceiver
@@ -23,6 +24,8 @@ object TronClassDdlScheduler {
 
     private const val TAG = "TronClassDdlScheduler"
     private const val WORK_NAME_PERIODIC = "tronclass_ddl_periodic"
+    private const val PREF_SCHEDULED_DDL_CODES = "tronclass_ddl_scheduled_codes"
+    private const val KEY_CODES = "codes"
 
     /**
      * 根据设置项初始化周期性后台检查和精准闹钟
@@ -69,16 +72,19 @@ object TronClassDdlScheduler {
         val prefs = TronClassPreferences(context)
         val is24hEnabled = prefs.isDdlReminder24hEnabled()
         val isUrgentEnabled = prefs.isDdlReminderUrgentEnabled()
+        val currentStudentId = AuthPreferences.currentStudentId(context)
 
-        if (!is24hEnabled && !isUrgentEnabled) {
+        if (currentStudentId.isBlank() || (!is24hEnabled && !isUrgentEnabled)) {
             cancelAllExactAlarms(context, todos)
             return
         }
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        cancelAllExactAlarms(context, todos)
         val now = System.currentTimeMillis()
         val urgentHours = prefs.getDdlReminderUrgentHours()
         val sp = context.getSharedPreferences(TronClassDdlReceiver.PREF_DDL_NOTIFIED, Context.MODE_PRIVATE)
+        val scheduledCodes = mutableSetOf<String>()
 
         for (todo in todos) {
             val endMillis = todo.getDeadlineDate()?.time ?: continue
@@ -89,7 +95,7 @@ object TronClassDdlScheduler {
             // 1. 截止前 24 小时预警闹钟
             if (is24hEnabled) {
                 val trigger24h = endMillis - TimeUnit.HOURS.toMillis(24)
-                val notified24h = sp.getBoolean("todo_${todo.id}_notified_24h", false)
+                val notified24h = sp.getBoolean("${currentStudentId}_todo_${todo.id}_notified_24h", false)
                 if (trigger24h > now && !notified24h) {
                     val requestCode = getRequestCode(todo.id, 1)
                     val intent = Intent(context, TronClassDdlReceiver::class.java).apply {
@@ -100,6 +106,7 @@ object TronClassDdlScheduler {
                         putExtra(TronClassDdlReceiver.EXTRA_COURSE_ID, todo.courseId)
                         putExtra(TronClassDdlReceiver.EXTRA_IS_URGENT, false)
                         putExtra(TronClassDdlReceiver.EXTRA_DEADLINE_MILLIS, endMillis)
+                        putExtra(TronClassDdlReceiver.EXTRA_STUDENT_ID, currentStudentId)
                     }
                     val pi = PendingIntent.getBroadcast(
                         context,
@@ -108,6 +115,7 @@ object TronClassDdlScheduler {
                         PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
                     )
                     setSingleAlarm(context, alarmManager, trigger24h, pi)
+                    scheduledCodes.add(requestCode.toString())
                 }
             } else {
                 cancelPendingIntent(context, alarmManager, getRequestCode(todo.id, 1))
@@ -116,7 +124,7 @@ object TronClassDdlScheduler {
             // 2. 截止前 1-3 小时临急闹钟
             if (isUrgentEnabled) {
                 val triggerUrgent = endMillis - TimeUnit.HOURS.toMillis(urgentHours.toLong())
-                val notifiedUrgent = sp.getBoolean("todo_${todo.id}_notified_urgent", false)
+                val notifiedUrgent = sp.getBoolean("${currentStudentId}_todo_${todo.id}_notified_urgent", false)
                 if (triggerUrgent > now && !notifiedUrgent) {
                     val requestCode = getRequestCode(todo.id, 2)
                     val intent = Intent(context, TronClassDdlReceiver::class.java).apply {
@@ -127,6 +135,7 @@ object TronClassDdlScheduler {
                         putExtra(TronClassDdlReceiver.EXTRA_COURSE_ID, todo.courseId)
                         putExtra(TronClassDdlReceiver.EXTRA_IS_URGENT, true)
                         putExtra(TronClassDdlReceiver.EXTRA_DEADLINE_MILLIS, endMillis)
+                        putExtra(TronClassDdlReceiver.EXTRA_STUDENT_ID, currentStudentId)
                     }
                     val pi = PendingIntent.getBroadcast(
                         context,
@@ -135,11 +144,16 @@ object TronClassDdlScheduler {
                         PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
                     )
                     setSingleAlarm(context, alarmManager, triggerUrgent, pi)
+                    scheduledCodes.add(requestCode.toString())
                 }
             } else {
                 cancelPendingIntent(context, alarmManager, getRequestCode(todo.id, 2))
             }
         }
+        context.getSharedPreferences(PREF_SCHEDULED_DDL_CODES, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_CODES, scheduledCodes)
+            .apply()
     }
 
     private fun getRequestCode(todoId: Long, tier: Int): Int {
@@ -199,6 +213,13 @@ object TronClassDdlScheduler {
 
     fun cancelAllExactAlarms(context: Context, todos: List<TronClassTodo>? = null) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val codePrefs = context.getSharedPreferences(PREF_SCHEDULED_DDL_CODES, Context.MODE_PRIVATE)
+        val savedCodes = codePrefs.getStringSet(KEY_CODES, emptySet()).orEmpty()
+        for (rawCode in savedCodes) {
+            rawCode.toIntOrNull()?.let { cancelPendingIntent(context, alarmManager, it) }
+        }
+        codePrefs.edit().remove(KEY_CODES).apply()
+
         val list = todos ?: TronClassPreferences(context).getCachedTodos()
         for (todo in list) {
             cancelPendingIntent(context, alarmManager, getRequestCode(todo.id, 1))

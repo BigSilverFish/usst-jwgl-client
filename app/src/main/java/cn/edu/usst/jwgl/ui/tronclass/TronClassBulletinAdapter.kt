@@ -21,21 +21,19 @@ class TronClassBulletinAdapter(
     private val onTronClassClick: ((TronClassBulletin) -> Unit)? = null
 ) : RecyclerView.Adapter<TronClassBulletinAdapter.BulletinViewHolder>() {
 
-    private var items: List<UnifiedBulletin> = emptyList()
+    private val differ = HomeAdapterDiffer<UnifiedBulletin>(this) { it.unifiedId }
     var isMultiPlatformMode: Boolean = false
     var onChaoXingClickListener: ((UnifiedBulletin) -> Unit)? = null
     var onUnifiedClickListener: ((UnifiedBulletin) -> Unit)? = null
 
     fun updateData(newItems: List<TronClassBulletin>) {
-        this.items = newItems.map { UnifiedBulletin.fromTronClass(it) }
         this.isMultiPlatformMode = false
-        notifyDataSetChanged()
+        differ.submit(newItems.map { UnifiedBulletin.fromTronClass(it) }, multiPlatform = false)
     }
 
     fun updateUnifiedData(newItems: List<UnifiedBulletin>, multiPlatform: Boolean = false) {
-        this.items = newItems
         this.isMultiPlatformMode = multiPlatform
-        notifyDataSetChanged()
+        differ.submit(newItems, multiPlatform = multiPlatform)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): BulletinViewHolder {
@@ -48,15 +46,16 @@ class TronClassBulletinAdapter(
     }
 
     override fun onBindViewHolder(holder: BulletinViewHolder, position: Int) {
-        holder.bind(items[position])
+        val row = differ.getItem(position)
+        holder.bind(row.item, row.multiPlatform)
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = differ.itemCount
 
     inner class BulletinViewHolder(private val binding: ItemTronclassBulletinBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(b: UnifiedBulletin) {
+        fun bind(b: UnifiedBulletin, multiPlatform: Boolean) {
             val context = binding.root.context
 
             // 1. 课程名外标签 (有课程名时显示，无时隐藏)
@@ -69,7 +68,7 @@ class TronClassBulletinAdapter(
             }
 
             // 2. 标题行与平台微徽标
-            if (isMultiPlatformMode) {
+            if (multiPlatform) {
                 val badgeText = if (b.platform.isChaoXing) "【学习通】" else "【畅课】"
                 val badgeColor = b.platform.getBrandColor()
                 val ssb = SpannableStringBuilder(badgeText).apply {
@@ -90,6 +89,7 @@ class TronClassBulletinAdapter(
             // 4. 附图与缩略图预览
             val imageUrls = b.imageUrls
             if (imageUrls.isEmpty()) {
+                TronClassImageLoader.cancel(binding.ivSingleImage)
                 binding.layoutImagesPreview.visibility = View.GONE
             } else if (imageUrls.size == 1) {
                 binding.layoutImagesPreview.visibility = View.VISIBLE
@@ -131,6 +131,7 @@ class TronClassBulletinAdapter(
                     true
                 }
             } else {
+                TronClassImageLoader.cancel(binding.ivSingleImage)
                 binding.layoutImagesPreview.visibility = View.VISIBLE
                 binding.cardSingleImage.visibility = View.GONE
                 binding.layoutMultiImages.visibility = View.VISIBLE

@@ -118,81 +118,8 @@ val ALL_KNOWN_BUILDINGS = listOf(
         "勤学楼",
     )
 
-    fun normalizeClassroomName(name: String): String {
-        return name.trim()
-            .replace("卓越工程大楼", "卓越楼")
-            .replace("第一教学楼", "一教")
-            .replace("第三教学楼", "三教")
-            .replace("第四教学楼", "四教")
-            .replace("综合A", "综合楼A区")
-            .replace("综合B", "综合楼B区")
-            .replace("综合C", "综合楼C区")
-            .replace("综合D", "综合楼D区")
-    }
-
-    private val KNOWN_CLASSROOMS_BY_BUILDING: Map<String, List<String>> = mapOf(
-        "第一教学楼" to listOf(
-            "一教100", "一教101", "一教105", "一教109", "一教112", "一教113", "一教116", "一教117", "一教119", "一教120",
-            "一教121", "一教129", "一教130", "一教132", "一教133", "一教136", "一教137", "一教139", "一教144", "一教146",
-            "一教150", "一教200", "一教201", "一教205", "一教209", "一教212", "一教213", "一教216", "一教217", "一教219",
-            "一教220", "一教221", "一教229", "一教230", "一教233", "一教236", "一教237", "一教239", "一教244", "一教246",
-            "一教250", "一教300", "一教301", "一教305", "一教309", "一教312", "一教313", "一教316", "一教317", "一教319",
-            "一教320", "一教329", "一教330", "一教332", "一教333", "一教336", "一教337", "一教339", "一教344", "一教346",
-            "一教350", "一教400", "一教401", "一教405", "一教409", "一教412", "一教413", "一教416", "一教417", "一教419",
-            "一教420", "一教421", "一教429", "一教430", "一教432", "一教433", "一教436", "一教437", "一教439", "一教444",
-            "一教446", "一教450", "一教503", "一教506", "一教507", "一教510", "一教511", "一教513", "一教514", "一教515",
-            "一教518", "一教519", "一教523", "一教524", "一教526", "一教527", "一教530", "一教531", "一教535"
-        ),
-        "第三教学楼" to listOf(
-            "三教106", "三教110", "三教113", "三教117", "三教206", "三教209", "三教210", "三教213", "三教217", "三教221",
-            "三教306", "三教309", "三教310", "三教313", "三教317", "三教321", "三教401", "三教405", "三教406", "三教409",
-            "三教410", "三教413", "三教417", "三教421", "三教501", "三教505", "三教506", "三教509", "三教510", "三教513",
-            "三教517", "三教521", "三教601", "三教605", "三教606", "三教609", "三教610", "三教613", "三教617", "三教621",
-            "三教705", "三教706", "三教709", "三教710", "三教713", "三教717", "三教721"
-        ),
-        "第四教学楼" to listOf(
-            "四教102", "四教103", "四教104", "四教105", "四教106", "四教107", "四教110", "四教111", "四教114", "四教115",
-            "四教118", "四教119", "四教125", "四教129", "四教203", "四教204", "四教205", "四教206", "四教207", "四教208",
-            "四教210", "四教211", "四教215", "四教217", "四教218", "四教219", "四教221", "四教222", "四教223", "四教227",
-            "四教300", "四教303", "四教304", "四教307", "四教308", "四教309", "四教315", "四教319", "四教323", "四教400",
-            "四教403", "四教404", "四教406", "四教407", "四教408", "四教409", "四教415", "四教419", "四教423", "四教502",
-            "四教503", "四教504", "四教507", "四教508", "四教509", "四教510", "四教519", "四教520", "四教529"
-        ),
-        "卓越楼" to listOf(
-            "卓越楼117", "卓越楼118", "卓越楼122", "卓越楼123", "卓越楼127", "卓越楼131", "卓越楼135", "卓越楼221", "卓越楼228", "卓越楼229",
-            "卓越楼233", "卓越楼237", "卓越楼241", "卓越楼328", "卓越楼329", "卓越楼333", "卓越楼334", "卓越楼335", "卓越楼337", "卓越楼341",
-            "卓越楼425", "卓越楼427", "卓越楼429", "卓越楼430", "卓越楼431", "卓越楼433", "卓越楼437", "卓越楼527", "卓越楼528", "卓越楼531",
-            "卓越楼532", "卓越楼535", "卓越楼539"
-        ),
-        "国合楼" to listOf(
-            "国合楼106", "国合楼110", "国合楼113", "国合楼114", "国合楼118", "国合楼202", "国合楼204", "国合楼206", "国合楼208", "国合楼210",
-            "国合楼212", "国合楼214", "国合楼302", "国合楼304", "国合楼306", "国合楼308", "国合楼309", "国合楼310", "国合楼312", "国合楼313",
-            "国合楼314", "国合楼317", "国合楼321", "国合楼325", "国合楼329", "国合楼402", "国合楼404", "国合楼406", "国合楼408", "国合楼410",
-            "国合楼412", "国合楼421", "国合楼425", "国合楼429"
-        ),
-        "综合楼" to listOf(
-            "综合楼A区101", "综合楼A区106", "综合楼A区108", "综合楼A区110", "综合楼A区112", "综合楼A区204", "综合楼A区206", "综合楼A区207", "综合楼B区101", "综合楼B区104",
-            "综合楼B区105", "综合楼B区108", "综合楼B区201", "综合楼B区202", "综合楼B区204", "综合楼B区205", "综合楼B区208", "综合楼B区301", "综合楼B区304", "综合楼B区305",
-            "综合楼B区308", "综合楼B区401", "综合楼B区402", "综合楼B区404", "综合楼B区405", "综合楼B区408", "综合楼B区411", "综合楼C区110", "综合楼C区317", "综合楼C区319",
-            "综合楼D区101", "综合楼D区102", "综合楼D区103", "综合楼D区105", "综合楼D区106", "综合楼D区109", "综合楼D区201", "综合楼D区202", "综合楼D区203", "综合楼D区205",
-            "综合楼D区206", "综合楼D区209", "综合楼D区301", "综合楼D区302", "综合楼D区303", "综合楼D区305", "综合楼D区306", "综合楼D区309", "综合楼D区402", "综合楼D区405",
-            "综合楼D区406", "综合楼D区409", "综合楼D区410", "综合楼D区412", "综合楼D区502", "综合楼D区505", "综合楼D区506", "综合楼D区509", "综合楼D区510", "综合楼D区512"
-        ),
-        "博学楼" to listOf(
-            "博学楼109", "博学楼111", "博学楼112", "博学楼113", "博学楼115", "博学楼117", "博学楼208", "博学楼210", "博学楼215", "博学楼216",
-            "博学楼217", "博学楼219", "博学楼221", "博学楼308", "博学楼310", "博学楼311", "博学楼313", "博学楼315", "博学楼316", "博学楼317",
-            "博学楼319", "博学楼321", "博学楼408", "博学楼410", "博学楼413", "博学楼415", "博学楼416", "博学楼418", "博学楼420", "博学楼421"
-        ),
-        "乐学楼" to listOf(
-            "乐学楼102", "乐学楼106", "乐学楼109", "乐学楼111", "乐学楼114", "乐学楼115", "乐学楼202", "乐学楼205", "乐学楼208", "乐学楼210",
-            "乐学楼212", "乐学楼214", "乐学楼215", "乐学楼302", "乐学楼309", "乐学楼315", "乐学楼316", "乐学楼402", "乐学楼404", "乐学楼406",
-            "乐学楼409", "乐学楼416"
-        ),
-        "勤学楼" to listOf(
-            "勤学楼101", "勤学楼103", "勤学楼107", "勤学楼201", "勤学楼203", "勤学楼207", "勤学楼301", "勤学楼303", "勤学楼307", "勤学楼402",
-            "勤学楼404", "勤学楼406"
-        ),
-    )
+    fun normalizeClassroomName(name: String): String =
+        LappScheduleFilter.normalizeClassroomName(name)
 
     /**
      * 同步 JwglClient 中的已登录 SSO 凭证
@@ -295,9 +222,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
         cookieStore.clear()
     }
 
-    private const val PREF_LAPP_CACHE = "usst_lapp_schedule_cache"
     private val gson = com.google.gson.Gson()
-    private val memoryScheduleCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, List<LappCourseItem>>>()
 
     @Volatile
     var lastQueryFromCache: Boolean = false
@@ -326,46 +251,11 @@ val ALL_KNOWN_BUILDINGS = listOf(
         return "sched_${xn.trim()}_${xq.trim()}_w${week}_xy${xy.trim()}_zj${zj}_jc${jc.trim()}_kc${kcmc.trim()}_dm${kcdm.trim()}_ls${lsmc.trim()}_p${page}_r${rows}"
     }
 
-    private fun readScheduleCache(context: Context, key: String): Pair<Long, Pair<Int, List<LappCourseItem>>>? {
-        val prefs = context.getSharedPreferences(PREF_LAPP_CACHE, Context.MODE_PRIVATE)
-        val ts = prefs.getLong("time_$key", 0L)
-        memoryScheduleCache[key]?.let { mem ->
-            return Pair(if (ts > 0L) ts else System.currentTimeMillis(), mem)
-        }
-        val jsonStr = prefs.getString("data_$key", null) ?: return null
-        return try {
-            val root = JSONObject(jsonStr)
-            val total = root.optInt("total", 0)
-            val itemsJson = root.optString("items", "[]")
-            val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
-            val list: List<LappCourseItem> = gson.fromJson(itemsJson, type) ?: emptyList()
-            val pair = Pair(total, list)
-            memoryScheduleCache[key] = pair
-            Pair(ts, pair)
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to read Lapp cache for $key", e)
-            null
-        }
-    }
+    private fun readScheduleCache(context: Context, key: String): Pair<Long, Pair<Int, List<LappCourseItem>>>? =
+        LappScheduleCacheStore.readScheduleCache(context, key)
 
-    private fun writeScheduleCache(context: Context, key: String, total: Int, list: List<LappCourseItem>): Long {
-        val now = System.currentTimeMillis()
-        memoryScheduleCache[key] = Pair(total, list)
-        try {
-            val root = JSONObject().apply {
-                put("total", total)
-                put("items", gson.toJson(list))
-            }
-            val prefs = context.getSharedPreferences(PREF_LAPP_CACHE, Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("data_$key", root.toString())
-                .putLong("time_$key", now)
-                .apply()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to write Lapp cache for $key", e)
-        }
-        return now
-    }
+    private fun writeScheduleCache(context: Context, key: String, total: Int, list: List<LappCourseItem>): Long =
+        LappScheduleCacheStore.writeScheduleCache(context, key, total, list)
 
     fun formatCacheTag(timestamp: Long = lastQueryCacheTime, fromCache: Boolean = lastQueryFromCache): String {
         if (timestamp <= 0L) return ""
@@ -377,272 +267,39 @@ val ALL_KNOWN_BUILDINGS = listOf(
         return "缓存 · ${sdf.format(java.util.Date(timestamp))}"
     }
 
-    /**
-     * 判断某门课程在目标教学周是否处于开课/活跃状态
-     */
-    fun isCourseActiveInWeek(c: LappCourseItem, targetWeek: Int): Boolean {
-        if (targetWeek <= 0) return true
-        val list = c.weekList
-        if (list.isNotEmpty()) {
-            return list.contains(targetWeek)
-        }
-        if (c.qsz in 1..30 && c.jsz >= c.qsz) {
-            return targetWeek in c.qsz..c.jsz
-        }
-        if (c.zc.isNotBlank()) {
-            val parsed = c.zc.split(",").mapNotNull { it.trim().toIntOrNull() }
-            if (parsed.isNotEmpty()) {
-                return parsed.contains(targetWeek)
-            }
-        }
-        return false
-    }
+    fun isCourseActiveInWeek(c: LappCourseItem, targetWeek: Int): Boolean =
+        LappScheduleFilter.isCourseActiveInWeek(c, targetWeek)
 
-    /**
-     * 解析节次范围参数（支持 1-2, 3-5, 6-7, 8-9, 10-12 等格式）
-     */
-    fun getQuerySectionRange(queryJc: String): IntRange? {
-        if (queryJc == "-1" || queryJc.isBlank()) return null
-        return when (queryJc) {
-            "1-2", "01-02" -> 1..2
-            "3-5", "03-05" -> 3..5
-            "6-7", "06-07" -> 6..7
-            "8-9", "8-10", "08-09", "08-10" -> 8..10
-            "10-12", "11-13", "10-13" -> 11..13
-            else -> {
-                val parts = queryJc.split("-")
-                val start = parts[0].trim().toIntOrNull() ?: return null
-                val end = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: start
-                start..end
-            }
-        }
-    }
+    fun getQuerySectionRange(queryJc: String): IntRange? =
+        LappScheduleFilter.getQuerySectionRange(queryJc)
 
-    /**
-     * 判断课程是否与指定查询节次发生重叠冲突
-     */
-    fun matchesSection(c: LappCourseItem, queryJc: String): Boolean {
-        val qRange = getQuerySectionRange(queryJc) ?: return true
-        val cStart = c.jc
-        val cEnd = if (c.jccd > 0) c.jc + c.jccd - 1 else c.jc
-        return maxOf(qRange.first, cStart) <= minOf(qRange.last, cEnd)
-    }
+    fun matchesSection(c: LappCourseItem, queryJc: String): Boolean =
+        LappScheduleFilter.matchesSection(c, queryJc)
 
-    // 全校课表全量缓存（内存 + 本地文件持久化）
-    private val fullScheduleMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<LappCourseItem>>>()
-    private val fullScheduleReads = SharedRequest<List<LappCourseItem>>(CoroutineScope(SupervisorJob() + Dispatchers.IO))
-    private val verifiedFullSchedules = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private val failedFullSyncAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val fullScheduleMemoryCache get() = LappScheduleCacheStore.fullScheduleMemoryCache
+    private val fullScheduleReads get() = LappScheduleCacheStore.fullScheduleReads
+    private val verifiedFullSchedules get() = LappScheduleCacheStore.verifiedFullSchedules
+    private val failedFullSyncAt get() = LappScheduleCacheStore.failedFullSyncAt
 
-    private fun fullScheduleKey(xn: String, xq: String) = "${xn.trim()}_${xq.trim()}"
+    private fun fullScheduleKey(xn: String, xq: String) = LappScheduleCacheStore.fullScheduleKey(xn, xq)
 
-    private fun getFullEncryptedCacheFile(context: Context, xn: String, xq: String): java.io.File {
-        val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        return java.io.File(context.cacheDir, "full_school_schedule_${safeXn}_${safeXq}.enc")
-    }
+    fun matchesCollege(courseXy: String, selectedXy: String): Boolean =
+        LappScheduleFilter.matchesCollege(courseXy, selectedXy)
 
-    private fun getLegacyCacheFile(context: Context, xn: String, xq: String): java.io.File {
-        val safeXn = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        return java.io.File(context.cacheDir, "full_school_schedule_${safeXn}_${safeXq}.json")
-    }
+    fun normalizeKeyword(input: String): String =
+        LappScheduleFilter.normalizeKeyword(input)
 
-    private fun tryParseFullScheduleJson(jsonStr: String, fallbackTime: Long): Pair<Long, List<LappCourseItem>>? {
-        val type = object : com.google.gson.reflect.TypeToken<List<LappCourseItem>>() {}.type
-        try {
-            val root = JSONObject(jsonStr)
-            val ts = root.optLong("time", fallbackTime)
-            val itemsObj = root.opt("items")
-            val list: List<LappCourseItem> = when (itemsObj) {
-                is String -> gson.fromJson<List<LappCourseItem>>(itemsObj, type) ?: return null
-                is org.json.JSONArray -> gson.fromJson<List<LappCourseItem>>(itemsObj.toString(), type) ?: return null
-                else -> return null
-            }
-            if (list.isNotEmpty()) {
-                return Pair(ts, list)
-            }
-        } catch (_: Exception) {}
+    fun getFullSchoolScheduleCached(context: Context, xn: String, xq: String): Pair<Long, List<LappCourseItem>>? =
+        LappScheduleCacheStore.getFullSchoolScheduleCached(context, xn, xq)
 
-        // Fallback: direct array
-        try {
-            val list: List<LappCourseItem> = gson.fromJson(jsonStr, type) ?: emptyList()
-            if (list.isNotEmpty()) {
-                return Pair(fallbackTime, list)
-            }
-        } catch (_: Exception) {}
+    internal fun shouldSelfHealWithPreset(localSize: Int?, locallyVerified: Boolean, presetSize: Int): Boolean =
+        LappScheduleCacheStore.shouldSelfHealWithPreset(localSize, locallyVerified, presetSize)
 
-        return null
-    }
+    internal fun shouldRejectUpstreamScheduleOverwrite(fetchedSize: Int, existingSize: Int): Boolean =
+        LappScheduleCacheStore.shouldRejectUpstreamScheduleOverwrite(fetchedSize, existingSize)
 
-    private val COLLEGE_FILTER_ALIASES: Map<String, Set<String>> = mapOf(
-        "管理学院" to setOf("管理学院", "管理学院专业学位教育中心")
-    )
-
-    /**
-     * 精确匹配开课学院，避免子串包含（如 "理学院" 误匹配 "管理学院"）及空值穿透。
-     * 针对未单独列入下拉筛选项的归属单位（如 "管理学院专业学位教育中心"），按预设映射归并至所属学院。
-     */
-    fun matchesCollege(courseXy: String, selectedXy: String): Boolean {
-        val target = selectedXy.trim()
-        if (target.isEmpty() || target == "全部学院") return true
-        val actual = courseXy.trim()
-        if (actual.isEmpty()) return false
-        val acceptedNames = COLLEGE_FILTER_ALIASES[target]
-        return if (acceptedNames != null) {
-            actual in acceptedNames
-        } else {
-            actual == target
-        }
-    }
-
-    fun normalizeKeyword(input: String): String {
-        return input.trim()
-            .replace("（", "(")
-            .replace("）", ")")
-            .replace("【", "[")
-            .replace("】", "]")
-            .replace(" ", "")
-            .lowercase()
-    }
-
-    fun getFullSchoolScheduleCached(context: Context, xn: String, xq: String): Pair<Long, List<LappCourseItem>>? {
-        val key = "${xn.trim()}_${xq.trim()}"
-        fullScheduleMemoryCache[key]?.let { return it }
-
-        synchronized(fullScheduleMemoryCache) {
-            fullScheduleMemoryCache[key]?.let { return it }
-
-            // 1. 尝试检测并预备内置 APK 镜像包（Assets）
-            val safeXnUnderscore = xn.replace(Regex("[^a-zA-Z0-9]"), "_")
-            val safeXnDash = xn.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-            val safeXq = xq.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-            val candidateAssetNames = listOf(
-                "preset_schedule_${safeXnUnderscore}_${safeXq}.json",
-                "preset_schedule_${safeXnDash}_${safeXq}.json"
-            ).distinct()
-
-            var presetPair: Pair<Long, List<LappCourseItem>>? = null
-            for (assetName in candidateAssetNames) {
-                try {
-                    val assetJson = context.assets.open(assetName).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    val parsed = tryParseFullScheduleJson(assetJson, System.currentTimeMillis())
-                    if (parsed != null && parsed.second.isNotEmpty()) {
-                        presetPair = parsed
-                        Log.i(TAG, "Successfully loaded preset schedule asset: $assetName (${parsed.second.size} courses)")
-                        break
-                    }
-                } catch (_: Exception) {
-                    // Try next candidate asset name
-                }
-            }
-
-            // 2. 读取 AES-256-GCM 硬件加密缓存文件 (.enc)
-            val encFile = getFullEncryptedCacheFile(context, xn, xq)
-            var localPair: Pair<Long, List<LappCourseItem>>? = null
-            var locallyVerified = false
-            if (encFile.exists() && encFile.length() > 0L) {
-                try {
-                    val jsonStr = cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.readAndDecrypt(context, encFile)
-                    if (!jsonStr.isNullOrBlank()) {
-                        localPair = tryParseFullScheduleJson(jsonStr, encFile.lastModified())
-                        val metadata = JSONObject(jsonStr)
-                        locallyVerified = metadata.optBoolean("complete", false) &&
-                            metadata.optInt("expectedCount", -1) == localPair?.second?.size
-                        if (locallyVerified) verifiedFullSchedules.add(key)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read encrypted full schedule cache for $key", e)
-                }
-            }
-
-            // 3. 兼容读取旧版明文格式缓存 (.json)
-            if (localPair == null) {
-                val legacyFile = getLegacyCacheFile(context, xn, xq)
-                if (legacyFile.exists() && legacyFile.length() > 0L) {
-                    try {
-                        val jsonStr = legacyFile.readText(Charsets.UTF_8)
-                        localPair = tryParseFullScheduleJson(jsonStr, legacyFile.lastModified())
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to read legacy full schedule file cache for $key", e)
-                    }
-                }
-            }
-
-            // 4. 核心完整性自愈逻辑：
-            // 如果本地缓存为空、数据量异常偏小（例如上游返回空结果污染缓存，或因分页中断只写了部分数据）：
-            // 判定本地缓存为无效/残缺数据，立刻丢弃并强制回退到内置的完整镜像资产！
-            val presetSize = presetPair?.second?.size ?: 0
-            val localSize = localPair?.second?.size
-
-            if (presetPair != null && shouldSelfHealWithPreset(localSize, locallyVerified, presetSize)) {
-                Log.w(TAG, "Local cache is empty, incomplete or poisoned (localSize=$localSize vs presetSize=$presetSize, verified=$locallyVerified). Self-healing with built-in asset preset...")
-                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second, verified = true)
-                val finalPair = Pair(savedTime, presetPair.second)
-                fullScheduleMemoryCache[key] = finalPair
-                return finalPair
-            }
-
-            if (localPair != null && localPair.second.isNotEmpty()) {
-                if (locallyVerified || localPair.second.size >= 5000) {
-                    verifiedFullSchedules.add(key)
-                }
-                fullScheduleMemoryCache[key] = localPair
-                return localPair
-            }
-
-            if (presetPair != null && presetPair.second.isNotEmpty()) {
-                val savedTime = saveFullSchoolSchedule(context, xn, xq, presetPair.second, verified = true)
-                val finalPair = Pair(savedTime, presetPair.second)
-                fullScheduleMemoryCache[key] = finalPair
-                return finalPair
-            }
-
-            return null
-        }
-    }
-
-    internal fun shouldSelfHealWithPreset(localSize: Int?, locallyVerified: Boolean, presetSize: Int): Boolean {
-        if (presetSize <= 0) return false
-        if (localSize == null || localSize <= 0) return true
-        if (localSize < (presetSize * 0.5)) return true
-        return !locallyVerified && (localSize < 5000 || localSize < (presetSize * 0.8))
-    }
-
-    internal fun shouldRejectUpstreamScheduleOverwrite(fetchedSize: Int, existingSize: Int): Boolean {
-        if (fetchedSize <= 0) return true
-        if (existingSize >= 5000 && fetchedSize < (existingSize * 0.5)) return true
-        return false
-    }
-
-    private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>, verified: Boolean = false): Long {
-        val now = System.currentTimeMillis()
-        if (list.isEmpty()) {
-            Log.w(TAG, "Refusing to overwrite full schedule cache for ${xn.trim()}_${xq.trim()} with empty list")
-            return now
-        }
-        val key = "${xn.trim()}_${xq.trim()}"
-        fullScheduleMemoryCache[key] = Pair(now, list)
-        val isTrulyVerified = verified || list.size >= 5000
-        if (isTrulyVerified) verifiedFullSchedules.add(key) else verifiedFullSchedules.remove(key)
-        try {
-            val encFile = getFullEncryptedCacheFile(context, xn, xq)
-            val root = JSONObject().apply {
-                put("time", now)
-                put("complete", isTrulyVerified)
-                put("expectedCount", list.size)
-                put("items", gson.toJson(list))
-            }
-            cn.edu.usst.jwgl.data.local.ScheduleCacheCrypto.encryptAndWrite(context, encFile, root.toString())
-            Log.i(TAG, "Saved encrypted full schedule cache to ${encFile.absolutePath} (${list.size} courses)")
-            // 删除旧的明文文件（若存在）
-            val legacyFile = getLegacyCacheFile(context, xn, xq)
-            if (legacyFile.exists()) legacyFile.delete()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to write encrypted full schedule cache for $key", e)
-        }
-        return now
-    }
+    private fun saveFullSchoolSchedule(context: Context, xn: String, xq: String, list: List<LappCourseItem>, verified: Boolean = false): Long =
+        LappScheduleCacheStore.saveFullSchoolSchedule(context, xn, xq, list, verified)
 
     /**
      * 获取或拉取全校课表全量缓存（初次加载时全量分页拉取并缓存至本地）
@@ -982,7 +639,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
      * 查询开课学院列表（支持本地缓存）
      */
     suspend fun queryColleges(context: Context, forceRefresh: Boolean = false): Result<List<String>> = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences(PREF_LAPP_CACHE, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(LappScheduleCacheStore.PREF_LAPP_CACHE, Context.MODE_PRIVATE)
         if (!forceRefresh) {
             val cachedJson = prefs.getString("cached_colleges", null)
             if (!cachedJson.isNullOrEmpty()) {
@@ -1045,7 +702,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
             val courses = getFullSchoolScheduleCached(context, xn, xq)?.second
                 ?: fullScheduleMemoryCache.values.firstOrNull { it.second.isNotEmpty() }?.second
                 ?: return emptyList()
-            val aliasedChildren = COLLEGE_FILTER_ALIASES.flatMap { (parent, children) ->
+            val aliasedChildren = LappScheduleFilter.COLLEGE_FILTER_ALIASES.flatMap { (parent, children) ->
                 children.filter { it != parent }
             }.toSet()
             courses.asSequence()
@@ -1062,7 +719,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
     /**
      * 全部已知教室的全局定义索引（保证按编号从小到大严格升序展示）
      */
-    val ALL_KNOWN_CLASSROOMS_ORDER: Map<String, Int> = KNOWN_CLASSROOMS_BY_BUILDING.values
+    val ALL_KNOWN_CLASSROOMS_ORDER: Map<String, Int> = LappScheduleFilter.KNOWN_CLASSROOMS_BY_BUILDING.values
         .flatten()
         .withIndex()
         .associate { it.value to it.index }
@@ -1141,7 +798,7 @@ val ALL_KNOWN_BUILDINGS = listOf(
 
             // 动态发现全校排课数据中的教室，补充至对应教学楼集合中（CLS-02）
             val discoveredClassroomsByBuilding = mutableMapOf<String, MutableSet<String>>()
-            for ((bName, rooms) in KNOWN_CLASSROOMS_BY_BUILDING) {
+            for ((bName, rooms) in LappScheduleFilter.KNOWN_CLASSROOMS_BY_BUILDING) {
                 discoveredClassroomsByBuilding[bName] = LinkedHashSet(rooms)
             }
 

@@ -18,4 +18,12 @@ internal class SessionValidationWindow(
         if (token.isNullOrBlank()) sessions.remove(account)
         else sessions[account] = Verified(token, now())
     }
+
+    @Synchronized fun invalidate(account: String) {
+        sessions.remove(account)
+    }
+
+    @Synchronized fun clear() {
+        sessions.clear()
+    }
 }

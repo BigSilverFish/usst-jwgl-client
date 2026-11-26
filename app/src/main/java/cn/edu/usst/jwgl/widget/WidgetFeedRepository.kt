@@ -4,9 +4,11 @@ import android.content.Context
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
+import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.UnifiedBulletin
 import cn.edu.usst.jwgl.data.model.UnifiedTodo
 import cn.edu.usst.jwgl.data.network.ChaoXingClient
+import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -28,10 +30,12 @@ object WidgetFeedRepository {
         val nowMs = System.currentTimeMillis()
         try {
             val account = AuthPreferences.currentStudentId(context)
-            // 1. 超星待办
-            val cxTodos = ChaoXingPreferences(context).getCachedTodos(account)
-                .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
-            list.addAll(cxTodos)
+            // 1. 超星待办（仅双平台融合模式开启时纳入）
+            if (TronClassPreferences.getInstance(context).isDualPlatformModeEnabled()) {
+                val cxTodos = ChaoXingPreferences(context).getCachedTodos(account)
+                    .filterNot { it.isOverdue() || it.isLocked || it.isSubmitted }
+                list.addAll(cxTodos)
+            }
 
             // 2. 畅课待办
             val tcTodos = TronClassDataCacheManager(context).getCachedTodos()
@@ -75,9 +79,11 @@ object WidgetFeedRepository {
                 .map { UnifiedBulletin.fromTronClass(it) }
             list.addAll(tcBulletins)
 
-            // 2. 超星学习通课程通知
-            val cxNotices = ChaoXingPreferences(context).getCachedNotices(account)
-            list.addAll(cxNotices)
+            // 2. 超星学习通课程通知（仅双平台融合模式开启时纳入）
+            if (TronClassPreferences.getInstance(context).isDualPlatformModeEnabled()) {
+                val cxNotices = ChaoXingPreferences(context).getCachedNotices(account)
+                list.addAll(cxNotices)
+            }
         } catch (_: Exception) {
         }
 
@@ -151,16 +157,29 @@ object WidgetFeedRepository {
             }
         }
 
-        // 2. 超星学习通同步
+        // 2. 超星学习通同步（仅双平台模式开启、已登录且未在冷却期且超过后台节流间隔时顺序同步）
         val cxJob = async {
             try {
+                if (!TronClassPreferences.getInstance(appContext).isDualPlatformModeEnabled()) {
+                    return@async false
+                }
+                if (ChaoXingRequestGuard.isCircuitOpen(appContext)) {
+                    return@async false
+                }
                 val cxClient = ChaoXingClient(appContext)
                 if (!cxClient.isLoggedIn()) return@async false
-                val todosDef = async { cxClient.fetchTodos() }
-                val noticesDef = async { cxClient.fetchNotices() }
-                val todosRes = todosDef.await()
-                val noticesRes = noticesDef.await()
+                val cxAccount = AuthPreferences.currentStudentId(appContext)
+                if (ChaoXingRequestGuard.isBackgroundSyncFresh(cxAccount)) {
+                    return@async false
+                }
+                val todosRes = cxClient.fetchTodos(resolveMissingDeadlines = false)
+                val noticesRes = if (!ChaoXingRequestGuard.isCircuitOpen(appContext)) {
+                    cxClient.fetchNotices()
+                } else {
+                    Result.failure(Exception("风控保护冷却中"))
+                }
                 if (todosRes.isSuccess || noticesRes.isSuccess) {
+                    ChaoXingRequestGuard.markBackgroundSyncNow(cxAccount)
                     anyUpdated = true
                 }
                 true

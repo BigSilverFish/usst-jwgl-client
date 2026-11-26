@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.network.ChaoXingClient
+import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.databinding.ActivityChaoxingLoginBinding
 import cn.edu.usst.jwgl.util.CookieSyncHelper
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,8 @@ class ChaoXingLoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChaoxingLoginBinding
     private lateinit var client: ChaoXingClient
     private var isHandlingSuccess = false
+    private var targetStudentId: String = ""
+    private var hasStartedLoginNavigation = false
 
     companion object {
         private const val TAG = "ChaoXingLoginActivity"
@@ -69,23 +72,35 @@ class ChaoXingLoginActivity : AppCompatActivity() {
     }
 
     private fun loadLoginPage() {
+        targetStudentId = AuthPreferences.currentStudentId(this).trim()
+        hasStartedLoginNavigation = false
         binding.layoutLoading.visibility = View.VISIBLE
-        binding.tvLoadingMsg.text = "正在通过学校统一身份认证 (SSO) 接入超星学习通..."
+        binding.tvLoadingMsg.text = "正在清理旧会话并接入超星学习通..."
 
-        // 1. 将教务已有的 CAS Cookie (CASTGC) 注入 WebView，实现免密静默登录
-        CookieSyncHelper.syncJwglCookiesToWebView()
-        CookieSyncHelper.syncChaoXingCookiesToWebView(this)
-
-        // 2. 加载 USST SSO CAS 入口
-        binding.webView.loadUrl(SSO_URL)
-
-        // 6秒兜底：若网络较慢未自动触发隐藏加载框，确保 WebView 展现
-        binding.root.postDelayed({
-            if (!isFinishing && !isDestroyed && !isHandlingSuccess) {
-                binding.layoutLoading.visibility = View.GONE
-                binding.webView.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                // 必须先彻底清除 WebView 中遗留的旧账号 .chaoxing.com 与 ids6 Cookie
+                CookieSyncHelper.clearWebViewCookiesBlocking()
+                // 仅当 JwglClient 当前内存会话确实属于当前目标学号时才注入 CASTGC
+                if (targetStudentId.isNotBlank() &&
+                    cn.edu.usst.jwgl.data.network.JwglClient.getSessionOwnerStudentId() == targetStudentId
+                ) {
+                    CookieSyncHelper.syncJwglCookiesToWebView()
+                }
             }
-        }, 6000)
+            if (isFinishing || isDestroyed) return@launch
+            hasStartedLoginNavigation = true
+            binding.tvLoadingMsg.text = "正在通过学校统一身份认证 (SSO) 接入超星学习通..."
+            binding.webView.loadUrl(SSO_URL)
+
+            // 6秒兜底：若网络较慢未自动触发隐藏加载框，确保 WebView 展现
+            binding.root.postDelayed({
+                if (!isFinishing && !isDestroyed && !isHandlingSuccess) {
+                    binding.layoutLoading.visibility = View.GONE
+                    binding.webView.visibility = View.VISIBLE
+                }
+            }, 6000)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -188,7 +203,7 @@ class ChaoXingLoginActivity : AppCompatActivity() {
      * 实时检测是否已成功完成超星账号鉴权并捕获 Session
      */
     private fun checkAndHandleLoginSuccess(url: String): Boolean {
-        if (isHandlingSuccess) return true
+        if (isHandlingSuccess || !hasStartedLoginNavigation) return isHandlingSuccess
 
         val cookieManager = CookieManager.getInstance()
         val passportCookie = cookieManager.getCookie("https://passport2.chaoxing.com/") ?: ""
@@ -205,6 +220,23 @@ class ChaoXingLoginActivity : AppCompatActivity() {
                 (url.contains("passport2.chaoxing.com") && !url.contains("/login"))
 
         if (!uid.isNullOrBlank() && (isTargetUrl || passportCookie.contains("UID="))) {
+            val activeSid = targetStudentId.ifBlank { AuthPreferences.currentStudentId(this).trim() }
+            val conflictOwner = ChaoXingPreferences(this).findConflictingStudentForUid(activeSid, uid)
+            if (conflictOwner != null) {
+                Log.w(TAG, "Detected stale ChaoXing WebView UID=$uid belonging to $conflictOwner, clearing and reloading for $activeSid")
+                hasStartedLoginNavigation = false
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        CookieSyncHelper.clearWebViewCookiesBlocking()
+                    }
+                    if (!isFinishing && !isDestroyed) {
+                        hasStartedLoginNavigation = true
+                        binding.webView.loadUrl(FALLBACK_LOGIN_URL)
+                    }
+                }
+                return true
+            }
+
             isHandlingSuccess = true
             binding.layoutLoading.visibility = View.VISIBLE
             binding.tvLoadingMsg.text = "超星学习通 SSO 验证成功，正在同步课程数据..."
@@ -212,8 +244,9 @@ class ChaoXingLoginActivity : AppCompatActivity() {
 
             lifecycleScope.launch {
                 withContext(Dispatchers.IO) {
-                    CookieSyncHelper.syncWebViewCookiesToChaoXing(this@ChaoXingLoginActivity)
-                    client.fetchCourses()
+                    ChaoXingRequestGuard.clearCooldown(this@ChaoXingLoginActivity)
+                    CookieSyncHelper.syncWebViewCookiesToChaoXing(this@ChaoXingLoginActivity, activeSid)
+                    client.fetchCourses(activeSid)
                 }
 
                 setResult(RESULT_OK)

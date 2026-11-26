@@ -10,6 +10,7 @@ import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.RollcallSubmissionStore
 import cn.edu.usst.jwgl.data.model.*
+import cn.edu.usst.jwgl.util.ChaoXingRiskControlException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
@@ -46,9 +47,10 @@ import javax.crypto.spec.SecretKeySpec
  */
 class ChaoXingClient(private val context: Context) {
 
-    private val prefs = ChaoXingPreferences(context)
+    private val appContext = context.applicationContext
+    private val prefs = ChaoXingPreferences(appContext)
     private val gson = Gson()
-    private class CookieOwner(val account: String, val persistResponse: Boolean = true) {
+    internal class CookieOwner(val account: String, val persistResponse: Boolean = true) {
         var acceptedCookies: String? = null
     }
     private fun Request.Builder.forAccount(account: String, persistResponse: Boolean = true) =
@@ -56,10 +58,130 @@ class ChaoXingClient(private val context: Context) {
 
     companion object {
         private const val TAG = "ChaoXingClient"
+        private const val MAX_DDL_PROBE_COUNT = 3
         private val sessionRequests = SharedRequest<Result<Boolean>>(
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
         )
         private val verifiedSessions = SessionValidationWindow(now = { android.os.SystemClock.elapsedRealtime() })
+        @Volatile
+        private var sharedOkHttpClient: OkHttpClient? = null
+
+        private fun getOrCreateSharedClient(appContext: Context): OkHttpClient {
+            return sharedOkHttpClient ?: synchronized(this) {
+                sharedOkHttpClient ?: buildSharedClient(appContext).also { sharedOkHttpClient = it }
+            }
+        }
+
+        private fun buildSharedClient(appContext: Context): OkHttpClient {
+            val sharedPrefs = ChaoXingPreferences(appContext)
+            val dispatcher = okhttp3.Dispatcher().apply {
+                maxRequests = 4
+                maxRequestsPerHost = 2
+            }
+            return OkHttpClient.Builder()
+                .dispatcher(dispatcher)
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .addInterceptor { chain ->
+                    val orig = chain.request()
+                    val owner = orig.tag(CookieOwner::class.java) ?: CookieOwner(AuthPreferences(appContext).getStudentId())
+                    val withDefaults = ChaoXingRequestGuard.applyDefaultHeaders(orig)
+                    val reqBuilder = withDefaults.newBuilder()
+                        .tag(CookieOwner::class.java, owner)
+
+                    val host = orig.url.host.lowercase()
+                    val isChaoXing = ChaoXingRequestGuard.isChaoXingHost(host)
+
+                    if (isChaoXing) {
+                        ChaoXingRequestGuard.checkCircuitOrThrow(appContext)
+                        ChaoXingRequestGuard.awaitPacingSlot()
+                        if (owner.persistResponse && owner.account.isNotBlank()) {
+                            val cookies = sharedPrefs.getCookies(owner.account)
+                            if (!cookies.isNullOrBlank() && orig.header("Cookie") == null) {
+                                reqBuilder.header("Cookie", cookies)
+                            }
+                        }
+                    }
+
+                    val request = reqBuilder.build()
+                    val expectedCookies = request.header("Cookie")
+                    val resp = chain.proceed(request)
+
+                    if (isChaoXing) {
+                        val riskSignal = ChaoXingRequestGuard.inspectResponseForRisk(resp)
+                        if (riskSignal != null) {
+                            val until = ChaoXingRequestGuard.tripCircuit(appContext, riskSignal)
+                            resp.close()
+                            throw ChaoXingRiskControlException(
+                                until,
+                                ChaoXingRequestGuard.buildCooldownMessage(until, riskSignal.reason)
+                            )
+                        }
+                    }
+
+                    // 监听响应中的 Set-Cookie 并智能合并
+                    val responseHost = resp.request.url.host.lowercase()
+                    if (isChaoXing && owner.persistResponse && !chain.call().isCanceled() && resp.isSuccessful &&
+                        ChaoXingRequestGuard.isChaoXingHost(responseHost)) {
+                        val setCookies = resp.headers("Set-Cookie")
+                        if (setCookies.isNotEmpty()) {
+                            owner.acceptedCookies = mergeAndSaveCookiesInternal(sharedPrefs, setCookies, owner.account, expectedCookies)
+                        }
+                    }
+
+                    resp
+                }
+                .build()
+        }
+
+        private fun mergeAndSaveCookiesInternal(
+            sharedPrefs: ChaoXingPreferences,
+            newCookies: List<String>,
+            account: String,
+            expectedCookies: String?
+        ): String? = synchronized(ChaoXingPreferences.sessionLock) {
+            if (account.isBlank() || expectedCookies.isNullOrBlank() || sharedPrefs.getCookies(account) != expectedCookies) return@synchronized null
+            val currentUid = sharedPrefs.getUid(account).orEmpty()
+            if (currentUid.isBlank()) return@synchronized null
+            val cookieMap = LinkedHashMap<String, String>()
+
+            val pairs = expectedCookies.split(";")
+            for (p in pairs) {
+                val trimmed = p.trim()
+                val idx = trimmed.indexOf('=')
+                if (idx > 0) {
+                    cookieMap[trimmed.substring(0, idx).trim()] = trimmed.substring(idx + 1).trim()
+                }
+            }
+
+            var newUid: String? = null
+            for (item in newCookies) {
+                val part = item.split(";")[0].trim()
+                val idx = part.indexOf('=')
+                if (idx > 0) {
+                    val k = part.substring(0, idx).trim()
+                    val v = part.substring(idx + 1).trim()
+                    cookieMap[k] = v
+                    if (k.equals("UID", ignoreCase = true) || k.equals("_uid", ignoreCase = true)) {
+                        newUid = v
+                    }
+                }
+            }
+
+            val merged = cookieMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
+            if (!newUid.isNullOrBlank() && newUid != currentUid) return@synchronized null
+
+            sharedPrefs.saveLoginSession(
+                cookies = merged,
+                uid = if (!newUid.isNullOrBlank()) newUid else currentUid,
+                studentNo = account,
+                schoolId = USST_FID,
+                schoolName = USST_SCHOOL_NAME
+            )
+            merged
+        }
 
         // 超星常用端点
         const val USST_FID = "207"
@@ -222,46 +344,7 @@ class ChaoXingClient(private val context: Context) {
         }
     }
 
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .addInterceptor { chain ->
-            val orig = chain.request()
-            val owner = orig.tag(CookieOwner::class.java) ?: CookieOwner(AuthPreferences(context).getStudentId())
-            val reqBuilder = orig.newBuilder()
-                .tag(CookieOwner::class.java, owner)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                .header("Accept-Language", "zh-CN,zh;q=0.9")
-
-            val host = orig.url.host.lowercase()
-            val isChaoXing = host.endsWith(".chaoxing.com") || host == "chaoxing.com"
-
-            if (isChaoXing && owner.persistResponse && owner.account.isNotBlank()) {
-                val cookies = prefs.getCookies(owner.account)
-                if (!cookies.isNullOrBlank() && orig.header("Cookie") == null) {
-                    reqBuilder.header("Cookie", cookies)
-                }
-            }
-
-            val request = reqBuilder.build()
-            val expectedCookies = request.header("Cookie")
-            val resp = chain.proceed(request)
-
-            // 监听响应中的 Set-Cookie 并智能合并
-            val responseHost = resp.request.url.host.lowercase()
-            if (isChaoXing && owner.persistResponse && !chain.call().isCanceled() && resp.isSuccessful &&
-                (responseHost.endsWith(".chaoxing.com") || responseHost == "chaoxing.com")) {
-                val setCookies = resp.headers("Set-Cookie")
-                if (setCookies.isNotEmpty()) {
-                    owner.acceptedCookies = mergeAndSaveCookies(setCookies, owner.account, expectedCookies)
-                }
-            }
-
-            resp
-        }
-        .build()
+    private val okHttpClient: OkHttpClient = getOrCreateSharedClient(appContext)
 
     private val submissionClient = okHttpClient.newBuilder()
         .retryOnConnectionFailure(false)
@@ -275,59 +358,6 @@ class ChaoXingClient(private val context: Context) {
     fun getUserInfo(): ChaoXingUserInfo = prefs.getUserInfo()
 
     fun getOkHttpClient(): OkHttpClient = okHttpClient
-
-    /**
-     * 合并并保存响应中的 Set-Cookie
-     */
-    private fun mergeAndSaveCookies(newCookies: List<String>, account: String, expectedCookies: String?): String? =
-        synchronized(ChaoXingPreferences.sessionLock) {
-        if (account.isBlank() || expectedCookies.isNullOrBlank() || prefs.getCookies(account) != expectedCookies) return@synchronized null
-        val currentCookieStr = expectedCookies
-        val currentUid = prefs.getUid(account).orEmpty()
-        if (currentUid.isBlank()) return@synchronized null
-        val cookieMap = LinkedHashMap<String, String>()
-
-        // 解析当前已有 Cookie
-        if (currentCookieStr.isNotBlank()) {
-            val pairs = currentCookieStr.split(";")
-            for (p in pairs) {
-                val trimmed = p.trim()
-                val idx = trimmed.indexOf('=')
-                if (idx > 0) {
-                    val k = trimmed.substring(0, idx).trim()
-                    val v = trimmed.substring(idx + 1).trim()
-                    cookieMap[k] = v
-                }
-            }
-        }
-
-        // 合并新收到的 Set-Cookie
-        var newUid: String? = null
-        for (item in newCookies) {
-            val part = item.split(";")[0].trim()
-            val idx = part.indexOf('=')
-            if (idx > 0) {
-                val k = part.substring(0, idx).trim()
-                val v = part.substring(idx + 1).trim()
-                cookieMap[k] = v
-                if (k.equals("UID", ignoreCase = true) || k.equals("_uid", ignoreCase = true)) {
-                    newUid = v
-                }
-            }
-        }
-
-        val merged = cookieMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
-        if (!newUid.isNullOrBlank() && newUid != currentUid) return@synchronized null
-
-        prefs.saveLoginSession(
-            cookies = merged,
-            uid = if (!newUid.isNullOrBlank()) newUid else currentUid,
-            studentNo = account,
-            schoolId = USST_FID,
-            schoolName = USST_SCHOOL_NAME
-        )
-        merged
-    }
 
     /**
      * 1. 机构账号直连极速登录 (上海理工大学 fid=207)
@@ -437,10 +467,12 @@ class ChaoXingClient(private val context: Context) {
      * 2.1 基于上海理工大学统一身份认证 (CAS SSO) 换票登录 (参考 extrisha/litang)
      * 利用教务已有 CASTGC 或保存的学校账号密码，走 ids6 -> tyrzfw 跳转链直接换取超星登录态，无需单独输入超星密码
      */
-    suspend fun loginWithCasSso(forceEntry: Boolean = false): Result<ChaoXingLoginResponse> = withContext(Dispatchers.IO) {
-        val ssoResult = ChaoXingSsoClient.loginWithCas(context, forceEntry)
+    suspend fun loginWithCasSso(
+        forceEntry: Boolean = false,
+        targetStudentId: String? = null
+    ): Result<ChaoXingLoginResponse> = withContext(Dispatchers.IO) {
+        val ssoResult = ChaoXingSsoClient.loginWithCas(context, forceEntry, targetStudentId)
         if (ssoResult.isSuccess) {
-            val userInfo = prefs.getUserInfo()
             Result.success(
                 ChaoXingLoginResponse(
                     status = true,
@@ -457,17 +489,15 @@ class ChaoXingClient(private val context: Context) {
      * 2. 全静默单点登录 (优先走 USST CAS SSO，失败时自动联动 AccountVault 解密本地密码换票)
      */
     suspend fun silentLoginChaoXing(studentId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
-        // 1. 优先通过学校统一身份认证 (CAS SSO) 换票登录 (与 extrisha/litang 完全一致)
-        val ssoRes = loginWithCasSso()
-        if (ssoRes.isSuccess) {
-            Log.i(TAG, "silentLoginChaoXing succeeded via USST CAS SSO")
-            return@withContext Result.success(true)
+        try {
+            ChaoXingRequestGuard.checkCircuitOrThrow(appContext)
+        } catch (e: ChaoXingRiskControlException) {
+            return@withContext Result.failure(e)
         }
-        Log.w(TAG, "silentLoginChaoXing: CAS SSO failed, trying fallback to institutional password login...", ssoRes.exceptionOrNull())
 
-        val targetSid = if (!studentId.isNullOrBlank()) studentId else {
+        val targetSid = if (!studentId.isNullOrBlank()) studentId.trim() else {
             try {
-                AuthPreferences(context).getStudentId()
+                AuthPreferences(context).getStudentId().trim()
             } catch (_: Exception) {
                 ""
             }
@@ -476,6 +506,14 @@ class ChaoXingClient(private val context: Context) {
         if (targetSid.isBlank()) {
             return@withContext Result.failure(Exception("无法获取当前学生学号"))
         }
+
+        // 1. 优先通过学校统一身份认证 (CAS SSO) 换票登录，显式绑定目标学号
+        val ssoRes = loginWithCasSso(targetStudentId = targetSid)
+        if (ssoRes.isSuccess) {
+            Log.i(TAG, "silentLoginChaoXing succeeded via USST CAS SSO for $targetSid")
+            return@withContext Result.success(true)
+        }
+        Log.w(TAG, "silentLoginChaoXing: CAS SSO failed, trying fallback to institutional password login...", ssoRes.exceptionOrNull())
 
         val pwd = try {
             AccountVault.getInstance(context).getAccountPassword(targetSid)
@@ -553,9 +591,17 @@ class ChaoXingClient(private val context: Context) {
 
     /**
      * 4. 确保当前账号拥有有效的超星 Session
-     * 策略：本地有效Session探活 -> 失败则静默重登恢复
+     * 策略：本地有效Session探活 -> 失败则按需静默重登恢复
      */
-    suspend fun ensureSession(studentId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun ensureSession(
+        studentId: String? = null,
+        allowSilentLogin: Boolean = true
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            ChaoXingRequestGuard.checkCircuitOrThrow(appContext)
+        } catch (e: ChaoXingRiskControlException) {
+            return@withContext Result.failure(e)
+        }
         val sid = studentId ?: prefs.getStudentNo().ifBlank {
             try {
                 AuthPreferences(context).getStudentId()
@@ -566,10 +612,17 @@ class ChaoXingClient(private val context: Context) {
         if (sid.isBlank()) return@withContext Result.failure(Exception("请先选择学习通账号"))
 
         val cookies = prefs.getCookies(sid)
-        sessionRequests.await("$sid/$cookies") { ensureSessionForAccount(sid) }
+        sessionRequests.await("$sid/$cookies/$allowSilentLogin") {
+            ensureSessionForAccount(sid, allowSilentLogin)
+        }
     }
 
-    private suspend fun ensureSessionForAccount(sid: String): Result<Boolean> {
+    private suspend fun ensureSessionForAccount(sid: String, allowSilentLogin: Boolean): Result<Boolean> {
+        try {
+            ChaoXingRequestGuard.checkCircuitOrThrow(appContext)
+        } catch (e: ChaoXingRiskControlException) {
+            return Result.failure(e)
+        }
         var failedCookies = prefs.getCookies(sid)
         // 1. 同一账号和 Cookie 的成功探活在短期内复用。
         if (prefs.isLoggedIn(sid)) {
@@ -586,6 +639,10 @@ class ChaoXingClient(private val context: Context) {
                 verifiedSessions.record(sid, probe.cookies)
                 return Result.success(true)
             }
+        }
+
+        if (!allowSilentLogin) {
+            return Result.failure(Exception("超星学习通会话未登录或已过期"))
         }
 
         // 2. 会话无效或已过期，触发静默登录
@@ -714,7 +771,10 @@ class ChaoXingClient(private val context: Context) {
     /**
      * 6. 拉取超星全局未完成/待办作业列表 (转换为 UnifiedTodo)
      */
-    suspend fun fetchTodos(studentId: String? = null): Result<List<UnifiedTodo>> = withContext(Dispatchers.IO) {
+    suspend fun fetchTodos(
+        studentId: String? = null,
+        resolveMissingDeadlines: Boolean = false
+    ): Result<List<UnifiedTodo>> = withContext(Dispatchers.IO) {
         val account = studentId ?: AuthPreferences(context).getStudentId()
         val ensureRes = ensureSession(account)
         if (ensureRes.isFailure) {
@@ -724,22 +784,29 @@ class ChaoXingClient(private val context: Context) {
         val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
 
         try {
-            val req = Request.Builder()
-                .url(STU_WORK_URL)
-                .forAccount(account)
-                .header("Cookie", cookies)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .get()
-                .build()
+            val cachedHtml = ChaoXingRequestGuard.getCachedStuWorkHtml(account)
+            val html = if (!cachedHtml.isNullOrBlank()) {
+                cachedHtml
+            } else {
+                val req = Request.Builder()
+                    .url(STU_WORK_URL)
+                    .forAccount(account)
+                    .header("Cookie", cookies)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .get()
+                    .build()
 
-            val resp = okHttpClient.newCall(req).execute()
-            val html = resp.body?.string() ?: ""
-            if (!resp.isSuccessful || html.isBlank()) {
-                return@withContext Result.failure(Exception("获取超星待办失败 (${resp.code})，已保留原缓存"))
+                val resp = okHttpClient.newCall(req).execute()
+                val fetchedHtml = resp.body?.string() ?: ""
+                if (!resp.isSuccessful || fetchedHtml.isBlank()) {
+                    return@withContext Result.failure(Exception("获取超星待办失败 (${resp.code})，已保留原缓存"))
+                }
+                ChaoXingRequestGuard.putCachedStuWorkHtml(account, fetchedHtml)
+                fetchedHtml
             }
 
             val todoList = mutableListOf<UnifiedTodo>()
-            if (resp.isSuccessful && html.isNotBlank()) {
+            if (html.isNotBlank()) {
                 val doc = Jsoup.parse(html)
                 val items = doc.select("ul.stu-work-list > li, .work-list > li, ul > li[data], li[data], li[onclick*='goTask']")
                 val recognizedContainer = doc.select("ul.stu-work-list, .work-list").isNotEmpty()
@@ -860,93 +927,97 @@ class ChaoXingClient(private val context: Context) {
                     return@withContext Result.failure(Exception("超星待办条目格式无法识别，已保留原缓存"))
                 }
 
-                // 针对未提交且未解析出截止时间的作业，并发进行轻量探测
-                val needDdlItems = todoList.filter { it.deadlineMillis == null && !it.detailUrl.isNullOrBlank() }
+                // 仅在显式要求时对缺失截止时间的作业进行顺序、限量的轻量探测（默认关闭，防止首页同步请求风暴）
+                val needDdlItems = if (resolveMissingDeadlines) {
+                    todoList.filter { it.deadlineMillis == null && !it.detailUrl.isNullOrBlank() }
+                        .take(MAX_DDL_PROBE_COUNT)
+                } else {
+                    emptyList()
+                }
                 if (needDdlItems.isNotEmpty()) {
                     val cpi = prefs.getUid(account).orEmpty()
-                    coroutineScope {
-                        val ddlTasks = needDdlItems.map { todo ->
-                            async {
-                                try {
-                                    var targetUrl = if (todo.detailUrl!!.startsWith("http")) todo.detailUrl!! else "https://mooc1.chaoxing.com${todo.detailUrl}"
-                                    targetUrl = targetUrl.replace("&amp;", "&")
-                                    if (cpi.isNotBlank() && !targetUrl.contains("cpi=")) {
-                                        targetUrl += if (targetUrl.contains("?")) "&cpi=$cpi" else "?cpi=$cpi"
-                                    }
-                                    val reqDetail = Request.Builder()
-                                        .url(targetUrl)
-                                        .forAccount(account)
-                                        .header("Cookie", cookies)
-                                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                                        .get()
-                                        .build()
-                                    val respDetail = okHttpClient.newCall(reqDetail).execute()
-                                    val detailHtml = respDetail.body?.string().orEmpty()
-                                    var isDetailExpired = detailHtml.contains("task-work-gray") ||
-                                            detailHtml.contains("已截止") ||
-                                            detailHtml.contains("已结束") ||
-                                            detailHtml.contains("已逾期")
-                                    var extractedDdl = ChaoXingCourseDetailClient.extractDeadlineFromText(detailHtml, detailHtml)
+                    val resolved = mutableListOf<Triple<String, Long?, Boolean>>()
+                    for (todo in needDdlItems) {
+                        if (ChaoXingRequestGuard.isCircuitOpen(appContext)) break
+                        try {
+                            var targetUrl = if (todo.detailUrl!!.startsWith("http")) todo.detailUrl!! else "https://mooc1.chaoxing.com${todo.detailUrl}"
+                            targetUrl = targetUrl.replace("&amp;", "&")
+                            if (cpi.isNotBlank() && !targetUrl.contains("cpi=")) {
+                                targetUrl += if (targetUrl.contains("?")) "&cpi=$cpi" else "?cpi=$cpi"
+                            }
+                            val reqDetail = Request.Builder()
+                                .url(targetUrl)
+                                .forAccount(account)
+                                .header("Cookie", cookies)
+                                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                                .get()
+                                .build()
+                            val respDetail = okHttpClient.newCall(reqDetail).execute()
+                            val detailHtml = respDetail.body?.string().orEmpty()
+                            var isDetailExpired = detailHtml.contains("task-work-gray") ||
+                                    detailHtml.contains("已截止") ||
+                                    detailHtml.contains("已结束") ||
+                                    detailHtml.contains("已逾期")
+                            var extractedDdl = ChaoXingCourseDetailClient.extractDeadlineFromText(detailHtml, detailHtml)
 
-                                    // 若一级引导页未直接包含截止时间，深入解析二级答题/查看详情页
-                                    if (extractedDdl.isBlank() && !isDetailExpired) {
-                                        val lookMatch = Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"]|location\.href\s*=\s*['"]|window\.location(?:\.href)?\s*=\s*['"])(/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(detailHtml)
-                                            ?: Regex("""['"](/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(detailHtml)
-                                        val subPath = lookMatch?.groupValues?.get(1)?.trim()?.replace("&amp;", "&").orEmpty()
-                                        if (subPath.isNotBlank()) {
-                                            val hostBase = if (targetUrl.contains("mooc1-api.chaoxing.com")) {
-                                                "https://mooc1-api.chaoxing.com/mooc-ans"
-                                            } else {
-                                                "https://mooc1.chaoxing.com/mooc-ans"
+                            // 若一级引导页未直接包含截止时间，深入解析二级答题/查看详情页
+                            if (extractedDdl.isBlank() && !isDetailExpired && !ChaoXingRequestGuard.isCircuitOpen(appContext)) {
+                                val lookMatch = Regex("""(?:location\.origin\s*\+\s*_CP_\s*\+\s*['"]|href=['"]|url\s*=\s*['"]|location\.href\s*=\s*['"]|window\.location(?:\.href)?\s*=\s*['"])(/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(detailHtml)
+                                    ?: Regex("""['"](/work/phone/(?:selectWorkQuestion|doHomeWork)[^'"]+)""").find(detailHtml)
+                                val subPath = lookMatch?.groupValues?.get(1)?.trim()?.replace("&amp;", "&").orEmpty()
+                                if (subPath.isNotBlank()) {
+                                    val hostBase = if (targetUrl.contains("mooc1-api.chaoxing.com")) {
+                                        "https://mooc1-api.chaoxing.com/mooc-ans"
+                                    } else {
+                                        "https://mooc1.chaoxing.com/mooc-ans"
+                                    }
+                                    val subUrl = if (subPath.startsWith("http")) subPath else hostBase + (if (subPath.startsWith("/")) subPath else "/$subPath")
+                                    try {
+                                        val reqSub = Request.Builder()
+                                            .url(subUrl)
+                                            .forAccount(account)
+                                            .header("Cookie", cookies)
+                                            .header("Referer", targetUrl)
+                                            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                                            .get()
+                                            .build()
+                                        val respSub = okHttpClient.newCall(reqSub).execute()
+                                        val subHtml = respSub.body?.string().orEmpty()
+                                        if (subHtml.isNotBlank()) {
+                                            val ddlSub = ChaoXingCourseDetailClient.extractDeadlineFromText(subHtml, subHtml)
+                                            if (ddlSub.isNotBlank()) {
+                                                extractedDdl = ddlSub
                                             }
-                                            val subUrl = if (subPath.startsWith("http")) subPath else hostBase + (if (subPath.startsWith("/")) subPath else "/$subPath")
-                                            try {
-                                                val reqSub = Request.Builder()
-                                                    .url(subUrl)
-                                                    .forAccount(account)
-                                                    .header("Cookie", cookies)
-                                                    .header("Referer", targetUrl)
-                                                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                                                    .get()
-                                                    .build()
-                                                val respSub = okHttpClient.newCall(reqSub).execute()
-                                                val subHtml = respSub.body?.string().orEmpty()
-                                                if (subHtml.isNotBlank()) {
-                                                    val ddlSub = ChaoXingCourseDetailClient.extractDeadlineFromText(subHtml, subHtml)
-                                                    if (ddlSub.isNotBlank()) {
-                                                        extractedDdl = ddlSub
-                                                    }
-                                                    if (subHtml.contains("已截止") || subHtml.contains("已结束") || subHtml.contains("已逾期")) {
-                                                        isDetailExpired = true
-                                                    }
-                                                }
-                                            } catch (_: Exception) {}
+                                            if (subHtml.contains("已截止") || subHtml.contains("已结束") || subHtml.contains("已逾期")) {
+                                                isDetailExpired = true
+                                            }
                                         }
-                                    }
-
-                                    val parsed = if (extractedDdl.isNotBlank()) parseDdlMillis(extractedDdl) else null
-                                    Triple(todo.unifiedId, parsed, isDetailExpired)
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "Failed to resolve deadline for ${todo.title}: ${e.message}")
-                                    null
+                                    } catch (_: Exception) {}
                                 }
                             }
+
+                            val parsed = if (extractedDdl.isNotBlank()) parseDdlMillis(extractedDdl) else null
+                            resolved.add(Triple(todo.unifiedId, parsed, isDetailExpired))
+                        } catch (e: ChaoXingRiskControlException) {
+                            Log.w(TAG, "DDL probe halted by risk control: ${e.message}")
+                            break
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to resolve deadline for ${todo.title}: ${e.message}")
                         }
-                        val resolved = ddlTasks.awaitAll().filterNotNull()
-                        for ((unifiedId, parsedMillis, isDetailExpired) in resolved) {
-                            val idx = todoList.indexOfFirst { it.unifiedId == unifiedId }
-                            if (idx >= 0) {
-                                if (isDetailExpired || (parsedMillis != null && parsedMillis < System.currentTimeMillis())) {
-                                    // 探测出已过期，直接移出待办作业
-                                    todoList.removeAt(idx)
-                                } else if (parsedMillis != null) {
-                                    val t = todoList[idx]
-                                    todoList[idx] = t.copy(
-                                        deadlineDate = Date(parsedMillis),
-                                        deadlineMillis = parsedMillis,
-                                        isLocked = false
-                                    )
-                                }
+                    }
+                    for ((unifiedId, parsedMillis, isDetailExpired) in resolved) {
+                        val idx = todoList.indexOfFirst { it.unifiedId == unifiedId }
+                        if (idx >= 0) {
+                            if (isDetailExpired || (parsedMillis != null && parsedMillis < System.currentTimeMillis())) {
+                                // 探测出已过期，直接移出待办作业
+                                todoList.removeAt(idx)
+                            } else if (parsedMillis != null) {
+                                val t = todoList[idx]
+                                todoList[idx] = t.copy(
+                                    deadlineDate = Date(parsedMillis),
+                                    deadlineMillis = parsedMillis,
+                                    isLocked = false
+                                )
                             }
                         }
                     }
@@ -1046,80 +1117,23 @@ class ChaoXingClient(private val context: Context) {
     /**
      * 8. 并发探测多门课程中当前正在进行中的签到活动
      */
-    suspend fun fetchActiveSignsForCourses(
-        courses: List<ChaoXingCourse>,
-        studentId: String? = null
-    ): Result<List<Pair<ChaoXingCourse, ChaoXingActiveItem>>> = withContext(Dispatchers.IO) {
-        val account = studentId ?: AuthPreferences(context).getStudentId()
-        val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
-
-        try {
-            coroutineScope {
-                val results = courses.map { course ->
-                    async {
-                        try {
-                            val url = "$ACTIVE_LIST_URL?courseId=${course.courseId}&classId=${course.classId}&fid=0&showNotStartedActive=0&_=${System.currentTimeMillis()}"
-                            val req = Request.Builder()
-                                .url(url)
-                                .forAccount(account)
-                                .header("Cookie", cookies)
-                                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                                .get()
-                                .build()
-
-                            val resp = okHttpClient.newCall(req).execute()
-                            val body = resp.body?.string() ?: ""
-                            if (!resp.isSuccessful || body.isBlank()) return@async emptyList<Pair<ChaoXingCourse, ChaoXingActiveItem>>()
-
-                            val parsed = gson.fromJson(body, ChaoXingActiveListResponse::class.java)
-                            val activeSigns = parsed.data?.activeList?.filter { it.isSignActivity() && it.isActive() } ?: emptyList()
-                            activeSigns.map { Pair(course, it) }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Check active sign failed for course: ${course.courseName}", e)
-                            emptyList<Pair<ChaoXingCourse, ChaoXingActiveItem>>()
-                        }
-                    }
-                }.awaitAll().flatten()
-
-                // 对探测到的签到活动进行深度配置探测与精准类型解析
-                val enrichedResults = results.map { pair ->
-                    async {
-                        val course = pair.first
-                        val item = pair.second
-                        val hintName = "${item.nameOne.orEmpty()} ${item.nameTwo.orEmpty()}".trim()
-                        val detailRes = fetchSignDetail(
-                            courseId = course.courseId,
-                            classId = course.classId,
-                            activeId = item.id,
-                            studentId = account,
-                            initialOtherId = item.otherId,
-                            initialHintName = hintName
-                        )
-                        if (detailRes.isSuccess) {
-                            item.signDetail = detailRes.getOrNull()
-                        }
-                        pair
-                    }
-                }.awaitAll()
-
-                Result.success(enrichedResults)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "fetchActiveSignsForCourses error", e)
-            Result.failure(e)
-        }
+    private val signService by lazy {
+        ChaoXingSignService(
+            context = context,
+            prefs = prefs,
+            gson = gson,
+            okHttpClient = okHttpClient,
+            submissionClient = submissionClient
+        )
     }
 
-    /**
-     * 8.1 深度探测超星签到活动配置与真实签到类型
-     * 双通道聚合 getPPTActiveInfo、activeList 原始标签与 preSign 可见 DOM 判定：
-     * 2 -> 二维码签到
-     * 3 -> 手势签到 (自动获取手势密码 signcode)
-     * 4 / 位置配置 -> 位置签到
-     * ifPhoto == 1 -> 拍照签到
-     * 5 / 带有 signcode / 签到码 -> 口令签到
-     * 普通签到
-     */
+    suspend fun fetchActiveSignsForCourses(
+        courses: List<ChaoXingCourse>,
+        studentId: String? = null,
+        maxCourses: Int = 12
+    ): Result<List<Pair<ChaoXingCourse, ChaoXingActiveItem>>> =
+        signService.fetchActiveSignsForCourses(courses, studentId, maxCourses)
+
     suspend fun fetchSignDetail(
         courseId: String,
         classId: String,
@@ -1128,177 +1142,11 @@ class ChaoXingClient(private val context: Context) {
         needConfigProbe: Boolean = true,
         initialOtherId: Int = -1,
         initialHintName: String = ""
-    ): Result<cn.edu.usst.jwgl.data.model.ChaoXingSignDetail> = withContext(Dispatchers.IO) {
-        val account = studentId ?: AuthPreferences(context).getStudentId()
-        val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
-        val uid = prefs.getUid(account) ?: ""
+    ): Result<cn.edu.usst.jwgl.data.model.ChaoXingSignDetail> =
+        signService.fetchSignDetail(
+            courseId, classId, activeId, studentId, needConfigProbe, initialOtherId, initialHintName
+        )
 
-        try {
-            var signCode: String? = null
-            var otherId = if (initialOtherId >= 0) initialOtherId else -1
-            var ifPhoto = false
-            var locationText: String? = null
-            var lat: Double? = null
-            var lng: Double? = null
-            var rawJson: String? = null
-
-            // 1. 请求 getPPTActiveInfo 接口获取配置 (进行中签到或需要提取口令时执行)
-            if (needConfigProbe) {
-                try {
-                    val infoUrl = "https://mobilelearn.chaoxing.com/v2/apis/active/getPPTActiveInfo?activeId=$activeId"
-                    val infoReq = Request.Builder()
-                        .url(infoUrl)
-                        .forAccount(account)
-                        .header("Cookie", cookies)
-                        .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                        .get()
-                        .build()
-                    val infoResp = okHttpClient.newCall(infoReq).execute()
-                    val infoBody = infoResp.body?.string().orEmpty()
-                    if (infoResp.isSuccessful && infoBody.isNotBlank()) {
-                        rawJson = infoBody
-                        val json = org.json.JSONObject(infoBody)
-                        val data = json.optJSONObject("data")
-                        if (data != null) {
-                            signCode = data.optString("signcode", data.optString("signCode", "")).trim().takeIf { it.isNotBlank() }
-                            val parsedOtherId = data.optInt("otherId", -1).let {
-                                if (it == -1) data.optString("otherId").toIntOrNull() ?: -1 else it
-                            }
-                            if (parsedOtherId > 0 || (parsedOtherId == 0 && otherId < 0)) {
-                                otherId = parsedOtherId
-                            }
-                            ifPhoto = data.optInt("ifPhoto", 0) == 1 ||
-                                    data.optString("ifPhoto") == "1" ||
-                                    data.optBoolean("ifPhoto", false)
-                            locationText = data.optString("locationText", "").trim().takeIf { it.isNotBlank() }
-                            val latVal = data.optDouble("locationLatitude", Double.NaN)
-                            if (!latVal.isNaN()) lat = latVal
-                            val lngVal = data.optDouble("locationLongitude", Double.NaN)
-                            if (!lngVal.isNaN()) lng = lngVal
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "getPPTActiveInfo failed: ${e.message}")
-                }
-            }
-
-            // 2. 请求 preSign 预签到接口进行学生真实出勤状态与落地页分析
-            var isAlreadySigned = false
-            var isLate = false
-            var isLeave = false
-            var isExpired = false
-            var statusText: String? = null
-            var preHtml = ""
-            var cleanBody = ""
-            var finalUrl = ""
-
-            try {
-                val preUrl = "$PRE_SIGN_URL?courseId=$courseId&classId=$classId&activePrimaryId=$activeId&uid=$uid&general=1&sys=1&ls=1&appType=15&ut=s"
-                val preReq = Request.Builder()
-                    .url(preUrl)
-                    .forAccount(account)
-                    .header("Cookie", cookies)
-                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                    .get()
-                    .build()
-                val preResp = okHttpClient.newCall(preReq).execute()
-                finalUrl = preResp.request.url.toString()
-                preHtml = preResp.body?.string().orEmpty()
-
-                // 使用 Jsoup 提取超星预签到落地页中向学生真实渲染的文本（过滤掉模板隐藏的 DOM/CSS/脚本）
-                val bodyText = if (preHtml.contains("<body")) preHtml.substringAfter("<body").substringBefore("</body>") else preHtml
-                cleanBody = Jsoup.parse(bodyText).text()
-
-                // 若 otherId 仍未确定，尝试从 preSign 隐藏表单中读取 otherId
-                if (otherId <= 0) {
-                    val htmlOtherId = Regex("""<input[^>]*id=["']otherId["'][^>]*value=["'](\d+)["']|<input[^>]*value=["'](\d+)["'][^>]*id=["']otherId["']""")
-                        .find(preHtml)?.let { m -> (m.groupValues[1].ifBlank { m.groupValues[2] }).toIntOrNull() }
-                    if (htmlOtherId != null && htmlOtherId > 0) {
-                        otherId = htmlOtherId
-                    }
-                }
-
-                // 超星预签到页面的多维度状态权威判据:
-                // 1. 缺勤 / 未参与: 页面可见文本明确包含 "缺勤" 或 "已过教师设置的截止时间" 等
-                val isAbsent = cleanBody.contains("缺勤") ||
-                        cleanBody.contains("未签到") ||
-                        cleanBody.contains("已过教师设置的截止时间") ||
-                        cleanBody.contains("下次早点哦") ||
-                        cleanBody.contains("签到已结束") ||
-                        cleanBody.contains("活动已结束") ||
-                        preHtml.contains("zsign_embarrassed")
-
-                if (cleanBody.contains("迟到")) {
-                    isLate = true
-                }
-                if (cleanBody.contains("请假") || cleanBody.contains("早退")) {
-                    isLeave = true
-                }
-
-                // 2. 出勤成功: 页面文本明确显示 "签到成功" / "代签" / "您已签到过了" 等 (且绝不能为缺勤/迟到/请假)
-                val hasSuccessMarker = !isAbsent && !isLate && !isLeave && (
-                    cleanBody.contains("签到成功") ||
-                    cleanBody.contains("代签") ||
-                    cleanBody.contains("您已签到过了") ||
-                    cleanBody.contains("已签到") ||
-                    finalUrl.contains("success") ||
-                    finalUrl.contains("tiaozhuanSuc")
-                )
-
-                if (hasSuccessMarker) {
-                    isAlreadySigned = true
-                } else if (isAbsent) {
-                    isExpired = true
-                    statusText = if (cleanBody.contains("缺勤")) "缺勤" else "未参与"
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "preSign probe failed: ${e.message}")
-            }
-
-            // 3. 综合多维度精确判定签到类型
-            // 优先采信权威结构化字段与 activeList 名称提示，再回退到可见正文 cleanBody / finalUrl，避免被原始 HTML 模板脚本中的 photo 等字样误伤
-            val isPhotoByConfig = ifPhoto || hasHiddenPhotoFlag(preHtml)
-            val typeDisplayName = resolveSignTypeDisplayName(
-                otherId = otherId,
-                initialHintName = initialHintName,
-                ifPhoto = isPhotoByConfig,
-                preHtml = preHtml,
-                signCode = signCode,
-                cleanBody = cleanBody,
-                finalUrl = finalUrl,
-                locationText = locationText,
-                lat = lat
-            )
-
-            val detail = cn.edu.usst.jwgl.data.model.ChaoXingSignDetail(
-                activeId = activeId,
-                otherId = if (otherId >= 0) otherId else 0,
-                signTypeDisplayName = typeDisplayName,
-                signCode = signCode,
-                ifPhoto = isPhotoByConfig,
-                locationText = locationText,
-                latitude = lat,
-                longitude = lng,
-                isAlreadySigned = isAlreadySigned,
-                isLate = isLate,
-                isLeave = isLeave,
-                isExpired = isExpired,
-                statusText = statusText,
-                rawJson = rawJson
-            )
-
-            Log.i(TAG, "fetchSignDetail activeId=$activeId -> otherId=$otherId, ifPhoto=$isPhotoByConfig, type=$typeDisplayName, signCode=$signCode, isAlreadySigned=$isAlreadySigned")
-            Result.success(detail)
-        } catch (e: Exception) {
-            Log.e(TAG, "fetchSignDetail unexpected error", e)
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * 9. 提交超星课堂签到 (预签到 -> 正式签到两步安全执行)
-     * 支持：普通签到、二维码动态 enc 签到、位置经纬度签到、手势九宫格签到 (signCode)、拍照上传签到 (objectId)
-     */
     suspend fun submitSign(
         courseId: String,
         classId: String,
@@ -1312,237 +1160,35 @@ class ChaoXingClient(private val context: Context) {
         address: String? = null,
         studentId: String? = null,
         allowRejectedRetry: Boolean = false
-    ): Result<ChaoXingSignResult> {
-        val account = studentId ?: AuthPreferences(context).getStudentId()
-        return withContext(Dispatchers.IO) {
-        val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
-        val uid = prefs.getUid(account) ?: ""
-        if (account.isBlank() || activeId <= 0L || courseId.isBlank() || classId.isBlank() || uid.isBlank() ||
-            ((latitude == null) != (longitude == null)) ||
-            (latitude != null && (!latitude.isFinite() || latitude !in -90.0..90.0)) ||
-            (longitude != null && (!longitude.isFinite() || longitude !in -180.0..180.0))) {
-            return@withContext Result.failure(IllegalArgumentException("缺少明确的签到账号、活动、课程或有效位置"))
-        }
-        kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        if (studentId == null && account != AuthPreferences(context).getStudentId()) throw kotlinx.coroutines.CancellationException("Account changed before attendance write")
-        val store = RollcallSubmissionStore(context, "chaoxing")
-        if (!store.claim(account, activeId, allowRejectedRetry)) {
-            val state = store.state(account, activeId)
-            if (state == null) return@withContext Result.failure(Exception("无法持久化签到保护记录，本次未发送"))
-            return@withContext Result.success(ChaoXingSignResult(state == "confirmed",
-                if (state == "confirmed") "本机已保存本活动的确认签到结果" else "本活动已有提交记录，请查看学习通官方状态；不会再次发送", activeId, signType))
-        }
+    ): Result<ChaoXingSignResult> =
+        signService.submitSign(
+            courseId, classId, activeId, signType, enc, signCode, objectId,
+            latitude, longitude, address, studentId, allowRejectedRetry
+        )
 
-        try {
-            // 第一步：预签到初始化 (Pre-Sign)
-            val preOwner = CookieOwner(account)
-            val preUrl = "$PRE_SIGN_URL?courseId=$courseId&classId=$classId&activePrimaryId=$activeId&uid=$uid&general=1&sys=1&ls=1&appType=15&ut=s"
-            val preReq = Request.Builder()
-                .url(preUrl)
-                .tag(CookieOwner::class.java, preOwner)
-                .tag(SingleNetworkAttempt::class.java, SingleNetworkAttempt())
-                .header("Cookie", cookies)
-                .header("Cache-Control", "no-store")
-                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                .get()
-                .build()
-
-            val preResp = submissionClient.newCall(preReq).awaitBuffered().response(preReq)
-            preResp.use {
-                if (!it.isSuccessful && it.code !in 300..399) {
-                    val outcome = parseChaoXingSubmission(it.code, it.body?.string().orEmpty(), activeId, signType)
-                    store.record(account, activeId, outcome.state)
-                    return@withContext Result.success(outcome.result)
-                }
-            }
-            val submissionCookies = preOwner.acceptedCookies ?: cookies
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            if ((studentId == null && account != AuthPreferences(context).getStudentId()) ||
-                prefs.getCookies(account) != submissionCookies || prefs.getUid(account) != uid) {
-                return@withContext Result.success(ChaoXingSignResult(false, "账号或会话已更新，本次已停止，请查看官方签到状态", activeId, signType))
-            }
-
-            // 第二步：正式提交签到 (Submit Ajax)
-            val submitBuilder = java.lang.StringBuilder("$SUBMIT_SIGN_URL?activeId=$activeId&appType=15&ifTiJiao=1&fid=0")
-
-            // 签到口令 / 手势密码 / 二维码 enc 与动态码 c 参数适配
-            val cleanEnc = enc?.trim().takeIf { !it.isNullOrBlank() }
-            val cleanSignCode = signCode?.trim().takeIf { !it.isNullOrBlank() }
-            if (cleanEnc != null && cleanSignCode != null && cleanEnc != cleanSignCode) {
-                val encodedEnc = java.net.URLEncoder.encode(cleanEnc, "UTF-8")
-                val encodedCode = java.net.URLEncoder.encode(cleanSignCode, "UTF-8")
-                submitBuilder.append("&enc=").append(encodedEnc)
-                submitBuilder.append("&c=").append(encodedCode)
-                submitBuilder.append("&signCode=").append(encodedCode)
-            } else {
-                val effectiveCode = cleanSignCode ?: cleanEnc
-                if (!effectiveCode.isNullOrBlank()) {
-                    val encodedCode = java.net.URLEncoder.encode(effectiveCode, "UTF-8")
-                    submitBuilder.append("&signCode=").append(encodedCode)
-                    submitBuilder.append("&enc=").append(encodedCode)
-                }
-            }
-
-            // 拍照签到 objectId 参数适配
-            if (!objectId.isNullOrBlank()) {
-                submitBuilder.append("&objectId=").append(java.net.URLEncoder.encode(objectId.trim(), "UTF-8"))
-                submitBuilder.append("&ifPhoto=1")
-            }
-
-            // 位置经纬度参数适配
-            if (latitude != null && longitude != null) {
-                submitBuilder.append("&latitude=").append(latitude)
-                    .append("&longitude=").append(longitude)
-                    .append("&address=").append(java.net.URLEncoder.encode(address ?: "上海理工大学", "UTF-8"))
-            }
-
-            val submitReq = Request.Builder()
-                .url(submitBuilder.toString())
-                .forAccount(account)
-                .tag(SingleNetworkAttempt::class.java, SingleNetworkAttempt())
-                .header("Cookie", submissionCookies)
-                .header("Cache-Control", "no-store")
-                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                .get()
-                .build()
-
-            val outcome = submissionClient.newCall(submitReq).awaitBuffered().response(submitReq).use {
-                parseChaoXingSubmission(it.code, it.body?.string().orEmpty(), activeId, signType)
-            }
-            store.record(account, activeId, outcome.state)
-            if (studentId == null && account != AuthPreferences(context).getStudentId()) throw kotlinx.coroutines.CancellationException("Account changed while submitting attendance")
-            Result.success(outcome.result)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "submitSign failed", e)
-            Result.success(ChaoXingSignResult(false, "签到结果尚未确认，请查看学习通官方记录；不会再次发送", activeId, signType))
-        }
-        }
-    }
-
-    /**
-     * 9.1 获取签到活动的详细配置（如教师端预设的 signCode 手势/数字口令）
-     * GET https://mobilelearn.chaoxing.com/v2/apis/active/getPPTActiveInfo?activeId={activeId}
-     */
     suspend fun fetchPPTActiveInfo(
         activeId: Long,
         studentId: String? = null
-    ): Result<String?> = withContext(Dispatchers.IO) {
-        val account = studentId ?: AuthPreferences(context).getStudentId()
-        val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
-        try {
-            val url = "https://mobilelearn.chaoxing.com/v2/apis/active/getPPTActiveInfo?activeId=$activeId"
-            val req = Request.Builder()
-                .url(url)
-                .forAccount(account)
-                .header("Cookie", cookies)
-                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                .get()
-                .build()
-            val resp = okHttpClient.newCall(req).execute()
-            val body = resp.body?.string().orEmpty()
-            Log.e("CHAOXING_DEBUG", "fetchCourseSignHistory activelist: $body")
-            if (!resp.isSuccessful || body.isBlank()) {
-                return@withContext Result.success(null)
-            }
-            val json = JSONObject(body)
-            val data = json.optJSONObject("data")
-            val code = data?.optString("signcode", data.optString("signCode", ""))?.trim()?.takeIf { it.isNotBlank() }
-            Result.success(code)
-        } catch (e: Exception) {
-            Log.w(TAG, "fetchPPTActiveInfo failed: ${e.message}")
-            Result.success(null)
-        }
-    }
+    ): Result<String?> =
+        signService.fetchPPTActiveInfo(activeId, studentId)
 
-    /**
-     * 9.2 上传拍照签到图片至超星云盘，换取全局资源标识 objectId
-     */
     suspend fun uploadSignPhoto(
         photoFile: File,
         studentId: String? = null
-    ): Result<String> = withContext(Dispatchers.IO) {
-        val account = studentId ?: AuthPreferences(context).getStudentId()
-        val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
-        val puid = prefs.getUid(account) ?: run {
-            Regex("""(?:^|;\s*)(?:UID|_uid)=(\d+)""").find(cookies)?.groupValues?.get(1).orEmpty()
-        }
-
-        try {
-            // 1. 获取上传 Token
-            val tokenReq = Request.Builder()
-                .url("https://pan-yz.chaoxing.com/api/token/uservalid")
-                .forAccount(account)
-                .header("Cookie", cookies)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                .get()
-                .build()
-
-            val tokenResp = okHttpClient.newCall(tokenReq).execute()
-            val tokenBody = tokenResp.body?.string().orEmpty()
-            val tokenJson = try { JSONObject(tokenBody) } catch (_: Exception) {
-                return@withContext Result.failure(Exception("获取超星网盘 Token 失败: $tokenBody"))
-            }
-
-            val token = tokenJson.optString("_token")
-            if (token.isBlank()) {
-                return@withContext Result.failure(Exception("超星网盘上传 Token 为空"))
-            }
-
-            // 2. 构造 Multipart 提交图片
-            val mediaType = "image/jpeg".toMediaTypeOrNull()
-            val reqBody = photoFile.asRequestBody(mediaType)
-            val multipartBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("puid", puid)
-                .addFormDataPart("_token", token)
-                .addFormDataPart("file", photoFile.name, reqBody)
-                .build()
-
-            val uploadReq = Request.Builder()
-                .url("https://pan-yz.chaoxing.com/upload")
-                .forAccount(account)
-                .header("Cookie", cookies)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                .post(multipartBody)
-                .build()
-
-            val uploadResp = okHttpClient.newCall(uploadReq).execute()
-            val uploadBody = uploadResp.body?.string().orEmpty()
-            val uploadJson = try { JSONObject(uploadBody) } catch (_: Exception) {
-                return@withContext Result.failure(Exception("上传响应非 JSON: $uploadBody"))
-            }
-
-            val objectId = if (uploadJson.optBoolean("result") || uploadJson.has("objectId")) {
-                uploadJson.optString("objectId").ifBlank {
-                    uploadJson.optJSONObject("data")?.optString("objectId").orEmpty()
-                }
-            } else ""
-
-            if (objectId.isNotBlank()) {
-                Log.i(TAG, "uploadSignPhoto success: objectId=$objectId")
-                Result.success(objectId)
-            } else {
-                val errMsg = uploadJson.optString("msg", "上传失败，未返回 objectId")
-                Result.failure(Exception(errMsg))
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "uploadSignPhoto error", e)
-            Result.failure(e)
-        }
-    }
+    ): Result<String> =
+        signService.uploadSignPhoto(photoFile, studentId)
 
     /**
      * 10. 外部 Cookie 注入 (用于 WebView 网页端 SSO 完成后的凭据无缝回流)
      */
     fun injectCookies(cookies: String, studentId: String? = null) {
         if (cookies.isBlank()) return
-        val sid = studentId ?: try {
-            AuthPreferences(context).getStudentId()
+        val sid = studentId?.trim()?.takeIf { it.isNotBlank() } ?: try {
+            AuthPreferences(context).getStudentId().trim()
         } catch (_: Exception) {
             ""
         }
+        if (sid.isBlank()) return
         var uid = ""
         val pairs = cookies.split(";")
         for (p in pairs) {
@@ -1552,6 +1198,12 @@ class ChaoXingClient(private val context: Context) {
                 break
             }
         }
+        val conflictOwner = prefs.findConflictingStudentForUid(sid, uid)
+        if (conflictOwner != null) {
+            Log.w(TAG, "Blocked injecting ChaoXing cookies: uid=$uid already belongs to $conflictOwner, target=$sid")
+            return
+        }
+        verifiedSessions.invalidate(sid)
         prefs.saveLoginSession(
             cookies = cookies,
             uid = uid,
@@ -1569,66 +1221,25 @@ class ChaoXingClient(private val context: Context) {
         courseId: String,
         classId: String,
         studentId: String? = null
-    ): Result<List<UnifiedStudentRollcall>> = withContext(Dispatchers.IO) {
-        val account = studentId ?: AuthPreferences(context).getStudentId()
-        val cookies = prefs.getCookies(account) ?: return@withContext Result.failure(Exception("Cookie 为空"))
-
-        try {
-            val url = "$ACTIVE_LIST_URL?courseId=$courseId&classId=$classId&fid=0&showNotStartedActive=0&_=${System.currentTimeMillis()}"
-            val req = Request.Builder()
-                .url(url)
-                .forAccount(account)
-                .header("Cookie", cookies)
-                .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 com.ssreader.ChaoXingStudy")
-                .get()
-                .build()
-
-            val resp = okHttpClient.newCall(req).execute()
-            val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful || body.isBlank()) {
-                return@withContext Result.failure(Exception("拉取超星活动列表失败 (${resp.code})"))
-            }
-
-            val parsed = gson.fromJson(body, ChaoXingActiveListResponse::class.java)
-            val allSignActivities = parsed.data?.activeList?.filter { it.isSignActivity() } ?: emptyList()
-
-            if (allSignActivities.isEmpty()) {
-                return@withContext Result.success(emptyList())
-            }
-
-            // 对所有签到活动通过 preSign 并发获取权威个人出勤结果 (已签到出勤 / 迟到 / 缺勤 / 未参与)
-            // 已结束活动无需探测口令配置 (needConfigProbe = false)，秒级并行响应
-            coroutineScope {
-                val rollcallList = allSignActivities.map { item ->
-                    async {
-                        val hintName = "${item.nameOne.orEmpty()} ${item.nameTwo.orEmpty()}".trim()
-                        val detail = fetchSignDetail(
-                            courseId = courseId,
-                            classId = classId,
-                            activeId = item.id,
-                            studentId = account,
-                            needConfigProbe = item.isActive(),
-                            initialOtherId = item.otherId,
-                            initialHintName = hintName
-                        ).getOrNull()
-                        UnifiedStudentRollcall.fromChaoXing(item, detail)
-                    }
-                }.awaitAll()
-
-                // 按签到发起时间倒序排列
-                val sorted = rollcallList.sortedByDescending { it.timeMillis }
-                Result.success(sorted)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "fetchCourseSignHistory error for course $courseId", e)
-            Result.failure(e)
-        }
-    }
+    ): Result<List<UnifiedStudentRollcall>> =
+        signService.fetchCourseSignHistory(courseId, classId, studentId)
 
     /**
      * 清理当前账号的超星登录态
      */
     fun logout(studentId: String? = null) {
+        val target = studentId?.trim()?.takeIf { it.isNotBlank() } ?: AuthPreferences.currentStudentId(context)
+        if (target.isNotBlank()) {
+            verifiedSessions.invalidate(target)
+        }
         prefs.clearSession(studentId)
+        ChaoXingRequestGuard.clearStuWorkCache(studentId)
+    }
+
+    fun invalidateVerifiedSession(studentId: String? = null) {
+        val target = studentId?.trim()?.takeIf { it.isNotBlank() } ?: AuthPreferences.currentStudentId(context)
+        if (target.isNotBlank()) {
+            verifiedSessions.invalidate(target)
+        }
     }
 }

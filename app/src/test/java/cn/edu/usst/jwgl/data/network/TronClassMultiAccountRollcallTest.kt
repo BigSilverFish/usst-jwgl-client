@@ -1,7 +1,13 @@
 package cn.edu.usst.jwgl.data.network
 
+import cn.edu.usst.jwgl.data.model.AccountProfile
 import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
 import com.google.gson.Gson
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.UUID
@@ -72,5 +78,75 @@ class TronClassMultiAccountRollcallTest {
         }
 
         assertEquals("📋 多账号签到结果 (2/3 成功)", title)
+    }
+
+    @Test
+    fun orderAccountsPrimaryFirst_placesActiveAccountFirstRegardlessOfRecency() {
+        val friendNewer = AccountProfile(studentId = "2435055999", studentName = "好友", lastActiveTime = 9000L)
+        val selfOlder = AccountProfile(studentId = "2435055230", studentName = "自己", lastActiveTime = 1000L)
+        val thirdFriend = AccountProfile(studentId = "2435055888", studentName = "同学B", lastActiveTime = 5000L)
+
+        val ordered = MultiAccountRollcallResult.orderAccountsPrimaryFirst(
+            listOf(friendNewer, thirdFriend, selfOlder),
+            currentStudentId = "2435055230"
+        )
+
+        assertEquals(listOf("2435055230", "2435055999", "2435055888"), ordered.map { it.studentId })
+    }
+
+    @Test
+    fun isPrimaryAccountSuccess_doesNotTreatFriendSuccessAsSelfSuccess() {
+        val friendSucceededSelfFailed = listOf(
+            MultiAccountRollcallResult("2435055999", "好友", true, "已确认签到状态：已到"),
+            MultiAccountRollcallResult("2435055230", "自己", false, "畅课授权失败: 登录失效")
+        )
+        assertFalse(MultiAccountRollcallResult.isPrimaryAccountSuccess(friendSucceededSelfFailed, "2435055230"))
+
+        val selfSucceededFriendFailed = listOf(
+            MultiAccountRollcallResult("2435055230", "自己", true, "已确认签到状态：已到"),
+            MultiAccountRollcallResult("2435055999", "好友", false, "未选此课")
+        )
+        assertTrue(MultiAccountRollcallResult.isPrimaryAccountSuccess(selfSucceededFriendFailed, "2435055230"))
+
+        val selfMissingFromResults = listOf(
+            MultiAccountRollcallResult("2435055999", "好友", true, "已确认签到状态：已到")
+        )
+        assertFalse(MultiAccountRollcallResult.isPrimaryAccountSuccess(selfMissingFromResults, "2435055230"))
+    }
+
+    @Test
+    fun isSessionOwnerMatching_validatesExpectedStudentId() {
+        assertTrue(TronClassAuthApi.isSessionOwnerMatching("2435055230", """{"id":1,"user_no":"2435055230"}"""))
+        assertTrue(TronClassAuthApi.isSessionOwnerMatching("2435055230", """{"user":{"user_no":"2435055230"}}"""))
+        assertFalse(TronClassAuthApi.isSessionOwnerMatching("2435055230", """{"id":2,"user_no":"2435055999"}"""))
+        assertFalse(TronClassAuthApi.isSessionOwnerMatching("2435055230", "not-json"))
+    }
+
+    @Test
+    fun cleanAuthClient_neverInjectsExistingSessionHeaderIntoLoginExchange() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"session_id":"new_sid"}"""))
+            server.start()
+
+            val authClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    chain.proceed(
+                        chain.request().newBuilder()
+                            .header("X-Requested-With", "XMLHttpRequest")
+                            .build()
+                    )
+                }
+                .build()
+
+            val req = Request.Builder()
+                .url(server.url("/api/login?login=access_token"))
+                .post("""{"access_token":"abc"}""".toRequestBody())
+                .build()
+
+            authClient.newCall(req).execute().use { assertEquals(200, it.code) }
+            val recorded = server.takeRequest()
+            assertNull(recorded.getHeader("x-session-id"))
+            assertNull(recorded.getHeader("Cookie"))
+        }
     }
 }

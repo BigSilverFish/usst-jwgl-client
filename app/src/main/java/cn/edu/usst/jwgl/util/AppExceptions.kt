@@ -39,12 +39,21 @@ class AppDataParseException(
 ) : AppException(message, cause)
 
 /**
+ * 超星学习通触发访问限制或高频风控保护异常
+ */
+class ChaoXingRiskControlException(
+    val cooldownUntilMillis: Long,
+    message: String
+) : IOException(message)
+
+/**
  * 转换任何 Throwable 为用户友好、可读性高的中文诊断信息，
  * 避免将底层类名或原始堆栈透出给用户。
  */
 fun Throwable.getFriendlyErrorMessage(fallback: String = "操作失败，请稍后重试"): String {
     return when (this) {
         is AppAuthExpiredException -> message ?: "登录状态已失效，请重新登录"
+        is ChaoXingRiskControlException -> message ?: "超星学习通触发访问保护，已暂时暂停请求"
         is ActivityNotFoundException -> "未找到可处理此操作或打开此文件的应用"
         is SecurityException -> "缺少必要的系统权限，请前往应用设置授予"
         is UnknownHostException -> "无法解析服务器地址，请检查手机网络是否已连接"

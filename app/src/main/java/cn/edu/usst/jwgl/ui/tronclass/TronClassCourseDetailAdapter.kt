@@ -16,7 +16,12 @@ import cn.edu.usst.jwgl.databinding.ItemTronclassProgressHeaderBinding
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 
 sealed class CourseDetailUiItem {
-    data class ProgressHeader(val completedCount: Int, val totalCount: Int, val percent: Int) : CourseDetailUiItem()
+    data class ProgressHeader(
+        val completedCount: Int,
+        val totalCount: Int,
+        val percent: Int,
+        val showAutoBrush: Boolean = true
+    ) : CourseDetailUiItem()
     data class ModuleHeader(val module: TronClassModule, val count: Int) : CourseDetailUiItem()
     data class ActivityItem(val activity: TronClassActivityItem) : CourseDetailUiItem()
 }
@@ -26,7 +31,7 @@ class TronClassCourseDetailAdapter(
     private val onActivityClick: (TronClassActivityItem) -> Unit,
     private val onDownloadClick: (TronClassActivityItem) -> Unit,
     private val onAutoBrushClick: () -> Unit = {},
-    private val isActivityCached: (TronClassActivityItem) -> Boolean = { false }
+    private val getCachedUploadCount: (TronClassActivityItem) -> Int = { 0 }
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -81,7 +86,7 @@ class TronClassCourseDetailAdapter(
 
         fun bind(header: CourseDetailUiItem.ProgressHeader) {
             val isDev = DeveloperModeManager.isDeveloperMode(binding.root.context)
-            binding.layoutAutoBrushRow.visibility = if (isDev) View.VISIBLE else View.GONE
+            binding.layoutAutoBrushRow.visibility = if (isDev && header.showAutoBrush) View.VISIBLE else View.GONE
 
             binding.progressLearning.progress = header.percent
             binding.tvProgressText.text = "已完成 ${header.percent}% (${header.completedCount} / ${header.totalCount} 项)"
@@ -112,7 +117,9 @@ class TronClassCourseDetailAdapter(
 
         fun bind(act: TronClassActivityItem) {
             val context = binding.root.context
-            val upload = act.getFirstUpload()
+            val allUploads = act.getAllUploads()
+            val upload = allUploads.firstOrNull()
+            val hasMultiple = allUploads.size > 1
 
             binding.tvActivityTitle.text = act.getCleanTitle()
 
@@ -138,29 +145,46 @@ class TronClassCourseDetailAdapter(
             // 2. 类型分支
             when (act.type) {
                 "material" -> {
-                    val ext = upload?.getExtension() ?: "文档"
-                    binding.tvTypeBadge.text = ext.uppercase()
-
-                    if (ext == "pdf") {
-                        binding.ivActivityIcon.setImageResource(R.drawable.ic_file_pdf)
-                        binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.error))
-                    } else {
-                        binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
+                    if (hasMultiple) {
+                        binding.tvTypeBadge.text = "${allUploads.size}个文件"
+                        binding.ivActivityIcon.setImageResource(R.drawable.ic_layers)
                         binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
-                    }
 
-                    binding.btnAction.visibility = View.VISIBLE
-                    bindDownloadActionButton(act, upload, upload?.getFormattedSize() ?: "课件资料")
+                        binding.btnAction.visibility = View.VISIBLE
+                        bindMultiUploadActionButton(act, allUploads)
+                    } else {
+                        val ext = upload?.getExtension() ?: "文档"
+                        binding.tvTypeBadge.text = ext.uppercase()
+
+                        if (ext == "pdf") {
+                            binding.ivActivityIcon.setImageResource(R.drawable.ic_file_pdf)
+                            binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.error))
+                        } else {
+                            binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
+                            binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
+                        }
+
+                        binding.btnAction.visibility = View.VISIBLE
+                        bindDownloadActionButton(act, upload, upload?.getFormattedSize() ?: "课件资料")
+                    }
                 }
                 "online_video" -> {
-                    binding.tvTypeBadge.text = "视频"
-                    binding.tvActivityMeta.text = upload?.getFormattedSize() ?: "在线视频"
                     binding.ivActivityIcon.setImageResource(R.drawable.ic_live_video)
                     binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
-
                     binding.btnAction.visibility = View.VISIBLE
-                    binding.btnAction.text = "看课"
-                    binding.btnAction.setIconResource(R.drawable.ic_play_arrow)
+
+                    if (hasMultiple) {
+                        binding.tvTypeBadge.text = "视频×${allUploads.size}"
+                        val totalSizeText = if (act.getTotalUploadSize() > 0L) " · ${act.getFormattedTotalUploadSize()}" else ""
+                        binding.tvActivityMeta.text = "共 ${allUploads.size} 个视频/文件$totalSizeText"
+                        binding.btnAction.text = "查看 (${allUploads.size})"
+                        binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    } else {
+                        binding.tvTypeBadge.text = "视频"
+                        binding.tvActivityMeta.text = upload?.getFormattedSize() ?: "在线视频"
+                        binding.btnAction.text = "看课"
+                        binding.btnAction.setIconResource(R.drawable.ic_play_arrow)
+                    }
                     binding.btnAction.setOnClickListener {
                         onActivityClick(act)
                     }
@@ -220,12 +244,21 @@ class TronClassCourseDetailAdapter(
                     }
                 }
                 else -> {
-                    binding.tvTypeBadge.text = act.type
-                    binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
-                    binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
+                    if (hasMultiple) {
+                        binding.tvTypeBadge.text = "${allUploads.size}个文件"
+                        binding.ivActivityIcon.setImageResource(R.drawable.ic_layers)
+                        binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
 
-                    binding.btnAction.visibility = if (upload != null) View.VISIBLE else View.GONE
-                    bindDownloadActionButton(act, upload, upload?.getFormattedSize() ?: "")
+                        binding.btnAction.visibility = View.VISIBLE
+                        bindMultiUploadActionButton(act, allUploads)
+                    } else {
+                        binding.tvTypeBadge.text = act.type
+                        binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
+                        binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
+
+                        binding.btnAction.visibility = if (upload != null) View.VISIBLE else View.GONE
+                        bindDownloadActionButton(act, upload, upload?.getFormattedSize() ?: "")
+                    }
                 }
             }
 
@@ -234,12 +267,31 @@ class TronClassCourseDetailAdapter(
             }
         }
 
+        private fun bindMultiUploadActionButton(
+            act: TronClassActivityItem,
+            uploads: List<TronClassUpload>
+        ) {
+            val total = uploads.size
+            val cachedCount = getCachedUploadCount(act).coerceIn(0, total)
+            binding.tvActivityMeta.text = when {
+                cachedCount == total -> "共 $total 个文件 · 已全部缓存"
+                cachedCount > 0 -> "共 $total 个文件 · 已缓存 $cachedCount/$total"
+                act.getTotalUploadSize() > 0L -> "共 $total 个文件 · ${act.getFormattedTotalUploadSize()}"
+                else -> "共 $total 个文件"
+            }
+            binding.btnAction.text = "查看 ($total)"
+            binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+            binding.btnAction.setOnClickListener {
+                onDownloadClick(act)
+            }
+        }
+
         private fun bindDownloadActionButton(
             act: TronClassActivityItem,
             upload: TronClassUpload?,
             defaultMeta: String
         ) {
-            val cached = upload != null && isActivityCached(act)
+            val cached = upload != null && getCachedUploadCount(act) > 0
             binding.tvActivityMeta.text = when {
                 cached && upload.size > 0 -> "${upload.getFormattedSize()} · 已缓存"
                 cached -> "已缓存"
