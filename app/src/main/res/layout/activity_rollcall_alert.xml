@@ -233,6 +233,7 @@
                     android:insetBottom="0dp"
                     android:text="尝试自动获取签到码"
                     android:textSize="12sp"
+                    android:visibility="gone"
                     app:cornerRadius="18dp" />
             </LinearLayout>
 

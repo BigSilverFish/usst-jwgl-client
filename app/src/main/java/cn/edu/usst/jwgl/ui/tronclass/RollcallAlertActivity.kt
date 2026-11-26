@@ -28,6 +28,7 @@ import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.ui.MainActivity
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
 import cn.edu.usst.jwgl.util.CoordinateUtils
+import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
 import com.google.android.material.button.MaterialButton
@@ -133,6 +134,11 @@ class RollcallAlertActivity : AppCompatActivity() {
         bindDataToUI()
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateAutoFetchButtonVisibility()
+    }
+
     private fun setupWindowFlags() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -231,6 +237,11 @@ class RollcallAlertActivity : AppCompatActivity() {
         })
 
         btnAutoFetchCode.setOnClickListener {
+            if (!DeveloperModeManager.isDeveloperMode(this)) {
+                updateAutoFetchButtonVisibility()
+                Toast.makeText(this, "该功能仅在开发者模式下可用", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             fetchNumberCodeAutomatically()
         }
 
@@ -269,8 +280,14 @@ class RollcallAlertActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateAutoFetchButtonVisibility() {
+        val isDev = DeveloperModeManager.isDeveloperMode(this)
+        btnAutoFetchCode.visibility = if (rollcallType == TYPE_NUMBER && isDev) View.VISIBLE else View.GONE
+    }
+
     private fun bindDataToUI() {
         tvAlertCourseName.text = courseName ?: "当前课堂点名"
+        updateAutoFetchButtonVisibility()
 
         when (rollcallType) {
             TYPE_NUMBER -> {
@@ -377,6 +394,11 @@ class RollcallAlertActivity : AppCompatActivity() {
     }
 
     private fun fetchNumberCodeAutomatically() {
+        if (!DeveloperModeManager.isDeveloperMode(this)) {
+            updateAutoFetchButtonVisibility()
+            Toast.makeText(this, "该功能仅在开发者模式下可用", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (isSubmitting) return
         btnAutoFetchCode.isEnabled = false
         setSubmittingUI(true, "正在智能嗅探点名口令...")
