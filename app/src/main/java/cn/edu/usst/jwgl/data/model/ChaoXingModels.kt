@@ -355,6 +355,24 @@ data class ChaoXingActiveItem(
     fun isUserLate(): Boolean = userStatus == 2
 
     fun isUserLeaveOrEarly(): Boolean = userStatus == 3
+
+    companion object {
+        fun createSynthetic(
+            activeId: Long,
+            signTypeName: String?,
+            otherId: Int = -1,
+            status: Int = 1,
+            activeType: Int = 2
+        ): ChaoXingActiveItem {
+            return ChaoXingActiveItem(
+                rawId = com.google.gson.JsonPrimitive(activeId.toString()),
+                rawActiveType = com.google.gson.JsonPrimitive(activeType),
+                rawStatus = com.google.gson.JsonPrimitive(status),
+                nameOne = signTypeName?.takeIf { it.isNotBlank() },
+                rawOtherId = com.google.gson.JsonPrimitive(otherId)
+            )
+        }
+    }
 }
 
 /**

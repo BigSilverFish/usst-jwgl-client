@@ -53,7 +53,9 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_ROLLCALL_AUTO_SIGN_CUSTOM_SECONDS = "tc_rollcall_auto_sign_custom_seconds"
         private const val KEY_ROLLCALL_AUTO_SIGN_CUSTOM_RATIO = "tc_rollcall_auto_sign_custom_ratio"
         private const val KEY_ROLLCALL_POPUP_ENABLED = "tc_rollcall_popup_enabled"
+        private const val KEY_ROLLCALL_CHAOXING_MONITOR_ENABLED = "tc_rollcall_chaoxing_monitor_enabled"
         private const val KEY_ROLLCALL_HANDLED_IDS = "tc_rollcall_handled_ids"
+        private const val KEY_ROLLCALL_CHAOXING_HANDLED_IDS = "tc_rollcall_chaoxing_handled_ids"
         private const val KEY_CUSTOM_SEMESTERS = "tc_custom_semesters"
         private const val KEY_MANUAL_COURSE_BINDINGS = "tc_manual_course_bindings"
         private const val KEY_UNBOUND_COURSE_PAIRS = "tc_unbound_course_pairs"
@@ -616,6 +618,53 @@ class TronClassPreferences(private val context: Context) {
 
     fun setRollcallPopupEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ROLLCALL_POPUP_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 同步监听超星学习通课堂签到开关（需在总监听开关开启的前提下生效）
+     */
+    fun isRollcallChaoXingMonitorEnabled(): Boolean =
+        prefs.getBoolean(KEY_ROLLCALL_CHAOXING_MONITOR_ENABLED, false)
+
+    fun setRollcallChaoXingMonitorEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ROLLCALL_CHAOXING_MONITOR_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 判断指定超星签到事件是否已处理过（24小时内有效，独立 key 避免与畅课 ID 碰撞）
+     */
+    fun isChaoXingSignHandled(activeId: Long): Boolean {
+        if (activeId <= 0L) return false
+        val now = System.currentTimeMillis()
+        val set = prefs.getStringSet(KEY_ROLLCALL_CHAOXING_HANDLED_IDS, emptySet()) ?: emptySet()
+        for (item in set) {
+            val parts = item.split(":")
+            val id = parts.getOrNull(0)?.toLongOrNull() ?: continue
+            val time = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            if (id == activeId && (now - time) < 24 * 3600 * 1000L) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 记录已处理过的超星学习通签到事件
+     */
+    fun markChaoXingSignHandled(activeId: Long) {
+        if (activeId <= 0L) return
+        val now = System.currentTimeMillis()
+        val oldSet = prefs.getStringSet(KEY_ROLLCALL_CHAOXING_HANDLED_IDS, emptySet()) ?: emptySet()
+        val newSet = mutableSetOf<String>()
+        for (item in oldSet) {
+            val parts = item.split(":")
+            val time = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            if ((now - time) < 24 * 3600 * 1000L) {
+                newSet.add(item)
+            }
+        }
+        newSet.add("$activeId:$now")
+        prefs.edit().putStringSet(KEY_ROLLCALL_CHAOXING_HANDLED_IDS, newSet).apply()
     }
 
     /**

@@ -795,6 +795,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        pb.rowRollcallChaoXingMonitor.setOnClickListener {
+            if (!tcPrefs.isRollcallMonitorEnabled()) {
+                Toast.makeText(this, "需先开启上方的上课签到后台监听总开关", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            pb.switchRollcallChaoXingMonitor.toggle()
+        }
+        pb.switchRollcallChaoXingMonitor.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && !tcPrefs.isRollcallMonitorEnabled()) {
+                if (pb.switchRollcallChaoXingMonitor.isChecked) {
+                    pb.switchRollcallChaoXingMonitor.isChecked = false
+                }
+                Toast.makeText(this, "需先开启上方的上课签到后台监听总开关", Toast.LENGTH_SHORT).show()
+                return@setOnCheckedChangeListener
+            }
+            if (tcPrefs.isRollcallChaoXingMonitorEnabled() == isChecked) return@setOnCheckedChangeListener
+            tcPrefs.setRollcallChaoXingMonitorEnabled(isChecked)
+            updateReminderSubtitles()
+            RollcallMonitorScheduler.onPreferenceChanged(this)
+            if (isChecked && !cn.edu.usst.jwgl.data.local.ChaoXingPreferences(this).isLoggedIn()) {
+                Toast.makeText(this, "已开启学习通监听（提示：请先在一网畅学页登录超星学习通）", Toast.LENGTH_LONG).show()
+            }
+        }
+
         pb.rowRollcallAutoSign.setOnClickListener {
             if (!tcPrefs.isRollcallMonitorEnabled()) {
                 Toast.makeText(this, "需先开启上课签到后台监听功能", Toast.LENGTH_SHORT).show()
@@ -1135,6 +1159,28 @@ class MainActivity : AppCompatActivity() {
             binding.root.postDelayed({
                 getTronClassFragment()?.startTronClassQrScan()
             }, 300)
+        }
+
+        if (intent.getBooleanExtra("extra_open_chaoxing_sign", false)) {
+            val cxCourseId = intent.getStringExtra("extra_cx_course_id").orEmpty()
+            val cxClassId = intent.getStringExtra("extra_cx_class_id").orEmpty()
+            val cxActiveId = intent.getLongExtra("extra_cx_active_id", 0L)
+            val cxCourseName = intent.getStringExtra("extra_cx_course_name")
+            val cxSignType = intent.getStringExtra("extra_cx_sign_type")
+            val cxOtherId = intent.getIntExtra("extra_cx_other_id", -1)
+            switchTab(MainTab.TRONCLASS)
+            if (cxCourseId.isNotBlank() && cxClassId.isNotBlank() && cxActiveId > 0L) {
+                binding.root.postDelayed({
+                    getTronClassFragment()?.openChaoXingSignFromAlert(
+                        courseId = cxCourseId,
+                        classId = cxClassId,
+                        activeId = cxActiveId,
+                        courseName = cxCourseName,
+                        signTypeName = cxSignType,
+                        otherId = cxOtherId
+                    )
+                }, 300)
+            }
         }
 
         if (intent.getBooleanExtra("extra_trigger_smart_rollcall", false)) {

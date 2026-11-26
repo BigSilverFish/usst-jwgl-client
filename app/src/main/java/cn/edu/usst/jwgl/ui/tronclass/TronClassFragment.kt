@@ -708,6 +708,14 @@ class TronClassFragment : Fragment() {
     private val courseMgmtDialogs by lazy { TronClassCourseManagementDialogs(this) }
 
     private fun checkChaoXingCourseSignSingle(course: UnifiedCourse) = rollcallCoordinator.checkChaoXingCourseSignSingle(course)
+    fun openChaoXingSignFromAlert(
+        courseId: String,
+        classId: String,
+        activeId: Long,
+        courseName: String?,
+        signTypeName: String?,
+        otherId: Int = -1
+    ) = rollcallCoordinator.openChaoXingSignFromAlert(courseId, classId, activeId, courseName, signTypeName, otherId)
     private fun performChaoXingSign(course: ChaoXingCourse, activeItem: ChaoXingActiveItem) = rollcallCoordinator.performChaoXingSign(course, activeItem)
     private fun showChaoXingNoticeDialog(bulletin: UnifiedBulletin) {
         MaterialAlertDialogBuilder(requireContext())

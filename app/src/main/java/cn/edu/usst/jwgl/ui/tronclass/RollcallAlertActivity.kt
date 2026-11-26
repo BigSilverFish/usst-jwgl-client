@@ -49,6 +49,10 @@ class RollcallAlertActivity : AppCompatActivity() {
     private var buildingName: String? = null
     private var targetLatitude: Double? = null
     private var targetLongitude: Double? = null
+    private var chaoXingCourseId: String? = null
+    private var chaoXingClassId: String? = null
+    private var chaoXingSignTypeName: String? = null
+    private var chaoXingOtherId: Int = -1
 
     private lateinit var tvAlertCourseName: TextView
     private lateinit var tvRollcallTypeBadge: TextView
@@ -83,12 +87,17 @@ class RollcallAlertActivity : AppCompatActivity() {
         const val EXTRA_BUILDING_NAME = "extra_building_name"
         const val EXTRA_LATITUDE = "extra_latitude"
         const val EXTRA_LONGITUDE = "extra_longitude"
+        const val EXTRA_CX_COURSE_ID = "extra_cx_course_id"
+        const val EXTRA_CX_CLASS_ID = "extra_cx_class_id"
+        const val EXTRA_CX_SIGN_TYPE = "extra_cx_sign_type"
+        const val EXTRA_CX_OTHER_ID = "extra_cx_other_id"
 
         const val TYPE_NUMBER = "number"
         const val TYPE_RADAR = "radar"
         const val TYPE_QR = "qr"
         const val TYPE_LIVE_QR = "live_qr"
         const val TYPE_CHAOXING_LOCATION = "cx_location"
+        const val TYPE_CHAOXING_SIGN = "cx_sign"
         const val TYPE_GENERIC = "generic"
 
         fun createIntent(
@@ -109,6 +118,27 @@ class RollcallAlertActivity : AppCompatActivity() {
                 putExtra(EXTRA_BUILDING_NAME, buildingName)
                 if (latitude != null) putExtra(EXTRA_LATITUDE, latitude)
                 if (longitude != null) putExtra(EXTRA_LONGITUDE, longitude)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        }
+
+        fun createChaoXingIntent(
+            context: Context,
+            activeId: Long,
+            courseId: String,
+            classId: String,
+            courseName: String?,
+            signTypeName: String?,
+            otherId: Int = -1
+        ): Intent {
+            return Intent(context, RollcallAlertActivity::class.java).apply {
+                putExtra(EXTRA_ROLLCALL_ID, activeId)
+                putExtra(EXTRA_COURSE_NAME, courseName)
+                putExtra(EXTRA_ROLLCALL_TYPE, TYPE_CHAOXING_SIGN)
+                putExtra(EXTRA_CX_COURSE_ID, courseId)
+                putExtra(EXTRA_CX_CLASS_ID, classId)
+                putExtra(EXTRA_CX_SIGN_TYPE, signTypeName)
+                putExtra(EXTRA_CX_OTHER_ID, otherId)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
         }
@@ -164,6 +194,10 @@ class RollcallAlertActivity : AppCompatActivity() {
         buildingName = intent.getStringExtra(EXTRA_BUILDING_NAME)
         targetLatitude = if (intent.hasExtra(EXTRA_LATITUDE)) intent.getDoubleExtra(EXTRA_LATITUDE, 0.0).takeIf { it != 0.0 } else null
         targetLongitude = if (intent.hasExtra(EXTRA_LONGITUDE)) intent.getDoubleExtra(EXTRA_LONGITUDE, 0.0).takeIf { it != 0.0 } else null
+        chaoXingCourseId = intent.getStringExtra(EXTRA_CX_COURSE_ID)
+        chaoXingClassId = intent.getStringExtra(EXTRA_CX_CLASS_ID)
+        chaoXingSignTypeName = intent.getStringExtra(EXTRA_CX_SIGN_TYPE)
+        chaoXingOtherId = intent.getIntExtra(EXTRA_CX_OTHER_ID, -1)
     }
 
     private fun initViews() {
@@ -277,6 +311,23 @@ class RollcallAlertActivity : AppCompatActivity() {
                     startActivity(qrIntent)
                     finish()
                 }
+                TYPE_CHAOXING_SIGN, TYPE_CHAOXING_LOCATION -> {
+                    val cxIntent = Intent(this, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra(MainActivity.EXTRA_TAB, 8)
+                        if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank() && rollcallId > 0L) {
+                            putExtra("extra_open_chaoxing_sign", true)
+                            putExtra("extra_cx_course_id", chaoXingCourseId)
+                            putExtra("extra_cx_class_id", chaoXingClassId)
+                            putExtra("extra_cx_active_id", rollcallId)
+                            putExtra("extra_cx_course_name", courseName)
+                            putExtra("extra_cx_sign_type", chaoXingSignTypeName)
+                            putExtra("extra_cx_other_id", chaoXingOtherId)
+                        }
+                    }
+                    startActivity(cxIntent)
+                    finish()
+                }
                 else -> {
                     // 跳转主界面一网畅学页
                     val mainIntent = Intent(this, MainActivity::class.java).apply {
@@ -359,14 +410,15 @@ class RollcallAlertActivity : AppCompatActivity() {
                 tvGenericMessage.text = "请对准讲台或投影仪上的签到二维码扫描"
                 btnConfirmSign.text = "立即扫码"
             }
-            TYPE_CHAOXING_LOCATION -> {
-                tvRollcallTypeBadge.text = "超星位置签到"
-                tvRollcallStatusTip.text = "学习通课堂位置签到已就绪"
+            TYPE_CHAOXING_SIGN, TYPE_CHAOXING_LOCATION -> {
+                val displayType = chaoXingSignTypeName?.takeIf { it.isNotBlank() } ?: "位置签到"
+                tvRollcallTypeBadge.text = "学习通 · $displayType"
+                tvRollcallStatusTip.text = "检测到超星学习通签到，请及时前往完成"
                 layoutNumberSection.visibility = View.GONE
                 layoutLocationSection.visibility = View.GONE
                 layoutGenericSection.visibility = View.VISIBLE
-                tvGenericMessage.text = "点击前往确认学习通课堂签到点位"
-                btnConfirmSign.text = "前往签到"
+                tvGenericMessage.text = "课程【${courseName ?: "当前课堂"}】正在进行 $displayType，点击下方按钮立即处理"
+                btnConfirmSign.text = "立即前往签到"
             }
             else -> {
                 tvRollcallTypeBadge.text = "课堂签到"

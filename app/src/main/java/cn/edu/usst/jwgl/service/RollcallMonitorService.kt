@@ -16,9 +16,14 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
 import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
+import cn.edu.usst.jwgl.data.network.ChaoXingClient
+import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.data.network.RollcallPollingSource
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.util.CoordinateUtils
@@ -30,6 +35,7 @@ import cn.edu.usst.jwgl.util.ScheduledClassSession
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ThreadLocalRandom
 
 class RollcallMonitorService : Service() {
 
@@ -40,8 +46,14 @@ class RollcallMonitorService : Service() {
     private val inFlightRollcalls = ConcurrentHashMap.newKeySet<Long>()
     private val retryAttempts = ConcurrentHashMap<Long, Int>()
     private val tronClassClient by lazy { TronClassClient(this) }
+    private val chaoXingClient by lazy { ChaoXingClient(this) }
     private val prefs by lazy { TronClassPreferences.getInstance(this) }
+    private val chaoXingPrefs by lazy { ChaoXingPreferences(this) }
     private val smartLiveQrManager by lazy { cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager(this) }
+    @Volatile
+    private var cachedChaoXingCourses: List<ChaoXingCourse> = emptyList()
+    @Volatile
+    private var lastChaoXingCourseFetchMs: Long = 0L
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var screenOnReceiver: BroadcastReceiver? = null
 
@@ -52,6 +64,10 @@ class RollcallMonitorService : Service() {
         const val ACTION_CHECK_NOW = "cn.edu.usst.jwgl.action.CHECK_NOW"
 
         private const val POLL_INTERVAL_MS = 20_000L // 20 秒轮询一次
+        private const val CHAOXING_POLL_BASE_INTERVAL_MS = 50_000L // 学习通低频探测基准 50 秒
+        private const val CHAOXING_POLL_JITTER_MS = 10_000L // 随机抖动 0~10 秒
+        private const val CHAOXING_COURSE_CACHE_TTL_MS = 30 * 60 * 1000L
+        private const val CHAOXING_MAX_MATCHED_COURSES = 2
         private const val WAKE_LOCK_RENEW_TIMEOUT_MS = 3 * 60 * 1000L // 3 分钟滚动租约
         private const val MAX_AUTO_SIGN_ATTEMPTS = 3
 
@@ -61,6 +77,44 @@ class RollcallMonitorService : Service() {
         ): List<TronClassRollcall> = list.filter { rollcall ->
             val rollcallId = rollcall.getEffectiveId()
             rollcallId > 0L && !rollcall.isExpired && !isHandled(rollcallId)
+        }
+
+        private fun normalizeCourseName(raw: String): String =
+            raw.replace(Regex("""[（(].*?[）)]"""), "")
+                .replace(Regex("""\s+"""), "")
+                .lowercase()
+
+        internal fun selectChaoXingCoursesForSession(
+            courses: List<ChaoXingCourse>,
+            sessionCourseName: String,
+            maxMatches: Int = CHAOXING_MAX_MATCHED_COURSES
+        ): List<ChaoXingCourse> {
+            val targetNorm = normalizeCourseName(sessionCourseName)
+            if (targetNorm.isBlank() || maxMatches <= 0) return emptyList()
+            val distinct = courses.distinctBy { "${it.courseId}_${it.classId}" }
+            val exact = mutableListOf<ChaoXingCourse>()
+            val partial = mutableListOf<ChaoXingCourse>()
+            for (cx in distinct) {
+                val cxNorm = normalizeCourseName(cx.courseName)
+                if (cxNorm.isBlank()) continue
+                when {
+                    cxNorm == targetNorm -> exact.add(cx)
+                    cxNorm.contains(targetNorm) || targetNorm.contains(cxNorm) -> partial.add(cx)
+                }
+            }
+            return (exact + partial).take(maxMatches)
+        }
+
+        internal fun selectActionableChaoXingSigns(
+            signs: List<Pair<ChaoXingCourse, ChaoXingActiveItem>>,
+            isHandled: (Long) -> Boolean
+        ): List<Pair<ChaoXingCourse, ChaoXingActiveItem>> = signs.filter { (_, item) ->
+            item.id > 0L &&
+                item.isSignActivity() &&
+                item.isActive() &&
+                item.signDetail?.isAlreadySigned != true &&
+                item.signDetail?.isExpired != true &&
+                !isHandled(item.id)
         }
     }
 
@@ -72,8 +126,10 @@ class RollcallMonitorService : Service() {
             return START_NOT_STICKY
         }
 
-        // 校验开关与登录状态（仅针对一网畅学）
-        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
+        // 校验开关与登录状态（畅课已登录，或开启学习通同步监听且学习通已登录）
+        val canMonitorTronClass = prefs.isLoggedIn()
+        val canMonitorChaoXing = prefs.isRollcallChaoXingMonitorEnabled() && chaoXingClient.isLoggedIn()
+        if (!prefs.isRollcallMonitorEnabled() || (!canMonitorTronClass && !canMonitorChaoXing)) {
             Log.i(TAG, "Monitor disabled or not logged in, stopping service.")
             stopMonitoringAndSelf()
             return START_NOT_STICKY
@@ -185,6 +241,84 @@ class RollcallMonitorService : Service() {
                     handleTronClassRollcalls(session, res.getOrDefault(emptyList()))
                 }
             }
+
+            // 3. 超星学习通低频防风控探测（单课锁定 + 50~60s 抖动 + 熔断保护）
+            launch {
+                while (isActive) {
+                    val session = activeSession
+                    if (session != null &&
+                        prefs.isRollcallMonitorEnabled() &&
+                        prefs.isRollcallChaoXingMonitorEnabled() &&
+                        chaoXingClient.isLoggedIn()
+                    ) {
+                        try {
+                            checkChaoXingSignsForSession(session)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error in ChaoXing low-freq poll: ${e.message}", e)
+                        }
+                    }
+                    val jitter = ThreadLocalRandom.current().nextLong(0L, CHAOXING_POLL_JITTER_MS + 1L)
+                    delay(CHAOXING_POLL_BASE_INTERVAL_MS + jitter)
+                }
+            }
+        }
+    }
+
+    private suspend fun checkChaoXingSignsForSession(session: ScheduledClassSession) {
+        if (ChaoXingRequestGuard.isCircuitOpen(this)) {
+            Log.d(TAG, "ChaoXing circuit open, skipping probe.")
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        var courses = cachedChaoXingCourses.ifEmpty {
+            chaoXingPrefs.getCachedCourses().also {
+                if (it.isNotEmpty()) cachedChaoXingCourses = it
+            }
+        }
+        if (courses.isEmpty() && (now - lastChaoXingCourseFetchMs) >= CHAOXING_COURSE_CACHE_TTL_MS) {
+            lastChaoXingCourseFetchMs = now
+            val fetchRes = chaoXingClient.fetchCourses()
+            if (fetchRes.isSuccess) {
+                courses = fetchRes.getOrDefault(emptyList())
+                cachedChaoXingCourses = courses
+            }
+        }
+
+        val matched = selectChaoXingCoursesForSession(courses, session.courseName)
+        if (matched.isEmpty() || ChaoXingRequestGuard.isCircuitOpen(this)) return
+
+        val signsRes = chaoXingClient.fetchActiveSignsForCourses(
+            courses = matched,
+            maxCourses = CHAOXING_MAX_MATCHED_COURSES
+        )
+        if (!signsRes.isSuccess) return
+
+        val actionable = selectActionableChaoXingSigns(signsRes.getOrDefault(emptyList())) { activeId ->
+            prefs.isChaoXingSignHandled(activeId)
+        }
+        if (actionable.isEmpty()) return
+
+        val activeJob = pollJob
+        val shouldShowPopup = { activeJob?.isActive == true }
+        for ((course, item) in actionable) {
+            val activeId = item.id
+            prefs.markChaoXingSignHandled(activeId)
+            val cName = course.courseName.ifBlank { session.courseName }
+            val typeName = item.resolvedSignTypeName
+            Log.i(TAG, "Detected ChaoXing active sign: activeId=$activeId, course=$cName, type=$typeName")
+            RollcallNotificationHelper.notifyChaoXingActiveSign(
+                context = this,
+                courseId = course.courseId,
+                classId = course.classId,
+                activeId = activeId,
+                courseName = cName,
+                signTypeName = typeName,
+                otherId = item.otherId,
+                shouldShowPopup = shouldShowPopup
+            )
         }
     }
 
@@ -743,22 +877,6 @@ class RollcallMonitorService : Service() {
             } catch (_: Exception) {}
         }
         return bestLoc
-    }
-
-    private fun filterChaoXingCoursesForSession(
-        courses: List<cn.edu.usst.jwgl.data.model.ChaoXingCourse>,
-        sessionCourseName: String
-    ): List<cn.edu.usst.jwgl.data.model.ChaoXingCourse> {
-        val targetNorm = sessionCourseName.replace(Regex("""[（(].*?[）)]"""), "")
-            .replace(Regex("""\s+"""), "")
-            .lowercase()
-        if (targetNorm.isBlank()) return emptyList()
-        return courses.filter { cx ->
-            val cxNorm = cx.courseName.replace(Regex("""[（(].*?[）)]"""), "")
-                .replace(Regex("""\s+"""), "")
-                .lowercase()
-            cxNorm.isNotBlank() && (cxNorm == targetNorm || cxNorm.contains(targetNorm) || targetNorm.contains(cxNorm))
-        }.take(3)
     }
 
     private fun acquireOrRenewCpuWakeLock() {

@@ -14,6 +14,8 @@ import android.widget.Toast
 import android.util.Log
 import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.data.local.AuthPreferences
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
+import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.data.wakeup.CourseUtils
 import cn.edu.usst.jwgl.util.TimetableSettingHelper
 import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
@@ -187,6 +189,22 @@ internal class MainSettingsDialogController(
             "已开启 · 上课时驻留后台检测签到活动"
         } else {
             "已关闭 · 上课时驻留后台检测签到活动"
+        }
+
+        val isCxMonitorEnabled = tcPrefs.isRollcallChaoXingMonitorEnabled()
+        val isCxLoggedIn = ChaoXingPreferences(activity).isLoggedIn()
+        val isCxCircuitOpen = ChaoXingRequestGuard.isCircuitOpen(activity)
+        pb.switchRollcallChaoXingMonitor.isEnabled = isMonitorEnabled
+        pb.rowRollcallChaoXingMonitor.alpha = if (isMonitorEnabled) 1.0f else 0.45f
+        if (pb.switchRollcallChaoXingMonitor.isChecked != (isMonitorEnabled && isCxMonitorEnabled)) {
+            pb.switchRollcallChaoXingMonitor.isChecked = isMonitorEnabled && isCxMonitorEnabled
+        }
+        pb.tvRollcallChaoXingMonitorSubtitle.text = when {
+            !isMonitorEnabled -> "未启用 · 需先开启上方的上课签到后台监听"
+            !isCxMonitorEnabled -> "已关闭 · 按课表锁定当前课 50~60s 低频探测，防风控"
+            isCxCircuitOpen -> "已开启 · 当前处于学习通风控冷却中，暂已暂停请求"
+            !isCxLoggedIn -> "已开启 · 尚未登录超星学习通，请先授权登录"
+            else -> "已开启 · 仅锁定当前课程 50~60s 低频探测，发现即弹窗"
         }
 
         val isDevMode = DeveloperModeManager.isDeveloperMode(activity)

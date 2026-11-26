@@ -76,7 +76,8 @@ object RollcallNotificationHelper {
             baseId + 45000,
             baseId + 50000,
             baseId + 60000,
-            baseId + 70000
+            baseId + 70000,
+            baseId + 75000
         )
         for (id in idsToCancel) {
             try {
@@ -719,6 +720,95 @@ object RollcallNotificationHelper {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
         } catch (_: SecurityException) {
         }
+    }
+
+    /**
+     * 超星学习通活跃签到探测通知（复用锁屏全屏弹窗 + 桌面悬浮窗 + 高优横幅兜底路由）
+     */
+    fun notifyChaoXingActiveSign(
+        context: Context,
+        courseId: String,
+        classId: String,
+        activeId: Long,
+        courseName: String?,
+        signTypeName: String?,
+        otherId: Int = -1,
+        shouldShowPopup: () -> Boolean = { true }
+    ) {
+        createChannels(context)
+
+        val notifId = ((activeId % 100000L).toInt()).coerceAtLeast(1) + 75000
+        val displayType = signTypeName?.takeIf { it.isNotBlank() } ?: "课堂签到"
+        val displayCourse = courseName?.takeIf { it.isNotBlank() } ?: "当前课堂"
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_TAB, 8)
+            putExtra("extra_open_chaoxing_sign", true)
+            putExtra("extra_cx_course_id", courseId)
+            putExtra("extra_cx_class_id", classId)
+            putExtra("extra_cx_active_id", activeId)
+            putExtra("extra_cx_course_name", displayCourse)
+            putExtra("extra_cx_sign_type", displayType)
+            putExtra("extra_cx_other_id", otherId)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val defaultSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("收到学习通$displayType")
+            .setContentText("【$displayCourse】正在进行 $displayType，点击立即前往完成")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "课程：$displayCourse\n" +
+                        "签到类型：$displayType\n" +
+                        "已为您探测到学习通课堂签到活动，点击立即打开对应签到页面。"
+                )
+            )
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(defaultSound)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        val alertIntent = RollcallAlertActivity.createChaoXingIntent(
+            context = context,
+            activeId = activeId,
+            courseId = courseId,
+            classId = classId,
+            courseName = displayCourse,
+            signTypeName = displayType,
+            otherId = otherId
+        )
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            notifId + 500,
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.setFullScreenIntent(fullScreenPendingIntent, true)
+
+        dispatchAlertNotificationWithPopup(
+            context = context,
+            notifId = notifId,
+            rollcallId = activeId,
+            courseName = displayCourse,
+            typeDisplayName = "学习通 · $displayType",
+            builder = builder,
+            actionPendingIntent = pendingIntent,
+            actionLabel = "前往签到",
+            alertIntent = alertIntent,
+            shouldShowPopup = shouldShowPopup
+        )
     }
 
     private fun dispatchAlertNotificationWithPopup(

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.receiver.RollcallAlarmReceiver
 import cn.edu.usst.jwgl.service.RollcallMonitorService
@@ -35,9 +36,17 @@ object RollcallMonitorScheduler {
         }
     }
 
+    private fun hasAnyMonitoredPlatformLoggedIn(
+        context: Context,
+        prefs: TronClassPreferences
+    ): Boolean {
+        if (prefs.isLoggedIn()) return true
+        return prefs.isRollcallChaoXingMonitorEnabled() && ChaoXingPreferences(context).isLoggedIn()
+    }
+
     fun checkAndSchedule(context: Context) {
         val prefs = TronClassPreferences.getInstance(context)
-        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
+        if (!prefs.isRollcallMonitorEnabled() || !hasAnyMonitoredPlatformLoggedIn(context, prefs)) {
             cancel(context)
             return
         }
@@ -65,7 +74,7 @@ object RollcallMonitorScheduler {
      */
     fun scheduleNext(context: Context) {
         val prefs = TronClassPreferences.getInstance(context)
-        if (!prefs.isRollcallMonitorEnabled() || !prefs.isLoggedIn()) {
+        if (!prefs.isRollcallMonitorEnabled() || !hasAnyMonitoredPlatformLoggedIn(context, prefs)) {
             cancel(context)
             return
         }

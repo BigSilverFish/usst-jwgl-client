@@ -10,7 +10,9 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
+import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.databinding.DialogTronclassRollcallWizardBinding
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
 import cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet
@@ -150,6 +152,32 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             binding.switchRollcallMonitor.isChecked = !binding.switchRollcallMonitor.isChecked
         }
 
+        // 同步监听学习通签到开关
+        binding.switchChaoXingMonitor.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && !prefs.isRollcallMonitorEnabled()) {
+                if (binding.switchChaoXingMonitor.isChecked) {
+                    binding.switchChaoXingMonitor.isChecked = false
+                }
+                Toast.makeText(ctx, "需先开启上方的上课后台自动监听开关", Toast.LENGTH_SHORT).show()
+                return@setOnCheckedChangeListener
+            }
+            if (prefs.isRollcallChaoXingMonitorEnabled() == isChecked) return@setOnCheckedChangeListener
+            prefs.setRollcallChaoXingMonitorEnabled(isChecked)
+            RollcallMonitorScheduler.onPreferenceChanged(ctx)
+            if (isChecked && !ChaoXingPreferences(ctx).isLoggedIn()) {
+                Toast.makeText(ctx, "已开启学习通监听（提示：请先登录超星学习通）", Toast.LENGTH_LONG).show()
+            }
+            updateSwitchStates(prefs)
+        }
+
+        binding.layoutChaoXingMonitorRow.setOnClickListener {
+            if (!prefs.isRollcallMonitorEnabled()) {
+                Toast.makeText(ctx, "需先开启上方的上课后台自动监听开关", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            binding.switchChaoXingMonitor.isChecked = !binding.switchChaoXingMonitor.isChecked
+        }
+
         // 自动签到提交开关
         binding.switchAutoSign.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked && !prefs.isRollcallMonitorEnabled()) {
@@ -194,6 +222,25 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             "后台监听已就绪 · 上课时自动检测点名"
         } else {
             "已关闭 · 开启后上课时自动检测并弹窗提醒"
+        }
+
+        // 同步监听学习通项
+        val ctx = requireContext()
+        val isCxMonitor = prefs.isRollcallChaoXingMonitorEnabled()
+        val isCxLoggedIn = ChaoXingPreferences(ctx).isLoggedIn()
+        val isCxCircuitOpen = ChaoXingRequestGuard.isCircuitOpen(ctx)
+        binding.switchChaoXingMonitor.isEnabled = isMonitor
+        binding.layoutChaoXingMonitorRow.alpha = if (isMonitor) 1.0f else 0.5f
+        val cxChecked = isMonitor && isCxMonitor
+        if (binding.switchChaoXingMonitor.isChecked != cxChecked) {
+            binding.switchChaoXingMonitor.isChecked = cxChecked
+        }
+        binding.tvChaoXingMonitorDesc.text = when {
+            !isMonitor -> "未启用 (需先开启上方后台监听)"
+            !isCxMonitor -> "已关闭 · 仅锁定当前课程 50~60s 低频探测，防风控"
+            isCxCircuitOpen -> "已开启 · 当前处于风控冷却中，已自动暂停探测"
+            !isCxLoggedIn -> "已开启 · 尚未登录超星学习通，请先授权登录"
+            else -> "已开启 · 仅锁定当前课程 50~60s 低频探测，发现即弹窗"
         }
 
         // 自动提交项（受开发者模式管控：未激活时隐藏）

@@ -1,5 +1,8 @@
 package cn.edu.usst.jwgl.util
 
+import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
+import cn.edu.usst.jwgl.data.model.ChaoXingCourse
+import cn.edu.usst.jwgl.data.model.ChaoXingSignDetail
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.service.RollcallMonitorService
 import org.junit.Assert.*
@@ -274,5 +277,57 @@ class RollcallMonitorTest {
         assertFalse(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = true, hasFullScreenIntent = true))
         assertFalse(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = true, hasFullScreenIntent = false))
         assertTrue(RollcallNotificationHelper.shouldWakeScreenBeforeNotify(silent = false, hasFullScreenIntent = false))
+    }
+
+    @Test
+    fun testSelectChaoXingCoursesForSession_matchesExactAndContainsAndCapsLimit() {
+        val exact = ChaoXingCourse(courseId = "1", classId = "10", courseName = "高等数学A（1）")
+        val partial1 = ChaoXingCourse(courseId = "2", classId = "20", courseName = "高等数学A提高班")
+        val partial2 = ChaoXingCourse(courseId = "3", classId = "30", courseName = "高等数学A习题课")
+        val duplicate = ChaoXingCourse(courseId = "1", classId = "10", courseName = "高等数学A（1）")
+        val unrelated = ChaoXingCourse(courseId = "4", classId = "40", courseName = "大学物理")
+
+        val matched = RollcallMonitorService.selectChaoXingCoursesForSession(
+            courses = listOf(partial1, unrelated, exact, duplicate, partial2),
+            sessionCourseName = "高等数学 A"
+        )
+        assertEquals(2, matched.size)
+        assertEquals("1", matched[0].courseId)
+        assertEquals("2", matched[1].courseId)
+
+        val none = RollcallMonitorService.selectChaoXingCoursesForSession(
+            courses = listOf(exact, partial1),
+            sessionCourseName = "信号与系统"
+        )
+        assertTrue(none.isEmpty())
+    }
+
+    @Test
+    fun testSelectActionableChaoXingSigns_filtersSignedExpiredAndHandled() {
+        val course = ChaoXingCourse(courseId = "1", classId = "10", courseName = "数据结构")
+        val activeUnhandled = ChaoXingActiveItem.createSynthetic(activeId = 1001L, signTypeName = "手势签到")
+        val alreadySigned = ChaoXingActiveItem.createSynthetic(activeId = 1002L, signTypeName = "普通签到").apply {
+            signDetail = ChaoXingSignDetail(activeId = 1002L, isAlreadySigned = true)
+        }
+        val expiredDetail = ChaoXingActiveItem.createSynthetic(activeId = 1003L, signTypeName = "位置签到").apply {
+            signDetail = ChaoXingSignDetail(activeId = 1003L, isExpired = true)
+        }
+        val inactiveStatus = ChaoXingActiveItem.createSynthetic(activeId = 1004L, signTypeName = "普通签到", status = 2)
+        val nonSignActivity = ChaoXingActiveItem.createSynthetic(activeId = 1005L, signTypeName = "投票", activeType = 4)
+        val alreadyHandled = ChaoXingActiveItem.createSynthetic(activeId = 1006L, signTypeName = "口令签到")
+
+        val result = RollcallMonitorService.selectActionableChaoXingSigns(
+            signs = listOf(
+                course to activeUnhandled,
+                course to alreadySigned,
+                course to expiredDetail,
+                course to inactiveStatus,
+                course to nonSignActivity,
+                course to alreadyHandled
+            ),
+            isHandled = { it == 1006L }
+        )
+
+        assertEquals(listOf(1001L), result.map { it.second.id })
     }
 }

@@ -70,6 +70,31 @@ internal class TronClassRollcallUiCoordinator(
         get() = fragment.pendingChaoXingQrCourseName
         set(value) { fragment.pendingChaoXingQrCourseName = value }
 
+    fun openChaoXingSignFromAlert(
+        courseId: String,
+        classId: String,
+        activeId: Long,
+        courseName: String?,
+        signTypeName: String?,
+        otherId: Int = -1
+    ) {
+        if (courseId.isBlank() || classId.isBlank() || activeId <= 0L) return
+        val cached = cachedChaoXingCourses.firstOrNull {
+            it.courseId == courseId && it.classId == classId
+        }
+        val course = cached ?: ChaoXingCourse(
+            courseId = courseId,
+            classId = classId,
+            courseName = courseName?.takeIf { it.isNotBlank() } ?: "学习通课程"
+        )
+        val activeItem = ChaoXingActiveItem.createSynthetic(
+            activeId = activeId,
+            signTypeName = signTypeName,
+            otherId = otherId
+        )
+        performChaoXingSign(course, activeItem)
+    }
+
     fun checkChaoXingCourseSignSingle(course: UnifiedCourse) {
         val ctx = context ?: return
         val rawCx = course.rawChaoXingCourse ?: ChaoXingCourse(
