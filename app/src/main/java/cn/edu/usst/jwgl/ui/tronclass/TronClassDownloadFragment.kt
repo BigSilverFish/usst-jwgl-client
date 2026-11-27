@@ -5,13 +5,20 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
+import cn.edu.usst.jwgl.data.local.CoursewareStorageManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
 import cn.edu.usst.jwgl.databinding.ActivityTronclassDownloadBinding
@@ -25,6 +32,21 @@ class TronClassDownloadFragment : Fragment() {
     private var _binding: ActivityTronclassDownloadBinding? = null
     private val binding get() = _binding!!
     private lateinit var adapter: TronClassDownloadAdapter
+
+    private val openDocumentTreeLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        val ctx = context ?: return@registerForActivityResult
+        if (uri != null) {
+            CoursewareStorageManager.saveCustomTreeUri(ctx, uri)
+            updateDownloadPathBanner()
+            Toast.makeText(
+                ctx,
+                "已将下载路径设为：${CoursewareStorageManager.getCurrentLocationSummary(ctx)}",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     companion object {
         fun newInstance(): TronClassDownloadFragment {
@@ -142,6 +164,11 @@ class TronClassDownloadFragment : Fragment() {
 
         binding.rvDownloads.adapter = adapter
 
+        binding.layoutDownloadPathBar.setOnClickListener {
+            showDownloadLocationDialog()
+        }
+        updateDownloadPathBanner()
+
         binding.btnClearAll.setOnClickListener {
             val items = TronClassDownloadManager.getDownloadedItems(requireContext())
             if (items.isEmpty()) {
@@ -159,6 +186,112 @@ class TronClassDownloadFragment : Fragment() {
                 }
                 .show()
         }
+    }
+
+    private fun updateDownloadPathBanner() {
+        val ctx = context ?: return
+        val b = _binding ?: return
+        val summary = CoursewareStorageManager.getCurrentLocationSummary(ctx)
+        val groupSuffix = if (CoursewareStorageManager.isGroupByCourseEnabled(ctx)) " · 按课程分目录" else ""
+        b.tvDownloadPathSummary.text = "下载位置：$summary$groupSuffix"
+    }
+
+    private fun showDownloadLocationDialog() {
+        val ctx = context ?: return
+        val density = resources.displayMetrics.density
+        val pad = (20 * density).toInt()
+        val smallPad = (8 * density).toInt()
+
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, smallPad, pad, 0)
+        }
+
+        val currentMode = CoursewareStorageManager.getStorageMode(ctx)
+        val hasValidCustom = CoursewareStorageManager.hasValidCustomTreePermission(ctx)
+        val customSuffix = if (hasValidCustom) CoursewareStorageManager.getCustomDisplayName(ctx) else "需选择子文件夹"
+
+        val radioGroup = RadioGroup(ctx).apply {
+            orientation = RadioGroup.VERTICAL
+        }
+        val rbSystemDownloads = RadioButton(ctx).apply {
+            id = View.generateViewId()
+            text = "系统下载目录（Download/usst-jwgl-client，默认，免授权）"
+            setPadding(smallPad, smallPad, 0, smallPad)
+        }
+        val rbInternal = RadioButton(ctx).apply {
+            id = View.generateViewId()
+            text = "应用内置目录（卸载随应用清理）"
+            setPadding(smallPad, smallPad, 0, smallPad)
+        }
+        val rbCustomSaf = RadioButton(ctx).apply {
+            id = View.generateViewId()
+            text = "自定义文件夹（$customSuffix）"
+            setPadding(smallPad, smallPad, 0, smallPad)
+        }
+        radioGroup.addView(rbSystemDownloads)
+        radioGroup.addView(rbInternal)
+        radioGroup.addView(rbCustomSaf)
+
+        when (currentMode) {
+            CoursewareStorageManager.StorageMode.INTERNAL -> radioGroup.check(rbInternal.id)
+            CoursewareStorageManager.StorageMode.SYSTEM_DOWNLOADS -> radioGroup.check(rbSystemDownloads.id)
+            CoursewareStorageManager.StorageMode.CUSTOM_SAF -> radioGroup.check(rbCustomSaf.id)
+        }
+        container.addView(radioGroup)
+
+        val switchGroupByCourse = MaterialSwitch(ctx).apply {
+            text = "按课程名自动建子文件夹"
+            isChecked = CoursewareStorageManager.isGroupByCourseEnabled(ctx)
+            setPadding(0, (12 * density).toInt(), 0, (4 * density).toInt())
+        }
+        container.addView(switchGroupByCourse)
+
+        val tvHint = TextView(ctx).apply {
+            text = "提示：Android 11–16+ 系统限制直接授权根目录或 Download 根目录，选择自定义目录时请新建或选择任意子文件夹；设置变更仅对后续下载生效。"
+            textSize = 12f
+            alpha = 0.72f
+            setPadding(0, smallPad, 0, 0)
+        }
+        container.addView(tvHint)
+
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("课件下载路径设置")
+            .setView(container)
+            .setNegativeButton("取消", null)
+            .setNeutralButton("重选自定义目录") { _, _ ->
+                CoursewareStorageManager.setGroupByCourseEnabled(ctx, switchGroupByCourse.isChecked)
+                openDocumentTreeLauncher.launch(CoursewareStorageManager.getCustomTreeUri(ctx))
+            }
+            .setPositiveButton("确定") { _, _ ->
+                CoursewareStorageManager.setGroupByCourseEnabled(ctx, switchGroupByCourse.isChecked)
+                when (radioGroup.checkedRadioButtonId) {
+                    rbInternal.id -> {
+                        CoursewareStorageManager.setStorageMode(ctx, CoursewareStorageManager.StorageMode.INTERNAL)
+                        updateDownloadPathBanner()
+                        Toast.makeText(ctx, "已切换为应用内置目录", Toast.LENGTH_SHORT).show()
+                    }
+                    rbSystemDownloads.id -> {
+                        CoursewareStorageManager.setStorageMode(ctx, CoursewareStorageManager.StorageMode.SYSTEM_DOWNLOADS)
+                        updateDownloadPathBanner()
+                        Toast.makeText(ctx, "已切换为系统下载目录 (Download/usst-jwgl-client)", Toast.LENGTH_SHORT).show()
+                    }
+                    rbCustomSaf.id -> {
+                        if (CoursewareStorageManager.hasValidCustomTreePermission(ctx)) {
+                            CoursewareStorageManager.setStorageMode(ctx, CoursewareStorageManager.StorageMode.CUSTOM_SAF)
+                            updateDownloadPathBanner()
+                            Toast.makeText(
+                                ctx,
+                                "已启用自定义目录：${CoursewareStorageManager.getCustomDisplayName(ctx)}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            openDocumentTreeLauncher.launch(CoursewareStorageManager.getCustomTreeUri(ctx))
+                        }
+                    }
+                }
+            }
+            .show()
     }
 
     private fun loadDownloadedFiles() {

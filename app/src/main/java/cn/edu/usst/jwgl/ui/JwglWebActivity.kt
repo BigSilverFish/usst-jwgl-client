@@ -306,7 +306,8 @@ class JwglWebActivity : AppCompatActivity() {
         if (host.isNullOrBlank()) return false
         val lower = host.lowercase()
         return lower == "usst.edu.cn" || lower.endsWith(".usst.edu.cn") ||
-               lower == "chaoxing.com" || lower.endsWith(".chaoxing.com")
+               lower == "chaoxing.com" || lower.endsWith(".chaoxing.com") ||
+               lower == "cldisk.com" || lower.endsWith(".cldisk.com")
     }
 
     private fun isAllowedUsstHost(host: String?): Boolean = isAllowedTargetHost(host)
@@ -337,7 +338,10 @@ class JwglWebActivity : AppCompatActivity() {
         return when (uri.scheme?.lowercase()) {
             "https" -> uri.toString()
             "http" -> {
-                if (host.lowercase().endsWith("chaoxing.com")) {
+                val lowerHost = host.lowercase()
+                if (lowerHost == "chaoxing.com" || lowerHost.endsWith(".chaoxing.com") ||
+                    lowerHost == "cldisk.com" || lowerHost.endsWith(".cldisk.com")
+                ) {
                     uri.toString()
                 } else {
                     uri.buildUpon().scheme("https").build().toString()
@@ -1167,7 +1171,8 @@ class JwglWebActivity : AppCompatActivity() {
         val studentId = authPrefs.getStudentId()
         val password = authPrefs.getPassword()
 
-        val isChaoXing = targetUrl.contains("chaoxing.com")
+        val isChaoXing = targetUrl.contains("chaoxing.com", ignoreCase = true) ||
+            targetUrl.contains("cldisk.com", ignoreCase = true)
         if (isChaoXing) {
             binding.layoutLoading.visibility = View.VISIBLE
             binding.tvLoadingMessage.text = "正在为超星学习通同步登录凭据..."
@@ -1187,6 +1192,14 @@ class JwglWebActivity : AppCompatActivity() {
 
         // 1. 同步 JwglClient (OkHttp) 已有的认证 Cookie (JSESSIONID, CASTGC) 至 WebView
         CookieSyncHelper.syncJwglCookiesToWebView()
+
+        val isTronClass = targetUrl.contains("1906.usst.edu.cn") || targetUrl.contains("tronclass.usst.edu.cn")
+        if (isTronClass) {
+            CookieSyncHelper.syncTronClassSessionToWebView(this, studentId.ifBlank { null })
+            binding.layoutLoading.visibility = View.GONE
+            binding.webView.loadUrl(targetUrl)
+            return
+        }
 
         val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
         val isJwgl = targetUrl.contains("jwgl.usst.edu.cn")

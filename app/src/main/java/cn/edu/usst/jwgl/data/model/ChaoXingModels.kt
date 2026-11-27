@@ -424,14 +424,97 @@ data class ChaoXingChapter(
 ) : Serializable
 
 /**
- * 超星章节课件/附件 (PPT, Word, PDF, Video)
+ * 超星章节附件标准化分类
+ */
+enum class ChaoXingAttachmentKind {
+    VIDEO,
+    AUDIO,
+    IMAGE,
+    PDF,
+    PPT,
+    WORD,
+    EXCEL,
+    ARCHIVE,
+    DOCUMENT,
+    OTHER
+}
+
+/**
+ * 超星章节课件/附件 (PPT, Word, PDF, Video, Image, Audio, Archive)
  */
 data class ChaoXingCourseAttachment(
     val objectId: String,
     val name: String,
     val size: Long = 0L,
-    val isVideo: Boolean = false
+    val isVideo: Boolean = false,
+    val fileExt: String = "",
+    val attachmentType: String = "",
+    val module: String = ""
 ) : Serializable {
+    fun resolveExtension(): String {
+        val cleanedExt = fileExt.trim().trimStart('.').lowercase(java.util.Locale.ROOT)
+        if (cleanedExt.isNotEmpty() && cleanedExt.length in 1..6 && cleanedExt.all { it.isLetterOrDigit() }) {
+            return cleanedExt
+        }
+        val cleanName = name.substringBefore('?').substringBefore('#').trim()
+        val rawNameExt = cleanName.substringAfterLast('.', "").trim().lowercase(java.util.Locale.ROOT)
+        return if (cleanName.contains('.') && rawNameExt.length in 1..6 && rawNameExt.all { it.isLetterOrDigit() }) {
+            rawNameExt
+        } else {
+            ""
+        }
+    }
+
+    fun resolveKind(): ChaoXingAttachmentKind {
+        val ext = resolveExtension()
+        val typeLower = attachmentType.trim().lowercase(java.util.Locale.ROOT)
+        val moduleLower = module.trim().lowercase(java.util.Locale.ROOT)
+        return when {
+            isVideo ||
+                ext in VIDEO_EXTENSIONS ||
+                typeLower == "video" ||
+                moduleLower == "insertvideo" -> ChaoXingAttachmentKind.VIDEO
+            ext in AUDIO_EXTENSIONS ||
+                typeLower == "audio" ||
+                moduleLower == "insertaudio" -> ChaoXingAttachmentKind.AUDIO
+            ext in IMAGE_EXTENSIONS ||
+                typeLower == "image" ||
+                moduleLower == "insertimage" -> ChaoXingAttachmentKind.IMAGE
+            ext == "pdf" -> ChaoXingAttachmentKind.PDF
+            ext in PPT_EXTENSIONS -> ChaoXingAttachmentKind.PPT
+            ext in WORD_EXTENSIONS -> ChaoXingAttachmentKind.WORD
+            ext in EXCEL_EXTENSIONS -> ChaoXingAttachmentKind.EXCEL
+            ext in ARCHIVE_EXTENSIONS -> ChaoXingAttachmentKind.ARCHIVE
+            ext in DOCUMENT_EXTENSIONS ||
+                typeLower == "document" ||
+                typeLower == "book" ||
+                moduleLower == "insertdoc" ||
+                moduleLower == "insertbook" -> ChaoXingAttachmentKind.DOCUMENT
+            else -> ChaoXingAttachmentKind.OTHER
+        }
+    }
+
+    fun getTypeLabel(): String {
+        val ext = resolveExtension()
+        return when (resolveKind()) {
+            ChaoXingAttachmentKind.VIDEO -> if (ext.isNotBlank()) "视频 · ${ext.uppercase(java.util.Locale.ROOT)}" else "视频"
+            ChaoXingAttachmentKind.AUDIO -> if (ext.isNotBlank()) "音频 · ${ext.uppercase(java.util.Locale.ROOT)}" else "音频"
+            ChaoXingAttachmentKind.IMAGE -> if (ext.isNotBlank()) "图片 · ${ext.uppercase(java.util.Locale.ROOT)}" else "图片"
+            ChaoXingAttachmentKind.PDF -> "PDF"
+            ChaoXingAttachmentKind.PPT -> "PPT"
+            ChaoXingAttachmentKind.WORD -> "Word"
+            ChaoXingAttachmentKind.EXCEL -> "Excel"
+            ChaoXingAttachmentKind.ARCHIVE -> if (ext.isNotBlank()) "压缩包 · ${ext.uppercase(java.util.Locale.ROOT)}" else "压缩包"
+            ChaoXingAttachmentKind.DOCUMENT -> if (ext.isNotBlank()) ext.uppercase(java.util.Locale.ROOT) else "文档"
+            ChaoXingAttachmentKind.OTHER -> if (ext.isNotBlank()) ext.uppercase(java.util.Locale.ROOT) else "附件"
+        }
+    }
+
+    fun getSubtitleSummary(): String {
+        val parts = listOf(getTypeLabel(), getFormattedSize()).filter { it.isNotBlank() }
+        return if (parts.isNotEmpty()) parts.joinToString(" · ") else "课件资料"
+    }
+
     fun getFormattedSize(): String {
         if (size <= 0) return ""
         val kb = size / 1024.0
@@ -442,6 +525,17 @@ data class ChaoXingCourseAttachment(
             String.format(java.util.Locale.CHINA, "%.1f KB", kb)
         }
     }
+
+    companion object {
+        private val VIDEO_EXTENSIONS = setOf("mp4", "flv", "wmv", "avi", "rmvb", "mpg", "mov", "mkv", "m4v", "webm")
+        private val AUDIO_EXTENSIONS = setOf("mp3", "wav", "aac", "m4a", "ogg", "flac", "wma")
+        private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic")
+        private val PPT_EXTENSIONS = setOf("ppt", "pptx")
+        private val WORD_EXTENSIONS = setOf("doc", "docx")
+        private val EXCEL_EXTENSIONS = setOf("xls", "xlsx", "csv")
+        private val ARCHIVE_EXTENSIONS = setOf("zip", "rar", "7z", "tar", "gz")
+        private val DOCUMENT_EXTENSIONS = setOf("txt", "md", "rtf", "epub", "caj")
+    }
 }
 
 /**
@@ -450,8 +544,64 @@ data class ChaoXingCourseAttachment(
 data class ChaoXingYunFile(
     val pdfUrl: String = "",
     val downloadUrl: String = "",
-    val streamUrl: String = ""
-) : Serializable
+    val streamUrl: String = "",
+    val hdStreamUrl: String = "",
+    val httpsStreamUrl: String = "",
+    val fileName: String = "",
+    val fileExt: String = "",
+    val mimeType: String = ""
+) : Serializable {
+
+    fun getPreferredStreamUrls(): List<String> {
+        val candidates = mutableListOf<String>()
+        fun addNormalizedHttpsFirst(raw: String) {
+            val trimmed = raw.trim()
+            if (trimmed.isBlank()) return
+            if (trimmed.startsWith("http://", ignoreCase = true)) {
+                candidates.add("https://" + trimmed.substring(7))
+            }
+            candidates.add(trimmed)
+        }
+
+        val cleanHttps = httpsStreamUrl.trim()
+        if (cleanHttps.isNotBlank()) {
+            candidates.add(cleanHttps)
+        }
+        addNormalizedHttpsFirst(hdStreamUrl)
+        addNormalizedHttpsFirst(streamUrl)
+
+        return candidates.distinct()
+    }
+
+    fun resolveBestFileName(fallbackName: String, fallbackExt: String = ""): String {
+        val baseFallback = fallbackName.trim().ifBlank { fileName.trim() }.ifBlank { "attachment" }
+        val existingExt = baseFallback.substringAfterLast('.', "").trim()
+        if (baseFallback.contains('.') && existingExt.length in 1..6 && existingExt.all { it.isLetterOrDigit() }) {
+            return baseFallback
+        }
+
+        val extFromServerName = fileName.trim().substringAfterLast('.', "").trim()
+            .takeIf { fileName.contains('.') && it.length in 1..6 && it.all { ch -> ch.isLetterOrDigit() } }
+            .orEmpty()
+        val extFromUrl = downloadUrl.substringBefore('?').substringBefore('#')
+            .substringAfterLast('/', "")
+            .substringAfterLast('.', "")
+            .trim()
+            .takeIf { downloadUrl.substringBefore('?').substringAfterLast('/', "").contains('.') && it.length in 1..6 && it.all { ch -> ch.isLetterOrDigit() } }
+            .orEmpty()
+
+        val resolvedExt = listOf(
+            fileExt.trim().trimStart('.'),
+            fallbackExt.trim().trimStart('.'),
+            extFromServerName,
+            extFromUrl
+        ).firstOrNull {
+            it.isNotBlank() && it.length in 1..6 && it.all { ch -> ch.isLetterOrDigit() }
+        }?.lowercase(java.util.Locale.ROOT).orEmpty()
+
+        return if (resolvedExt.isNotBlank()) "$baseFallback.$resolvedExt" else baseFallback
+    }
+}
 
 /**
  * 超星考试/测验实体

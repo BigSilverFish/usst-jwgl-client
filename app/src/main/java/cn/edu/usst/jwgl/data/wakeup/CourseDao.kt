@@ -7,7 +7,6 @@ import android.database.sqlite.SQLiteOpenHelper
 
 class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
 
-    @Synchronized
     fun insertCourseBase(course: CourseBaseBean) {
         val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
@@ -27,7 +26,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun updateCourseBase(course: CourseBaseBean) {
         val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
@@ -45,7 +43,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun setCourseLocked(id: Int, tableId: Int, isLocked: Boolean) {
         val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
@@ -59,7 +56,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun deleteCourseBase(id: Int, tableId: Int) {
         val db = dbHelper.writableDatabase
         db.delete(
@@ -74,7 +70,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun getCourseBaseById(id: Int, tableId: Int): CourseBaseBean? {
         val db = dbHelper.readableDatabase
         val cursor = db.query(
@@ -108,7 +103,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun getCourseBasesOfTable(tableId: Int): List<CourseBaseBean> {
         val list = mutableListOf<CourseBaseBean>()
         val db = dbHelper.readableDatabase
@@ -129,7 +123,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         return list
     }
 
-    @Synchronized
     fun getLastIdOfTable(tableId: Int): Int {
         val db = dbHelper.readableDatabase
         val cursor = db.rawQuery(
@@ -141,7 +134,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         }
     }
 
-    @Synchronized
     fun getCourseOfTable(tableId: Int): List<CourseBean> {
         val list = mutableListOf<CourseBean>()
         val db = dbHelper.readableDatabase
@@ -165,7 +157,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         return list
     }
 
-    @Synchronized
     fun getCourseByDayOfTable(day: Int, tableId: Int): List<CourseBean> {
         val list = mutableListOf<CourseBean>()
         val db = dbHelper.readableDatabase
@@ -189,7 +180,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         return list
     }
 
-    @Synchronized
     fun getCourseByDayAndWeekOfTable(day: Int, week: Int, type: Int, tableId: Int): List<CourseBean> {
         val list = mutableListOf<CourseBean>()
         val db = dbHelper.readableDatabase
@@ -240,7 +230,6 @@ class CourseBaseDaoImpl(private val dbHelper: SQLiteOpenHelper) {
 
 class CourseDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
 
-    @Synchronized
     fun insertDetail(detail: CourseDetailBean) {
         val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
@@ -263,10 +252,9 @@ class CourseDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun insertList(list: List<CourseDetailBean>) {
         val db = dbHelper.writableDatabase
-        db.beginTransaction()
+        db.beginTransactionNonExclusive()
         try {
             for (item in list) {
                 insertDetail(item)
@@ -277,7 +265,6 @@ class CourseDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         }
     }
 
-    @Synchronized
     fun deleteCourseDetail(detail: CourseDetailBean) {
         val db = dbHelper.writableDatabase
         db.delete(
@@ -294,7 +281,6 @@ class CourseDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun deleteByIdOfTable(id: Int, tableId: Int) {
         val db = dbHelper.writableDatabase
         db.delete(
@@ -304,7 +290,6 @@ class CourseDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         )
     }
 
-    @Synchronized
     fun getDetailByIdOfTable(id: Int, tableId: Int): List<CourseDetailBean> {
         val list = mutableListOf<CourseDetailBean>()
         val db = dbHelper.readableDatabase

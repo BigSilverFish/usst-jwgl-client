@@ -15,9 +15,12 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.local.CoursewareStorageManager
 import cn.edu.usst.jwgl.data.local.TronClassCacheManager
+import cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityTronclassVideoPlayerBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,6 +39,14 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
     private var courseName: String = ""
     private var uploadId: Long = 0
     private var uploadName: String = ""
+
+    private var directUrl: String = ""
+    private var directDownloadUrl: String = ""
+    private var mediaId: String = ""
+    private var videoReferer: String = ""
+    private var streamCandidates: List<String> = emptyList()
+    private var currentStreamIndex: Int = 0
+    private var isDownloadingVideo: Boolean = false
 
     private var mediaPlayer: MediaPlayer? = null
     private var isPlaying = false
@@ -80,12 +91,22 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
             context: Context,
             title: String,
             courseName: String,
-            videoUrl: String
+            videoUrl: String,
+            fallbackUrls: List<String> = emptyList(),
+            mediaId: String = "",
+            referer: String = "",
+            downloadUrl: String = "",
+            courseId: Long = 0L
         ) {
             val intent = Intent(context, TronClassVideoPlayerActivity::class.java).apply {
                 putExtra("title", title)
                 putExtra("course_name", courseName)
+                putExtra("course_id", courseId)
                 putExtra("direct_video_url", videoUrl)
+                putStringArrayListExtra("fallback_video_urls", ArrayList(fallbackUrls))
+                putExtra("media_id", mediaId)
+                putExtra("video_referer", referer)
+                putExtra("direct_download_url", downloadUrl)
             }
             context.startActivity(intent)
         }
@@ -125,6 +146,13 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
         courseName = intent.getStringExtra("course_name") ?: ""
         uploadId = intent.getLongExtra("upload_id", 0)
         uploadName = intent.getStringExtra("upload_name") ?: ""
+        directUrl = intent.getStringExtra("direct_video_url").orEmpty().trim()
+        directDownloadUrl = intent.getStringExtra("direct_download_url").orEmpty().trim()
+        mediaId = intent.getStringExtra("media_id").orEmpty().trim()
+        videoReferer = intent.getStringExtra("video_referer").orEmpty().trim()
+        val fallbacks = intent.getStringArrayListExtra("fallback_video_urls") ?: arrayListOf()
+        streamCandidates = (listOf(directUrl) + fallbacks).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        currentStreamIndex = 0
 
         setupUI()
         setupListeners()
@@ -203,13 +231,35 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
         })
     }
 
+    private fun buildPlaybackHeaders(uri: Uri): Map<String, String> {
+        val uriString = uri.toString()
+        val isChaoXing = ChaoXingCourseDetailClient.isChaoXingMediaHost(uriString) ||
+            videoReferer.contains("chaoxing.com", ignoreCase = true)
+        if (isChaoXing) {
+            return mapOf(
+                "User-Agent" to ChaoXingCourseDetailClient.CHAOXING_USER_AGENT,
+                "Referer" to videoReferer.ifBlank { ChaoXingCourseDetailClient.CHAOXING_REFERER }
+            )
+        }
+
+        val headers = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 16; TronClass/2.16.1)",
+            "X-Requested-With" to "XMLHttpRequest"
+        )
+        client.getSessionId()?.let { sid ->
+            headers["x-session-id"] = sid
+            headers["Cookie"] = "session_id=$sid"
+        }
+        return headers
+    }
+
     private fun prepareAndPlayVideo() {
-        val directUrl = intent.getStringExtra("direct_video_url")
-        val cachedFile = cacheManager.getExistingFile(uploadId, uploadName)
+        val cachedFile = if (uploadId > 0L) cacheManager.getExistingFile(uploadId, uploadName) else null
         val uri: Uri = when {
-            !directUrl.isNullOrBlank() -> {
-                Log.d(TAG, "Playing from direct video stream URL: $directUrl")
-                Uri.parse(directUrl)
+            streamCandidates.isNotEmpty() -> {
+                val activeUrl = streamCandidates.getOrElse(currentStreamIndex) { directUrl }
+                Log.d(TAG, "Playing from direct video stream URL [$currentStreamIndex/${streamCandidates.size}]: $activeUrl")
+                Uri.parse(activeUrl)
             }
             cachedFile != null && cachedFile.exists() && cachedFile.length() > 0 -> {
                 Log.d(TAG, "Playing from local offline cache: ${cachedFile.absolutePath}")
@@ -222,15 +272,8 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
             }
         }
 
-        val headers = mutableMapOf(
-            "User-Agent" to "Mozilla/5.0 (Linux; Android 16; TronClass/2.16.1)",
-            "X-Requested-With" to "XMLHttpRequest"
-        )
-        client.getSessionId()?.let { sid ->
-            headers["x-session-id"] = sid
-            headers["Cookie"] = "session_id=$sid"
-        }
-
+        binding.progressLoading.visibility = View.VISIBLE
+        val headers = buildPlaybackHeaders(uri)
         binding.videoView.setVideoURI(uri, headers)
 
         binding.videoView.setOnPreparedListener { mp ->
@@ -271,9 +314,33 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
         }
 
         binding.videoView.setOnErrorListener { _, what, extra ->
+            Log.e(TAG, "VideoView playback error: what=$what, extra=$extra, index=$currentStreamIndex")
+            if (currentStreamIndex + 1 < streamCandidates.size) {
+                currentStreamIndex++
+                binding.progressLoading.visibility = View.VISIBLE
+                Toast.makeText(this, "当前线路播放失败，正在切换备用线路...", Toast.LENGTH_SHORT).show()
+                runCatching { binding.videoView.stopPlayback() }
+                prepareAndPlayVideo()
+                return@setOnErrorListener true
+            }
+
             binding.progressLoading.visibility = View.GONE
-            Log.e(TAG, "VideoView playback error: what=$what, extra=$extra")
-            Toast.makeText(this, "视频在线流媒体播放失败，正在为您切换备用方式...", Toast.LENGTH_LONG).show()
+            isPlaying = false
+            binding.btnPlayPause.setImageResource(R.drawable.ic_play_arrow)
+            if (!isFinishing && !isDestroyed) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("视频播放失败")
+                    .setMessage("在线视频流暂时无法播放 (错误码: $what/$extra)，您可以尝试重新加载或下载到本地观看。")
+                    .setPositiveButton("重试") { _, _ ->
+                        currentStreamIndex = 0
+                        prepareAndPlayVideo()
+                    }
+                    .setNeutralButton("下载到本地") { _, _ ->
+                        handleDownloadVideo()
+                    }
+                    .setNegativeButton("关闭", null)
+                    .show()
+            }
             true
         }
     }
@@ -315,6 +382,61 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
     }
 
     private fun handleDownloadVideo() {
+        if (directUrl.isNotBlank() || streamCandidates.isNotEmpty()) {
+            if (isDownloadingVideo) {
+                Toast.makeText(this, "视频正在后台下载中...", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val targetUrl = directDownloadUrl.ifBlank {
+                streamCandidates.getOrElse(currentStreamIndex) { directUrl }
+            }
+            if (targetUrl.isBlank()) {
+                Toast.makeText(this, "暂无可下载视频地址", Toast.LENGTH_SHORT).show()
+                return
+            }
+            isDownloadingVideo = true
+            Toast.makeText(this, "已开始后台下载视频...", Toast.LENGTH_SHORT).show()
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val cxClient = ChaoXingCourseDetailClient(this@TronClassVideoPlayerActivity)
+                    val dlRes = cxClient.downloadYunFile(
+                        url = targetUrl,
+                        preferredFileName = if (videoTitle.contains('.')) videoTitle else "$videoTitle.mp4",
+                        tempDir = File(cacheDir, "chaoxing_downloads")
+                    )
+                    if (dlRes.isSuccess) {
+                        val dl = dlRes.getOrThrow()
+                        val persisted = CoursewareStorageManager.persistDownloadedCourseware(
+                            context = this@TronClassVideoPlayerActivity,
+                            sourceFile = dl.tempFile,
+                            uploadId = 0L,
+                            displayName = dl.resolvedFileName,
+                            courseId = courseId,
+                            courseName = courseName,
+                            removeSourceAfterExport = true,
+                            customFileId = if (mediaId.isNotBlank()) "cx_$mediaId" else "cx_${videoTitle.hashCode()}",
+                            mimeTypeOverride = dl.mimeType
+                        )
+                        withContext(Dispatchers.Main) {
+                            val msg = persisted.warningMessage ?: "视频已保存至 ${persisted.locationLabel}"
+                            Toast.makeText(this@TronClassVideoPlayerActivity, msg, Toast.LENGTH_LONG).show()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@TronClassVideoPlayerActivity,
+                                "视频下载失败: ${dlRes.exceptionOrNull()?.message ?: "请检查网络"}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                } finally {
+                    isDownloadingVideo = false
+                }
+            }
+            return
+        }
+
         val cachedFile = cacheManager.getExistingFile(uploadId, uploadName)
         if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
             Toast.makeText(this, "该视频已完整离线缓存，当前正在本地播放", Toast.LENGTH_SHORT).show()
@@ -371,19 +493,28 @@ class TronClassVideoPlayerActivity : AppCompatActivity() {
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
+    private fun getResumeKey(): String {
+        return when {
+            mediaId.isNotBlank() -> "${PREF_KEY_POS_PREFIX}cx_$mediaId"
+            uploadId > 0L -> "$PREF_KEY_POS_PREFIX$uploadId"
+            directUrl.isNotBlank() -> "${PREF_KEY_POS_PREFIX}url_${directUrl.substringBefore('?').hashCode()}"
+            else -> "$PREF_KEY_POS_PREFIX$uploadId"
+        }
+    }
+
     private fun savePlaybackPosition() {
         val current = binding.videoView.currentPosition
         if (current > 0) {
             getSharedPreferences("tc_video_progress", Context.MODE_PRIVATE)
                 .edit()
-                .putInt(PREF_KEY_POS_PREFIX + uploadId, current)
+                .putInt(getResumeKey(), current)
                 .apply()
         }
     }
 
     private fun getSavedPlaybackPosition(): Int {
         return getSharedPreferences("tc_video_progress", Context.MODE_PRIVATE)
-            .getInt(PREF_KEY_POS_PREFIX + uploadId, 0)
+            .getInt(getResumeKey(), 0)
     }
 
     override fun onPause() {

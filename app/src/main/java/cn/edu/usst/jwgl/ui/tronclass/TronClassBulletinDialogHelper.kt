@@ -241,14 +241,12 @@ object TronClassBulletinDialogHelper {
             }
 
             fun doAction() {
-                val existing = cacheManager.getExistingFile(upload.id, upload.name)
-                if (existing != null) {
-                    cacheManager.openFile(existing)
-                } else {
-                    startDownload(context, lifecycleOwner, client, cacheManager, courseId, courseName, upload) {
-                        itemBinding.tvFileSize.text = if (upload.size > 0) "$sizeStr · 已缓存到本地" else "已缓存到本地"
-                        itemBinding.btnFileAction.text = "打开"
-                    }
+                if (cacheManager.openCachedUpload(upload.id, upload.name)) {
+                    return
+                }
+                startDownload(context, lifecycleOwner, client, cacheManager, courseId, courseName, upload) {
+                    itemBinding.tvFileSize.text = if (upload.size > 0) "$sizeStr · 已缓存到本地" else "已缓存到本地"
+                    itemBinding.btnFileAction.text = "打开"
                 }
             }
 
@@ -313,24 +311,27 @@ object TronClassBulletinDialogHelper {
                 }
             }
 
-            withContext(Dispatchers.Main) {
-                progressDialog.dismiss()
-                if (result.isSuccess) {
-                    TronClassDownloadManager.saveDownloadedItem(
-                        context,
-                        TronClassDownloadedItem(
-                            fileId = upload.id.toString(),
-                            fileName = upload.name ?: "公告附件",
-                            courseId = courseId,
-                            courseName = courseName,
-                            filePath = destFile.absolutePath,
-                            fileSize = if (destFile.length() > 0) destFile.length() else upload.size
-                        )
-                    )
-
+            if (result.isSuccess) {
+                val persistResult = cn.edu.usst.jwgl.data.local.CoursewareStorageManager.persistDownloadedCourseware(
+                    context = context,
+                    sourceFile = destFile,
+                    uploadId = upload.id,
+                    displayName = upload.name ?: "公告附件",
+                    courseId = courseId,
+                    courseName = courseName,
+                    removeSourceAfterExport = true
+                )
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    persistResult.warningMessage?.let {
+                        Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                    }
                     onCompleted?.invoke()
-                    cacheManager.openFile(destFile)
-                } else {
+                    cacheManager.openPersistResult(persistResult, upload.name ?: "公告附件", courseName)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
                     val err = result.exceptionOrNull()?.message ?: "网络连接超时"
                     Toast.makeText(context, "下载失败: $err", Toast.LENGTH_LONG).show()
                 }

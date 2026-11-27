@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
@@ -42,11 +43,57 @@ class TronClassDiscussionAdapter(
             val topic = discussion.topicDetail
             val isHeader = discussion.isCategoryHeader || (topic == null && act != null)
 
-            if (isHeader) {
-                // 1. 专题议题导读说明卡片
+            // 重置样式防止 RecyclerView 复用导致颜色残留
+            binding.tvAuthorAvatar.setBackgroundResource(R.drawable.bg_badge_rounded)
+            binding.tvAuthorAvatar.backgroundTintList = null
+            binding.tvAuthorAvatar.setTextColor(ContextCompat.getColor(context, R.color.primary))
+            binding.tvDiscussionStatusBadge.setBackgroundResource(R.drawable.bg_badge_rounded)
+            binding.tvDiscussionStatusBadge.backgroundTintList = null
+
+            if (isHeader && act != null && act.isInteractionActivity()) {
+                // 1A. 课堂互动活动卡片（问卷 / 投票 / 反馈 / 头脑风暴 / 教室互动等）
+                binding.tvAuthorAvatar.text = "互"
+                binding.tvAuthorAvatar.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFF3E0"))
+                binding.tvAuthorAvatar.setTextColor(Color.parseColor("#E65100"))
+
+                val interactionLabel = act.getInteractionTypeLabel()
+                binding.tvAuthorName.text = interactionLabel
+                binding.tvPostTime.text = discussion.getFormattedTime().ifBlank { "课堂互动" }
+                binding.tvDiscussionTitle.text = discussion.getCleanTitle()
+
+                binding.tvDiscussionStatusBadge.visibility = View.VISIBLE
+                when (act.completeness) {
+                    "full", "complete" -> {
+                        binding.tvDiscussionStatusBadge.text = "已完成"
+                        binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E8F5E9"))
+                        binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                    }
+                    "part" -> {
+                        binding.tvDiscussionStatusBadge.text = "参与中"
+                        binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFF8E1"))
+                        binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#F57F17"))
+                    }
+                    else -> {
+                        binding.tvDiscussionStatusBadge.text = "互动"
+                        binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFF3E0"))
+                        binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#E65100"))
+                    }
+                }
+
+                val rawContent = discussion.content ?: act.data?.description
+                val cleanContent = if (!rawContent.isNullOrBlank()) TronClassHtmlHelper.htmlToPlainText(rawContent).trim() else ""
+                binding.tvDiscussionContent.visibility = View.VISIBLE
+                binding.tvDiscussionContent.text = cleanContent.ifBlank {
+                    "该活动为$interactionLabel，点击可查看说明或进入互动页面参与。"
+                }
+
+                binding.tvRepliesCount.text = interactionLabel
+                binding.tvStatsDot.visibility = View.VISIBLE
+                binding.tvViewsCount.visibility = View.VISIBLE
+                binding.tvViewsCount.text = "点击进入互动"
+            } else if (isHeader) {
+                // 1B. 专题议题导读说明卡片
                 binding.tvAuthorAvatar.text = "议"
-                binding.tvAuthorAvatar.setBackgroundResource(R.drawable.bg_badge_rounded)
-                binding.tvAuthorAvatar.setTextColor(ContextCompat.getColor(context, R.color.primary))
 
                 binding.tvAuthorName.text = "课堂专题讨论"
                 binding.tvPostTime.text = discussion.getFormattedTime().ifBlank { "议题导读" }
@@ -58,23 +105,23 @@ class TronClassDiscussionAdapter(
                     when (act.completeness) {
                         "full", "complete" -> {
                             binding.tvDiscussionStatusBadge.text = "已学完"
-                            binding.tvDiscussionStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                            binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E8F5E9"))
                             binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
                         }
                         "part" -> {
                             binding.tvDiscussionStatusBadge.text = "学习中"
-                            binding.tvDiscussionStatusBadge.setBackgroundColor(Color.parseColor("#FFF8E1"))
+                            binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFF8E1"))
                             binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#F57F17"))
                         }
                         else -> {
                             binding.tvDiscussionStatusBadge.text = "讨论活动"
-                            binding.tvDiscussionStatusBadge.setBackgroundColor(Color.parseColor("#F3E5F5"))
+                            binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F3E5F5"))
                             binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#7B1FA2"))
                         }
                     }
                 } else {
                     binding.tvDiscussionStatusBadge.text = "专题导读"
-                    binding.tvDiscussionStatusBadge.setBackgroundColor(Color.parseColor("#F3E5F5"))
+                    binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F3E5F5"))
                     binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#7B1FA2"))
                 }
 
@@ -102,14 +149,12 @@ class TronClassDiscussionAdapter(
                 // 2. 同学或本人的具体讨论帖子
                 val author = discussion.getAuthorName()
                 binding.tvAuthorAvatar.text = author.firstOrNull()?.toString() ?: "同"
-                binding.tvAuthorAvatar.setBackgroundResource(R.drawable.bg_badge_rounded)
-                binding.tvAuthorAvatar.setTextColor(ContextCompat.getColor(context, R.color.primary))
 
                 if (discussion.isSelf) {
                     binding.tvAuthorName.text = "$author (我)"
                     binding.tvDiscussionStatusBadge.visibility = View.VISIBLE
                     binding.tvDiscussionStatusBadge.text = "我的发言"
-                    binding.tvDiscussionStatusBadge.setBackgroundColor(Color.parseColor("#F3E5F5"))
+                    binding.tvDiscussionStatusBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F3E5F5"))
                     binding.tvDiscussionStatusBadge.setTextColor(Color.parseColor("#7B1FA2"))
                 } else {
                     binding.tvAuthorName.text = author

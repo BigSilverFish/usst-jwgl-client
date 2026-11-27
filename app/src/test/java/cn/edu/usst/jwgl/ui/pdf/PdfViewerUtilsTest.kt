@@ -121,4 +121,14 @@ class PdfViewerUtilsTest {
             )
         )
     }
+
+    @Test
+    fun testBuildSafePdfFileName() {
+        assertEquals("第一讲 制图基本知识.pdf", PdfViewerUtils.buildSafePdfFileName("第一讲 制图基本知识.pptx"))
+        assertEquals("实验报告.pdf", PdfViewerUtils.buildSafePdfFileName("实验报告.docx"))
+        assertEquals("讲义.pdf", PdfViewerUtils.buildSafePdfFileName("讲义.pdf"))
+        assertEquals("课件_第一章_.pdf", PdfViewerUtils.buildSafePdfFileName("课件:第一章*.ppt"))
+        assertEquals("文档.pdf", PdfViewerUtils.buildSafePdfFileName(null))
+        assertEquals("文档.pdf", PdfViewerUtils.buildSafePdfFileName("   "))
+    }
 }

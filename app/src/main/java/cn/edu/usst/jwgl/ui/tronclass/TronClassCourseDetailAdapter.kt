@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.ui.tronclass
 
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
@@ -7,6 +8,7 @@ import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import cn.edu.usst.jwgl.R
+import cn.edu.usst.jwgl.data.model.TronClassActivityCategory
 import cn.edu.usst.jwgl.data.model.TronClassActivityItem
 import cn.edu.usst.jwgl.data.model.TronClassModule
 import cn.edu.usst.jwgl.data.model.TronClassUpload
@@ -123,18 +125,25 @@ class TronClassCourseDetailAdapter(
 
             binding.tvActivityTitle.text = act.getCleanTitle()
 
+            // 重置类型徽章样式，防止 RecyclerView 复用导致色块残留
+            binding.tvTypeBadge.setBackgroundResource(R.drawable.bg_badge_rounded)
+            binding.tvTypeBadge.backgroundTintList = null
+            binding.tvTypeBadge.setTextColor(ContextCompat.getColor(context, R.color.primary))
+
             // 1. 学习进度状态徽章 (Completion Status)
+            binding.tvCompletionBadge.setBackgroundResource(R.drawable.bg_badge_rounded)
+            binding.tvCompletionBadge.backgroundTintList = null
             when (act.completeness) {
                 "full", "complete" -> {
                     binding.tvCompletionBadge.visibility = View.VISIBLE
                     binding.tvCompletionBadge.text = "已学完"
-                    binding.tvCompletionBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                    binding.tvCompletionBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E8F5E9"))
                     binding.tvCompletionBadge.setTextColor(Color.parseColor("#2E7D32"))
                 }
                 "part" -> {
                     binding.tvCompletionBadge.visibility = View.VISIBLE
                     binding.tvCompletionBadge.text = "学习中"
-                    binding.tvCompletionBadge.setBackgroundColor(Color.parseColor("#FFF8E1"))
+                    binding.tvCompletionBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFF8E1"))
                     binding.tvCompletionBadge.setTextColor(Color.parseColor("#F57F17"))
                 }
                 else -> {
@@ -143,8 +152,8 @@ class TronClassCourseDetailAdapter(
             }
 
             // 2. 类型分支
-            when (act.type) {
-                "material" -> {
+            when (act.getCategory()) {
+                TronClassActivityCategory.MATERIAL -> {
                     if (hasMultiple) {
                         binding.tvTypeBadge.text = "${allUploads.size}个文件"
                         binding.ivActivityIcon.setImageResource(R.drawable.ic_layers)
@@ -168,19 +177,25 @@ class TronClassCourseDetailAdapter(
                         bindDownloadActionButton(act, upload, upload?.getFormattedSize() ?: "课件资料")
                     }
                 }
-                "online_video" -> {
+                TronClassActivityCategory.ONLINE_VIDEO -> {
                     binding.ivActivityIcon.setImageResource(R.drawable.ic_live_video)
                     binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
                     binding.btnAction.visibility = View.VISIBLE
 
+                    val normalized = act.getNormalizedType()
+                    val baseLabel = when (normalized) {
+                        "audio" -> "音频"
+                        "slide", "micro_course" -> "微课"
+                        else -> "视频"
+                    }
                     if (hasMultiple) {
-                        binding.tvTypeBadge.text = "视频×${allUploads.size}"
+                        binding.tvTypeBadge.text = "$baseLabel×${allUploads.size}"
                         val totalSizeText = if (act.getTotalUploadSize() > 0L) " · ${act.getFormattedTotalUploadSize()}" else ""
                         binding.tvActivityMeta.text = "共 ${allUploads.size} 个视频/文件$totalSizeText"
                         binding.btnAction.text = "查看 (${allUploads.size})"
                         binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
                     } else {
-                        binding.tvTypeBadge.text = "视频"
+                        binding.tvTypeBadge.text = baseLabel
                         binding.tvActivityMeta.text = upload?.getFormattedSize() ?: "在线视频"
                         binding.btnAction.text = "看课"
                         binding.btnAction.setIconResource(R.drawable.ic_play_arrow)
@@ -189,7 +204,71 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
-                "homework" -> {
+                TronClassActivityCategory.LIVE -> {
+                    binding.tvTypeBadge.text = "直播"
+                    binding.tvTypeBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FCE4EC"))
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#C2185B"))
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_live_video)
+                    binding.ivActivityIcon.setColorFilter(Color.parseColor("#C2185B"))
+
+                    val schedule = act.getFormattedScheduleTime()
+                    binding.tvActivityMeta.text = when {
+                        hasMultiple -> "共 ${allUploads.size} 个回放/文件"
+                        schedule.isNotBlank() -> "$schedule · 课堂直播"
+                        else -> "课程直播 / 回放"
+                    }
+                    binding.btnAction.visibility = View.VISIBLE
+                    binding.btnAction.text = if (hasMultiple) "查看 (${allUploads.size})" else "观看"
+                    binding.btnAction.setIconResource(if (hasMultiple) R.drawable.ic_chevron_right else R.drawable.ic_play_arrow)
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
+                TronClassActivityCategory.RECORDED_LESSON -> {
+                    binding.tvTypeBadge.text = "录播教材"
+                    binding.tvTypeBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E0F2FE"))
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#0369A1"))
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_live_video)
+                    binding.ivActivityIcon.setColorFilter(Color.parseColor("#0284C7"))
+                    binding.btnAction.visibility = View.VISIBLE
+
+                    if (hasMultiple) {
+                        val totalSizeText = if (act.getTotalUploadSize() > 0L) " · ${act.getFormattedTotalUploadSize()}" else ""
+                        binding.tvActivityMeta.text = "共 ${allUploads.size} 个录播/文件$totalSizeText"
+                        binding.btnAction.text = "查看 (${allUploads.size})"
+                        binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    } else {
+                        val schedule = act.getFormattedScheduleTime()
+                        binding.tvActivityMeta.text = when {
+                            upload != null && upload.size > 0L -> upload.getFormattedSize()
+                            schedule.isNotBlank() -> "$schedule · 录播回放"
+                            else -> "课堂实录回放"
+                        }
+                        binding.btnAction.text = "播放"
+                        binding.btnAction.setIconResource(R.drawable.ic_play_arrow)
+                    }
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
+                TronClassActivityCategory.INTERACTION -> {
+                    binding.tvTypeBadge.text = "互动"
+                    binding.tvTypeBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFF3E0"))
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#E65100"))
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_forum)
+                    binding.ivActivityIcon.setColorFilter(Color.parseColor("#E65100"))
+
+                    val schedule = act.getFormattedScheduleTime()
+                    val label = act.getInteractionTypeLabel()
+                    binding.tvActivityMeta.text = if (schedule.isNotBlank()) "$label · $schedule" else label
+                    binding.btnAction.visibility = View.VISIBLE
+                    binding.btnAction.text = "参与"
+                    binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
+                TronClassActivityCategory.HOMEWORK -> {
                     binding.tvTypeBadge.text = "作业"
                     binding.tvActivityMeta.text = if (!act.endTime.isNullOrBlank()) "点击提交" else "课堂作业"
                     binding.ivActivityIcon.setImageResource(R.drawable.ic_homework)
@@ -202,7 +281,7 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
-                "exam", "quiz" -> {
+                TronClassActivityCategory.EXAM -> {
                     binding.tvTypeBadge.text = "测试"
                     binding.tvActivityMeta.text = "随堂测验"
                     binding.ivActivityIcon.setImageResource(R.drawable.ic_exam)
@@ -215,8 +294,10 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
-                "forum" -> {
+                TronClassActivityCategory.FORUM -> {
                     binding.tvTypeBadge.text = "讨论"
+                    binding.tvTypeBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F3E5F5"))
+                    binding.tvTypeBadge.setTextColor(Color.parseColor("#7B1FA2"))
                     binding.tvActivityMeta.text = "课堂专题讨论"
                     binding.ivActivityIcon.setImageResource(R.drawable.ic_forum)
                     binding.ivActivityIcon.setColorFilter(Color.parseColor("#7B1FA2"))
@@ -228,9 +309,9 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
-                "chaoxing_chapter" -> {
+                TronClassActivityCategory.CHAOXING_CHAPTER -> {
                     binding.tvTypeBadge.text = "学习通"
-                    binding.tvTypeBadge.setBackgroundColor(Color.parseColor("#FFEDD5"))
+                    binding.tvTypeBadge.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FFEDD5"))
                     binding.tvTypeBadge.setTextColor(Color.parseColor("#C2410C"))
                     binding.tvActivityMeta.text = if (act.completeness == "complete" || act.completeness == "full") "已学完" else "查看课件/视频"
                     binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
@@ -243,7 +324,33 @@ class TronClassCourseDetailAdapter(
                         onActivityClick(act)
                     }
                 }
-                else -> {
+                TronClassActivityCategory.WEB_LINK -> {
+                    binding.tvTypeBadge.text = "链接"
+                    binding.tvActivityMeta.text = "外部学习链接"
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_globe)
+                    binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
+
+                    binding.btnAction.visibility = View.VISIBLE
+                    binding.btnAction.text = "打开"
+                    binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
+                TronClassActivityCategory.PAGE -> {
+                    binding.tvTypeBadge.text = "图文"
+                    binding.tvActivityMeta.text = "图文教材"
+                    binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
+                    binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
+
+                    binding.btnAction.visibility = View.VISIBLE
+                    binding.btnAction.text = "查看"
+                    binding.btnAction.setIconResource(R.drawable.ic_chevron_right)
+                    binding.btnAction.setOnClickListener {
+                        onActivityClick(act)
+                    }
+                }
+                TronClassActivityCategory.OTHER -> {
                     if (hasMultiple) {
                         binding.tvTypeBadge.text = "${allUploads.size}个文件"
                         binding.ivActivityIcon.setImageResource(R.drawable.ic_layers)
@@ -252,7 +359,7 @@ class TronClassCourseDetailAdapter(
                         binding.btnAction.visibility = View.VISIBLE
                         bindMultiUploadActionButton(act, allUploads)
                     } else {
-                        binding.tvTypeBadge.text = act.type
+                        binding.tvTypeBadge.text = act.type?.takeIf { it.isNotBlank() } ?: "活动"
                         binding.ivActivityIcon.setImageResource(R.drawable.ic_file_doc)
                         binding.ivActivityIcon.setColorFilter(ContextCompat.getColor(context, R.color.primary))
 

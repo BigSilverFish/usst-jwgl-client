@@ -40,12 +40,12 @@
         android:layout_weight="1">
 
         <!-- 1. Profile Section -->
-        <ViewStub
-            android:id="@+id/stubProfile"
-            android:inflatedId="@+id/layoutProfile"
-            android:layout="@layout/layout_page_profile"
+        <FrameLayout
+            android:id="@+id/containerProfile"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:background="@color/background"
+            android:visibility="gone" />
 
         <!-- 2. Timetable Section -->
         <FrameLayout

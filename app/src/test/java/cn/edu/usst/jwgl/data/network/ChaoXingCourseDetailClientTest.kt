@@ -799,4 +799,141 @@ class ChaoXingCourseDetailClientTest {
         assertEquals("陈道明", q2.options[1].content)
         assertTrue(q2.options[1].isSelected)
     }
+
+    @Test
+    fun testParseExtensionlessAttachmentsAndKinds() {
+        val html = """
+            <script>
+            mArg = {
+                "attachments": [
+                    {
+                        "type": "document",
+                        "property": {
+                            "objectid": "img_001",
+                            "name": "国家大剧院",
+                            "size": 257638,
+                            "type": ".jpg",
+                            "module": "insertimage"
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "property": {
+                            "objectid": "aud_002",
+                            "name": "听力材料一",
+                            "size": 1048576,
+                            "type": ".mp3",
+                            "module": "insertaudio"
+                        }
+                    },
+                    {
+                        "type": "document",
+                        "property": {
+                            "objectid": "zip_003",
+                            "name": "课程源码包",
+                            "size": 2097152,
+                            "type": ".zip",
+                            "module": "insertdoc"
+                        }
+                    },
+                    {
+                        "type": "document",
+                        "property": {
+                            "objectid": "vid_004",
+                            "name": "补充讲解",
+                            "size": 4194304,
+                            "type": ".mp4",
+                            "module": "insertvideo"
+                        }
+                    }
+                ]
+            };
+            </script>
+        """.trimIndent()
+
+        val list = ChaoXingCourseDetailClient.parseAttachmentsFromHtml(html)
+        assertEquals(4, list.size)
+
+        val img = list[0]
+        assertEquals("jpg", img.resolveExtension())
+        assertEquals(ChaoXingAttachmentKind.IMAGE, img.resolveKind())
+        assertEquals("图片 · JPG", img.getTypeLabel())
+        assertEquals("图片 · JPG · 251.6 KB", img.getSubtitleSummary())
+
+        val aud = list[1]
+        assertEquals(ChaoXingAttachmentKind.AUDIO, aud.resolveKind())
+        assertEquals("音频 · MP3 · 1.00 MB", aud.getSubtitleSummary())
+
+        val zip = list[2]
+        assertEquals(ChaoXingAttachmentKind.ARCHIVE, zip.resolveKind())
+        assertEquals("压缩包 · ZIP · 2.00 MB", zip.getSubtitleSummary())
+
+        val vid = list[3]
+        assertTrue(vid.isVideo)
+        assertEquals(ChaoXingAttachmentKind.VIDEO, vid.resolveKind())
+        assertEquals("视频 · MP4 · 4.00 MB", vid.getSubtitleSummary())
+    }
+
+    @Test
+    fun testYunFilePreferredStreamsAndResolvedFileName() {
+        val yun = ChaoXingYunFile(
+            pdfUrl = "",
+            downloadUrl = "https://d0.cldisk.com/download/ae1d729c/file?at_=1",
+            streamUrl = "http://s2.cldisk.com/sv-w8/video/sd.mp4",
+            hdStreamUrl = "http://s2.cldisk.com/sv-w8/video/hd.mp4",
+            httpsStreamUrl = "https://s2.cldisk.com/sv-w8/video/hd.mp4",
+            fileName = "国家大剧院.png",
+            fileExt = ".png"
+        )
+
+        val streams = yun.getPreferredStreamUrls()
+        assertEquals(
+            listOf(
+                "https://s2.cldisk.com/sv-w8/video/hd.mp4",
+                "http://s2.cldisk.com/sv-w8/video/hd.mp4",
+                "https://s2.cldisk.com/sv-w8/video/sd.mp4",
+                "http://s2.cldisk.com/sv-w8/video/sd.mp4"
+            ),
+            streams
+        )
+        assertEquals("国家大剧院.png", yun.resolveBestFileName("国家大剧院", ""))
+        assertEquals("讲义.pptx", yun.resolveBestFileName("讲义.pptx", ".pdf"))
+    }
+
+    @Test
+    fun testChaoXingMediaHostAndDownloadFileNameResolution() {
+        assertTrue(ChaoXingCourseDetailClient.isChaoXingMediaHost("https://s2.cldisk.com/sv-w8/video/sd.mp4"))
+        assertTrue(ChaoXingCourseDetailClient.isChaoXingMediaHost("https://d0.cldisk.com/file"))
+        assertTrue(ChaoXingCourseDetailClient.isChaoXingMediaHost("https://mooc1.chaoxing.com/ananas/status/123"))
+        assertFalse(ChaoXingCourseDetailClient.isChaoXingMediaHost("https://jwgl.usst.edu.cn/index"))
+
+        assertEquals(
+            "国家大剧院.jpg",
+            ChaoXingCourseDetailClient.resolveDownloadedFileName(
+                preferredName = "国家大剧院",
+                contentDisposition = "attachment; filename*=UTF-8''%E5%9B%BD%E5%AE%B6%E5%A4%A7%E5%89%A7%E9%99%A2.jpg",
+                contentType = "image/jpeg",
+                downloadUrl = "https://d0.cldisk.com/download/123"
+            )
+        )
+        assertEquals(
+            "国家大剧院.pdf",
+            ChaoXingCourseDetailClient.resolveDownloadedFileName(
+                preferredName = "国家大剧院",
+                contentDisposition = null,
+                contentType = "application/octet-stream",
+                downloadUrl = "https://d0.cldisk.com/download/123",
+                headerBytes = byteArrayOf(0x25, 0x50, 0x44, 0x46, 0x2D)
+            )
+        )
+        assertEquals(
+            "实验报告.docx",
+            ChaoXingCourseDetailClient.resolveDownloadedFileName(
+                preferredName = "实验报告",
+                contentDisposition = null,
+                contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                downloadUrl = "https://d0.cldisk.com/download/123"
+            )
+        )
+    }
 }

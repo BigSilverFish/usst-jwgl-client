@@ -471,12 +471,13 @@ class TronClassCourseDetailFragment : Fragment() {
         binding.rvAssessments.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
         binding.rvAssessments.adapter = assessmentAdapter
 
-        // 4. Tab 3: 课堂讨论 Adapter
+        // 4. Tab 3: 课堂互动 Adapter
         discussionAdapter = TronClassDiscussionAdapter { discussion ->
-            if (discussion.topicDetail != null) {
-                showTopicDetailBottomSheet(discussion)
-            } else {
-                showDiscussionDetailDialog(discussion)
+            val act = discussion.activityItem
+            when {
+                discussion.topicDetail != null -> showTopicDetailBottomSheet(discussion)
+                act != null && act.isInteractionActivity() -> showInteractionDetailDialog(act)
+                else -> showDiscussionDetailDialog(discussion)
             }
         }
         binding.rvDiscussions.layoutManager = if (isPad) GridLayoutManager(context, 2) else LinearLayoutManager(context)
@@ -611,7 +612,7 @@ class TronClassCourseDetailFragment : Fragment() {
                         CourseDetailSection.ASSESSMENTS
                     }
                     3 -> {
-                        // 课堂讨论
+                        // 课堂互动
                         binding.rvActivities.visibility = View.GONE
                         binding.rvBulletins.visibility = View.GONE
                         binding.rvAssessments.visibility = View.GONE
@@ -671,36 +672,45 @@ class TronClassCourseDetailFragment : Fragment() {
         activities: List<TronClassActivityItem>,
         apiDiscussions: List<TronClassDiscussion>
     ): List<TronClassDiscussion> {
-        val list = mutableListOf<TronClassDiscussion>()
-
-        if (apiDiscussions.isNotEmpty()) {
-            list.addAll(apiDiscussions)
-            val forumActivities = activities.filter { it.type == "forum" }
-            for (act in forumActivities) {
-                if (list.none { it.activityItem?.id == act.id || it.id == act.id }) {
-                    list.add(0, TronClassDiscussion.fromActivity(act))
-                }
-            }
-        } else {
-            val forumActivities = activities.filter { it.type == "forum" }
-            for (act in forumActivities) {
-                list.add(TronClassDiscussion.fromActivity(act))
-            }
-        }
-
-        // 统一关联 completeness 学习完成状态
-        for (item in list) {
-            val act = item.activityItem
-            if (act != null) {
-                val matchingAct = activities.find { it.id == act.id }
-                if (matchingAct != null && !matchingAct.completeness.isNullOrBlank()) {
-                    act.completeness = matchingAct.completeness
-                }
-            }
-        }
-
-        return list
+        return mergeInteractiveActivitiesAndDiscussions(activities, apiDiscussions)
     }
+
+    internal object InteractionTabMerger {
+        fun merge(
+            activities: List<TronClassActivityItem>,
+            apiDiscussions: List<TronClassDiscussion>
+        ): List<TronClassDiscussion> {
+            val eligibleActivities = activities.filter { it.isTabInteractionEligible() }
+            val result = mutableListOf<TronClassDiscussion>()
+
+            val missingActivityCards = eligibleActivities.filter { act ->
+                apiDiscussions.none { disc ->
+                    disc.activityItem?.id == act.id || (disc.topicDetail == null && disc.id == act.id)
+                }
+            }.map { TronClassDiscussion.fromActivity(it) }
+
+            result.addAll(missingActivityCards)
+            result.addAll(apiDiscussions)
+
+            // 统一关联 completeness 学习完成状态
+            for (item in result) {
+                val act = item.activityItem
+                if (act != null) {
+                    val matchingAct = activities.find { it.id == act.id }
+                    if (matchingAct != null && !matchingAct.completeness.isNullOrBlank()) {
+                        act.completeness = matchingAct.completeness
+                    }
+                }
+            }
+
+            return result
+        }
+    }
+
+    private fun mergeInteractiveActivitiesAndDiscussions(
+        activities: List<TronClassActivityItem>,
+        apiDiscussions: List<TronClassDiscussion>
+    ): List<TronClassDiscussion> = InteractionTabMerger.merge(activities, apiDiscussions)
 
     private fun currentSection(): CourseDetailSection {
         val b = _binding ?: return CourseDetailSection.CHAPTERS
@@ -717,7 +727,7 @@ class TronClassCourseDetailFragment : Fragment() {
         when (b.tabLayout.selectedTabPosition) {
             1 -> checkEmptyState(bulletinAdapter.itemCount == 0, "暂无课程公告")
             2 -> checkEmptyState(assessmentAdapter.itemCount == 0, "本课程暂无作业与测验")
-            3 -> checkEmptyState(discussionAdapter.itemCount == 0, "本课程暂无课堂讨论")
+            3 -> checkEmptyState(discussionAdapter.itemCount == 0, "本课程暂无课堂互动")
             else -> checkEmptyState(activityAdapter.itemCount == 0, "暂无章节课件或活动")
         }
     }
@@ -1047,6 +1057,9 @@ class TronClassCourseDetailFragment : Fragment() {
             if (cachedDiscussions.isNotEmpty()) {
                 cacheMgr.saveCourseDiscussions(courseId, cachedDiscussions)
             }
+        }
+
+        if (discussionsRes.isSuccess || actsRes?.isSuccess == true) {
             discussionAdapter.updateData(buildDiscussionsList(cachedActivities, cachedDiscussions))
             true
         } else {
@@ -1118,6 +1131,7 @@ class TronClassCourseDetailFragment : Fragment() {
 
     private fun showClassMembersBottomSheet() = membersSheetHelper.showClassMembersBottomSheet()
     private fun showDiscussionDetailDialog(discussion: TronClassDiscussion) = discussionHelper.showDiscussionDetailDialog(discussion)
+    private fun showInteractionDetailDialog(act: TronClassActivityItem) = discussionHelper.showInteractionDetailDialog(act) { showActivityUploadsSheet(it) }
     private fun showTopicDetailBottomSheet(discussion: TronClassDiscussion) = discussionHelper.showTopicDetailBottomSheet(discussion)
     private fun showCreateTopicDialog(defaultCategoryId: Long? = null, defaultActivityId: Long? = null) = discussionHelper.showCreateTopicDialog(defaultCategoryId, defaultActivityId)
     private fun startAutoBrushProgress() {
@@ -1175,16 +1189,18 @@ class TronClassCourseDetailFragment : Fragment() {
                 activities.map { act ->
                     async {
                         try {
+                            val isVideoCategory = act.getCategory() == TronClassActivityCategory.ONLINE_VIDEO ||
+                                act.isRecordedLessonActivity()
                             val allUploads = act.getAllUploads()
                             if (allUploads.isEmpty()) {
-                                if (act.type == "online_video") {
+                                if (isVideoCategory) {
                                     client.reportVideoProgress(act.id, act.getVideoDuration(), 0L)
                                 } else {
                                     client.logActivityRead(act.id, 0L)
                                 }
                             } else {
                                 for (up in allUploads) {
-                                    if (act.type == "online_video") {
+                                    if (isVideoCategory) {
                                         client.reportVideoProgress(act.id, act.getVideoDuration(), up.id)
                                     } else {
                                         client.logActivityRead(act.id, up.id)
@@ -1264,13 +1280,14 @@ class TronClassCourseDetailFragment : Fragment() {
 
     private fun handleActivityClick(act: TronClassActivityItem) {
         val context = context ?: return
-        if (act.type == "chaoxing_chapter") {
+        val category = act.getCategory()
+        if (category == TronClassActivityCategory.CHAOXING_CHAPTER) {
             showChaoXingChapterBottomSheet(act)
             return
         }
         val mainAct = activity as? MainActivity
-        when (act.type) {
-            "online_video" -> {
+        when (category) {
+            TronClassActivityCategory.ONLINE_VIDEO -> {
                 if (act.hasMultipleUploads()) {
                     showActivityUploadsSheet(act)
                     return
@@ -1286,30 +1303,82 @@ class TronClassCourseDetailFragment : Fragment() {
                         upload.id,
                         upload.name
                     )
+                } else if (act.id > 0L && courseId > 0L) {
+                    openTronClassActivityWeb(act)
                 } else {
                     Toast.makeText(context, "该章节视频正在准备中", Toast.LENGTH_SHORT).show()
                 }
             }
-            "homework" -> {
+            TronClassActivityCategory.LIVE,
+            TronClassActivityCategory.RECORDED_LESSON -> {
+                if (act.hasMultipleUploads()) {
+                    showActivityUploadsSheet(act)
+                    return
+                }
+                val upload = act.getFirstUpload()
+                if (upload != null && isVideoOrStreamUpload(upload)) {
+                    TronClassVideoPlayerActivity.start(
+                        context,
+                        act.id,
+                        courseId,
+                        act.getCleanTitle(),
+                        courseName,
+                        upload.id,
+                        upload.name
+                    )
+                } else {
+                    openTronClassActivityWeb(act)
+                }
+            }
+            TronClassActivityCategory.INTERACTION -> {
+                showInteractionDetailDialog(act)
+            }
+            TronClassActivityCategory.HOMEWORK -> {
                 if (mainAct != null) {
                     mainAct.openTronClassHomework(act.id, courseId, act.getCleanTitle(), courseName)
                 } else {
                     TronClassHomeworkActivity.start(context, act.id, courseId, act.getCleanTitle(), courseName)
                 }
             }
-            "exam", "quiz" -> {
+            TronClassActivityCategory.EXAM -> {
                 if (mainAct != null) {
                     mainAct.openTronClassExam(act.id, courseId, act.getCleanTitle(), courseName)
                 } else {
                     TronClassExamActivity.start(context, act.id, courseId, act.getCleanTitle(), courseName)
                 }
             }
-            "forum" -> {
+            TronClassActivityCategory.FORUM -> {
                 showDiscussionDetailDialog(TronClassDiscussion.fromActivity(act))
             }
-            "material" -> handleDownloadClick(act)
-            else -> handleDownloadClick(act)
+            TronClassActivityCategory.WEB_LINK,
+            TronClassActivityCategory.PAGE -> {
+                if (act.getAllUploads().isNotEmpty()) {
+                    handleDownloadClick(act)
+                } else {
+                    openTronClassActivityWeb(act)
+                }
+            }
+            TronClassActivityCategory.MATERIAL,
+            TronClassActivityCategory.OTHER,
+            TronClassActivityCategory.CHAOXING_CHAPTER -> handleDownloadClick(act)
         }
+    }
+
+    private fun isVideoOrStreamUpload(upload: TronClassUpload): Boolean {
+        if (upload.type.equals("video", ignoreCase = true)) return true
+        if (!upload.videos.isNullOrEmpty()) return true
+        val ext = upload.getExtension()
+        return ext in setOf("mp4", "m3u8", "mov", "mkv", "avi", "flv", "wmv", "m4v")
+    }
+
+    private fun openTronClassActivityWeb(act: TronClassActivityItem) {
+        val context = context ?: return
+        val externalUrl = act.data?.url?.trim()?.takeIf { url ->
+            (url.startsWith("https://") || url.startsWith("http://")) &&
+                (url.contains("usst.edu.cn") || url.contains("chaoxing.com"))
+        }
+        val targetUrl = externalUrl ?: "https://1906.usst.edu.cn/course/$courseId/learning-activity#/${act.id}"
+        JwglWebActivity.start(context, targetUrl, act.getCleanTitle())
     }
 
     private fun handleDownloadClick(act: TronClassActivityItem) {
@@ -1339,11 +1408,11 @@ class TronClassCourseDetailFragment : Fragment() {
             return
         }
 
-        if (cachedFile != null) {
+        if (cacheManager.isCached(upload.id, upload.name)) {
             viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                 client.logActivityRead(act.id, upload.id)
             }
-            cacheManager.openFile(cachedFile)
+            cacheManager.openCachedUpload(upload.id, upload.name)
         } else {
             startDownload(upload, act.id) {
                 activityAdapter.notifyDataSetChanged()
@@ -1389,30 +1458,30 @@ class TronClassCourseDetailFragment : Fragment() {
                 }
             }
 
-            withContext(Dispatchers.Main) {
-                progressDialog.dismiss()
-                if (result.isSuccess) {
-                    TronClassDownloadManager.saveDownloadedItem(
-                        context,
-                        TronClassDownloadedItem(
-                            fileId = upload.id.toString(),
-                            fileName = upload.name ?: "课件",
-                            courseId = courseId,
-                            courseName = courseName,
-                            filePath = destFile.absolutePath,
-                            fileSize = if (destFile.length() > 0) destFile.length() else upload.size
-                        )
-                    )
-
-                    if (activityId != null) {
-                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                            client.logActivityRead(activityId, upload.id)
-                        }
+            if (result.isSuccess) {
+                val persistResult = cn.edu.usst.jwgl.data.local.CoursewareStorageManager.persistDownloadedCourseware(
+                    context = context,
+                    sourceFile = destFile,
+                    uploadId = upload.id,
+                    displayName = upload.name ?: "课件",
+                    courseId = courseId,
+                    courseName = courseName,
+                    removeSourceAfterExport = true
+                )
+                if (activityId != null) {
+                    client.logActivityRead(activityId, upload.id)
+                }
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    persistResult.warningMessage?.let {
+                        Toast.makeText(context, it, Toast.LENGTH_LONG).show()
                     }
-
                     onCompleted?.invoke()
-                    cacheManager.openFile(destFile)
-                } else {
+                    cacheManager.openPersistResult(persistResult, upload.name ?: "课件", courseName)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
                     val err = result.exceptionOrNull()?.message ?: "网络连接超时"
                     Toast.makeText(context, "下载失败: $err", Toast.LENGTH_LONG).show()
                 }

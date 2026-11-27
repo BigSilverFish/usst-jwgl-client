@@ -6,7 +6,6 @@ import android.database.sqlite.SQLiteOpenHelper
 
 class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
 
-    @Synchronized
     fun insertTable(table: TableBean): Long {
         val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
@@ -32,7 +31,6 @@ class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         return db.insert("TableBean", null, cv)
     }
 
-    @Synchronized
     fun updateTable(table: TableBean) {
         val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
@@ -58,13 +56,11 @@ class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         db.update("TableBean", cv, "id = ?", arrayOf(table.id.toString()))
     }
 
-    @Synchronized
     fun deleteTable(id: Int) {
         val db = dbHelper.writableDatabase
         db.delete("TableBean", "id = ?", arrayOf(id.toString()))
     }
 
-    @Synchronized
     fun getTableById(id: Int): TableBean? {
         val db = dbHelper.readableDatabase
         val cursor = db.query(
@@ -81,7 +77,6 @@ class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         }
     }
 
-    @Synchronized
     fun getDefaultTable(): TableBean {
         val db = dbHelper.readableDatabase
         var cursor = db.query("TableBean", null, "type = 1", null, null, null, "id DESC", "1")
@@ -103,10 +98,9 @@ class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         return defaultTable
     }
 
-    @Synchronized
     fun setDefaultTable(newId: Int) {
         val db = dbHelper.writableDatabase
-        db.beginTransaction()
+        db.beginTransactionNonExclusive()
         try {
             db.execSQL("UPDATE TableBean SET type = 0")
             db.execSQL("UPDATE TableBean SET type = 1 WHERE id = ?", arrayOf(newId.toString()))
@@ -116,7 +110,6 @@ class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         }
     }
 
-    @Synchronized
     fun getAllTables(): List<TableBean> {
         val list = mutableListOf<TableBean>()
         val db = dbHelper.readableDatabase
@@ -129,7 +122,6 @@ class TableDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         return list
     }
 
-    @Synchronized
     fun getTableSelectList(): List<TableSelectBean> {
         val list = mutableListOf<TableSelectBean>()
         val db = dbHelper.readableDatabase

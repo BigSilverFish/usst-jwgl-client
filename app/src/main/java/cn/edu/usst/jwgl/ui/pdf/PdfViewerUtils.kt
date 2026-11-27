@@ -146,4 +146,24 @@ object PdfViewerUtils {
         // 5. 兜底（如果显式标题也是通用占位符如“上理教务”，兜底必须返回“PDF 阅览”）
         return if (!isGenericTitle(cleanedExplicit)) cleanedExplicit else "PDF 阅览"
     }
+
+    private val CONVERTED_OFFICE_EXTENSIONS = listOf(".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls")
+
+    /**
+     * 生成适合分享与外部打开的规范 PDF 文件名（清理非法字符，并将已转 PDF 的 Office 后缀替换为 .pdf）
+     */
+    fun buildSafePdfFileName(title: String?): String {
+        val cleaned = cleanFileName(title)
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+            .trim()
+            .ifBlank { "文档" }
+        val lower = cleaned.lowercase()
+        if (lower.endsWith(".pdf")) return cleaned
+        for (ext in CONVERTED_OFFICE_EXTENSIONS) {
+            if (lower.endsWith(ext) && cleaned.length > ext.length) {
+                return cleaned.substring(0, cleaned.length - ext.length) + ".pdf"
+            }
+        }
+        return "$cleaned.pdf"
+    }
 }

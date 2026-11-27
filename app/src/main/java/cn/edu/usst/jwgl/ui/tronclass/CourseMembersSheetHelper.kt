@@ -24,6 +24,7 @@ import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
+import cn.edu.usst.jwgl.data.model.ChaoXingAttachmentKind
 import cn.edu.usst.jwgl.data.model.ChaoXingChapterUnit
 import cn.edu.usst.jwgl.data.model.ChaoXingCourse
 import cn.edu.usst.jwgl.data.model.ChaoXingCourseAttachment
@@ -184,47 +185,64 @@ internal class CourseMembersSheetHelper(
                         val btnAction = itemView.findViewById<MaterialButton>(R.id.btnAttachmentAction)
 
                         tvName.text = attachment.name
-                        tvSize.text = attachment.getFormattedSize().ifBlank { "课件资料" }
+                        tvSize.text = attachment.getSubtitleSummary()
 
-                        val lowerName = attachment.name.lowercase(Locale.ROOT)
-                        val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
-                        val isImage = TronClassImageHelper.isImageUrl(attachment.name)
-                        val isPdf = lowerName.endsWith(".pdf")
-                        val isPpt = lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx")
-                        val isDoc = lowerName.endsWith(".doc") || lowerName.endsWith(".docx")
-
-                        when {
-                            isVideo -> {
+                        when (attachment.resolveKind()) {
+                            ChaoXingAttachmentKind.VIDEO -> {
                                 ivIcon.setImageResource(R.drawable.ic_live_video)
                                 ivIcon.setColorFilter(Color.parseColor("#EA580C"))
                                 btnAction.text = "播放"
                                 btnAction.setIconResource(R.drawable.ic_play_arrow)
                             }
-                            isImage -> {
+                            ChaoXingAttachmentKind.AUDIO -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(Color.parseColor("#7C3AED"))
+                                btnAction.text = "下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                            ChaoXingAttachmentKind.IMAGE -> {
                                 ivIcon.setImageResource(R.drawable.ic_file_doc)
                                 ivIcon.setColorFilter(Color.parseColor("#059669"))
                                 btnAction.text = "预览/保存"
                                 btnAction.setIconResource(R.drawable.ic_download)
                             }
-                            isPdf -> {
+                            ChaoXingAttachmentKind.PDF -> {
                                 ivIcon.setImageResource(R.drawable.ic_file_pdf)
                                 ivIcon.setColorFilter(ContextCompat.getColor(ctx, R.color.error))
                                 btnAction.text = "预览"
                                 btnAction.setIconResource(R.drawable.ic_file_doc)
                             }
-                            isPpt -> {
+                            ChaoXingAttachmentKind.PPT -> {
                                 ivIcon.setImageResource(R.drawable.ic_file_doc)
                                 ivIcon.setColorFilter(Color.parseColor("#F57C00"))
                                 btnAction.text = "预览/下载"
                                 btnAction.setIconResource(R.drawable.ic_download)
                             }
-                            isDoc -> {
+                            ChaoXingAttachmentKind.WORD -> {
                                 ivIcon.setImageResource(R.drawable.ic_file_doc)
                                 ivIcon.setColorFilter(Color.parseColor("#1976D2"))
                                 btnAction.text = "预览/下载"
                                 btnAction.setIconResource(R.drawable.ic_download)
                             }
-                            else -> {
+                            ChaoXingAttachmentKind.EXCEL -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(Color.parseColor("#0D9488"))
+                                btnAction.text = "预览/下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                            ChaoXingAttachmentKind.ARCHIVE -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(Color.parseColor("#6D28D9"))
+                                btnAction.text = "下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                            ChaoXingAttachmentKind.DOCUMENT -> {
+                                ivIcon.setImageResource(R.drawable.ic_file_doc)
+                                ivIcon.setColorFilter(ContextCompat.getColor(ctx, R.color.primary))
+                                btnAction.text = "预览/下载"
+                                btnAction.setIconResource(R.drawable.ic_download)
+                            }
+                            ChaoXingAttachmentKind.OTHER -> {
                                 ivIcon.setImageResource(R.drawable.ic_file_doc)
                                 ivIcon.setColorFilter(ContextCompat.getColor(ctx, R.color.primary))
                                 btnAction.text = "下载"
@@ -252,65 +270,13 @@ internal class CourseMembersSheetHelper(
     }
 
     fun handleChaoXingAttachmentClick(attachment: ChaoXingCourseAttachment) {
-        val ctx = context ?: return
-        val progress = ProgressDialog(ctx).apply {
-            setMessage("正在解析「${attachment.name}」...")
-            setCancelable(false)
-            show()
-        }
-
-        fragment.viewLifecycleOwner.lifecycleScope.launch {
-            val res = chaoXingDetailClient.fetchYunFile(attachment.objectId)
-            progress.dismiss()
-            if (res.isSuccess) {
-                val yun = res.getOrNull()
-                val lowerName = attachment.name.lowercase(Locale.ROOT)
-                val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
-                val isImage = TronClassImageHelper.isImageUrl(attachment.name)
-
-                if (isVideo) {
-                    val stream = yun?.streamUrl ?: ""
-                    if (stream.isNotBlank()) {
-                        TronClassVideoPlayerActivity.start(
-                            context = ctx,
-                            title = attachment.name,
-                            courseName = courseName,
-                            videoUrl = stream
-                        )
-                    } else {
-                        Toast.makeText(ctx, "该视频暂无可播放流地址", Toast.LENGTH_SHORT).show()
-                    }
-                } else if (isImage) {
-                    val imgUrl = yun?.downloadUrl?.ifBlank { yun?.pdfUrl } ?: ""
-                    if (imgUrl.isNotBlank()) {
-                        TronClassImageHelper.showFullScreenPreview(
-                            ctx,
-                            imgUrl,
-                            title = attachment.name,
-                            courseName = courseName
-                        )
-                    } else {
-                        Toast.makeText(ctx, "图片资源未就绪", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    val pdfUrl = yun?.pdfUrl ?: ""
-                    val downloadUrl = yun?.downloadUrl ?: ""
-                    val targetUrl = pdfUrl.ifBlank { downloadUrl }
-
-                    if (targetUrl.isNotBlank()) {
-                        if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank() || attachment.name.endsWith(".pdf", ignoreCase = true)) {
-                            cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
-                        } else {
-                            JwglWebActivity.start(ctx, targetUrl, attachment.name)
-                        }
-                    } else {
-                        Toast.makeText(ctx, "该课件暂无可下载直链", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } else {
-                Toast.makeText(ctx, "解析课件失败，请稍后重试", Toast.LENGTH_SHORT).show()
-            }
-        }
+        ChaoXingAttachmentActionHelper.handleAttachmentClick(
+            fragment = fragment,
+            chaoXingDetailClient = chaoXingDetailClient,
+            attachment = attachment,
+            courseId = courseId,
+            courseName = courseName
+        )
     }
 
 }

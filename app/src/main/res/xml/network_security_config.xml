@@ -4,5 +4,6 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">usst.edu.cn</domain>
         <domain includeSubdomains="true">chaoxing.com</domain>
+        <domain includeSubdomains="true">cldisk.com</domain>
     </domain-config>
 </network-security-config>

@@ -3,8 +3,10 @@ package cn.edu.usst.jwgl.data.network
 import android.content.Context
 import android.util.Log
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
+import cn.edu.usst.jwgl.data.local.CoursewareStorageManager
 import cn.edu.usst.jwgl.data.local.TronClassDataCacheManager
 import cn.edu.usst.jwgl.data.model.*
+import cn.edu.usst.jwgl.ui.pdf.PdfViewerUtils
 import cn.edu.usst.jwgl.util.ChaoXingRiskControlException
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -19,10 +21,19 @@ import okhttp3.RequestBody
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.File
+import java.io.FileOutputStream
+import java.net.URI
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class ChaoXingDownloadResult(
+    val tempFile: File,
+    val resolvedFileName: String,
+    val mimeType: String,
+    val fileSize: Long
+)
 
 /**
  * 超星学习通原生课程详情接口客户端
@@ -38,6 +49,131 @@ class ChaoXingCourseDetailClient(private val context: Context) {
     companion object {
         private const val TAG = "ChaoXingCourseDetail"
         private const val MAX_HOMEWORK_DETAIL_PROBES = 5
+        const val CHAOXING_REFERER = "https://mooc1.chaoxing.com/"
+        const val CHAOXING_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
+        fun isChaoXingMediaHost(url: String?): Boolean {
+            if (url.isNullOrBlank()) return false
+            val host = try {
+                URI(url.trim()).host?.lowercase(Locale.ROOT)
+            } catch (_: Exception) {
+                null
+            } ?: return false
+            return host == "chaoxing.com" || host.endsWith(".chaoxing.com") ||
+                host == "cldisk.com" || host.endsWith(".cldisk.com") ||
+                host == "ananas.com" || host.endsWith(".ananas.com")
+        }
+
+        fun inferExtensionFromMimeType(mimeType: String?): String {
+            val clean = mimeType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            return when (clean) {
+                "application/pdf" -> "pdf"
+                "image/jpeg", "image/jpg" -> "jpg"
+                "image/png" -> "png"
+                "image/gif" -> "gif"
+                "image/webp" -> "webp"
+                "image/bmp" -> "bmp"
+                "video/mp4" -> "mp4"
+                "video/webm" -> "webm"
+                "video/quicktime" -> "mov"
+                "audio/mpeg", "audio/mp3" -> "mp3"
+                "audio/wav", "audio/x-wav" -> "wav"
+                "audio/aac" -> "aac"
+                "audio/mp4" -> "m4a"
+                "application/zip", "application/x-zip-compressed" -> "zip"
+                "application/x-rar-compressed", "application/vnd.rar" -> "rar"
+                "application/x-7z-compressed" -> "7z"
+                "application/vnd.ms-powerpoint" -> "ppt"
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
+                "application/msword" -> "doc"
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+                "application/vnd.ms-excel" -> "xls"
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "xlsx"
+                "text/plain" -> "txt"
+                else -> ""
+            }
+        }
+
+        fun inferExtensionFromMagicBytes(bytes: ByteArray): String {
+            if (bytes.size >= 4) {
+                if (bytes[0] == 0x25.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte()) {
+                    return "pdf"
+                }
+                if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()) {
+                    return "png"
+                }
+                if (bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
+                    return "jpg"
+                }
+                if (bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() && bytes[2] == 0x46.toByte() && bytes[3] == 0x38.toByte()) {
+                    return "gif"
+                }
+                if (bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() && bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()) {
+                    return "zip"
+                }
+                if (bytes[0] == 0x52.toByte() && bytes[1] == 0x61.toByte() && bytes[2] == 0x72.toByte() && bytes[3] == 0x21.toByte()) {
+                    return "rar"
+                }
+                if (bytes[0] == 0x49.toByte() && bytes[1] == 0x44.toByte() && bytes[2] == 0x33.toByte()) {
+                    return "mp3"
+                }
+            }
+            if (bytes.size >= 12) {
+                if (bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+                    bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()
+                ) {
+                    return "webp"
+                }
+                if (bytes[4] == 'f'.code.toByte() && bytes[5] == 't'.code.toByte() && bytes[6] == 'y'.code.toByte() && bytes[7] == 'p'.code.toByte()) {
+                    return "mp4"
+                }
+            }
+            return ""
+        }
+
+        private fun validExtensionOrBlank(candidate: String?): String {
+            val cleaned = candidate?.trim()?.trimStart('.')?.lowercase(Locale.ROOT).orEmpty()
+            return if (cleaned.length in 1..6 && cleaned.all { it.isLetterOrDigit() }) cleaned else ""
+        }
+
+        fun resolveDownloadedFileName(
+            preferredName: String,
+            contentDisposition: String?,
+            contentType: String?,
+            downloadUrl: String,
+            headerBytes: ByteArray = ByteArray(0)
+        ): String {
+            val cleanPreferred = preferredName.trim()
+            val prefExt = if (cleanPreferred.contains('.')) {
+                validExtensionOrBlank(cleanPreferred.substringAfterLast('.'))
+            } else {
+                ""
+            }
+
+            val serverFileName = PdfViewerUtils.parseContentDispositionFileName(contentDisposition).orEmpty()
+            val serverExt = if (serverFileName.contains('.')) {
+                validExtensionOrBlank(serverFileName.substringAfterLast('.'))
+            } else {
+                ""
+            }
+
+            val urlPathName = PdfViewerUtils.cleanFileName(downloadUrl)
+            val urlExt = if (urlPathName.contains('.')) {
+                validExtensionOrBlank(urlPathName.substringAfterLast('.'))
+            } else {
+                ""
+            }
+
+            val mimeExt = inferExtensionFromMimeType(contentType)
+            val magicExt = inferExtensionFromMagicBytes(headerBytes)
+
+            val baseName = cleanPreferred.ifBlank { serverFileName }.ifBlank { urlPathName }.ifBlank { "attachment" }
+            if (prefExt.isNotBlank()) return baseName
+
+            val resolvedExt = listOf(serverExt, urlExt, mimeExt, magicExt).firstOrNull { it.isNotBlank() }.orEmpty()
+            return if (resolvedExt.isNotBlank()) "$baseName.$resolvedExt" else baseName
+        }
 
         fun parseAttachmentsFromHtml(html: String): List<ChaoXingCourseAttachment> =
             ChaoXingHtmlParser.parseAttachmentsFromHtml(html)
@@ -253,13 +389,17 @@ class ChaoXingCourseDetailClient(private val context: Context) {
     suspend fun fetchYunFile(objectId: String): Result<ChaoXingYunFile> = withContext(Dispatchers.IO) {
         val url = "https://contestyd.chaoxing.com/app/files/$objectId/getYunFiles?key=allData"
         try {
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(url)
                 .header("Accept", "application/json")
+                .header("Referer", CHAOXING_REFERER)
+                .header("User-Agent", CHAOXING_USER_AGENT)
                 .get()
-                .build()
+            prefs.getCookies(null)?.takeIf { it.isNotBlank() }?.let { cookies ->
+                reqBuilder.header("Cookie", cookies)
+            }
 
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = okHttpClient.newCall(reqBuilder.build()).execute()
             val body = resp.body?.string() ?: ""
 
             if (!resp.isSuccessful || body.isBlank()) {
@@ -270,19 +410,143 @@ class ChaoXingCourseDetailClient(private val context: Context) {
             val map = gson.fromJson<Map<String, Any?>>(body, type)
             val data = map["data"] as? Map<*, *>
 
-            val pdf = (data?.get("pdf") ?: "").toString()
-            val download = (data?.get("download") ?: "").toString()
-            val http = (data?.get("http") ?: "").toString()
+            fun readField(vararg keys: String): String {
+                for (key in keys) {
+                    val value = data?.get(key)?.toString()?.trim()
+                    if (!value.isNullOrBlank() && !value.equals("null", ignoreCase = true)) {
+                        return value
+                    }
+                }
+                return ""
+            }
+
+            val pdf = readField("pdf")
+            val download = readField("download")
+            val http = readField("http")
+            val httphd = readField("httphd")
+            val https = readField("https")
+            val fileName = readField("filename", "name")
+            val fileExt = readField("suffix", "ext", "filetype").trimStart('.')
+            val mimeType = readField("mimetype", "contentType")
 
             Result.success(
                 ChaoXingYunFile(
                     pdfUrl = pdf,
                     downloadUrl = download,
-                    streamUrl = http
+                    streamUrl = http,
+                    hdStreamUrl = httphd,
+                    httpsStreamUrl = https,
+                    fileName = fileName,
+                    fileExt = fileExt,
+                    mimeType = mimeType
                 )
             )
         } catch (e: Exception) {
             Log.e(TAG, "fetchYunFile error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 原生下载超星云盘 / CDN 附件或视频到临时目录，自动解析真实扩展名与 MIME 类型
+     */
+    suspend fun downloadYunFile(
+        url: String,
+        preferredFileName: String,
+        tempDir: File,
+        onProgress: ((Int) -> Unit)? = null
+    ): Result<ChaoXingDownloadResult> = withContext(Dispatchers.IO) {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isBlank()) {
+            return@withContext Result.failure(Exception("下载地址为空"))
+        }
+        tempDir.mkdirs()
+        val tempFile = File(tempDir, "cx_tmp_${System.currentTimeMillis()}_${CoursewareStorageManager.sanitizeSegment(preferredFileName, "file")}")
+        try {
+            val reqBuilder = Request.Builder()
+                .url(cleanUrl)
+                .header("Referer", CHAOXING_REFERER)
+                .header("User-Agent", CHAOXING_USER_AGENT)
+                .get()
+
+            val host = try {
+                URI(cleanUrl).host?.lowercase(Locale.ROOT)
+            } catch (_: Exception) {
+                null
+            }
+            if (host != null && (host == "chaoxing.com" || host.endsWith(".chaoxing.com"))) {
+                prefs.getCookies(null)?.takeIf { it.isNotBlank() }?.let { cookies ->
+                    reqBuilder.header("Cookie", cookies)
+                }
+            }
+
+            okHttpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(Exception("下载失败 (HTTP ${resp.code})"))
+                }
+                val body = resp.body ?: return@withContext Result.failure(Exception("下载响应为空"))
+                val totalBytes = body.contentLength()
+                val headerBytes = ByteArray(16)
+                var headerFilled = 0
+                var written = 0L
+
+                body.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            if (headerFilled < headerBytes.size) {
+                                val toCopy = minOf(read, headerBytes.size - headerFilled)
+                                System.arraycopy(buffer, 0, headerBytes, headerFilled, toCopy)
+                                headerFilled += toCopy
+                            }
+                            output.write(buffer, 0, read)
+                            written += read
+                            if (totalBytes > 0 && onProgress != null) {
+                                val pct = ((written * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                                onProgress(pct)
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                if (written <= 0L) {
+                    runCatching { tempFile.delete() }
+                    return@withContext Result.failure(Exception("下载文件内容为空"))
+                }
+
+                val sniffBytes = if (headerFilled > 0) headerBytes.copyOf(headerFilled) else ByteArray(0)
+                val disposition = resp.header("Content-Disposition")
+                val rawContentType = resp.header("Content-Type")?.substringBefore(';')?.trim()
+                val resolvedName = resolveDownloadedFileName(
+                    preferredName = preferredFileName,
+                    contentDisposition = disposition,
+                    contentType = rawContentType,
+                    downloadUrl = cleanUrl,
+                    headerBytes = sniffBytes
+                )
+                val resolvedMime = CoursewareStorageManager.resolveMimeType(resolvedName).let { guessed ->
+                    if (guessed == "application/octet-stream" && !rawContentType.isNullOrBlank()) {
+                        rawContentType
+                    } else {
+                        guessed
+                    }
+                }
+
+                Result.success(
+                    ChaoXingDownloadResult(
+                        tempFile = tempFile,
+                        resolvedFileName = resolvedName,
+                        mimeType = resolvedMime,
+                        fileSize = written
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            runCatching { tempFile.delete() }
+            Log.e(TAG, "downloadYunFile error", e)
             Result.failure(e)
         }
     }

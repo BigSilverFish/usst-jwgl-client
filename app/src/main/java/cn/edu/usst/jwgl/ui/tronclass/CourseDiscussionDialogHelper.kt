@@ -21,6 +21,7 @@ import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.DialogTronclassCreateTopicBinding
 import cn.edu.usst.jwgl.databinding.DialogTronclassTopicDetailBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassDiscussionReplyBinding
+import cn.edu.usst.jwgl.ui.JwglWebActivity
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -89,6 +90,66 @@ internal class CourseDiscussionDialogHelper(
                     client.logActivityRead(act.id)
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "已同步完成该课堂讨论进度！", Toast.LENGTH_SHORT).show()
+                        onRefreshCourseData()
+                    }
+                }
+            }
+        }
+
+        builder.show()
+    }
+
+    fun showInteractionDetailDialog(
+        act: TronClassActivityItem,
+        onOpenUploads: ((TronClassActivityItem) -> Unit)? = null
+    ) {
+        val ctx = context ?: return
+        val label = act.getInteractionTypeLabel()
+        val schedule = act.getFormattedScheduleTime()
+        val isCompleted = act.completeness == "full" || act.completeness == "complete"
+        val statusText = when (act.completeness) {
+            "full", "complete" -> "已完成"
+            "part" -> "参与中"
+            else -> "进行中"
+        }
+        val rawDesc = act.data?.description
+        val contentText = if (!rawDesc.isNullOrBlank()) {
+            TronClassHtmlHelper.htmlToPlainText(rawDesc).trim().ifBlank { "（无详细文字说明）" }
+        } else {
+            "（无详细文字说明，可直接进入官方互动页面参与）"
+        }
+
+        val sb = StringBuilder()
+        sb.append("类型: ").append(label).append('\n')
+        sb.append("状态: ").append(statusText).append('\n')
+        if (schedule.isNotBlank()) {
+            sb.append("时间: ").append(schedule).append('\n')
+        }
+        sb.append('\n').append("【活动说明】\n").append(contentText)
+
+        val builder = MaterialAlertDialogBuilder(ctx)
+            .setTitle(act.getCleanTitle())
+            .setMessage(sb.toString())
+            .setPositiveButton("进入互动") { _, _ ->
+                val url = "https://1906.usst.edu.cn/course/$courseId/learning-activity#/${act.id}"
+                JwglWebActivity.start(ctx, url, act.getCleanTitle())
+            }
+
+        val uploads = act.getAllUploads()
+        if (uploads.isNotEmpty() && onOpenUploads != null) {
+            builder.setNegativeButton("查看附件 (${uploads.size})") { _, _ ->
+                onOpenUploads(act)
+            }
+        } else {
+            builder.setNegativeButton("关闭", null)
+        }
+
+        if (!isCompleted) {
+            builder.setNeutralButton("标记已读") { _, _ ->
+                fragment.viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                    client.logActivityRead(act.id)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "已同步完成该课堂互动进度！", Toast.LENGTH_SHORT).show()
                         onRefreshCourseData()
                     }
                 }

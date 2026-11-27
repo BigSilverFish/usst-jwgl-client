@@ -5,6 +5,7 @@ import android.os.Looper
 import android.util.Log
 import android.webkit.CookieManager
 import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
+import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.JwglClient
 import okhttp3.Cookie
@@ -264,6 +265,30 @@ object CookieSyncHelper {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync WebView cookies back to ChaoXing", e)
+        }
+    }
+
+    /**
+     * 将 TronClassPreferences 中保存的一网畅学 session_id 同步至 Android WebView CookieManager
+     */
+    fun syncTronClassSessionToWebView(context: Context, studentId: String? = null) {
+        try {
+            val sessionId = TronClassPreferences(context).getSessionId(studentId)?.trim()
+            if (sessionId.isNullOrBlank()) {
+                Log.d(TAG, "No TronClass session_id found to sync")
+                return
+            }
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            val cookieStr = "session_id=$sessionId; Path=/; Secure"
+            val domainCookieStr = "session_id=$sessionId; Domain=1906.usst.edu.cn; Path=/; Secure"
+            cookieManager.setCookie("https://1906.usst.edu.cn/", cookieStr)
+            cookieManager.setCookie("https://1906.usst.edu.cn/", domainCookieStr)
+            cookieManager.setCookie("https://tronclass.usst.edu.cn/", cookieStr)
+            cookieManager.flush()
+            Log.d(TAG, "Successfully synced TronClass session_id to WebView CookieManager")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync TronClass session_id to WebView", e)
         }
     }
 }

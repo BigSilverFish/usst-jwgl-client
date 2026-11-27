@@ -5,7 +5,13 @@ import android.database.sqlite.SQLiteOpenHelper
 
 class TimeDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
 
-    @Synchronized
+    @Volatile
+    private var defaultsEnsuredInProcess: Boolean = false
+
+    fun resetDefaultsEnsuredFlag() {
+        defaultsEnsuredInProcess = false
+    }
+
     fun getTimeDetails(timeTable: Int = 1): List<TimeDetailBean> {
         val list = mutableListOf<TimeDetailBean>()
         val db = dbHelper.readableDatabase
@@ -37,15 +43,55 @@ class TimeDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
         tableDao: TableDaoImpl,
         courseBaseDao: CourseBaseDaoImpl
     ) {
-        val db = dbHelper.writableDatabase
+        if (defaultsEnsuredInProcess) return
 
-        db.beginTransaction()
+        // 先执行纯只读检查；无需变更时直接退出，避免冷启动或唤醒期间开启写事务锁库
+        val times = getTimeDetails(1)
+        val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
+
+        val oldTimes = getTimeDetails(2)
+        val needsOldTimeUpdate = oldTimes.isEmpty() || oldTimes.size != 12
+
+        val allTables = tableDao.getAllTables()
+        val tablesToUpdate = mutableListOf<TableBean>()
+        for (t in allTables) {
+            val isOld = CourseUtils.isBefore2025_2026_2(t.tableName)
+            val expectedNodes = if (isOld) 12 else 13
+            val expectedTimeTable = if (isOld) 2 else 1
+            var tableChanged = false
+            if (t.nodes != expectedNodes || t.timeTable != expectedTimeTable) {
+                t.nodes = expectedNodes
+                t.timeTable = expectedTimeTable
+                tableChanged = true
+            }
+            if (t.maxWeek == 25) {
+                t.maxWeek = 20
+                tableChanged = true
+            }
+            if (tableChanged) {
+                tablesToUpdate.add(t)
+            }
+        }
+
+        val defaultTable = tableDao.getDefaultTable()
+        val needsWeekendCleanup = if (defaultTable.showSat || defaultTable.showSun) {
+            val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
+            allCourses.none { it.day == 6 || it.day == 7 }
+        } else {
+            false
+        }
+
+        if (!needsTimeUpdate && !needsOldTimeUpdate && tablesToUpdate.isEmpty() && !needsWeekendCleanup) {
+            defaultsEnsuredInProcess = true
+            return
+        }
+
+        val db = dbHelper.writableDatabase
+        db.beginTransactionNonExclusive()
         try {
             db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (1, '新课时表(13节)');")
             db.execSQL("INSERT OR IGNORE INTO TimeTableBean (id, name) VALUES (2, '老课时表(12节)');")
 
-            val times = getTimeDetails(1)
-            val needsTimeUpdate = times.isEmpty() || times.any { it.node == 2 && it.startTime == "08:50" }
             if (needsTimeUpdate) {
                 db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 1;")
                 val usstTimes = arrayOf(
@@ -74,8 +120,7 @@ class TimeDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
                 }
             }
 
-            val oldTimes = getTimeDetails(2)
-            if (oldTimes.isEmpty() || oldTimes.size != 12) {
+            if (needsOldTimeUpdate) {
                 db.execSQL("DELETE FROM TimeDetailBean WHERE timeTable = 2;")
                 val usstOldTimes = arrayOf(
                     Triple(1, "08:00", "08:45"),
@@ -102,40 +147,18 @@ class TimeDetailDaoImpl(private val dbHelper: SQLiteOpenHelper) {
                 }
             }
 
-            val allTables = tableDao.getAllTables()
-            for (t in allTables) {
-                val isOld = CourseUtils.isBefore2025_2026_2(t.tableName)
-                val expectedNodes = if (isOld) 12 else 13
-                val expectedTimeTable = if (isOld) 2 else 1
-                var tableChanged = false
-                if (t.nodes != expectedNodes || t.timeTable != expectedTimeTable) {
-                    t.nodes = expectedNodes
-                    t.timeTable = expectedTimeTable
-                    tableChanged = true
-                }
-                if (t.maxWeek == 25) {
-                    t.maxWeek = 20
-                    tableChanged = true
-                }
-                if (tableChanged) {
-                    tableDao.updateTable(t)
-                }
+            for (t in tablesToUpdate) {
+                tableDao.updateTable(t)
             }
 
-            val defaultTable = tableDao.getDefaultTable()
-            var updated = false
-            val allCourses = courseBaseDao.getCourseOfTable(defaultTable.id)
-            val hasWeekend = allCourses.any { it.day == 6 || it.day == 7 }
-            if (!hasWeekend && (defaultTable.showSat || defaultTable.showSun)) {
+            if (needsWeekendCleanup) {
                 defaultTable.showSat = false
                 defaultTable.showSun = false
-                updated = true
-            }
-            if (updated) {
                 tableDao.updateTable(defaultTable)
             }
 
             db.setTransactionSuccessful()
+            defaultsEnsuredInProcess = true
         } finally {
             db.endTransaction()
         }

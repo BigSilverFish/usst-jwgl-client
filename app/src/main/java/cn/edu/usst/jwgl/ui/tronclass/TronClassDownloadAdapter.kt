@@ -42,10 +42,13 @@ class TronClassDownloadAdapter(
 
         fun bind(item: TronClassDownloadedItem) {
             binding.tvFileName.text = item.fileName
-            binding.tvCourseName.text = if (item.courseName.isNotBlank()) item.courseName else "未分类课程"
+            val course = (item.courseName as String?).orEmpty()
+            binding.tvCourseName.text = if (course.isNotBlank()) course else "未分类课程"
 
             val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(item.downloadTime))
-            binding.tvFileInfo.text = "${item.getFormattedSize()} · $dateStr"
+            val loc = item.getSafeStorageLocation()
+            val locSuffix = if (loc.isNotBlank()) " · $loc" else ""
+            binding.tvFileInfo.text = "${item.getFormattedSize()} · $dateStr$locSuffix"
 
             // 根据扩展名设置图标染色
             val ext = item.getExtension()

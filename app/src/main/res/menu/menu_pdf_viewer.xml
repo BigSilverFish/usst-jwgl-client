@@ -5,10 +5,14 @@
         android:id="@+id/action_share"
         android:icon="@drawable/ic_share"
         android:title="分享"
-        app:showAsAction="ifRoom" />
+        app:iconTint="@color/text_primary"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/action_save_to_downloads"
+        android:title="保存到下载目录"
+        app:showAsAction="never" />
     <item
         android:id="@+id/action_open_external"
-        android:icon="@drawable/ic_globe"
-        android:title="其他应用打开"
-        app:showAsAction="ifRoom" />
+        android:title="使用其他应用打开"
+        app:showAsAction="never" />
 </menu>

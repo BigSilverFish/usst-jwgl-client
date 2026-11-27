@@ -514,6 +514,21 @@ data class TronClassUpload(
     fun getDownloadUrl(): String = "https://1906.usst.edu.cn/api/uploads/$id/blob"
 }
 
+enum class TronClassActivityCategory {
+    MATERIAL,
+    ONLINE_VIDEO,
+    RECORDED_LESSON,
+    LIVE,
+    INTERACTION,
+    HOMEWORK,
+    EXAM,
+    FORUM,
+    WEB_LINK,
+    PAGE,
+    CHAOXING_CHAPTER,
+    OTHER
+}
+
 data class TronClassActivityItem(
     @SerializedName("id")
     val id: Long,
@@ -522,7 +537,7 @@ data class TronClassActivityItem(
     val title: String? = null,
 
     @SerializedName("type")
-    val type: String? = null, // "material", "online_video", "homework"
+    val type: String? = null, // "material", "online_video", "lesson", "lecture_live", "interaction", "homework"
 
     @SerializedName("course_id")
     val courseId: Long = 0,
@@ -550,13 +565,130 @@ data class TronClassActivityItem(
     var extraChaoXingCourse: ChaoXingCourse? = null
 ) : Serializable {
 
+    companion object {
+        private val ONLINE_VIDEO_TYPES = setOf("online_video", "audio", "slide", "micro_course")
+        private val RECORDED_LESSON_TYPES = setOf(
+            "lesson", "lesson_replay", "recorded_lesson", "recording",
+            "replay", "video_lesson", "classroom_record"
+        )
+        private val LIVE_TYPES = setOf(
+            "lecture_live", "live", "live_record", "live_stream", "live_broadcast",
+            "virtual_classroom", "tencent_meeting", "zoom", "webex", "classin",
+            "meeting", "video_conference", "classroom_live"
+        )
+        private val INTERACTION_TYPES = setOf(
+            "interaction", "classroom", "classroom_interaction", "class_interaction",
+            "interactive", "interactive_activity", "questionnaire", "feedback",
+            "vote", "voting", "poll", "brainstorming", "group_discuss",
+            "classroom_activity", "race", "select_student"
+        )
+        private val EXAM_TYPES = setOf("exam", "quiz", "classroom_exam")
+        private val PAGE_TYPES = setOf("page", "scorm")
+    }
+
     data class ActivityDetailData(
         @SerializedName("description")
         val description: String? = null,
 
         @SerializedName("allow_download")
-        val allowDownload: Boolean = true
+        val allowDownload: Boolean = true,
+
+        @SerializedName("url")
+        val url: String? = null
     ) : Serializable
+
+    fun getNormalizedType(): String = (type ?: "").trim().lowercase(Locale.ROOT)
+
+    fun getCategory(): TronClassActivityCategory {
+        val t = getNormalizedType()
+        return when {
+            t == "chaoxing_chapter" -> TronClassActivityCategory.CHAOXING_CHAPTER
+            t == "material" -> TronClassActivityCategory.MATERIAL
+            t in ONLINE_VIDEO_TYPES -> TronClassActivityCategory.ONLINE_VIDEO
+            t in RECORDED_LESSON_TYPES -> TronClassActivityCategory.RECORDED_LESSON
+            t in LIVE_TYPES -> TronClassActivityCategory.LIVE
+            t in INTERACTION_TYPES -> TronClassActivityCategory.INTERACTION
+            t == "homework" -> TronClassActivityCategory.HOMEWORK
+            t in EXAM_TYPES -> TronClassActivityCategory.EXAM
+            t == "forum" -> TronClassActivityCategory.FORUM
+            t == "web_link" -> TronClassActivityCategory.WEB_LINK
+            t in PAGE_TYPES -> TronClassActivityCategory.PAGE
+            t.endsWith("_live") || t.contains("live") || t.contains("meeting") || t.contains("broadcast") ->
+                TronClassActivityCategory.LIVE
+            t.contains("interact") || t.contains("questionnaire") || t.contains("feedback") ||
+                t.contains("vote") || t.contains("poll") || t.contains("brainstorm") ->
+                TronClassActivityCategory.INTERACTION
+            t.contains("lesson") || t.contains("replay") || t.contains("record") ->
+                TronClassActivityCategory.RECORDED_LESSON
+            else -> TronClassActivityCategory.OTHER
+        }
+    }
+
+    fun isLiveActivity(): Boolean = getCategory() == TronClassActivityCategory.LIVE
+
+    fun isRecordedLessonActivity(): Boolean = getCategory() == TronClassActivityCategory.RECORDED_LESSON
+
+    fun isInteractionActivity(): Boolean = getCategory() == TronClassActivityCategory.INTERACTION
+
+    fun isForumActivity(): Boolean = getCategory() == TronClassActivityCategory.FORUM
+
+    fun isTabInteractionEligible(): Boolean = isForumActivity() || isInteractionActivity()
+
+    fun getInteractionTypeLabel(): String {
+        val t = getNormalizedType()
+        return when {
+            t.contains("questionnaire") -> "问卷调查"
+            t.contains("feedback") -> "课堂反馈"
+            t.contains("vote") || t == "voting" || t.contains("poll") -> "随堂投票"
+            t.contains("brainstorm") -> "头脑风暴"
+            t == "group_discuss" -> "分组讨论"
+            t == "race" -> "课堂抢答"
+            t == "select_student" -> "随机选人"
+            else -> "课堂互动"
+        }
+    }
+
+    fun getFormattedScheduleTime(): String {
+        val stDate = parseIsoUtcOrLocal(startTime)
+        val etDate = parseIsoUtcOrLocal(endTime)
+        if (stDate == null && etDate == null) return ""
+        val dayFmt = SimpleDateFormat("MM-dd", Locale.CHINA)
+        val fullFmt = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
+        val hmFmt = SimpleDateFormat("HH:mm", Locale.CHINA)
+        return when {
+            stDate != null && etDate != null -> {
+                if (dayFmt.format(stDate) == dayFmt.format(etDate)) {
+                    "${fullFmt.format(stDate)}-${hmFmt.format(etDate)}"
+                } else {
+                    "${fullFmt.format(stDate)} 至 ${fullFmt.format(etDate)}"
+                }
+            }
+            stDate != null -> fullFmt.format(stDate)
+            else -> fullFmt.format(etDate!!)
+        }
+    }
+
+    private fun parseIsoUtcOrLocal(raw: String?): Date? {
+        if (raw.isNullOrBlank()) return null
+        val trimmed = raw.trim()
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" to true,
+            "yyyy-MM-dd'T'HH:mm:ss'Z'" to true,
+            "yyyy-MM-dd'T'HH:mm:ss" to false,
+            "yyyy-MM-dd HH:mm:ss" to false
+        )
+        for ((pattern, isUtc) in formats) {
+            try {
+                val fmt = SimpleDateFormat(pattern, Locale.US).apply {
+                    if (isUtc) timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val parsed = fmt.parse(trimmed)
+                if (parsed != null) return parsed
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
 
     fun getAllUploads(): List<TronClassUpload> = (uploads ?: emptyList()).distinctBy { it.id }
 

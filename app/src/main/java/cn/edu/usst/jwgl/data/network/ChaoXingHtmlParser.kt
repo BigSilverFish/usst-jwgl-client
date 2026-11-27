@@ -40,25 +40,53 @@ object ChaoXingHtmlParser {
                 is String -> s.toLongOrNull() ?: 0L
                 else -> 0L
             }
-            val isVideo = item["type"]?.toString() == "video" ||
-                    name.endsWith(".mp4", ignoreCase = true) ||
-                    name.endsWith(".flv", ignoreCase = true) ||
-                    name.endsWith(".wmv", ignoreCase = true) ||
-                    name.endsWith(".avi", ignoreCase = true) ||
-                    name.endsWith(".rmvb", ignoreCase = true) ||
-                    name.endsWith(".mpg", ignoreCase = true) ||
-                    name.endsWith(".mov", ignoreCase = true)
+
+            val rawAttachmentType = item["type"]?.toString()?.trim().orEmpty()
+            val rawModule = fields["module"]?.toString()?.trim().orEmpty()
+            val rawPropType = (fields["type"] ?: fields["ext"] ?: fields["suffix"] ?: "").toString().trim()
+
+            val fileExt = normalizeExtensionCandidate(rawPropType).ifBlank {
+                extractExtensionFromName(name)
+            }
+
+            val isVideo = rawAttachmentType.equals("video", ignoreCase = true) ||
+                rawModule.equals("insertvideo", ignoreCase = true) ||
+                fileExt in setOf("mp4", "flv", "wmv", "avi", "rmvb", "mpg", "mov", "mkv", "m4v", "webm")
 
             out.add(
                 ChaoXingCourseAttachment(
                     objectId = objectId,
                     name = name,
                     size = size,
-                    isVideo = isVideo
+                    isVideo = isVideo,
+                    fileExt = fileExt,
+                    attachmentType = rawAttachmentType,
+                    module = rawModule
                 )
             )
         }
         return out
+    }
+
+    private fun normalizeExtensionCandidate(raw: String): String {
+        val trimmed = raw.trim().lowercase(Locale.ROOT)
+        if (trimmed.isBlank()) return ""
+        val withoutDot = trimmed.trimStart('.')
+        if (withoutDot.length !in 1..6 || !withoutDot.all { it.isLetterOrDigit() }) {
+            return ""
+        }
+        if (!trimmed.startsWith(".") && withoutDot in setOf("doc", "book", "video", "audio", "image", "other", "file")) {
+            // Note: ".doc" is accepted because it starts with '.'; bare "video"/"audio"/"image"/"book"/"other"/"file" are type labels, not extensions
+            return if (withoutDot == "doc") "doc" else ""
+        }
+        return withoutDot
+    }
+
+    private fun extractExtensionFromName(name: String): String {
+        val clean = name.substringBefore('?').substringBefore('#').trim()
+        if (!clean.contains('.')) return ""
+        val ext = clean.substringAfterLast('.', "").trim().lowercase(Locale.ROOT)
+        return if (ext.length in 1..6 && ext.all { it.isLetterOrDigit() }) ext else ""
     }
 
     private fun extractMarg(html: String): Map<String, Any?>? {

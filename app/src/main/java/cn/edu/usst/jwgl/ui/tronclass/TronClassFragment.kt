@@ -741,16 +741,8 @@ class TronClassFragment : Fragment() {
         val ctx = context ?: return
         val density = resources.displayMetrics.density
         val padH = (24 * density).toInt()
-        val padTop = (8 * density).toInt()
-
-        val input = EditText(ctx).apply {
-            hint = "请手动输入：${DualPlatformRiskGate.REQUIRED_ACK_TEXT}"
-            isSingleLine = true
-        }
-        val container = android.widget.FrameLayout(ctx).apply {
-            setPadding(padH, padTop, padH, 0)
-            addView(input)
-        }
+        val padTop = (12 * density).toInt()
+        val padBottom = (8 * density).toInt()
 
         val message = """
             |【功能说明】
@@ -765,15 +757,53 @@ class TronClassFragment : Fragment() {
             |如您已充分了解上述利害并愿意自行承担风险，请在下方输入框手动输入「${DualPlatformRiskGate.REQUIRED_ACK_TEXT}」后继续：
         """.trimMargin()
 
+        val tvMessage = android.widget.TextView(ctx).apply {
+            text = message
+            textSize = 14f
+            setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            setLineSpacing(0f, 1.25f)
+        }
+
+        val input = EditText(ctx).apply {
+            hint = "请手动输入：${DualPlatformRiskGate.REQUIRED_ACK_TEXT}"
+            isSingleLine = true
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (14 * density).toInt()
+            }
+            layoutParams = lp
+        }
+
+        val contentLayout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padH, padTop, padH, padBottom)
+            addView(tvMessage)
+            addView(input)
+        }
+
+        val scrollView = android.widget.ScrollView(ctx).apply {
+            isFillViewport = true
+            addView(
+                contentLayout,
+                android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
         val dialog = MaterialAlertDialogBuilder(ctx)
             .setTitle("开启双平台融合模式 · 风险告知")
-            .setMessage(message)
-            .setView(container)
+            .setView(scrollView)
             .setPositiveButton("确认开启", null)
             .setNegativeButton("保持纯畅课模式", null)
             .create()
 
         dialog.setOnShowListener {
+            @Suppress("DEPRECATION")
+            dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             val positiveBtn = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
             positiveBtn.isEnabled = false
             input.addTextChangedListener(object : TextWatcher {

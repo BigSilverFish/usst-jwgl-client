@@ -75,6 +75,10 @@ class AppDatabase private constructor(context: Context, val dbName: String = DAT
     private class DatabaseHelper(context: Context, databaseName: String) :
         SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
 
+        init {
+            setWriteAheadLoggingEnabled(true)
+        }
+
         override fun onConfigure(db: SQLiteDatabase) {
             super.onConfigure(db)
             db.setForeignKeyConstraintsEnabled(true)
@@ -274,17 +278,16 @@ class AppDatabase private constructor(context: Context, val dbName: String = DAT
     }
 
     fun clearAllScheduleData() {
-        synchronized(this) {
-            val db = dbHelper.writableDatabase
-            db.beginTransaction()
-            try {
-                db.delete("CourseDetailBean", null, null)
-                db.delete("CourseBaseBean", null, null)
-                db.delete("TableBean", null, null)
-                db.setTransactionSuccessful()
-            } finally {
-                db.endTransaction()
-            }
+        val db = dbHelper.writableDatabase
+        db.beginTransactionNonExclusive()
+        try {
+            db.delete("CourseDetailBean", null, null)
+            db.delete("CourseBaseBean", null, null)
+            db.delete("TableBean", null, null)
+            db.setTransactionSuccessful()
+            timeDetailDao.resetDefaultsEnsuredFlag()
+        } finally {
+            db.endTransaction()
         }
     }
 

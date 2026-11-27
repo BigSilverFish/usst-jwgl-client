@@ -1,7 +1,11 @@
 package cn.edu.usst.jwgl.ui.pdf
 
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -11,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import android.util.LruCache
 import android.view.LayoutInflater
 import android.view.Menu
@@ -19,7 +24,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.MenuItemCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
@@ -52,6 +59,7 @@ class PdfViewerActivity : AppCompatActivity() {
     private var localPdfFile: File? = null
     private var isTemporaryDownload: Boolean = false
     private var documentTitle: String = ""
+    private var courseName: String = ""
 
     private var parcelFileDescriptor: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
@@ -112,6 +120,7 @@ class PdfViewerActivity : AppCompatActivity() {
         setupToolbar()
         setupBitmapCache()
 
+        courseName = intent.getStringExtra(EXTRA_COURSE_NAME).orEmpty()
         var rawPath = intent.getStringExtra(EXTRA_FILE_PATH).orEmpty()
         val dataUri = intent.data
         if (rawPath.isBlank() && dataUri != null) {
@@ -131,7 +140,23 @@ class PdfViewerActivity : AppCompatActivity() {
             return
         }
 
+        cleanupStalePreviewCache()
         initPdfSource(rawPath)
+    }
+
+    private fun cleanupStalePreviewCache() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val previewDir = File(cacheDir, "pdf_preview")
+                if (!previewDir.exists()) return@launch
+                val cutoff = System.currentTimeMillis() - 2 * 60 * 60 * 1000L
+                previewDir.listFiles()?.forEach { child ->
+                    if (child.lastModified() < cutoff) {
+                        child.deleteRecursively()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     private fun setupWindowInsets() {
@@ -157,6 +182,9 @@ class PdfViewerActivity : AppCompatActivity() {
         setSupportActionBar(binding.toolbarPdf)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.setDisplayShowHomeEnabled(true)
+        val iconColor = ContextCompat.getColor(this, R.color.text_primary)
+        binding.toolbarPdf.navigationIcon?.setTint(iconColor)
+        binding.toolbarPdf.overflowIcon?.setTint(iconColor)
         binding.toolbarPdf.setNavigationOnClickListener {
             finish()
         }
@@ -212,8 +240,9 @@ class PdfViewerActivity : AppCompatActivity() {
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val tempDir = File(cacheDir, "pdf_preview").apply { if (!exists()) mkdirs() }
-                val destFile = File(tempDir, "temp_${System.currentTimeMillis()}.pdf")
+                val sessionDir = File(cacheDir, "pdf_preview/${System.currentTimeMillis()}").apply { mkdirs() }
+                val safeName = PdfViewerUtils.buildSafePdfFileName(documentTitle)
+                val destFile = File(sessionDir, safeName)
                 contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(destFile).use { output ->
                         input.copyTo(output)
@@ -239,8 +268,12 @@ class PdfViewerActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val client = OkHttpClient.Builder().build()
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
+                val reqBuilder = Request.Builder().url(url)
+                if (cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.isChaoXingMediaHost(url)) {
+                    reqBuilder.header("Referer", cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.CHAOXING_REFERER)
+                    reqBuilder.header("User-Agent", cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.CHAOXING_USER_AGENT)
+                }
+                val response = client.newCall(reqBuilder.build()).execute()
 
                 if (!response.isSuccessful) {
                     throw Exception("网络请求失败 (HTTP ${response.code})")
@@ -261,11 +294,9 @@ class PdfViewerActivity : AppCompatActivity() {
                     updateDocumentTitle(resolvedTitle)
                 }
 
-                val tempDir = File(cacheDir, "pdf_preview").apply { if (!exists()) mkdirs() }
-                val safeName = documentTitle.replace(Regex("""[\\/:*?"<>|]"""), "_").let {
-                    if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf"
-                }
-                val destFile = File(tempDir, "temp_${System.currentTimeMillis()}_$safeName")
+                val sessionDir = File(cacheDir, "pdf_preview/${System.currentTimeMillis()}").apply { mkdirs() }
+                val safeName = PdfViewerUtils.buildSafePdfFileName(documentTitle)
+                val destFile = File(sessionDir, safeName)
 
                 val body = response.body ?: throw Exception("响应正文为空")
                 body.byteStream().use { input ->
@@ -387,6 +418,19 @@ class PdfViewerActivity : AppCompatActivity() {
         }
     }
 
+    private fun resolveShareableUri(file: File): Uri {
+        val authority = "${packageName}.fileprovider"
+        return try {
+            FileProvider.getUriForFile(this, authority, file)
+        } catch (_: IllegalArgumentException) {
+            val fallbackDir = File(cacheDir, "pdf_preview/${System.currentTimeMillis()}").apply { mkdirs() }
+            val safeName = PdfViewerUtils.buildSafePdfFileName(documentTitle.ifBlank { file.name })
+            val fallbackFile = File(fallbackDir, safeName)
+            file.copyTo(fallbackFile, overwrite = true)
+            FileProvider.getUriForFile(this, authority, fallbackFile)
+        }
+    }
+
     private fun openWithExternalViewer() {
         val file = localPdfFile
         if (file == null || !file.exists()) {
@@ -394,17 +438,23 @@ class PdfViewerActivity : AppCompatActivity() {
             return
         }
 
+        val displayName = PdfViewerUtils.buildSafePdfFileName(documentTitle.ifBlank { file.name })
         try {
-            val authority = "${packageName}.fileprovider"
-            val uri = FileProvider.getUriForFile(this, authority, file)
+            val uri = resolveShareableUri(file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/pdf")
+                clipData = ClipData.newRawUri(displayName, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            startActivity(Intent.createChooser(intent, "选择打开方式: ${file.name}"))
-        } catch (e: Exception) {
+            val chooser = Intent.createChooser(intent, "选择打开方式: $displayName").apply {
+                putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(this@PdfViewerActivity, PdfViewerActivity::class.java)))
+            }
+            startActivity(chooser)
+        } catch (e: ActivityNotFoundException) {
             Toast.makeText(this, "未找到能够打开 PDF 的外部应用，请安装 PDF 阅读器", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e("PdfViewerActivity", "openWithExternalViewer failed", e)
+            Toast.makeText(this, "无法唤起外部应用打开此文档", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -415,30 +465,71 @@ class PdfViewerActivity : AppCompatActivity() {
             return
         }
 
+        val displayName = PdfViewerUtils.buildSafePdfFileName(documentTitle.ifBlank { file.name })
         try {
-            val authority = "${packageName}.fileprovider"
-            val uri = FileProvider.getUriForFile(this, authority, file)
+            val uri = resolveShareableUri(file)
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "application/pdf"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, documentTitle)
+                putExtra(Intent.EXTRA_SUBJECT, displayName)
+                clipData = ClipData.newRawUri(displayName, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(intent, "分享文档: ${file.name}"))
-        } catch (e: Exception) {
+            startActivity(Intent.createChooser(intent, "分享文档: $displayName"))
+        } catch (e: ActivityNotFoundException) {
             Toast.makeText(this, "未找到支持分享此文档的应用", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e("PdfViewerActivity", "sharePdf failed", e)
+            Toast.makeText(this, "分享文档失败，请稍后重试", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.menu_pdf_viewer, menu)
+        val iconTint = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.text_primary))
+        if (menu != null) {
+            for (i in 0 until menu.size()) {
+                MenuItemCompat.setIconTintList(menu.getItem(i), iconTint)
+            }
+        }
         return true
+    }
+
+    private fun savePdfToDownloads() {
+        val file = localPdfFile
+        if (file == null || !file.exists()) {
+            Toast.makeText(this, "文件未就绪，请等待加载完成", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val safeName = PdfViewerUtils.buildSafePdfFileName(documentTitle.ifBlank { file.name })
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = cn.edu.usst.jwgl.data.local.CoursewareStorageManager.persistDownloadedCourseware(
+                context = this@PdfViewerActivity,
+                sourceFile = file,
+                uploadId = 0L,
+                displayName = safeName,
+                courseId = 0L,
+                courseName = courseName,
+                removeSourceAfterExport = false
+            )
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    this@PdfViewerActivity,
+                    result.warningMessage ?: "已保存至：${result.locationLabel}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_share -> {
                 sharePdf()
+                true
+            }
+            R.id.action_save_to_downloads -> {
+                savePdfToDownloads()
                 true
             }
             R.id.action_open_external -> {
@@ -467,12 +558,6 @@ class PdfViewerActivity : AppCompatActivity() {
             parcelFileDescriptor?.close()
             parcelFileDescriptor = null
         } catch (_: Exception) {}
-
-        if (isTemporaryDownload) {
-            try {
-                localPdfFile?.delete()
-            } catch (_: Exception) {}
-        }
     }
 
     private fun dpToPx(dp: Float): Int {
@@ -597,17 +682,22 @@ class PdfViewerActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_FILE_PATH = "extra_file_path"
         const val EXTRA_TITLE = "extra_title"
+        const val EXTRA_COURSE_NAME = "extra_course_name"
 
         /**
          * 启动应用内原生 PDF 阅读器
          * @param context 上下文
-         * @param filePath 本地文件绝对路径或远程 http/https 链接
+         * @param filePath 本地文件绝对路径或远程 http/https 链接 / content:// URI
          * @param title 文档显示标题（可选）
+         * @param courseName 所属课程名，用于保存到下载目录时按课程归类（可选）
          */
-        fun start(context: Context, filePath: String, title: String? = null) {
+        fun start(context: Context, filePath: String, title: String? = null, courseName: String? = null) {
             val intent = Intent(context, PdfViewerActivity::class.java).apply {
                 putExtra(EXTRA_FILE_PATH, filePath)
                 putExtra(EXTRA_TITLE, title)
+                if (!courseName.isNullOrBlank()) {
+                    putExtra(EXTRA_COURSE_NAME, courseName)
+                }
             }
             context.startActivity(intent)
         }

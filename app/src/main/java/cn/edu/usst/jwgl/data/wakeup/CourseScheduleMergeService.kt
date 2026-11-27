@@ -24,7 +24,7 @@ class CourseScheduleMergeService(
         }
 
         val db = dbHelper.writableDatabase
-        db.beginTransaction()
+        db.beginTransactionNonExclusive()
         try {
             val imported = courseBaseDao.getCourseOfTable(tableId)
                 .filter { it.courseName.startsWith(AppDatabase.LAB_RESERVATION_PREFIX) }

@@ -35,7 +35,8 @@ class TronClassCacheManager(private val context: Context) {
         val f1 = getFile(uploadId, rawName)
         if (f1.exists() && f1.length() > 0) return true
         val f2 = getLegacyFile(rawName)
-        return f2.exists() && f2.length() > 0
+        if (f2.exists() && f2.length() > 0) return true
+        return uploadId > 0L && TronClassDownloadManager.findByFileId(context, uploadId.toString()) != null
     }
 
     fun getExistingFile(uploadId: Long, rawName: String?): File? {
@@ -44,6 +45,45 @@ class TronClassCacheManager(private val context: Context) {
         val f2 = getLegacyFile(rawName)
         if (f2.exists() && f2.length() > 0) return f2
         return null
+    }
+
+    fun openCachedUpload(uploadId: Long, rawName: String?): Boolean {
+        val localFile = getExistingFile(uploadId, rawName)
+        if (localFile != null) {
+            openFile(localFile)
+            return true
+        }
+        if (uploadId > 0L) {
+            val saved = TronClassDownloadManager.findByFileId(context, uploadId.toString())
+            if (saved != null) {
+                TronClassDownloadManager.openFile(context, saved)
+                return true
+            }
+        }
+        return false
+    }
+
+    fun openPersistResult(
+        result: CoursewareStorageManager.PersistResult,
+        displayName: String,
+        courseName: String = ""
+    ) {
+        if (result.finalFile != null) {
+            openFile(result.finalFile)
+            return
+        }
+        if (result.contentUri != null) {
+            val tempItem = TronClassDownloadedItem(
+                fileId = "",
+                fileName = displayName,
+                courseId = 0L,
+                courseName = courseName,
+                filePath = result.filePathOrUri,
+                fileSize = result.fileSize,
+                storageLocation = result.locationLabel
+            )
+            TronClassDownloadManager.openFile(context, tempItem)
+        }
     }
 
     fun getCachedFiles(): List<File> {

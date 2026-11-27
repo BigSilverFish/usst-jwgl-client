@@ -188,6 +188,7 @@ object TronClassImageLoader {
                                 host.endsWith(".tronclass.com.cn") ||
                                 host == "tronclass.com.cn"
 
+            val isChaoXingHost = cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.isChaoXingMediaHost(url)
             if (isHttps && isTrustedHost) {
                 val sessionId = tcClient.getSessionId()
                 if (!sessionId.isNullOrBlank()) {
@@ -195,8 +196,13 @@ object TronClassImageLoader {
                     reqBuilder.header("Cookie", "session=$sessionId; x-session-id=$sessionId")
                 }
                 reqBuilder.header("Referer", "https://1906.usst.edu.cn/")
+                reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android; TronClass)")
+            } else if (isChaoXingHost) {
+                reqBuilder.header("Referer", cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.CHAOXING_REFERER)
+                reqBuilder.header("User-Agent", cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient.CHAOXING_USER_AGENT)
+            } else {
+                reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android; TronClass)")
             }
-            reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android; TronClass)")
 
             okHttpClient.newCall(reqBuilder.build()).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext null

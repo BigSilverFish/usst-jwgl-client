@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.data.local
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -19,8 +20,15 @@ data class TronClassDownloadedItem(
     val filePath: String,
     val fileSize: Long,
     val downloadTime: Long = System.currentTimeMillis(),
-    val mimeType: String = ""
+    val mimeType: String? = "",
+    val storageLocation: String? = ""
 ) {
+    fun getSafeMimeType(): String = mimeType.orEmpty()
+
+    fun getSafeStorageLocation(): String = storageLocation.orEmpty()
+
+    fun isContentUri(): Boolean = (filePath as String?)?.startsWith("content://", ignoreCase = true) == true
+
     fun getFormattedSize(): String {
         if (fileSize <= 0) return "未知大小"
         val units = arrayOf("B", "KB", "MB", "GB")
@@ -81,7 +89,21 @@ object TronClassDownloadManager {
             }
         }
 
-        return list.filter { File(it.filePath).exists() }.sortedByDescending { it.downloadTime }
+        return list.filter {
+            val safePath = (it.filePath as String?).orEmpty()
+            if (safePath.isBlank()) {
+                false
+            } else if (it.isContentUri()) {
+                CoursewareStorageManager.isUriReadable(context, safePath)
+            } else {
+                File(safePath).exists()
+            }
+        }.sortedByDescending { it.downloadTime }
+    }
+
+    fun findByFileId(context: Context, fileId: String): TronClassDownloadedItem? {
+        if (fileId.isBlank()) return null
+        return getDownloadedItems(context).firstOrNull { it.fileId == fileId }
     }
 
     @Synchronized
@@ -95,9 +117,13 @@ object TronClassDownloadManager {
     @Synchronized
     fun deleteItem(context: Context, item: TronClassDownloadedItem): Boolean {
         try {
-            val file = File(item.filePath)
-            if (file.exists()) {
-                file.delete()
+            if (item.isContentUri()) {
+                CoursewareStorageManager.deleteUri(context, item.filePath)
+            } else {
+                val file = File(item.filePath)
+                if (file.exists()) {
+                    file.delete()
+                }
             }
             val current = getDownloadedItems(context).toMutableList()
             current.removeAll { it.filePath == item.filePath }
@@ -113,8 +139,12 @@ object TronClassDownloadManager {
         val items = getDownloadedItems(context)
         for (item in items) {
             try {
-                val f = File(item.filePath)
-                if (f.exists()) f.delete()
+                if (item.isContentUri()) {
+                    CoursewareStorageManager.deleteUri(context, item.filePath)
+                } else {
+                    val f = File(item.filePath)
+                    if (f.exists()) f.delete()
+                }
             } catch (_: Exception) {}
         }
         saveList(context, emptyList())
@@ -124,33 +154,56 @@ object TronClassDownloadManager {
         return getDownloadedItems(context).sumOf { it.fileSize }
     }
 
+    private fun resolveItemUri(context: Context, item: TronClassDownloadedItem): Uri? {
+        if (item.isContentUri()) {
+            return if (CoursewareStorageManager.isUriReadable(context, item.filePath)) {
+                Uri.parse(item.filePath)
+            } else null
+        }
+        val file = File(item.filePath)
+        if (!file.exists()) return null
+        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
+
     fun openFile(context: Context, item: TronClassDownloadedItem) {
         try {
-            val file = File(item.filePath)
-            if (!file.exists()) {
+            val isPdf = item.getExtension().equals("pdf", ignoreCase = true) ||
+                (!item.isContentUri() && File(item.filePath).extension.equals("pdf", ignoreCase = true))
+
+            val exists = if (item.isContentUri()) {
+                CoursewareStorageManager.isUriReadable(context, item.filePath)
+            } else {
+                File(item.filePath).exists()
+            }
+            if (!exists) {
                 Toast.makeText(context, "文件不存在或已被移动", Toast.LENGTH_SHORT).show()
                 return
             }
 
-            if (item.getExtension().equals("pdf", ignoreCase = true) || file.extension.equals("pdf", ignoreCase = true)) {
-                cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(context, file.absolutePath, item.fileName)
+            if (isPdf) {
+                cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(
+                    context,
+                    item.filePath,
+                    item.fileName,
+                    item.courseName
+                )
                 return
             }
 
             val ext = item.getExtension()
-            var mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: item.mimeType
+            var mime = MimeTypeMap.getSingleton()?.getMimeTypeFromExtension(ext) ?: item.getSafeMimeType()
             if (mime.isBlank()) {
-                mime = "*/*"
+                mime = CoursewareStorageManager.resolveMimeType(item.fileName)
             }
 
-            val uri: Uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
+            val uri: Uri = resolveItemUri(context, item) ?: run {
+                Toast.makeText(context, "文件不存在或无法读取", Toast.LENGTH_SHORT).show()
+                return
+            }
 
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mime)
+                clipData = ClipData.newRawUri(item.fileName, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -162,24 +215,21 @@ object TronClassDownloadManager {
 
     fun shareFile(context: Context, item: TronClassDownloadedItem) {
         try {
-            val file = File(item.filePath)
-            if (!file.exists()) {
+            val uri = resolveItemUri(context, item)
+            if (uri == null) {
                 Toast.makeText(context, "文件不存在", Toast.LENGTH_SHORT).show()
                 return
             }
 
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-
             val ext = item.getExtension()
-            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+            val mime = MimeTypeMap.getSingleton()?.getMimeTypeFromExtension(ext)
+                ?: item.getSafeMimeType().ifBlank { CoursewareStorageManager.resolveMimeType(item.fileName) }
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = mime
                 putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, item.fileName)
+                clipData = ClipData.newRawUri(item.fileName, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }

@@ -112,6 +112,7 @@ internal class MainSettingsDialogController(
                 table.itemTextSize = textSize
                 db.tableDao.updateTable(table)
                 scheduleAdapter?.refreshAllFragments()
+                activity.notifyProfileSettingsChanged()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -127,7 +128,7 @@ internal class MainSettingsDialogController(
             .setTitle("深色模式")
             .setSingleChoiceItems(options, currentMode) { dialog, which ->
                 ThemeManager.setThemeMode(activity, which)
-                activity.profileBinding?.tvDarkModeStatus?.text = ThemeManager.getThemeModeName(which)
+                activity.notifyProfileSettingsChanged()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -152,109 +153,6 @@ internal class MainSettingsDialogController(
             .safeShow()
     }
 
-    fun updateReminderSubtitles() {
-        val pb = activity.profileBinding ?: return
-
-        val courseMins = CourseReminderManager.getCourseReminderAdvanceMinutes(activity)
-        val courseMinsStr = CourseReminderManager.formatAdvanceMinutes(courseMins)
-        pb.tvCourseReminderSubtitle.text = if (CourseReminderManager.isReminderEnabled(activity)) {
-            "提前 $courseMinsStr · 点击修改"
-        } else {
-            "已关闭 · 点击可设置提前时长"
-        }
-
-        val examMins = CourseReminderManager.getExamReminderAdvanceMinutes(activity)
-        val examMinsStr = CourseReminderManager.formatAdvanceMinutes(examMins)
-        pb.tvExamReminderSubtitle.text = if (CourseReminderManager.isExamReminderEnabled(activity)) {
-            "提前 $examMinsStr · 点击修改"
-        } else {
-            "已关闭 · 点击可设置提前时长"
-        }
-
-        val tcPrefs = TronClassPreferences.getInstance(activity)
-        pb.tvTronClassDdl24hSubtitle.text = if (tcPrefs.isDdlReminder24hEnabled()) {
-            "截止前 24 小时首轮预警"
-        } else {
-            "已关闭首轮预警"
-        }
-
-        val urgentHours = tcPrefs.getDdlReminderUrgentHours()
-        pb.tvTronClassDdlUrgentSubtitle.text = if (tcPrefs.isDdlReminderUrgentEnabled()) {
-            "提前 $urgentHours 小时 · 点击设置"
-        } else {
-            "已关闭 · 点击可设置提前时长"
-        }
-
-        val isMonitorEnabled = tcPrefs.isRollcallMonitorEnabled()
-        pb.tvRollcallMonitorSubtitle.text = if (isMonitorEnabled) {
-            "已开启 · 上课时驻留后台检测签到活动"
-        } else {
-            "已关闭 · 上课时驻留后台检测签到活动"
-        }
-
-        val isCxMonitorEnabled = tcPrefs.isRollcallChaoXingMonitorEnabled()
-        val isCxLoggedIn = ChaoXingPreferences(activity).isLoggedIn()
-        val isCxCircuitOpen = ChaoXingRequestGuard.isCircuitOpen(activity)
-        pb.switchRollcallChaoXingMonitor.isEnabled = isMonitorEnabled
-        pb.rowRollcallChaoXingMonitor.alpha = if (isMonitorEnabled) 1.0f else 0.45f
-        if (pb.switchRollcallChaoXingMonitor.isChecked != (isMonitorEnabled && isCxMonitorEnabled)) {
-            pb.switchRollcallChaoXingMonitor.isChecked = isMonitorEnabled && isCxMonitorEnabled
-        }
-        pb.tvRollcallChaoXingMonitorSubtitle.text = when {
-            !isMonitorEnabled -> "未启用 · 需先开启上方的上课签到后台监听"
-            !isCxMonitorEnabled -> "已关闭 · 按课表锁定当前课 50~60s 低频探测，防风控"
-            isCxCircuitOpen -> "已开启 · 当前处于学习通风控冷却中，暂已暂停请求"
-            !isCxLoggedIn -> "已开启 · 尚未登录超星学习通，请先授权登录"
-            else -> "已开启 · 仅锁定当前课程 50~60s 低频探测，发现即弹窗"
-        }
-
-        val isDevMode = DeveloperModeManager.isDeveloperMode(activity)
-        pb.rowRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        pb.dividerRollcallAutoSign.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        pb.rowLiveQrTest.visibility = if (isDevMode) View.VISIBLE else View.GONE
-        pb.dividerLiveQrTest.visibility = if (isDevMode) View.VISIBLE else View.GONE
-
-        val isAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled()
-        val strategyDisplay = tcPrefs.getRollcallAutoSignStrategyDisplayName()
-        pb.switchRollcallAutoSign.isEnabled = isMonitorEnabled
-        pb.rowRollcallAutoSign.alpha = if (isMonitorEnabled) 1.0f else 0.45f
-        pb.tvRollcallAutoSignSubtitle.text = if (!isMonitorEnabled) {
-            "未启用 · 需先开启上方的上课签到后台监听"
-        } else if (isAutoSignEnabled) {
-            "已开启 · 触发策略：$strategyDisplay (点击设置)"
-        } else {
-            "已关闭 · 仅后台监听并发通知，不自动提交签到"
-        }
-
-        val alertMode = tcPrefs.getRollcallAlertMode()
-        val hasOverlay = NotificationDiagnosticHelper.isOverlayPermissionGranted(activity)
-        when (alertMode) {
-            RollcallAlertMode.POPUP -> {
-                pb.tvRollcallAlertModeValue.text = "强弹窗 ›"
-                pb.tvRollcallPopupSubtitle.text = when {
-                    isDevMode && hasOverlay -> "亮屏居中弹窗 + 锁屏唤醒（自动签到探测先发横幅，失败再弹窗）"
-                    hasOverlay -> "亮屏居中弹窗 + 锁屏唤醒，发现课堂点名立即提醒"
-                    else -> "锁屏点亮提醒（授权悬浮窗权限后支持亮屏桌面居中弹窗）"
-                }
-            }
-            RollcallAlertMode.BANNER_ONLY -> {
-                pb.tvRollcallAlertModeValue.text = "仅横幅 ›"
-                pb.tvRollcallPopupSubtitle.text = if (hasOverlay) {
-                    "顶部轻量悬浮横幅 + 高优通知，不弹居中窗与锁屏全屏页"
-                } else {
-                    "高优系统悬浮横幅提醒，不弹居中窗与锁屏全屏页"
-                }
-            }
-        }
-
-        val powerfulEnabled = CourseReminderManager.isPowerfulReminderEnabled(activity)
-        pb.tvPowerfulReminderSubtitle.text = if (powerfulEnabled) {
-            "已开启高优先级闹钟 · 状态栏常驻 ⏰ 图标，准时提醒"
-        } else {
-            "标准模式 · 息屏较久时可能出现轻微延迟"
-        }
-    }
-
     fun showRollcallAlertModeDialog() {
         val tcPrefs = TronClassPreferences.getInstance(activity)
         val currentMode = tcPrefs.getRollcallAlertMode()
@@ -277,7 +175,7 @@ internal class MainSettingsDialogController(
             .setSingleChoiceItems(options, checkedItem) { dialog, which ->
                 val newMode = if (which == 1) RollcallAlertMode.BANNER_ONLY else RollcallAlertMode.POPUP
                 tcPrefs.setRollcallAlertMode(newMode)
-                updateReminderSubtitles()
+                activity.notifyProfileSettingsChanged()
                 if (!NotificationDiagnosticHelper.isOverlayPermissionGranted(activity)) {
                     Toast.makeText(
                         activity,
@@ -310,7 +208,7 @@ internal class MainSettingsDialogController(
             .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
                 val chosenMins = values[which]
                 CourseReminderManager.setCourseReminderAdvanceMinutes(activity, chosenMins)
-                updateReminderSubtitles()
+                activity.notifyProfileSettingsChanged()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -336,7 +234,7 @@ internal class MainSettingsDialogController(
             .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
                 val chosenMins = values[which]
                 CourseReminderManager.setExamReminderAdvanceMinutes(activity, chosenMins)
-                updateReminderSubtitles()
+                activity.notifyProfileSettingsChanged()
                 dialog.dismiss()
             }
             .setNegativeButton("取消", null)
@@ -359,7 +257,7 @@ internal class MainSettingsDialogController(
             .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
                 val chosenHours = values[which]
                 tcPrefs.setDdlReminderUrgentHours(chosenHours)
-                updateReminderSubtitles()
+                activity.notifyProfileSettingsChanged()
                 TronClassDdlScheduler.scheduleFromPreferences(activity)
                 dialog.dismiss()
             }
@@ -387,32 +285,32 @@ internal class MainSettingsDialogController(
                 when (which) {
                     0 -> {
                         tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_NO_DELAY)
-                        updateReminderSubtitles()
+                        activity.notifyProfileSettingsChanged()
                         dialog.dismiss()
                     }
                     1 -> {
                         tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_10S)
-                        updateReminderSubtitles()
+                        activity.notifyProfileSettingsChanged()
                         dialog.dismiss()
                     }
                     2 -> {
                         tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_30S)
-                        updateReminderSubtitles()
+                        activity.notifyProfileSettingsChanged()
                         dialog.dismiss()
                     }
                     3 -> {
                         tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_1)
-                        updateReminderSubtitles()
+                        activity.notifyProfileSettingsChanged()
                         dialog.dismiss()
                     }
                     4 -> {
                         tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_10)
-                        updateReminderSubtitles()
+                        activity.notifyProfileSettingsChanged()
                         dialog.dismiss()
                     }
                     5 -> {
                         tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_HALF_CLASS)
-                        updateReminderSubtitles()
+                        activity.notifyProfileSettingsChanged()
                         dialog.dismiss()
                     }
                     6 -> {
@@ -456,7 +354,7 @@ internal class MainSettingsDialogController(
                 } else {
                     tcPrefs.setRollcallAutoSignCustomSeconds(entered)
                     tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_TIME)
-                    updateReminderSubtitles()
+                    activity.notifyProfileSettingsChanged()
                 }
             }
             .setNegativeButton("取消", null)
@@ -490,7 +388,7 @@ internal class MainSettingsDialogController(
                 } else {
                     tcPrefs.setRollcallAutoSignCustomRatio(entered)
                     tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_RATIO)
-                    updateReminderSubtitles()
+                    activity.notifyProfileSettingsChanged()
                 }
             }
             .setNegativeButton("取消", null)
@@ -685,11 +583,7 @@ internal class MainSettingsDialogController(
                 val result = RemoteConfigManager.fetchConfig(activity)
                 result.onSuccess { config ->
                     RemoteConfigManager.markDailySyncCompleted(activity)
-                    val semConfig = config.semesterConfig
-                    activity.profileBinding?.let { pb ->
-                        pb.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
-                        pb.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
-                    }
+                    activity.notifyProfileSettingsChanged()
 
                     // Calibrate all local tables' start dates and weeks
                     val calibrated = RemoteConfigManager.calibrateTablesAndSync(activity, config)

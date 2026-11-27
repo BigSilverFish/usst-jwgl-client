@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.TronClassDownloadManager
 import cn.edu.usst.jwgl.data.local.TronClassDownloadedItem
+import cn.edu.usst.jwgl.data.model.ChaoXingAttachmentKind
 import cn.edu.usst.jwgl.data.model.ChaoXingCourseAttachment
 import cn.edu.usst.jwgl.data.model.TronClassUpload
 import cn.edu.usst.jwgl.data.network.ChaoXingCourseDetailClient
@@ -55,9 +56,13 @@ internal class HomeworkAttachmentViewHelper(
     fun createChaoXingAttachmentItemView(attachment: ChaoXingCourseAttachment): View {
         val itemBinding = ItemTronclassAttachmentBinding.inflate(fragment.layoutInflater, null, false)
         itemBinding.tvFileName.text = attachment.name
-        val sizeStr = attachment.getFormattedSize()
-        itemBinding.tvFileSize.text = if (sizeStr.isNotBlank()) "$sizeStr · 超星附件" else "超星附件"
-        itemBinding.btnFileAction.text = "查看/下载"
+        itemBinding.tvFileSize.text = "${attachment.getSubtitleSummary()} · 超星附件"
+        itemBinding.btnFileAction.text = when (attachment.resolveKind()) {
+            ChaoXingAttachmentKind.VIDEO -> "播放"
+            ChaoXingAttachmentKind.IMAGE, ChaoXingAttachmentKind.PDF -> "预览"
+            ChaoXingAttachmentKind.AUDIO, ChaoXingAttachmentKind.ARCHIVE, ChaoXingAttachmentKind.OTHER -> "下载"
+            else -> "查看/下载"
+        }
         itemBinding.btnFileRemove.visibility = View.GONE
 
         itemBinding.btnFileAction.setOnClickListener {
@@ -70,66 +75,13 @@ internal class HomeworkAttachmentViewHelper(
     }
 
     fun handleChaoXingAttachmentAction(attachment: ChaoXingCourseAttachment) {
-        val ctx = fragment.context ?: return
-        @Suppress("DEPRECATION")
-        val progress = ProgressDialog(ctx).apply {
-            setMessage("正在解析「${attachment.name}」...")
-            setCancelable(false)
-            show()
-        }
-
-        fragment.viewLifecycleOwner.lifecycleScope.launch {
-            val res = chaoXingDetailClient.fetchYunFile(attachment.objectId)
-            progress.dismiss()
-            if (res.isSuccess) {
-                val yun = res.getOrNull()
-                val lowerName = attachment.name.lowercase(Locale.ROOT)
-                val isVideo = attachment.isVideo || lowerName.endsWith(".mp4") || lowerName.endsWith(".flv") || lowerName.endsWith(".wmv") || lowerName.endsWith(".avi")
-                val isImage = TronClassImageHelper.isImageUrl(attachment.name)
-
-                if (isVideo) {
-                    val stream = yun?.streamUrl ?: ""
-                    if (stream.isNotBlank()) {
-                        TronClassVideoPlayerActivity.start(
-                            context = ctx,
-                            title = attachment.name,
-                            courseName = courseNameText,
-                            videoUrl = stream
-                        )
-                    } else {
-                        Toast.makeText(ctx, "该视频暂无可播放流地址", Toast.LENGTH_SHORT).show()
-                    }
-                } else if (isImage) {
-                    val imgUrl = yun?.downloadUrl?.ifBlank { yun?.pdfUrl } ?: ""
-                    if (imgUrl.isNotBlank()) {
-                        TronClassImageHelper.showFullScreenPreview(
-                            ctx,
-                            imgUrl,
-                            title = attachment.name,
-                            courseName = courseNameText
-                        )
-                    } else {
-                        Toast.makeText(ctx, "图片资源未就绪", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    val pdfUrl = yun?.pdfUrl ?: ""
-                    val downloadUrl = yun?.downloadUrl ?: ""
-                    val targetUrl = pdfUrl.ifBlank { downloadUrl }
-
-                    if (targetUrl.isNotBlank()) {
-                        if (targetUrl.endsWith(".pdf", ignoreCase = true) || pdfUrl.isNotBlank() || attachment.name.endsWith(".pdf", ignoreCase = true)) {
-                            cn.edu.usst.jwgl.ui.pdf.PdfViewerActivity.start(ctx, targetUrl, attachment.name)
-                        } else {
-                            JwglWebActivity.start(ctx, targetUrl, attachment.name)
-                        }
-                    } else {
-                        Toast.makeText(ctx, "该附件暂无可下载直链", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } else {
-                Toast.makeText(ctx, "解析附件失败，请稍后重试", Toast.LENGTH_SHORT).show()
-            }
-        }
+        ChaoXingAttachmentActionHelper.handleAttachmentClick(
+            fragment = fragment,
+            chaoXingDetailClient = chaoXingDetailClient,
+            attachment = attachment,
+            courseId = courseId,
+            courseName = courseNameText
+        )
     }
 
     fun createAttachmentItemView(upload: TronClassUpload, isDeletable: Boolean, onRemove: (() -> Unit)? = null): View {
@@ -163,9 +115,7 @@ internal class HomeworkAttachmentViewHelper(
 
     fun handleAttachmentAction(upload: TronClassUpload, itemBinding: ItemTronclassAttachmentBinding) {
         val ctx = fragment.context ?: return
-        val existing = cacheManager.getExistingFile(upload.id, upload.name)
-        if (existing != null) {
-            cacheManager.openFile(existing)
+        if (cacheManager.openCachedUpload(upload.id, upload.name)) {
             return
         }
 
@@ -185,27 +135,29 @@ internal class HomeworkAttachmentViewHelper(
             val res = client.downloadAttachment(upload.id, destFile) { percent ->
                 progressDialog.progress = percent
             }
-            progressDialog.dismiss()
 
             if (res.isSuccess) {
-                TronClassDownloadManager.saveDownloadedItem(
-                    fragment.requireContext(),
-                    TronClassDownloadedItem(
-                        fileId = upload.id.toString(),
-                        fileName = upload.name ?: "附件",
+                val persistResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    cn.edu.usst.jwgl.data.local.CoursewareStorageManager.persistDownloadedCourseware(
+                        context = ctx,
+                        sourceFile = destFile,
+                        uploadId = upload.id,
+                        displayName = upload.name ?: "附件",
                         courseId = courseId,
                         courseName = courseNameText,
-                        filePath = destFile.absolutePath,
-                        fileSize = if (destFile.length() > 0) destFile.length() else upload.size
+                        removeSourceAfterExport = true
                     )
-                )
+                }
+                progressDialog.dismiss()
                 itemBinding.tvFileSize.text = "${upload.getFormattedSize()} · 已缓存到本地"
                 itemBinding.btnFileAction.text = "打开"
-                Toast.makeText(fragment.requireContext(), "下载完成", Toast.LENGTH_SHORT).show()
-                cacheManager.openFile(destFile)
+                val toastText = persistResult.warningMessage ?: "已下载至：${persistResult.locationLabel}"
+                Toast.makeText(ctx, toastText, Toast.LENGTH_SHORT).show()
+                cacheManager.openPersistResult(persistResult, upload.name ?: "附件", courseNameText)
             } else {
+                progressDialog.dismiss()
                 val err = res.exceptionOrNull()?.message ?: "下载失败"
-                Toast.makeText(fragment.requireContext(), err, Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
             }
         }
     }

@@ -11,7 +11,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.databinding.LayoutPageMoreFeaturesBinding
-import cn.edu.usst.jwgl.databinding.LayoutPageProfileBinding
 import cn.edu.usst.jwgl.ui.grades.GradesFragment
 import cn.edu.usst.jwgl.ui.tronclass.TronClassFragment
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
@@ -54,14 +53,7 @@ internal class MainAdaptiveLayoutController(
         bottomBarHeightPx = lastNavBarBottomInsetPx + bottomNavBarHeight + (16 * density).toInt()
         val statusTopPad = lastStatusTopPadPx.takeIf { it > 0 } ?: (32 * density).toInt()
 
-        activity.profileBinding?.let { pb ->
-            pb.scrollProfile.setPadding(
-                pb.scrollProfile.paddingLeft,
-                pb.scrollProfile.paddingTop,
-                pb.scrollProfile.paddingRight,
-                bottomBarHeightPx
-            )
-        }
+        activity.getProfileSettingsFragment()?.applyBottomPadding(bottomBarHeightPx)
         activity.moreFeaturesBinding?.let { mb ->
             mb.scrollMoreFeatures.setPadding(
                 mb.scrollMoreFeatures.paddingLeft,
@@ -91,80 +83,6 @@ internal class MainAdaptiveLayoutController(
         }
     }
 
-    fun syncProfilePageAdaptiveState(pb: LayoutPageProfileBinding) {
-        pb.scrollProfile.setPadding(
-            pb.scrollProfile.paddingLeft,
-            pb.scrollProfile.paddingTop,
-            pb.scrollProfile.paddingRight,
-            bottomBarHeightPx
-        )
-        applyProfileTabletLayout(pb, isTabletLandscapeMode)
-        if (isGuestMode) {
-            pb.btnOpenDrawerProfile.visibility = View.GONE
-            pb.rowDoubleTapDrawer.visibility = View.GONE
-            pb.dividerDoubleTapDrawer.visibility = View.GONE
-            return
-        }
-        if (isTabletLandscapeMode) {
-            pb.btnOpenDrawerProfile.visibility = View.GONE
-            pb.rowPhoneNavMode.visibility = View.GONE
-            pb.dividerPhoneNavMode.visibility = View.GONE
-            pb.rowDoubleTapDrawer.visibility = View.GONE
-            pb.dividerDoubleTapDrawer.visibility = View.GONE
-            pb.cardBottomModeServices.visibility = View.GONE
-            return
-        }
-
-        val navMode = TimetableSettingHelper.getPhoneNavMode(activity)
-        val isBottomMode = navMode == TimetableSettingHelper.NAV_MODE_BOTTOM
-        pb.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(navMode)
-        pb.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(activity)
-        pb.cardBottomModeServices.visibility = View.GONE
-        if (isBottomMode) {
-            pb.btnOpenDrawerProfile.visibility = View.GONE
-            pb.rowDoubleTapDrawer.visibility = View.GONE
-            pb.dividerDoubleTapDrawer.visibility = View.GONE
-        } else {
-            pb.btnOpenDrawerProfile.visibility = View.VISIBLE
-            pb.rowDoubleTapDrawer.visibility = View.VISIBLE
-            pb.dividerDoubleTapDrawer.visibility = View.VISIBLE
-        }
-    }
-
-    private fun applyProfileTabletLayout(pb: LayoutPageProfileBinding, isLandscape: Boolean) {
-        val dp = { v: Float -> TabletLayoutHelper.dpToPx(activity, v) }
-        if (isLandscape) {
-            pb.btnOpenDrawerProfile.visibility = View.GONE
-            pb.llProfileBody.orientation = LinearLayout.HORIZONTAL
-            pb.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                0.42f
-            ).apply {
-                marginEnd = dp(16f)
-            }
-            pb.llProfileRightPane.layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                0.58f
-            )
-            (pb.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0
-        } else {
-            pb.llProfileBody.orientation = LinearLayout.VERTICAL
-            pb.llProfileLeftPane.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                marginEnd = 0
-            }
-            pb.llProfileRightPane.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            (pb.cardSettings.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14f)
-        }
-    }
-
     fun applyPhoneNavigationMode() {
         if (isGuestMode) {
             closeNavDrawer()
@@ -173,7 +91,7 @@ internal class MainAdaptiveLayoutController(
             binding.btnOpenDrawerTimetable.visibility = View.GONE
             (activity.supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)?.updateDrawerButtonVisibility(false)
             (activity.supportFragmentManager.findFragmentByTag("TronClassFragment") as? TronClassFragment)?.updateDrawerButtonVisibility(false)
-            activity.profileBinding?.let { syncProfilePageAdaptiveState(it) }
+            activity.getProfileSettingsFragment()?.syncAdaptiveState()
             activity.moreFeaturesBinding?.let { syncMoreFeaturesPageAdaptiveState(it) }
             applyContentBottomPadding()
             return
@@ -181,7 +99,7 @@ internal class MainAdaptiveLayoutController(
 
         if (isTabletLandscapeMode) {
             binding.blurViewBottomNav.visibility = View.GONE
-            activity.profileBinding?.let { syncProfilePageAdaptiveState(it) }
+            activity.getProfileSettingsFragment()?.syncAdaptiveState()
             activity.moreFeaturesBinding?.let { syncMoreFeaturesPageAdaptiveState(it) }
             return
         }
@@ -212,7 +130,7 @@ internal class MainAdaptiveLayoutController(
             }
         }
 
-        activity.profileBinding?.let { syncProfilePageAdaptiveState(it) }
+        activity.getProfileSettingsFragment()?.syncAdaptiveState()
         activity.moreFeaturesBinding?.let { syncMoreFeaturesPageAdaptiveState(it) }
         applyContentBottomPadding()
     }
@@ -293,8 +211,8 @@ internal class MainAdaptiveLayoutController(
         (activity.supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
             ?.updateTabletLandscapeMode(true)
 
-        // 3b. 个人与设置 (左：学生名片 + 学籍档案；右：外观提醒设置 + 系统更新 + 退出登录)
-        activity.profileBinding?.let { applyProfileTabletLayout(it, true) }
+        // 3b. 个人与设置 (左：学生名片 + 学籍档案 + 退出登录；右：设置分组列表)
+        activity.getProfileSettingsFragment()?.updateTabletLandscapeMode(true)
 
         binding.headerTimetableContainer.post {
             alignLandscapeTimetableTopBarWithSidebar()
@@ -424,7 +342,7 @@ internal class MainAdaptiveLayoutController(
         (activity.supportFragmentManager.findFragmentByTag("GradesFragment") as? GradesFragment)
             ?.updateTabletLandscapeMode(false)
 
-        activity.profileBinding?.let { applyProfileTabletLayout(it, false) }
+        activity.getProfileSettingsFragment()?.updateTabletLandscapeMode(false)
         timetableLandscapeExtraPadPx = 0
         val density = activity.resources.displayMetrics.density
         binding.headerTimetable.setPadding(

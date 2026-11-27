@@ -382,11 +382,11 @@ internal object TronClassActivityUploadsSheetHelper {
             return
         }
 
-        if (cachedFile != null) {
+        if (cacheManager.isCached(upload.id, upload.name)) {
             lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                 client.logActivityRead(activityItem.id, upload.id)
             }
-            cacheManager.openFile(cachedFile)
+            cacheManager.openCachedUpload(upload.id, upload.name)
             return
         }
 
@@ -409,23 +409,28 @@ internal object TronClassActivityUploadsSheetHelper {
                 }
             }
 
-            withContext(Dispatchers.Main) {
-                progressDialog.dismiss()
-                if (result.isSuccess) {
-                    recordDownloadAndRead(
-                        context = context,
-                        lifecycleOwner = lifecycleOwner,
-                        client = client,
-                        upload = upload,
-                        destFile = destFile,
-                        activityId = activityItem.id,
-                        courseId = courseId,
-                        courseName = courseName
-                    )
+            if (result.isSuccess) {
+                val persistResult = persistDownloadedAndMarkRead(
+                    context = context,
+                    client = client,
+                    upload = upload,
+                    destFile = destFile,
+                    activityId = activityItem.id,
+                    courseId = courseId,
+                    courseName = courseName
+                )
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    persistResult.warningMessage?.let {
+                        Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                    }
                     updateRowActionState(context, holder, cacheManager)
                     onRowStateChanged()
-                    cacheManager.openFile(destFile)
-                } else {
+                    cacheManager.openPersistResult(persistResult, safeName, courseName)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
                     val err = result.exceptionOrNull()?.message ?: "网络连接超时"
                     Toast.makeText(context, "下载失败: $err", Toast.LENGTH_LONG).show()
                 }
@@ -486,17 +491,16 @@ internal object TronClassActivityUploadsSheetHelper {
 
                     if (res.isSuccess) {
                         successCount++
+                        persistDownloadedAndMarkRead(
+                            context = context,
+                            client = client,
+                            upload = upload,
+                            destFile = destFile,
+                            activityId = activityItem.id,
+                            courseId = courseId,
+                            courseName = courseName
+                        )
                         withContext(Dispatchers.Main) {
-                            recordDownloadAndRead(
-                                context = context,
-                                lifecycleOwner = lifecycleOwner,
-                                client = client,
-                                upload = upload,
-                                destFile = destFile,
-                                activityId = activityItem.id,
-                                courseId = courseId,
-                                courseName = courseName
-                            )
                             rowHolders.find { it.upload.id == upload.id }?.let {
                                 updateRowActionState(context, it, cacheManager)
                             }
@@ -509,8 +513,9 @@ internal object TronClassActivityUploadsSheetHelper {
 
                 withContext(Dispatchers.Main) {
                     if (progressDialog.isShowing) progressDialog.dismiss()
+                    val summaryLocation = cn.edu.usst.jwgl.data.local.CoursewareStorageManager.getCurrentLocationSummary(context)
                     val msg = when {
-                        failCount == 0 -> "已全部下载完成（共 $successCount 个文件）"
+                        failCount == 0 -> "已全部下载完成（共 $successCount 个文件）· $summaryLocation"
                         successCount == 0 -> "下载失败，请检查网络后重试"
                         else -> "下载完成：成功 $successCount 个，失败 $failCount 个"
                     }
@@ -527,30 +532,26 @@ internal object TronClassActivityUploadsSheetHelper {
         }
     }
 
-    private fun recordDownloadAndRead(
+    private suspend fun persistDownloadedAndMarkRead(
         context: Context,
-        lifecycleOwner: LifecycleOwner,
         client: TronClassClient,
         upload: TronClassUpload,
         destFile: java.io.File,
         activityId: Long,
         courseId: Long,
         courseName: String
-    ) {
-        TronClassDownloadManager.saveDownloadedItem(
-            context,
-            TronClassDownloadedItem(
-                fileId = upload.id.toString(),
-                fileName = upload.name ?: "课件",
-                courseId = courseId,
-                courseName = courseName,
-                filePath = destFile.absolutePath,
-                fileSize = if (destFile.length() > 0) destFile.length() else upload.size
-            )
+    ): cn.edu.usst.jwgl.data.local.CoursewareStorageManager.PersistResult {
+        val result = cn.edu.usst.jwgl.data.local.CoursewareStorageManager.persistDownloadedCourseware(
+            context = context,
+            sourceFile = destFile,
+            uploadId = upload.id,
+            displayName = upload.name ?: "课件",
+            courseId = courseId,
+            courseName = courseName,
+            removeSourceAfterExport = true
         )
-        lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            client.logActivityRead(activityId, upload.id)
-        }
+        runCatching { client.logActivityRead(activityId, upload.id) }
+        return result
     }
 
     private fun isVideoUpload(upload: TronClassUpload): Boolean {
