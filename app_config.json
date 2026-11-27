@@ -1,12 +1,12 @@
 {
   "app_version": {
-    "version_code": 12,
-    "version_name": "1.3.1",
-    "release_date": "2026-11-27",
-    "release_notes": "1. 多形态桌面微件上新：新增「学习动态（近7天待办与通知）」与「全能校园（课表/待办/通知多合一）」微件，支持桌面一键切换标签、日期翻页与自定义后台同步频率；\n2. 课堂签到提醒升级：修复锁屏全屏提醒弹窗时序与息屏轮询休眠问题，完善 Android 14+ 权限诊断与引导，优化位置签到定位回调与兜底处理；\n3. 课程直播与多账号隔离加固：修复课程直播接口日期/字段解析兼容与流处理崩溃问题；跨账号切换时彻底隔离直播 Token、WebView Cookie、缓存与提醒调度；\n4. 体验与架构优化：新增课程活动多附件查看弹窗，优化主页列表流畅度，并完成核心网络、数据库与界面模块重构以提升整体稳定性。",
-    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.1",
-    "apk_url": "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.3.1/app-release.apk",
-    "sha256": "c4a3d62f178ede001517afc8e7057805fbb556e0596e46b1f52f9d6d6b7942d3",
+    "version_code": 13,
+    "version_name": "1.3.2",
+    "release_date": "2026-11-28",
+    "release_notes": "1. 设置页全新重构：「我的与设置」升级为分组卡片式列表，支持个人档案折叠与平板双栏自适应，精简交互与提示文案；\n2. 课件存储与多媒体升级：支持自定义课件保存路径（系统下载目录/私有目录/自定义文件夹）与按课程归档；完善超星附件原生预览与下载，视频播放支持备用线路切换与离线下载，PDF 阅读器新增保存到下载目录；\n3. 课堂签到提醒增强：新增学习通低频后台轮询与悬浮横幅/强弹窗双模式提醒，优化各类签到弹窗状态管理并修复扫码回调；\n4. 课表与性能优化：课表管理新增下学期条目（默认仍定位本学期）；课表数据库启用 WAL 模式提升流畅度。",
+    "download_url": "https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.2",
+    "apk_url": "https://gh-proxy.com/https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.3.2/app-release.apk",
+    "sha256": "a99ab7e8b5d4ebec0253ea86fc2c96bfc91f1da14da118e1495f2a6fb91d48bb",
     "force_update": true
   },
   "semester_config": {

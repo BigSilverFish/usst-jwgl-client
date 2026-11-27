@@ -102,6 +102,12 @@
 
 ## 📝 版本更新历史 (Changelog)
 
+### v1.3.2 (2026-11-28)
+- **设置页重构**：重构「我的与设置」为分组卡片式列表，支持个人档案折叠展开与平板双栏自适应，精简设置与提示文案。
+- **课件自定义存储与多媒体增强**：新增课件/附件存储管理（支持系统下载目录、应用私有目录与自定义 SAF 文件夹及按课程归档）；完善超星附件原生下载与类型识别，视频播放器支持备用线路切换与下载到本地，内置 PDF 阅读器新增保存至下载目录与规范分享命名。
+- **课堂提醒与课表管理**：新增学习通课堂签到低频轮询提醒与悬浮横幅/强弹窗双模式提醒，修复弹窗扫码回调；课表管理新增下学期条目并保持本学期默认选中。
+- **性能与稳定性**：本地课表数据库开启 SQLite WAL 模式提升读写并发性能，补充存储、设置页与附件解析等单元测试覆盖。
+
 ### v1.3.1 (2026-11-26)
 - **多形态桌面微件扩展**：新增「学习动态（近 7 天待办与通知）」与「全能校园（课表/待办/通知多合一）」桌面微件，支持组件内 Tab 切换、日期翻页与可配置的后台定时同步。
 - **课堂提醒与 Android 14+ 权限优化**：修复锁屏全屏签到提醒弹窗时序与息屏轮询休眠问题，完善 Android 14+ 通知与悬浮窗权限诊断页，优化定位回调与异常兜底处理。
@@ -141,11 +147,11 @@
 
 ## 📥 下载与安装
 
-- **GitHub Releases**：[v1.3.1 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.1)
-- **APK 直链**：[app-release.apk (v1.3.1)](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.3.1/app-release.apk)
+- **GitHub Releases**：[v1.3.2 Release](https://github.com/BigSilverFish/usst-jwgl-client/releases/tag/v1.3.2)
+- **APK 直链**：[app-release.apk (v1.3.2)](https://github.com/BigSilverFish/usst-jwgl-client/releases/download/v1.3.2/app-release.apk)
 - **系统要求**：Android 7.0 (API 24) 及以上，`arm64-v8a` 设备。
 
-> **升级提示**：如从 `v1.2.2` 或更早版本升级，建议更新至最新 `v1.3.1` 安装包，已修复跨版本缓存兼容与冷启动学期定位问题。
+> **升级提示**：如从 `v1.2.2` 或更早版本升级，建议更新至最新 `v1.3.2` 安装包，已修复跨版本缓存兼容与冷启动学期定位问题。
 
 ---
 
