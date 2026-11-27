@@ -15,7 +15,6 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.databinding.BottomSheetAuthorDisclaimerBinding
-import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 
 /**
@@ -108,25 +107,6 @@ class AuthorDisclaimerBottomSheet : BottomSheetDialogFragment() {
             binding.layoutNormalButtons.visibility = View.VISIBLE
             binding.btnCloseNormal.setOnClickListener {
                 dismiss()
-            }
-            binding.btnCloseNormal.setOnLongClickListener {
-                if (DeveloperModeManager.isArmed()) {
-                    val enabled = DeveloperModeManager.toggleDeveloperMode(ctx)
-                    DeveloperModeManager.performShortVibration(ctx, isStrong = true)
-                    if (enabled) {
-                        Toast.makeText(
-                            ctx,
-                            "🚀 开发者模式已激活！\n已解锁：一机多签、自动签到、极速刷课",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } else {
-                        Toast.makeText(ctx, "🔒 开发者模式已关闭", Toast.LENGTH_SHORT).show()
-                    }
-                    dismiss()
-                    true
-                } else {
-                    false
-                }
             }
         } else {
             // 首次使用或未同意强制协议模式

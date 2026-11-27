@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "BigSilverFish-usst-jwgl"
-include(":app")
+include(":app", ":dev-api")

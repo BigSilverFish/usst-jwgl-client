@@ -18,6 +18,7 @@ class UsstApplication : Application() {
         migrateIncompatibleCachesOnUpgrade()
         // Apply saved theme mode early before activities inflate
         ThemeManager.applySavedTheme(this)
+        cn.edu.usst.jwgl.devaddon.DevAddonManager.initialize(this)
         RollcallOverlayAlert.initialize(this)
         RemoteConfigManager.init(this)
 

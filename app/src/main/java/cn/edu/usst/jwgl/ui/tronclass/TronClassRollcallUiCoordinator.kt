@@ -17,12 +17,12 @@ import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
 import cn.edu.usst.jwgl.data.model.LearningPlatform
 import cn.edu.usst.jwgl.data.model.UnifiedActiveRollcall
 import cn.edu.usst.jwgl.data.model.ChaoXingCourse
-import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.model.UnifiedCourse
 import cn.edu.usst.jwgl.data.network.ChaoXingQrPayload
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.HostAccountSignResult
 import cn.edu.usst.jwgl.ui.scanner.MlKitScannerActivity
-import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.getFriendlyErrorMessage
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
@@ -204,7 +204,7 @@ internal class TronClassRollcallUiCoordinator(
                 }
 
                 "口令签到" -> {
-                    val isDev = DeveloperModeManager.isDeveloperMode(ctx)
+                    val isDev = DevAddonManager.getEntry(ctx).numberRollcallExtension.shouldPrefillChaoXingCode()
                     val detectedCode = if (isDev) signDetail?.signCode.orEmpty() else ""
                     val input = EditText(ctx).apply {
                         hint = "请输入签到码/口令"
@@ -283,7 +283,7 @@ internal class TronClassRollcallUiCoordinator(
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val isDev = DeveloperModeManager.isDeveloperMode(ctx)
+            val isDev = DevAddonManager.getEntry(ctx).numberRollcallExtension.shouldPrefillChaoXingCode()
             val effectiveEnc = if (signType == "口令签到" && !isDev) {
                 enc
             } else {
@@ -495,8 +495,7 @@ internal class TronClassRollcallUiCoordinator(
         val ctx = context ?: return
         val parsed = tronClassClient.parseRollcallQr(rawContents)
         if (parsed != null) {
-            val isDev = DeveloperModeManager.isDeveloperMode(ctx)
-            val accounts = if (isDev) {
+            val accounts = if (DevAddonManager.isAddonActive(ctx)) {
                 try {
                     cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
                 } catch (_: Exception) {
@@ -518,10 +517,11 @@ internal class TronClassRollcallUiCoordinator(
 
             viewLifecycleOwner.lifecycleScope.launch {
                 if (accounts.size > 1) {
-                    val results = tronClassClient.batchAnswerQRRollcall(parsed.rollcallId, parsed.qrData)
+                    val results = DevAddonManager.getEntry(ctx).numberRollcallExtension
+                        .batchAnswerQr(parsed.rollcallId, parsed.qrData)
                     progress.dismiss()
                     val currentStudentId = AuthPreferences.currentStudentId(ctx)
-                    if (MultiAccountRollcallResult.isPrimaryAccountSuccess(results, currentStudentId)) {
+                    if (results.any { it.studentId == currentStudentId && it.success }) {
                         fragment.markRollcallCompleted(parsed.rollcallId)
                     }
                     showMultiAccountRollcallSummaryDialog(results)
@@ -664,17 +664,10 @@ internal class TronClassRollcallUiCoordinator(
     }
 
     fun dispatchRollcallByType(rollcall: TronClassRollcall) {
-        val isDev = context?.let { DeveloperModeManager.isDeveloperMode(it) } ?: false
         when (rollcall.getNormalizedType()) {
             "radar" -> showTronClassRadarRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
             "number" -> showTronClassNumberRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName)
-            "qr_code" -> {
-                if (isDev) {
-                    showLiveQrRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName, rollcall.classroom)
-                } else {
-                    startTronClassQrScan()
-                }
-            }
+            "qr_code" -> showLiveQrRollcallDialog(rollcall.getEffectiveId(), rollcall.courseName, rollcall.classroom)
             else -> showManualRollcallGuideDialog(rollcall.getEffectiveId(), rollcall.courseName)
         }
     }
@@ -698,152 +691,12 @@ internal class TronClassRollcallUiCoordinator(
     }
 
     fun showRollcallAutoSignSettingDialog(ctx: Context, prefs: TronClassPreferences) {
-        val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled()
-        val strategyText = prefs.getRollcallAutoSignStrategyDisplayName()
-        val actions = if (isAutoSignEnabled) {
-            arrayOf(
-                "关闭自动签到提交 (仅保留监听通知)",
-                "设置自动签到时延与策略 (当前: $strategyText)"
-            )
-        } else {
-            arrayOf(
-                "开启自动签到提交 (当前策略: $strategyText)"
-            )
-        }
 
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("课堂签到自动提交设置")
-            .setItems(actions) { _, which ->
-                if (!isAutoSignEnabled) {
-                    prefs.setRollcallAutoSignEnabled(true)
-                } else if (which == 0) {
-                    prefs.setRollcallAutoSignEnabled(false)
-                } else {
-                    showRollcallAutoSignStrategyChooserDialog(ctx, prefs)
-                }
-            }
-            .setNegativeButton("返回", null)
-            .show()
+        DevAddonManager.getEntry(ctx).autoSignExtension.showAutoSignSettingsDialog(fragment.requireActivity()) {}
+
     }
 
-    fun showRollcallAutoSignStrategyChooserDialog(ctx: Context, prefs: TronClassPreferences) {
-        val options = arrayOf(
-            "不延迟",
-            "延迟10秒",
-            "延迟30秒",
-            "有1人签到时",
-            "有10人签到时 (默认)",
-            "有一半人签到时",
-            "自定义时间",
-            "自定义签到人数比例"
-        )
-        val selectedIdx = prefs.getRollcallAutoSignStrategyIndex()
 
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("选择自动签到时延与策略")
-            .setSingleChoiceItems(options, selectedIdx) { d, item ->
-                when (item) {
-                    0 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_NO_DELAY)
-                        d.dismiss()
-                    }
-                    1 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_10S)
-                        d.dismiss()
-                    }
-                    2 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_30S)
-                        d.dismiss()
-                    }
-                    3 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_1)
-                        d.dismiss()
-                    }
-                    4 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_10)
-                        d.dismiss()
-                    }
-                    5 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_HALF_CLASS)
-                        d.dismiss()
-                    }
-                    6 -> {
-                        d.dismiss()
-                        showCustomRollcallAutoSignTimeDialog(ctx, prefs)
-                    }
-                    7 -> {
-                        d.dismiss()
-                        showCustomRollcallAutoSignRatioDialog(ctx, prefs)
-                    }
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    fun showCustomRollcallAutoSignTimeDialog(ctx: Context, prefs: TronClassPreferences) {
-        val currentSeconds = prefs.getRollcallAutoSignCustomSeconds()
-        val input = android.widget.EditText(ctx).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(currentSeconds.toString())
-            setSelection(text.length)
-            hint = "请输入 0 到 300 之间的秒数"
-        }
-
-        val container = android.widget.FrameLayout(ctx).apply {
-            val padding = (24 * fragment.resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * fragment.resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("自定义自动签到时延 (秒)")
-            .setMessage("设定自首次发现签到活动至开始尝试自动提交的等待时间（0 - 300 秒）：")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 0..300) {
-                    Toast.makeText(ctx, "请输入 0 到 300 之间的秒数", Toast.LENGTH_SHORT).show()
-                } else {
-                    prefs.setRollcallAutoSignCustomSeconds(entered)
-                    prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_TIME)
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    fun showCustomRollcallAutoSignRatioDialog(ctx: Context, prefs: TronClassPreferences) {
-        val currentRatio = prefs.getRollcallAutoSignCustomRatio()
-        val input = android.widget.EditText(ctx).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(currentRatio.toString())
-            setSelection(text.length)
-            hint = "请输入 1 到 100 之间的整数百分比"
-        }
-
-        val container = android.widget.FrameLayout(ctx).apply {
-            val padding = (24 * fragment.resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * fragment.resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("自定义签到人数比例 (%)")
-            .setMessage("设定当班级已出勤人数达到指定比例后跟进提交（1% - 100%）：")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 1..100) {
-                    Toast.makeText(ctx, "请输入 1 到 100 之间的百分比", Toast.LENGTH_SHORT).show()
-                } else {
-                    prefs.setRollcallAutoSignCustomRatio(entered)
-                    prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_RATIO)
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
 
     fun showTronClassRadarRollcallDialog(
         designatedRollcallId: Long? = null,
@@ -895,62 +748,45 @@ internal class TronClassRollcallUiCoordinator(
         dialog.show(fragment.parentFragmentManager, "NumberRollcallBottomSheet")
     }
 
-    fun showLiveQrRollcallDialog(
-        rollcallId: Long,
-        courseName: String? = null,
-        classroom: String? = null,
-        chaoXingCourseId: String? = null,
-        chaoXingClassId: String? = null
-    ) {
-        val isDev = context?.let { DeveloperModeManager.isDeveloperMode(it) } ?: false
-        if (!isDev) {
-            if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
-                pendingChaoXingQrCourseId = chaoXingCourseId
-                pendingChaoXingQrClassId = chaoXingClassId
-                pendingChaoXingQrActiveId = rollcallId
-                pendingChaoXingQrCourseName = courseName
-                val intent = Intent(fragment.requireContext(), MlKitScannerActivity::class.java)
-                tronClassMlKitScannerLauncher.launch(intent)
-            } else {
-                startTronClassQrScan()
-            }
-            return
-        }
-        val dialog = if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
-            LiveQrRollcallBottomSheetDialog.newChaoXingInstance(
-                activeId = rollcallId,
-                courseId = chaoXingCourseId,
-                classId = chaoXingClassId,
-                courseName = courseName,
-                classroom = classroom
-            )
-        } else {
-            LiveQrRollcallBottomSheetDialog.newInstance(
-                rollcallId = rollcallId,
-                courseName = courseName,
-                classroom = classroom
-            )
-        }
-        dialog.setOnSignSuccessListener {
-            fragment.markRollcallCompleted(rollcallId)
-            fragment.loadTronClassData(forceRefresh = true)
-        }
-        dialog.setOnFallbackCameraListener {
-            if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
-                pendingChaoXingQrCourseId = chaoXingCourseId
-                pendingChaoXingQrClassId = chaoXingClassId
-                pendingChaoXingQrActiveId = rollcallId
-                pendingChaoXingQrCourseName = courseName
-                val intent = Intent(fragment.requireContext(), MlKitScannerActivity::class.java)
-                tronClassMlKitScannerLauncher.launch(intent)
-            } else {
-                startTronClassQrScan()
-            }
-        }
-        dialog.show(fragment.parentFragmentManager, "LiveQrRollcallBottomSheet")
-    }
-
-    fun showMultiAccountRollcallSummaryDialog(results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>) {
+    fun showLiveQrRollcallDialog(
+        rollcallId: Long,
+        courseName: String? = null,
+        classroom: String? = null,
+        chaoXingCourseId: String? = null,
+        chaoXingClassId: String? = null
+    ) {
+        val ctx = context ?: return
+        val fallbackCamera = {
+            if (!chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()) {
+                pendingChaoXingQrCourseId = chaoXingCourseId
+                pendingChaoXingQrClassId = chaoXingClassId
+                pendingChaoXingQrActiveId = rollcallId
+                pendingChaoXingQrCourseName = courseName
+                val intent = Intent(fragment.requireContext(), MlKitScannerActivity::class.java)
+                tronClassMlKitScannerLauncher.launch(intent)
+            } else {
+                startTronClassQrScan()
+            }
+        }
+        val shown = DevAddonManager.getEntry(ctx).liveScreenExtension.showLiveQrRollcallDialog(
+            activity = fragment.requireActivity(),
+            rollcallId = rollcallId,
+            courseName = courseName,
+            classroom = classroom,
+            chaoXingCourseId = chaoXingCourseId,
+            chaoXingClassId = chaoXingClassId,
+            onSignSuccess = {
+                fragment.markRollcallCompleted(rollcallId)
+                fragment.loadTronClassData(forceRefresh = true)
+            },
+            onFallbackCamera = fallbackCamera
+        )
+        if (!shown) {
+            fallbackCamera()
+        }
+    }
+
+    fun showMultiAccountRollcallSummaryDialog(results: List<HostAccountSignResult>) {
         val ctx = context ?: return
         val successCount = results.count { it.success }
         val totalCount = results.size

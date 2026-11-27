@@ -14,17 +14,17 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
-import cn.edu.usst.jwgl.data.local.AccountVault
 import cn.edu.usst.jwgl.data.local.AuthPreferences
-import cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult
-import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.HostAccountSignResult
+import cn.edu.usst.jwgl.devapi.HostRollcallInfo
+import cn.edu.usst.jwgl.devapi.NumberCodeResult
+import cn.edu.usst.jwgl.devapi.NumberDialogAddonHandle
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import cn.edu.usst.jwgl.util.DeveloperModeManager
 import kotlinx.coroutines.launch
 
 /**
@@ -44,13 +44,12 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var targetRollcall: TronClassRollcall? = null
     private var accountAtOpen = ""
     private var activityPicker: androidx.appcompat.app.AlertDialog? = null
-    private var btnFetchCodeDirectly: View? = null
+    private var addonHandle: NumberDialogAddonHandle? = null
 
     private lateinit var tvCourseName: TextView
     private var tvAttendanceStats: TextView? = null
     private lateinit var tvStatusTip: TextView
     private lateinit var progressSubmitting: ProgressBar
-    private lateinit var cbSignAll: MaterialCheckBox
     private lateinit var layoutKeypad: View
 
     private lateinit var boxPins: Array<FrameLayout>
@@ -102,7 +101,6 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         tvAttendanceStats = view.findViewById(R.id.tvAttendanceStats)
         tvStatusTip = view.findViewById(R.id.tvStatusTip)
         progressSubmitting = view.findViewById(R.id.progressSubmitting)
-        cbSignAll = view.findViewById(R.id.cbSignAll)
         layoutKeypad = view.findViewById(R.id.layoutKeypad)
 
         targetRollcall = null
@@ -135,32 +133,13 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             tvCourseName.text = "请输入教师发布的 4 位数字口令"
         }
 
-        // 多账号签到检测（受开发者模式管控：未激活时隐藏）
-        try {
-            val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-            val accounts = AccountVault.getInstance(requireContext()).getAccounts()
-            if (isDev && accounts.size > 1) {
-                cbSignAll.visibility = View.VISIBLE
-                cbSignAll.isChecked = false
-                cbSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
-            } else {
-                cbSignAll.visibility = View.GONE
+        // 开发者扩展包槽位挂载（一键获取口令 + 多账号同步签到）
+        val actionSlot = view.findViewById<ViewGroup>(R.id.layoutDevNumberActionSlot)
+        val batchSlot = view.findViewById<ViewGroup>(R.id.layoutDevNumberBatchSlot)
+        addonHandle = DevAddonManager.getEntry(requireContext()).numberRollcallExtension
+            .mountNumberDialogSlots(requireActivity(), actionSlot, batchSlot) {
+                fetchNumberCodeDirectly()
             }
-        } catch (_: Exception) {
-            cbSignAll.visibility = View.GONE
-        }
-
-        // 一键获取口令按钮（受开发者模式管控：未开启时不显示且禁止调用）
-        btnFetchCodeDirectly = view.findViewById(R.id.btnFetchCodeDirectly)
-        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-        btnFetchCodeDirectly?.visibility = if (isDev) View.VISIBLE else View.GONE
-        btnFetchCodeDirectly?.setOnClickListener {
-            if (!DeveloperModeManager.isDeveloperMode(requireContext())) {
-                Toast.makeText(requireContext(), "该功能仅在开发者模式下可用", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            fetchNumberCodeDirectly()
-        }
 
         setupKeypadListeners(view)
         updatePinBoxes()
@@ -184,19 +163,32 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         progressSubmitting.visibility = View.VISIBLE
         tvStatusTip.text = "正在尝试从服务端获取口令..."
         tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
-        btnFetchCodeDirectly?.isEnabled = false
+        addonHandle?.setFetchEnabled(false)
 
-        val client = TronClassClient(requireContext().applicationContext)
+        val hostRollcall = HostRollcallInfo(
+            id = target.getEffectiveId(),
+            courseId = target.courseId,
+            courseName = target.courseName,
+            normalizedType = target.getNormalizedType(),
+            typeDisplayName = target.getTypeDisplayName(),
+            classroom = target.classroom,
+            latitude = target.latitude,
+            longitude = target.longitude,
+            scope = target.scope,
+            numberCode = target.numberCode,
+            isExpired = target.isExpired
+        )
         viewLifecycleOwner.lifecycleScope.launch {
-            val lookupResult = client.lookupNumberRollcallCode(target)
+            val lookupResult = DevAddonManager.getEntry(requireContext()).numberRollcallExtension
+                .lookupNumberCode(hostRollcall)
             if (!canShowResult() || targetRollcall?.getEffectiveId() != target.getEffectiveId()) return@launch
 
             isFetchingCode = false
             progressSubmitting.visibility = View.GONE
-            btnFetchCodeDirectly?.isEnabled = true
+            addonHandle?.setFetchEnabled(true)
 
             when (lookupResult) {
-                is NumberCodeLookupResult.Found -> {
+                is NumberCodeResult.Found -> {
                     val code = lookupResult.code
                     enteredCode.clear()
                     enteredCode.append(code)
@@ -212,7 +204,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                         }
                     }, 180)
                 }
-                is NumberCodeLookupResult.Unavailable -> {
+                is NumberCodeResult.Unavailable -> {
                     val msg = lookupResult.message.ifBlank { "服务端未返回口令，请手动输入或看直播获取" }
                     tvStatusTip.text = msg
                     tvStatusTip.setTextColor(ContextCompat.getColor(requireContext(), R.color.grade_red_text))
@@ -425,12 +417,13 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         tvStatusTip.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
         layoutKeypad.isEnabled = false
 
-        val isBatch = (cbSignAll.visibility == View.VISIBLE && cbSignAll.isChecked && DeveloperModeManager.isDeveloperMode(ctx))
+        val isBatch = addonHandle?.isBatchChecked() == true
         val client = TronClassClient(ctx.applicationContext)
 
         viewLifecycleOwner.lifecycleScope.launch {
             if (isBatch) {
-                val results = client.batchAnswerNumberRollcall(targetRollcallId, code)
+                val results = DevAddonManager.getEntry(ctx).numberRollcallExtension
+                    .batchAnswerNumber(targetRollcallId, code)
                 if (!canShowResult()) return@launch
                 isSubmitting = false
                 progressSubmitting.visibility = View.GONE
@@ -440,8 +433,9 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                     cn.edu.usst.jwgl.ui.tronclass.TronClassFragment.onRollcallCompleted(targetRollcallId)
                     onSignSuccessListener?.invoke()
                 }
+                val hostAct = requireActivity()
                 dismiss()
-                showMultiAccountRollcallSummaryDialog(requireActivity(), results)
+                showMultiAccountRollcallSummaryDialog(hostAct, results)
                 return@launch
             }
 
@@ -489,7 +483,7 @@ class NumberRollcallBottomSheetDialog : BottomSheetDialogFragment() {
 
     private fun showMultiAccountRollcallSummaryDialog(
         activity: android.app.Activity,
-        results: List<MultiAccountRollcallResult>
+        results: List<HostAccountSignResult>
     ) {
         val successCount = results.count { it.success }
         val totalCount = results.size

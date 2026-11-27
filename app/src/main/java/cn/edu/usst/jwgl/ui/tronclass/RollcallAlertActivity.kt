@@ -22,11 +22,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
-import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.TronClassClient
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.HostRollcallInfo
+import cn.edu.usst.jwgl.devapi.NumberCodeResult
 import cn.edu.usst.jwgl.ui.MainActivity
-import cn.edu.usst.jwgl.util.CoordinateUtils
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
@@ -355,7 +356,7 @@ class RollcallAlertActivity : AppCompatActivity() {
             layoutGenericSection.visibility = View.GONE
 
             val matched = buildingName
-                ?: CoordinateUtils.findMatchingBuilding(classroom)?.name
+                ?: DevAddonManager.getEntry(this).radarRollcallExtension.resolveDefaultBuildingLabel(buildingName, classroom)
                 ?: "军工路第一教学楼"
             tvTargetBuilding.text = matched
             btnConfirmSign.text = "一键选点签到"
@@ -499,16 +500,31 @@ class RollcallAlertActivity : AppCompatActivity() {
                 val targetRollcall = rollcallsResult.getOrNull()?.firstOrNull { it.getEffectiveId() == rollcallId }
                     ?: TronClassRollcall(id = rollcallId, courseName = courseName)
 
-                val lookup = tronClassClient.lookupNumberRollcallCode(targetRollcall)
+                val hostRollcall = HostRollcallInfo(
+                    id = targetRollcall.getEffectiveId(),
+                    courseId = targetRollcall.courseId,
+                    courseName = targetRollcall.courseName,
+                    normalizedType = targetRollcall.getNormalizedType(),
+                    typeDisplayName = targetRollcall.getTypeDisplayName(),
+                    classroom = targetRollcall.classroom,
+                    latitude = targetRollcall.latitude,
+                    longitude = targetRollcall.longitude,
+                    scope = targetRollcall.scope,
+                    numberCode = targetRollcall.numberCode,
+                    isExpired = targetRollcall.isExpired
+                )
+                val lookup = DevAddonManager.getEntry(this@RollcallAlertActivity)
+                    .numberRollcallExtension
+                    .lookupNumberCode(hostRollcall)
                 setSubmittingUI(false)
                 btnAutoFetchCode.isEnabled = true
 
                 when (lookup) {
-                    is NumberCodeLookupResult.Found -> {
+                    is NumberCodeResult.Found -> {
                         val code = lookup.code
                         etHiddenCode.setText(code)
                     }
-                    is NumberCodeLookupResult.Unavailable -> {
+                    is NumberCodeResult.Unavailable -> {
                         tvRollcallStatusTip.text = "⚠️ 未获取到有效口令，请手动输入"
                         tvRollcallStatusTip.setTextColor(ContextCompat.getColor(this@RollcallAlertActivity, R.color.primary_dark))
                     }
@@ -532,19 +548,14 @@ class RollcallAlertActivity : AppCompatActivity() {
         setSubmittingUI(true, "正在提交基准教学楼坐标...")
 
         lifecycleScope.launch {
-            // 优先使用传入经纬度，若无则使用匹配建筑或军工路第一教学楼坐标
-            val building = CoordinateUtils.findMatchingBuilding(classroom)
-                ?: CoordinateUtils.USST_BUILDINGS.firstOrNull()
-
-            val lat = targetLatitude ?: building?.latitude ?: 31.2965
-            val lng = targetLongitude ?: building?.longitude ?: 121.5540
-
-            val result = tronClassClient.answerRadarRollcall(
-                rollcallId = rollcallId,
-                latitude = lat,
-                longitude = lng,
-                accuracy = 15.0
-            )
+            val result = DevAddonManager.getEntry(this@RollcallAlertActivity)
+                .radarRollcallExtension
+                .submitQuickBuildingRadar(
+                    rollcallId = rollcallId,
+                    classroom = classroom,
+                    targetLat = targetLatitude,
+                    targetLng = targetLongitude
+                )
             isSubmitting = false
 
             if (result.isSuccess && result.getOrNull()?.success == true) {

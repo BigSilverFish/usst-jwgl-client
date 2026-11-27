@@ -188,6 +188,7 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
 
     override fun onResume() {
         super.onResume()
+        context?.let { cn.edu.usst.jwgl.devaddon.DevAddonManager.refreshIfPackageChanged(it) }
         syncAdaptiveState()
         refreshSettingsState()
     }
@@ -380,6 +381,7 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
         val semesterSummary = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
         val diagnosticSnapshot = NotificationDiagnosticHelper.inspectRollcallPermissions(ctx)
 
+        val addonInfo = cn.edu.usst.jwgl.devaddon.DevAddonManager.getStatusInfo(ctx)
         val state = ProfileSettingsState(
             studentName = studentName,
             studentId = studentId,
@@ -394,6 +396,11 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
             isTabletLandscape = isTablet,
             isBottomBarMode = isBottomMode,
             isDeveloperMode = DeveloperModeManager.isDeveloperMode(ctx),
+            devAddonStatus = addonInfo.status,
+            devAddonVersionName = addonInfo.versionName,
+            isDevAddonUserEnabled = addonInfo.isUserEnabled,
+            devAddonRequiresRestart = addonInfo.requiresRestart,
+            devAddonErrorMessage = addonInfo.errorMessage,
             darkModeLabel = ThemeManager.getThemeModeName(ThemeManager.getThemeMode(ctx)),
             phoneNavModeLabel = phoneNavShortLabel,
             isDoubleTapDrawerEnabled = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(ctx),
@@ -550,6 +557,17 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
                 }
             }
             SettingsItemId.DISCLAIMER -> act.showAuthorDisclaimerDialog(allowDismiss = true)
+            SettingsItemId.DEV_ADDON_STATUS -> {
+                val addonInfo = cn.edu.usst.jwgl.devaddon.DevAddonManager.getStatusInfo(act)
+                val msg = when (addonInfo.status) {
+                    cn.edu.usst.jwgl.devapi.DevAddonStatus.SIGNATURE_MISMATCH ->
+                        "开发者扩展包与主程序签名不一致，请安装同签名版本"
+                    cn.edu.usst.jwgl.devapi.DevAddonStatus.LOAD_ERROR ->
+                        "加载失败: ${addonInfo.errorMessage ?: "请重启或升级主程序/扩展包"}"
+                    else -> "请下载并安装与当前主程序接口版本匹配的开发者扩展包 APK"
+                }
+                Toast.makeText(act, msg, Toast.LENGTH_LONG).show()
+            }
             else -> {}
         }
     }
@@ -671,6 +689,15 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
             }
             SettingsItemId.POWERFUL_REMINDER -> {
                 CourseReminderManager.setPowerfulReminderEnabled(ctx, isChecked)
+                refreshSettingsState()
+            }
+            SettingsItemId.DEV_ADDON_STATUS -> {
+                cn.edu.usst.jwgl.devaddon.DevAddonManager.setUserEnabled(ctx, isChecked)
+                Toast.makeText(
+                    ctx,
+                    if (isChecked) "开发者扩展包已启用" else "开发者扩展包已停用",
+                    Toast.LENGTH_SHORT
+                ).show()
                 refreshSettingsState()
             }
             else -> {}

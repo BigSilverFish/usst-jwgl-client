@@ -103,6 +103,33 @@ class TronClassClient(context: Context) {
     suspend fun ensureSessionForAccount(studentId: String): Result<String> =
         authApi.ensureSessionForAccount(studentId)
 
+    internal suspend fun ensureSessionForAccountWithDevice(
+        studentId: String,
+        fastPathIfVerified: Boolean = false
+    ): Result<Pair<String, String>> {
+        val devId = prefs.getDeviceId(studentId)
+        if (fastPathIfVerified) {
+            val cached = prefs.getSessionId(studentId)?.takeIf {
+                it.isNotBlank() && TronClassAuthApi.isSessionVerified(studentId, it)
+            }
+            if (cached != null) {
+                return Result.success(cached to devId)
+            }
+        }
+        return authApi.ensureSessionForAccount(studentId).map { sid ->
+            sid to prefs.getDeviceId(studentId)
+        }
+    }
+
+    internal suspend fun executeRawAuthenticatedRequest(
+        method: String,
+        url: String,
+        jsonBody: String? = null,
+        customSessionId: String? = null,
+        expectedAccount: String? = null
+    ): Result<Pair<Int, String>> =
+        rollcallApi.executeRawAuthenticatedRequest(method, url, jsonBody, customSessionId, expectedAccount)
+
     // --- Rollcall ---
 
     suspend fun fetchOngoingRollcalls(expectedAccount: String? = null): Result<List<TronClassRollcall>> =
@@ -135,9 +162,6 @@ class TronClassClient(context: Context) {
     ): Result<RollcallSubmitResult> =
         rollcallApi.answerSelfRegistrationRollcall(rollcallId, customSessionId, customDeviceId, customAccountKey)
 
-    suspend fun lookupNumberRollcallCode(rollcall: TronClassRollcall): NumberCodeLookupResult =
-        rollcallApi.lookupNumberRollcallCode(rollcall)
-
     suspend fun queryRollcallAttendance(
         rollcall: TronClassRollcall,
         expectedAccount: String? = null
@@ -158,88 +182,6 @@ class TronClassClient(context: Context) {
     ): Result<RollcallSubmitResult> =
         rollcallApi.answerRadarRollcall(rollcallId, latitude, longitude, accuracy, customSessionId, customDeviceId, customAccountKey)
 
-    sealed class RadarProbeResult {
-        data class InRange(val submitResult: RollcallSubmitResult) : RadarProbeResult()
-        data class Distance(val distanceMeters: Double) : RadarProbeResult()
-        data class Error(val message: String) : RadarProbeResult()
-    }
-
-    data class RadarCandidatePoint(
-        val latitude: Double,
-        val longitude: Double,
-        val accuracy: Double? = 15.0,
-        val label: String
-    )
-
-    suspend fun probeRadarCoordinate(
-        rollcallId: Long,
-        latitude: Double,
-        longitude: Double,
-        customSessionId: String? = null,
-        customDeviceId: String? = null,
-        customAccountKey: String? = null
-    ): RadarProbeResult =
-        rollcallApi.probeRadarCoordinate(rollcallId, latitude, longitude, customSessionId, customDeviceId, customAccountKey)
-
-    suspend fun solveTrilaterationAndAnswer(
-        rollcallId: Long,
-        classroom: String? = null,
-        courseName: String? = null,
-        customSessionId: String? = null,
-        customDeviceId: String? = null,
-        customAccountKey: String? = null,
-        onProgress: ((String) -> Unit)? = null
-    ): Result<RollcallSubmitResult> =
-        rollcallApi.solveTrilaterationAndAnswer(rollcallId, classroom, courseName, customSessionId, customDeviceId, customAccountKey, onProgress)
-
-    suspend fun batchAnswerTrilaterationRollcall(
-        rollcallId: Long,
-        classroom: String? = null,
-        courseName: String? = null,
-        fallbackLatitude: Double? = null,
-        fallbackLongitude: Double? = null,
-        fallbackAccuracy: Double = 15.0,
-        onProgress: ((String) -> Unit)? = null
-    ): List<MultiAccountRollcallResult> =
-        rollcallApi.batchAnswerTrilaterationRollcall(rollcallId, classroom, courseName, fallbackLatitude, fallbackLongitude, fallbackAccuracy, onProgress)
-
-    suspend fun batchAnswerRadarWithTrilaterationFallback(
-        rollcallId: Long,
-        primaryCandidates: List<RadarCandidatePoint>,
-        classroom: String? = null,
-        courseName: String? = null,
-        allowTrilaterationFallback: Boolean = true,
-        onProgress: ((String) -> Unit)? = null
-    ): List<MultiAccountRollcallResult> =
-        rollcallApi.batchAnswerRadarWithTrilaterationFallback(
-            rollcallId, primaryCandidates, classroom, courseName, allowTrilaterationFallback, onProgress
-        )
-
-    suspend fun batchAnswerNumberRollcall(
-        rollcallId: Long,
-        numberCode: String
-    ): List<MultiAccountRollcallResult> =
-        rollcallApi.batchAnswerNumberRollcall(rollcallId, numberCode)
-
-    suspend fun batchAnswerQRRollcall(
-        rollcallId: Long,
-        qrTokenData: String
-    ): List<MultiAccountRollcallResult> =
-        rollcallApi.batchAnswerQRRollcall(rollcallId, qrTokenData)
-
-    suspend fun batchAnswerRadarRollcall(
-        rollcallId: Long,
-        latitude: Double,
-        longitude: Double,
-        accuracy: Double? = null
-    ): List<MultiAccountRollcallResult> =
-        rollcallApi.batchAnswerRadarRollcall(rollcallId, latitude, longitude, accuracy)
-
-    suspend fun batchAnswerSelfRegistrationRollcall(
-        rollcallId: Long
-    ): List<MultiAccountRollcallResult> =
-        rollcallApi.batchAnswerSelfRegistrationRollcall(rollcallId)
-
     internal suspend fun verifyRollcallAttendance(
         rollcallId: Long,
         studentId: String,
@@ -248,14 +190,6 @@ class TronClassClient(context: Context) {
         courseIdHint: Long = 0L
     ): RollcallVerificationState =
         rollcallApi.verifyRollcallAttendance(rollcallId, studentId, customSessionId, expectedAccount, courseIdHint)
-
-    suspend fun recheckOnCallFine(
-        rollcallId: Long,
-        studentId: String,
-        customSessionId: String? = null,
-        expectedAccount: String? = null
-    ): Boolean =
-        rollcallApi.recheckOnCallFine(rollcallId, studentId, customSessionId, expectedAccount)
 
     suspend fun fetchRollcallAttendanceStats(
         rollcallId: Long,

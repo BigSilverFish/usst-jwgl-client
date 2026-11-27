@@ -15,7 +15,7 @@ import cn.edu.usst.jwgl.data.model.TronClassUpload
 import cn.edu.usst.jwgl.databinding.ItemTronclassActivityBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassModuleHeaderBinding
 import cn.edu.usst.jwgl.databinding.ItemTronclassProgressHeaderBinding
-import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
 
 sealed class CourseDetailUiItem {
     data class ProgressHeader(
@@ -87,7 +87,7 @@ class TronClassCourseDetailAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(header: CourseDetailUiItem.ProgressHeader) {
-            val isDev = DeveloperModeManager.isDeveloperMode(binding.root.context)
+            val isDev = DevAddonManager.getEntry(binding.root.context).autoBrushExtension.isAutoBrushAvailable()
             binding.layoutAutoBrushRow.visibility = if (isDev && header.showAutoBrush) View.VISIBLE else View.GONE
 
             binding.progressLearning.progress = header.percent

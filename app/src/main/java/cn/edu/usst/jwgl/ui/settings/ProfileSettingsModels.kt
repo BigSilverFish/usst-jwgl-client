@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.ui.settings
 
+import cn.edu.usst.jwgl.devapi.DevAddonStatus
 import cn.edu.usst.jwgl.util.RollcallAlertMode
 
 enum class SettingsItemId {
@@ -19,6 +20,7 @@ enum class SettingsItemId {
     ROLLCALL_ALERT_MODE,
     ROLLCALL_AUTO_SIGN,
     LIVE_QR_TEST,
+    DEV_ADDON_STATUS,
     POWERFUL_REMINDER,
     NOTIFICATION_DIAGNOSTIC,
     CHECK_UPDATE,
@@ -65,6 +67,11 @@ data class ProfileSettingsState(
     val isTabletLandscape: Boolean,
     val isBottomBarMode: Boolean,
     val isDeveloperMode: Boolean,
+    val devAddonStatus: DevAddonStatus = DevAddonStatus.NOT_INSTALLED,
+    val devAddonVersionName: String? = null,
+    val isDevAddonUserEnabled: Boolean = true,
+    val devAddonRequiresRestart: Boolean = false,
+    val devAddonErrorMessage: String? = null,
     val darkModeLabel: String,
     val phoneNavModeLabel: String,
     val isDoubleTapDrawerEnabled: Boolean,

@@ -302,7 +302,64 @@ object ProfileSettingsListBuilder {
         appendGroup(out, "reliability", "提醒保障与诊断", reliabilityItems)
 
         // 5. 系统与关于
-        val systemItems = listOf(
+        val systemItems = mutableListOf<SettingsRowModel>()
+        when (state.devAddonStatus) {
+            cn.edu.usst.jwgl.devapi.DevAddonStatus.ACTIVE,
+            cn.edu.usst.jwgl.devapi.DevAddonStatus.DISABLED_BY_USER -> {
+                val ver = state.devAddonVersionName?.takeIf { it.isNotBlank() }?.let { "v$it" } ?: "已安装"
+                val subtitle = when {
+                    state.devAddonRequiresRestart -> "$ver · 扩展包有更新，建议重启应用以生效"
+                    state.isDevAddonUserEnabled -> "$ver · 已自动激活扩展功能"
+                    else -> "$ver · 已暂停扩展功能"
+                }
+                systemItems += SettingsRowModel.SwitchRow(
+                    id = SettingsItemId.DEV_ADDON_STATUS,
+                    title = "开发者扩展包",
+                    subtitle = subtitle,
+                    isChecked = state.isDevAddonUserEnabled,
+                    statusBadgeText = if (state.isDevAddonUserEnabled) "已启用" else "已停用",
+                    statusBadgeTone = if (state.isDevAddonUserEnabled) StatusTone.SUCCESS else StatusTone.NEUTRAL,
+                    iconRes = R.drawable.ic_bolt,
+                    iconTone = IconTone.PRIMARY
+                )
+            }
+            cn.edu.usst.jwgl.devapi.DevAddonStatus.INCOMPATIBLE_API -> {
+                systemItems += SettingsRowModel.ActionRow(
+                    id = SettingsItemId.DEV_ADDON_STATUS,
+                    title = "开发者扩展包版本不兼容",
+                    subtitle = "当前扩展包接口版本与主程序不匹配，请更新扩展包",
+                    badgeText = "需更新",
+                    badgeTone = StatusTone.WARNING,
+                    iconRes = R.drawable.ic_bolt,
+                    iconTone = IconTone.ORANGE
+                )
+            }
+            cn.edu.usst.jwgl.devapi.DevAddonStatus.SIGNATURE_MISMATCH -> {
+                systemItems += SettingsRowModel.ActionRow(
+                    id = SettingsItemId.DEV_ADDON_STATUS,
+                    title = "开发者扩展包签名不匹配",
+                    subtitle = "扩展包签名与主程序不一致，已拒绝加载",
+                    badgeText = "签名异常",
+                    badgeTone = StatusTone.DANGER,
+                    iconRes = R.drawable.ic_bolt,
+                    iconTone = IconTone.ORANGE
+                )
+            }
+            cn.edu.usst.jwgl.devapi.DevAddonStatus.LOAD_ERROR -> {
+                val detail = state.devAddonErrorMessage?.takeIf { it.isNotBlank() } ?: "扩展包加载异常，请检查主程序与扩展包版本"
+                systemItems += SettingsRowModel.ActionRow(
+                    id = SettingsItemId.DEV_ADDON_STATUS,
+                    title = "开发者扩展包加载失败",
+                    subtitle = detail,
+                    badgeText = "加载失败",
+                    badgeTone = StatusTone.DANGER,
+                    iconRes = R.drawable.ic_bolt,
+                    iconTone = IconTone.ORANGE
+                )
+            }
+            else -> Unit
+        }
+        systemItems += listOf(
             SettingsRowModel.ActionRow(
                 id = SettingsItemId.CHECK_UPDATE,
                 title = "检查更新与同步校历",

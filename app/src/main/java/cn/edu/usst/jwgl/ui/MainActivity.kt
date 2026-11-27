@@ -54,7 +54,6 @@ import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
 import cn.edu.usst.jwgl.databinding.ActivityMainBinding
 import cn.edu.usst.jwgl.databinding.LayoutPageMoreFeaturesBinding
 import cn.edu.usst.jwgl.ui.common.AuthorDisclaimerBottomSheet
-import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.ui.grades.GradesFragment
 import cn.edu.usst.jwgl.ui.settings.ProfileSettingsFragment
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
@@ -703,6 +702,7 @@ class MainActivity : AppCompatActivity() {
         if (!isFirstResume) {
             reloadTimetableFromDb()
         }
+        cn.edu.usst.jwgl.devaddon.DevAddonManager.refreshIfPackageChanged(this)
         notifyProfileSettingsChanged()
         ApkDownloadHelper.pendingInstallApkFile?.let { apk ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
@@ -1829,15 +1829,12 @@ class MainActivity : AppCompatActivity() {
 
         // Custom 5-Tab Bottom Navigation Bar (Phone Bottom Mode)
         binding.tabBottomTimetable.setOnClickListener {
-            DeveloperModeManager.onBottomTabClicked(this, 0)
             switchTab(MainTab.TIMETABLE)
         }
         binding.tabBottomGrades.setOnClickListener {
-            DeveloperModeManager.onBottomTabClicked(this, 1)
             switchTab(MainTab.GRADES)
         }
         binding.tabBottomTronClass.setOnClickListener {
-            DeveloperModeManager.onBottomTabClicked(this, 2)
             if (currentTab == MainTab.TRONCLASS && getTronClassFragment()?.hasBackStack() == true) {
                 clearTronClassBackStack()
             } else {
@@ -1845,11 +1842,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.tabBottomMore.setOnClickListener {
-            DeveloperModeManager.onBottomTabClicked(this, 3)
             switchTab(MainTab.MORE_FEATURES)
         }
         binding.tabBottomProfile.setOnClickListener {
-            DeveloperModeManager.onBottomTabClicked(this, 4)
             switchTab(MainTab.PROFILE)
         }
 

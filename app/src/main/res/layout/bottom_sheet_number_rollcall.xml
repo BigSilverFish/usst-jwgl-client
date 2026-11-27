@@ -162,45 +162,22 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- 快捷获取口令操作区 -->
+    <!-- 扩展包快捷获取口令操作槽位 -->
     <LinearLayout
+        android:id="@+id/layoutDevNumberActionSlot"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:gravity="center"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:visibility="gone" />
 
-        <!-- 一键获取口令按钮 (受开发者模式控制) -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnFetchCodeDirectly"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:paddingHorizontal="14dp"
-            android:paddingVertical="0dp"
-            android:text="一键获取口令"
-            android:textColor="@color/primary"
-            android:textSize="11.5sp"
-            android:textStyle="bold"
-            app:cornerRadius="18dp"
-            app:icon="@drawable/ic_bolt"
-            app:iconSize="14dp"
-            app:iconTint="@color/primary" />
-
-    </LinearLayout>
-
-    <!-- 多账号同步签到勾选 -->
-    <com.google.android.material.checkbox.MaterialCheckBox
-        android:id="@+id/cbSignAll"
+    <!-- 扩展包多账号同步签到槽位 -->
+    <FrameLayout
+        android:id="@+id/layoutDevNumberBatchSlot"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:checked="true"
-        android:text="同时为全部已保存账号签到 (独立设备码)"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp"
         android:visibility="gone" />
 
     <!-- 锁屏风格固定九宫格数字键盘区域 -->

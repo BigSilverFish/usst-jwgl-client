@@ -22,7 +22,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.button.MaterialButton
-import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.HostActivityBrief
 import java.util.Locale
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -1134,103 +1135,36 @@ class TronClassCourseDetailFragment : Fragment() {
     private fun showInteractionDetailDialog(act: TronClassActivityItem) = discussionHelper.showInteractionDetailDialog(act) { showActivityUploadsSheet(it) }
     private fun showTopicDetailBottomSheet(discussion: TronClassDiscussion) = discussionHelper.showTopicDetailBottomSheet(discussion)
     private fun showCreateTopicDialog(defaultCategoryId: Long? = null, defaultActivityId: Long? = null) = discussionHelper.showCreateTopicDialog(defaultCategoryId, defaultActivityId)
-    private fun startAutoBrushProgress() {
-        val context = context ?: return
-        if (!DeveloperModeManager.isDeveloperMode(context)) {
-            Toast.makeText(context, "自动刷课功能仅在开发者模式下可用", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (courseId <= 0L || cachedActivities.isEmpty()) {
-            Toast.makeText(context, "自动刷课仅支持一网畅学课程活动", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val uncompleted = cachedActivities.filter {
-            it.completeness != "full" && it.completeness != "complete"
-        }
-
-        if (uncompleted.isEmpty()) {
-            MaterialAlertDialogBuilder(context)
-                .setTitle("全部已完成")
-                .setMessage("当前课程的所有章节课件与视频均已达到 100% 学习进度，无需重复刷课。")
-                .setPositiveButton("我知道了", null)
-                .show()
-            return
-        }
-
-        MaterialAlertDialogBuilder(context)
-            .setTitle("⚡ 一键自动刷课")
-            .setMessage("检测到 ${uncompleted.size} 个未完成的课件/视频。\n\n是否立即启动极速并行同步？\n系统将自动并发模拟观看视频与课件阅读，并将进度同步提交至一网畅学服务器。")
-            .setPositiveButton("立即开始") { _, _ ->
-                executeAutoBrush(uncompleted)
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun executeAutoBrush(activities: List<TronClassActivityItem>) {
-        val context = context ?: return
-        @Suppress("DEPRECATION")
-        val progressDialog = ProgressDialog(context).apply {
-            setTitle("正在自动刷课中...")
-            setMessage("正在并发同步学习进度，请稍候...")
-            setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
-            max = activities.size
-            progress = 0
-            setCancelable(false)
-            show()
-        }
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            val total = activities.size
-            var finishedCount = 0
-
-            withContext(Dispatchers.IO) {
-                activities.map { act ->
-                    async {
-                        try {
-                            val isVideoCategory = act.getCategory() == TronClassActivityCategory.ONLINE_VIDEO ||
-                                act.isRecordedLessonActivity()
-                            val allUploads = act.getAllUploads()
-                            if (allUploads.isEmpty()) {
-                                if (isVideoCategory) {
-                                    client.reportVideoProgress(act.id, act.getVideoDuration(), 0L)
-                                } else {
-                                    client.logActivityRead(act.id, 0L)
-                                }
-                            } else {
-                                for (up in allUploads) {
-                                    if (isVideoCategory) {
-                                        client.reportVideoProgress(act.id, act.getVideoDuration(), up.id)
-                                    } else {
-                                        client.logActivityRead(act.id, up.id)
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            // ignore individual activity failure
-                        } finally {
-                            synchronized(this@TronClassCourseDetailFragment) {
-                                finishedCount++
-                                val current = finishedCount
-                                activity?.runOnUiThread {
-                                    progressDialog.progress = current
-                                    progressDialog.setMessage("已完成: $current / $total 项")
-                                }
-                            }
-                        }
-                    }
-                }.awaitAll()
-            }
-
-            progressDialog.dismiss()
-            if (isAdded) {
-                Toast.makeText(requireContext(), "自动刷课完成！共同步 $total 项课件与视频", Toast.LENGTH_LONG).show()
-                loadCourseData(forceRefresh = true)
-            }
-        }
-    }
-
+    private fun startAutoBrushProgress() {
+        val context = context ?: return
+        val autoBrushExt = DevAddonManager.getEntry(context).autoBrushExtension
+        if (!autoBrushExt.isAutoBrushAvailable()) {
+            Toast.makeText(context, "请先安装并启用开发者扩展包", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (courseId <= 0L || cachedActivities.isEmpty()) {
+            Toast.makeText(context, "自动刷课仅支持一网畅学课程活动", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val briefs = cachedActivities.map { act ->
+            val isVideoCategory = act.getCategory() == TronClassActivityCategory.ONLINE_VIDEO ||
+                act.isRecordedLessonActivity()
+            HostActivityBrief(
+                id = act.id,
+                type = if (isVideoCategory) "online_video" else (act.type ?: "material"),
+                completeness = act.completeness,
+                videoDuration = act.getVideoDuration(),
+                uploadIds = act.getAllUploads().map { it.id }
+            )
+        }
+        autoBrushExt.startAutoBrush(requireActivity(), courseId, briefs) {
+            if (isAdded) {
+                loadCourseData(forceRefresh = true)
+            }
+        }
+    }
+
     private fun buildCourseStructure(
         modules: List<TronClassModule>,
         activities: List<TronClassActivityItem>,

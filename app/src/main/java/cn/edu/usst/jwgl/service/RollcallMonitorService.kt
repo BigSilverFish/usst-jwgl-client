@@ -6,11 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.location.Location
-import android.location.LocationManager
-import android.Manifest
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -20,14 +16,15 @@ import cn.edu.usst.jwgl.data.local.ChaoXingPreferences
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.ChaoXingActiveItem
 import cn.edu.usst.jwgl.data.model.ChaoXingCourse
-import cn.edu.usst.jwgl.data.model.NumberCodeLookupResult
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
 import cn.edu.usst.jwgl.data.network.ChaoXingClient
 import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.data.network.RollcallPollingSource
 import cn.edu.usst.jwgl.data.network.TronClassClient
-import cn.edu.usst.jwgl.util.CoordinateUtils
-import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.AutoSignCallbacks
+import cn.edu.usst.jwgl.devapi.AutoSignRequest
+import cn.edu.usst.jwgl.devapi.HostRollcallInfo
 import cn.edu.usst.jwgl.util.RollcallAlertStage
 import cn.edu.usst.jwgl.util.RollcallNotificationHelper
 import cn.edu.usst.jwgl.util.RollcallOverlayAlert
@@ -50,7 +47,6 @@ class RollcallMonitorService : Service() {
     private val chaoXingClient by lazy { ChaoXingClient(this) }
     private val prefs by lazy { TronClassPreferences.getInstance(this) }
     private val chaoXingPrefs by lazy { ChaoXingPreferences(this) }
-    private val smartLiveQrManager by lazy { cn.edu.usst.jwgl.util.SmartLiveQrRollcallManager(this) }
     @Volatile
     private var cachedChaoXingCourses: List<ChaoXingCourse> = emptyList()
     @Volatile
@@ -330,13 +326,14 @@ class RollcallMonitorService : Service() {
         val activeJob = pollJob
         val shouldShowPopup = { activeJob?.isActive == true }
 
+        val autoSignExt = DevAddonManager.getEntry(this).autoSignExtension
+
         for (rollcall in actionable) {
             val rollcallId = rollcall.getEffectiveId()
             val normType = rollcall.getNormalizedType()
             val cName = rollcall.courseName ?: session.courseName
 
-            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled() && DeveloperModeManager.isDeveloperMode(this)
-            val delaySeconds = prefs.getRollcallAutoSignDelaySeconds()
+            val isAutoSignEnabled = prefs.isRollcallAutoSignEnabled() && autoSignExt.isAutoSignAvailable()
 
             if (!isAutoSignEnabled) {
                 // 仅监听模式：立即标记已处理并通知用户手动签到
@@ -406,138 +403,45 @@ class RollcallMonitorService : Service() {
                     continue
                 }
                 val attempt = retryAttempts[rollcallId] ?: 0
-                val strategy = prefs.getRollcallAutoSignStrategy()
-                val isHeadcount = TronClassPreferences.isHeadcountStrategy(strategy)
-                val waitSec = if (attempt == 0 && !isHeadcount) delaySeconds else 0
-                val strategyText = prefs.getRollcallAutoSignStrategyDisplayName()
-
-                val waitHint = when {
-                    waitSec > 0 -> "${waitSec}秒后"
-                    isHeadcount -> "满足条件 ($strategyText) 后"
-                    else -> "立即"
-                }
-
-                Log.i(TAG, "Detected ongoing rollcall: id=$rollcallId, type=$normType, course=$cName, attempt=${attempt + 1}/$MAX_AUTO_SIGN_ATTEMPTS, waitSec=$waitSec, strategy=$strategyText")
-                if (attempt == 0) {
-                    updateForegroundNotification(
-                        session,
-                        "检测到【$cName】签到，将在 $waitHint 尝试自动提交"
-                    )
-                    RollcallNotificationHelper.notifyAutoSignDetectedBanner(
-                        context = this,
-                        rollcallId = rollcallId,
-                        courseName = cName,
-                        rollcallType = normType,
-                        typeDisplayName = rollcall.getTypeDisplayName(),
-                        waitHint = waitHint,
-                        classroom = rollcall.classroom ?: session.room,
-                        latitude = rollcall.latitude,
-                        longitude = rollcall.longitude,
-                        scope = rollcall.scope,
-                        shouldShowPopup = shouldShowPopup
-                    )
+                val hostRollcall = HostRollcallInfo(
+                    id = rollcallId,
+                    courseId = rollcall.courseId,
+                    courseName = rollcall.courseName,
+                    normalizedType = normType,
+                    typeDisplayName = rollcall.getTypeDisplayName(),
+                    classroom = rollcall.classroom,
+                    latitude = rollcall.latitude,
+                    longitude = rollcall.longitude,
+                    scope = rollcall.scope,
+                    numberCode = rollcall.numberCode,
+                    isExpired = rollcall.isExpired
+                )
+                val request = AutoSignRequest(
+                    rollcall = hostRollcall,
+                    sessionCourseName = session.courseName,
+                    sessionRoom = session.room,
+                    attempt = attempt,
+                    maxAttempts = MAX_AUTO_SIGN_ATTEMPTS
+                )
+                val callbacks = object : AutoSignCallbacks {
+                    override fun shouldShowPopup(): Boolean = shouldShowPopup()
+                    override fun onForegroundStatus(statusText: String) {
+                        updateForegroundNotification(session, statusText)
+                    }
                 }
                 serviceScope.launch {
                     try {
-                        if (waitSec > 0) {
-                            delay(waitSec * 1000L)
-                        }
-                        if (!isActive) return@launch
-
-                        // 若开启人数/比例等待策略：轮询等待班级出勤达到条件（最多轮询 90 秒，避免签到已关闭）
-                        if (isHeadcount && attempt == 0) {
-                            val waitStart = System.currentTimeMillis()
-                            var conditionMet = false
-                            val targetCount = when (strategy) {
-                                TronClassPreferences.STRATEGY_COUNT_1 -> 1
-                                TronClassPreferences.STRATEGY_COUNT_10 -> 10
-                                else -> 0
-                            }
-                            val targetRatio = when (strategy) {
-                                TronClassPreferences.STRATEGY_HALF_CLASS -> 50
-                                TronClassPreferences.STRATEGY_CUSTOM_RATIO -> prefs.getRollcallAutoSignCustomRatio()
-                                else -> 0
-                            }
-
-                            while (isActive && (System.currentTimeMillis() - waitStart) < 90_000L) {
-                                val currentSid = cn.edu.usst.jwgl.data.local.AuthPreferences(this@RollcallMonitorService).getStudentId()
-                                val manuallyConfirmed = prefs.isRollcallHandled(rollcallId) || (
-                                    currentSid.isNotBlank() &&
-                                        cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this@RollcallMonitorService)
-                                            .state(currentSid, rollcallId) == "confirmed"
-                                    )
-                                if (manuallyConfirmed) {
-                                    break
-                                }
-                                val stats = tronClassClient.fetchRollcallAttendanceStats(rollcallId).getOrNull()
-                                if (stats != null) {
-                                    val present = stats.presentCount
-                                    val total = stats.totalCount
-                                    val met = when {
-                                        targetCount > 0 -> {
-                                            if (total in 1 until targetCount) {
-                                                present >= total || present >= (total + 1) / 2
-                                            } else {
-                                                present >= targetCount
-                                            }
-                                        }
-                                        targetRatio > 0 -> {
-                                            if (total > 0) {
-                                                (present * 100 / total) >= targetRatio
-                                            } else {
-                                                present >= 1
-                                            }
-                                        }
-                                        else -> present >= 1
-                                    }
-
-                                    if (met) {
-                                        conditionMet = true
-                                        Log.i(TAG, "Headcount strategy condition met for rollcall $rollcallId: $present/$total signed (strategy=$strategyText)")
-                                        updateForegroundNotification(
-                                            session,
-                                            "【$cName】已有 $present 人签到，正在跟进自动提交..."
-                                        )
-                                        break
-                                    }
-                                    updateForegroundNotification(
-                                        session,
-                                        "【$cName】等待满足签到条件 ($strategyText，当前已签 $present 人)..."
-                                    )
-                                }
-                                delay(3000L)
-                            }
-                            if (!isActive) return@launch
-                            if (!conditionMet) {
-                                Log.i(TAG, "Headcount strategy wait timeout for rollcall $rollcallId, proceeding with submission anyway")
-                            }
-                        }
-
-                        // 若用户在等待期间通过“手动签到”提前完成，则不再重复自动提交
-                        val studentIdBeforeSubmit = cn.edu.usst.jwgl.data.local.AuthPreferences(this@RollcallMonitorService).getStudentId()
-                        val alreadyDoneManually = prefs.isRollcallHandled(rollcallId) || (
-                            studentIdBeforeSubmit.isNotBlank() &&
-                                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this@RollcallMonitorService)
-                                    .state(studentIdBeforeSubmit, rollcallId) == "confirmed"
-                            )
-                        if (alreadyDoneManually) {
-                            Log.i(TAG, "Rollcall $rollcallId already completed manually during wait window, skipping auto-submit")
-                            RollcallNotificationHelper.cancelAutoSignDetectedBanner(this@RollcallMonitorService, rollcallId)
+                        val outcome = autoSignExt.executeAutoSign(request, callbacks)
+                        if (!outcome.handledByAutoSign) {
                             prefs.markRollcallHandled(rollcallId)
-                            retryAttempts.remove(rollcallId)
-                            return@launch
-                        }
-
-                        val isFinalAttempt = attempt + 1 >= MAX_AUTO_SIGN_ATTEMPTS
-                        val isTerminal = when (normType) {
-                            "radar" -> handleRadarAutoSign(rollcall, session, isFinalAttempt, shouldShowPopup)
-                            "number" -> handleNumberAutoSign(rollcall, session, isFinalAttempt, shouldShowPopup)
-                            "qr_code" -> handleQrCodeAutoSign(rollcall, session, isFinalAttempt, shouldShowPopup)
-                            "self_registration" -> handleSelfRegistrationAutoSign(rollcall, session, isFinalAttempt, shouldShowPopup)
-                            else -> true
-                        }
-
-                        if (isTerminal || isFinalAttempt) {
+                            RollcallNotificationHelper.notifyGenericRollcall(
+                                context = this@RollcallMonitorService,
+                                rollcallId = rollcallId,
+                                courseName = cName,
+                                typeDesc = rollcall.getTypeDisplayName(),
+                                shouldShowPopup = shouldShowPopup
+                            )
+                        } else if (outcome.isTerminal || attempt + 1 >= MAX_AUTO_SIGN_ATTEMPTS) {
                             prefs.markRollcallHandled(rollcallId)
                             retryAttempts.remove(rollcallId)
                         } else {
@@ -550,402 +454,6 @@ class RollcallMonitorService : Service() {
                 }
             }
         }
-    }
-
-    private fun isPrimaryAccountSuccess(
-        results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>,
-        currentStudentId: String
-    ): Boolean = cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult.isPrimaryAccountSuccess(results, currentStudentId)
-
-    private suspend fun handleQrCodeAutoSign(
-        rollcall: TronClassRollcall,
-        currentSession: ScheduledClassSession,
-        isFinalAttempt: Boolean,
-        shouldShowPopup: () -> Boolean
-    ): Boolean {
-        val rollcallId = rollcall.getEffectiveId()
-        val matchedSession = RollcallScheduleHelper.findMatchingClassSession(this, rollcall.courseName) ?: currentSession
-        val cName = rollcall.courseName ?: matchedSession.courseName
-        val room = rollcall.classroom ?: matchedSession.room
-
-        Log.i(TAG, "Triggering Smart Live QR auto sign for $cName in $room")
-
-        val success = smartLiveQrManager.tryAutoSignFromLive(
-            rollcall = rollcall,
-            courseName = cName,
-            classroom = room,
-            notifyOnFailure = false
-        )
-
-        if (success) {
-            RollcallNotificationHelper.cancelAutoSignDetectedBanner(this, rollcallId)
-            updateForegroundNotification(
-                matchedSession,
-                "已自动大屏扫码签到【$cName】"
-            )
-            return true
-        }
-
-        if (isFinalAttempt) {
-            // 降级回退：大屏未捕获到或无直播，消隐探测横幅后按当前提醒模式回退手动扫码
-            Log.w(TAG, "Smart Live QR failed or unavailable on final attempt, fallback to manual QR alert")
-            RollcallNotificationHelper.cancelAutoSignDetectedBanner(this, rollcallId)
-            RollcallNotificationHelper.notifyQrRollcall(
-                context = this,
-                rollcallId = rollcallId,
-                courseName = cName,
-                stage = RollcallAlertStage.AUTO_SIGN_FAILED_FALLBACK,
-                shouldShowPopup = shouldShowPopup
-            )
-        } else {
-            Log.i(TAG, "Smart Live QR not captured yet for rollcall $rollcallId, will retry on next poll")
-        }
-        return false
-    }
-
-    private suspend fun handleRadarAutoSign(
-        rollcall: TronClassRollcall,
-        currentSession: ScheduledClassSession,
-        isFinalAttempt: Boolean,
-        shouldShowPopup: () -> Boolean
-    ): Boolean {
-        val rollcallId = rollcall.getEffectiveId()
-        val matchedSession = RollcallScheduleHelper.findMatchingClassSession(this, rollcall.courseName) ?: currentSession
-        val room = rollcall.classroom ?: matchedSession.room
-        val courseName = rollcall.courseName ?: matchedSession.courseName
-
-        val matchedBuilding = CoordinateUtils.findMatchingBuilding(room)
-            ?: CoordinateUtils.findMatchingBuilding(courseName)
-
-        // 1. 按优先级构造常规候选点位（教师下发参考点 -> 本机新鲜高精度定位 -> 精准匹配教学楼）
-        val primaryCandidates = mutableListOf<TronClassClient.RadarCandidatePoint>()
-        val teacherLat = rollcall.latitude
-        val teacherLng = rollcall.longitude
-        if (teacherLat != null && teacherLng != null && !(teacherLat == 0.0 && teacherLng == 0.0)) {
-            val jitterLat = (Math.random() - 0.5) * 0.00003
-            val jitterLng = (Math.random() - 0.5) * 0.00003
-            primaryCandidates.add(
-                TronClassClient.RadarCandidatePoint(
-                    latitude = teacherLat + jitterLat,
-                    longitude = teacherLng + jitterLng,
-                    accuracy = 5.0,
-                    label = "教师基准点"
-                )
-            )
-        }
-
-        val deviceLoc = getFreshDeviceLocation()
-        if (deviceLoc != null) {
-            val (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(deviceLoc.latitude, deviceLoc.longitude)
-            primaryCandidates.add(
-                TronClassClient.RadarCandidatePoint(
-                    latitude = gcjLat,
-                    longitude = gcjLng,
-                    accuracy = deviceLoc.accuracy.toDouble(),
-                    label = "本机定位"
-                )
-            )
-        }
-
-        if (matchedBuilding != null) {
-            primaryCandidates.add(
-                TronClassClient.RadarCandidatePoint(
-                    latitude = matchedBuilding.latitude,
-                    longitude = matchedBuilding.longitude,
-                    accuracy = 15.0,
-                    label = "教学楼(${matchedBuilding.name})"
-                )
-            )
-        }
-
-        Log.i(
-            TAG,
-            "Auto signing radar rollcall $rollcallId: candidates=${primaryCandidates.joinToString(" -> ") { it.label }.ifBlank { "none" }} (trilateration fallback enabled)"
-        )
-
-        // 2. 常规点位优先，仅在明确超距并带回距离时复用已有观测点进入三点定位回退
-        val results = tronClassClient.batchAnswerRadarWithTrilaterationFallback(
-            rollcallId = rollcallId,
-            primaryCandidates = primaryCandidates,
-            classroom = room,
-            courseName = courseName,
-            allowTrilaterationFallback = true
-        )
-
-        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
-
-        val successCount = results.count { it.success }
-        val totalCount = results.size
-        var verificationRejected = false
-
-        // 权威查册复核闭环
-        if (primarySuccess && currentStudentId.isNotBlank()) {
-            val verification = tronClassClient.verifyRollcallAttendance(
-                rollcallId = rollcallId,
-                studentId = currentStudentId,
-                expectedAccount = currentStudentId,
-                courseIdHint = rollcall.courseId
-            )
-            Log.i(TAG, "Radar sign verifyRollcallAttendance result for $currentStudentId: $verification")
-            if (verification == cn.edu.usst.jwgl.data.network.RollcallVerificationState.NOT_CONFIRMED) {
-                primarySuccess = false
-                verificationRejected = true
-                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).invalidateConfirmed(currentStudentId, rollcallId)
-            }
-        }
-
-        val details = if (verificationRejected) {
-            "服务端花名册未检测到本人签到记录，请重新签到"
-        } else if (results.size > 1) {
-            "$successCount/$totalCount 个账号签到成功"
-        } else {
-            results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
-        }
-
-        val storeState = if (currentStudentId.isNotBlank()) {
-            cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).state(currentStudentId, rollcallId)
-        } else null
-        val isTerminal = primarySuccess || storeState == "rejected" || isFinalAttempt
-
-        // 3. 仅在成功、终态拒绝或最终尝试时消隐探测横幅并发送对应结果通知
-        if (isTerminal) {
-            RollcallNotificationHelper.cancelAutoSignDetectedBanner(this, rollcallId)
-            RollcallNotificationHelper.notifyRadarResult(
-                context = this,
-                rollcallId = rollcallId,
-                courseName = courseName,
-                building = matchedBuilding,
-                success = primarySuccess,
-                message = details,
-                classroom = room,
-                latitude = rollcall.latitude,
-                longitude = rollcall.longitude,
-                scope = rollcall.scope,
-                stage = if (primarySuccess) RollcallAlertStage.AUTO_SIGN_SUCCEEDED else RollcallAlertStage.AUTO_SIGN_FAILED_FALLBACK,
-                shouldShowPopup = shouldShowPopup
-            )
-        }
-
-        // 4. 更新前台服务常驻通知状态
-        if (primarySuccess) {
-            updateForegroundNotification(
-                matchedSession,
-                "已自动签到【$courseName】(${matchedBuilding?.name ?: "智能定位"})"
-            )
-        }
-        return isTerminal
-    }
-
-    /**
-     * 数字口令签到自动化处理：
-     * 尝试从服务端 student_rollcalls 接口读取 number_code（学校自部署实例可能未修复泄露），
-     * 如果成功取到 4 位码则自动提交（含多账号批量），否则退回通知让用户手动输入。
-     */
-    private suspend fun handleNumberAutoSign(
-        rollcall: TronClassRollcall,
-        currentSession: ScheduledClassSession,
-        isFinalAttempt: Boolean,
-        shouldShowPopup: () -> Boolean
-    ): Boolean {
-        val rollcallId = rollcall.getEffectiveId()
-        val courseName = rollcall.courseName ?: currentSession.courseName
-
-        // 1. 尝试从服务端读取数字签到码
-        Log.i(TAG, "Attempting to lookup number code for rollcall $rollcallId ($courseName)")
-        val lookupResult = tronClassClient.lookupNumberRollcallCode(rollcall)
-
-        if (lookupResult !is NumberCodeLookupResult.Found) {
-            val unavailable = lookupResult as? NumberCodeLookupResult.Unavailable
-            val reason = unavailable?.message ?: "未知原因"
-            val isTerminalLookup = unavailable?.reason in setOf(
-                cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.NoActiveRollcall,
-                cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.Forbidden,
-                cn.edu.usst.jwgl.data.model.NumberCodeLookupFailure.Conflict
-            )
-            Log.i(TAG, "Number code not available for rollcall $rollcallId: $reason (terminal=$isTerminalLookup, isFinalAttempt=$isFinalAttempt)")
-            if (isTerminalLookup || isFinalAttempt) {
-                RollcallNotificationHelper.cancelAutoSignDetectedBanner(this, rollcallId)
-                RollcallNotificationHelper.notifyNumberRollcall(
-                    context = this,
-                    rollcallId = rollcallId,
-                    courseName = courseName,
-                    stage = RollcallAlertStage.AUTO_SIGN_FAILED_FALLBACK,
-                    shouldShowPopup = shouldShowPopup
-                )
-                return true
-            }
-            return false
-        }
-
-        // 2. 成功获取数字码，自动提交
-        val numberCode = lookupResult.code
-        Log.i(TAG, "Got number code [$numberCode] for rollcall $rollcallId, auto-submitting")
-
-        val results = tronClassClient.batchAnswerNumberRollcall(rollcallId, numberCode)
-
-        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
-        val successCount = results.count { it.success }
-        val totalCount = results.size
-        var verificationRejected = false
-
-        // 权威查册复核闭环
-        if (primarySuccess && currentStudentId.isNotBlank()) {
-            val verification = tronClassClient.verifyRollcallAttendance(
-                rollcallId = rollcallId,
-                studentId = currentStudentId,
-                expectedAccount = currentStudentId,
-                courseIdHint = rollcall.courseId
-            )
-            Log.i(TAG, "Number sign verifyRollcallAttendance result for $currentStudentId: $verification")
-            if (verification == cn.edu.usst.jwgl.data.network.RollcallVerificationState.NOT_CONFIRMED) {
-                primarySuccess = false
-                verificationRejected = true
-                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).invalidateConfirmed(currentStudentId, rollcallId)
-            }
-        }
-
-        val details = if (verificationRejected) {
-            "服务端花名册未检测到本人签到记录，请重新签到"
-        } else if (results.size > 1) {
-            "$successCount/$totalCount 个账号签到成功"
-        } else {
-            results.firstOrNull()?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
-        }
-
-        val storeState = if (currentStudentId.isNotBlank()) {
-            cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).state(currentStudentId, rollcallId)
-        } else null
-        val isTerminal = primarySuccess || storeState == "rejected" || isFinalAttempt
-
-        // 3. 仅在成功、终态拒绝或最终尝试时消隐探测横幅并发送结果通知
-        if (isTerminal) {
-            RollcallNotificationHelper.cancelAutoSignDetectedBanner(this, rollcallId)
-            RollcallNotificationHelper.notifyNumberAutoResult(
-                context = this,
-                rollcallId = rollcallId,
-                courseName = courseName,
-                success = primarySuccess,
-                message = details,
-                shouldShowPopup = shouldShowPopup
-            )
-        }
-
-        // 4. 更新前台服务常驻通知
-        if (primarySuccess) {
-            updateForegroundNotification(
-                currentSession,
-                "已自动签到【$courseName】(数字口令 $numberCode)"
-            )
-        }
-        return isTerminal
-    }
-
-    /**
-     * 自主签到自动化处理：
-     * 无需坐标、无需口令、无需扫码，直接向畅课服务器提交自主点名请求，
-     * 并在完成后调用 recheckOnCallFine 进行权威复核闭环。
-     */
-    private suspend fun handleSelfRegistrationAutoSign(
-        rollcall: TronClassRollcall,
-        currentSession: ScheduledClassSession,
-        isFinalAttempt: Boolean,
-        shouldShowPopup: () -> Boolean
-    ): Boolean {
-        val rollcallId = rollcall.getEffectiveId()
-        val courseName = rollcall.courseName ?: currentSession.courseName
-        Log.i(TAG, "Triggering Self-Registration auto sign for $courseName (rollcallId=$rollcallId)")
-
-        // 1. 批量提交自主签到
-        val results = tronClassClient.batchAnswerSelfRegistrationRollcall(rollcallId)
-        val currentStudentId = cn.edu.usst.jwgl.data.local.AuthPreferences(this).getStudentId()
-        val primaryResult = results.find { it.studentId == currentStudentId } ?: results.firstOrNull()
-        var primarySuccess = isPrimaryAccountSuccess(results, currentStudentId)
-        var verificationRejected = false
-
-        // 权威查册复核闭环
-        if (primarySuccess && currentStudentId.isNotBlank()) {
-            val verification = tronClassClient.verifyRollcallAttendance(
-                rollcallId = rollcallId,
-                studentId = currentStudentId,
-                expectedAccount = currentStudentId,
-                courseIdHint = rollcall.courseId
-            )
-            Log.i(TAG, "Self-Registration sign verifyRollcallAttendance result for $currentStudentId: $verification")
-            if (verification == cn.edu.usst.jwgl.data.network.RollcallVerificationState.NOT_CONFIRMED) {
-                primarySuccess = false
-                verificationRejected = true
-                cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).invalidateConfirmed(currentStudentId, rollcallId)
-            }
-        }
-
-        val successCount = results.count { it.success }
-        val totalCount = results.size
-        val details = if (verificationRejected) {
-            "服务端花名册未检测到本人签到记录，请重新签到"
-        } else if (results.size > 1) {
-            "$successCount/$totalCount 个账号签到成功"
-        } else {
-            primaryResult?.message ?: if (primarySuccess) "签到成功" else "签到未成功"
-        }
-
-        val storeState = if (currentStudentId.isNotBlank()) {
-            cn.edu.usst.jwgl.data.local.RollcallSubmissionStore(this).state(currentStudentId, rollcallId)
-        } else null
-        val isTerminal = primarySuccess || storeState == "rejected" || isFinalAttempt
-
-        // 3. 仅在成功、终态拒绝或最终尝试时消隐探测横幅并发送对应结果通知
-        if (isTerminal) {
-            RollcallNotificationHelper.cancelAutoSignDetectedBanner(this, rollcallId)
-            RollcallNotificationHelper.notifySelfRegistrationResult(
-                context = this,
-                rollcallId = rollcallId,
-                courseName = courseName,
-                success = primarySuccess,
-                message = details,
-                shouldShowPopup = shouldShowPopup
-            )
-        }
-
-        // 4. 更新前台服务常驻通知
-        if (primarySuccess) {
-            updateForegroundNotification(
-                currentSession,
-                "已自动自主签到【$courseName】"
-            )
-        }
-        return isTerminal
-    }
-
-    private fun getFreshDeviceLocation(): Location? {
-        val finePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-        val coarsePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (finePerm != PackageManager.PERMISSION_GRANTED && coarsePerm != PackageManager.PERMISSION_GRANTED) {
-            return null
-        }
-        val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-        val now = System.currentTimeMillis()
-        var bestLoc: Location? = null
-        for (p in providers) {
-            try {
-                if (lm.isProviderEnabled(p)) {
-                    val loc = lm.getLastKnownLocation(p)
-                    if (loc != null &&
-                        (now - loc.time) in 0L..(5 * 60 * 1000L) &&
-                        loc.hasAccuracy() &&
-                        loc.accuracy > 0f &&
-                        loc.accuracy <= 100f
-                    ) {
-                        if (bestLoc == null || loc.accuracy < bestLoc.accuracy) {
-                            bestLoc = loc
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-        return bestLoc
     }
 
     private fun acquireOrRenewCpuWakeLock() {

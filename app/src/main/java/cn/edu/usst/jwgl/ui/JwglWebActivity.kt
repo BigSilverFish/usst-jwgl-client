@@ -43,7 +43,9 @@ import cn.edu.usst.jwgl.BuildConfig
 import cn.edu.usst.jwgl.R
 import cn.edu.usst.jwgl.data.local.AuthPreferences
 import cn.edu.usst.jwgl.data.model.TronClassRollcall
-import cn.edu.usst.jwgl.util.DeveloperModeManager
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.LiveWebBannerHost
+import cn.edu.usst.jwgl.devapi.LiveWebSessionHandle
 import cn.edu.usst.jwgl.data.network.JwglClient
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.ActivityWebViewBinding
@@ -136,16 +138,7 @@ class JwglWebActivity : AppCompatActivity() {
     private var isLiveNavigation = false
     private var filePathCallback: android.webkit.ValueCallback<Array<Uri>>? = null
 
-    private val liveRollcallController by lazy { LiveRollcallWebController(this, binding, ::setupNumberRollcallFab) }
-    private val liveChaseController by lazy { LiveStreamChaseController(this) { binding.webView } }
-
-    private var isScreenAutoSignInEnabled: Boolean
-        get() = liveRollcallController.isScreenAutoSignInEnabled
-        set(value) { liveRollcallController.isScreenAutoSignInEnabled = value }
-
-    private var isLiveChaseFrameEnabled: Boolean
-        get() = liveChaseController.isLiveChaseFrameEnabled
-        set(value) { liveChaseController.isLiveChaseFrameEnabled = value }
+    private var liveWebSessionHandle: LiveWebSessionHandle? = null
 
     private val fileChooserLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
@@ -212,11 +205,6 @@ class JwglWebActivity : AppCompatActivity() {
         }
     }
 
-    private fun startLiveRollcallWatcher() = liveRollcallController.startLiveRollcallWatcher()
-    private fun stopLiveRollcallWatcher() = liveRollcallController.stopLiveRollcallWatcher()
-    private fun stopPptScanningLoop() = liveRollcallController.stopPptScanningLoop()
-    private fun capturePptFrameNow() = liveRollcallController.capturePptFrameNow()
-    private fun injectFrameGrabTestJs() = liveRollcallController.injectFrameGrabTestJs()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -371,103 +359,154 @@ class JwglWebActivity : AppCompatActivity() {
         }
         updateDesktopMenuItemTitle()
 
-        val isLiveUrl = targetUrl.contains("live.usst.edu.cn")
-        updateLiveMenuItemsVisibility(isLiveUrl)
+        val bannerHost = object : LiveWebBannerHost {
+
+            override fun showBanner(title: String, scanning: Boolean, showDialpadIcon: Boolean) {
+
+                binding.cardRollcallBanner.visibility = View.VISIBLE
+
+                binding.tvRollcallBannerTitle.text = title
+
+                if (showDialpadIcon) {
+
+                    binding.pbRollcallScanning.visibility = View.GONE
+
+                    binding.ivRollcallStatusIcon.visibility = View.VISIBLE
+
+                    binding.ivRollcallStatusIcon.setImageResource(R.drawable.ic_dialpad)
+
+                } else {
+
+                    binding.pbRollcallScanning.visibility = if (scanning) View.VISIBLE else View.GONE
+
+                    binding.ivRollcallStatusIcon.visibility = if (scanning) View.GONE else View.VISIBLE
+
+                    if (!scanning) {
+
+                        binding.ivRollcallStatusIcon.setImageResource(R.drawable.ic_check_circle)
+
+                    }
+
+                }
+
+            }
+
+
+
+            override fun hideBanner() {
+
+                binding.cardRollcallBanner.visibility = View.GONE
+
+            }
+
+
+
+            override fun postDelayedHideBanner(delayMs: Long) {
+
+                binding.cardRollcallBanner.postDelayed({
+
+                    if (!isFinishing && !isDestroyed) {
+
+                        binding.cardRollcallBanner.visibility = View.GONE
+
+                    }
+
+                }, delayMs)
+
+            }
+
+        }
+
+        val isNumberFabMode = intent.getBooleanExtra(EXTRA_ENABLE_LIVE_NUMBER_FAB, false)
+
+        liveWebSessionHandle = DevAddonManager.getEntry(this).liveScreenExtension.attachWebLiveSession(
+
+            activity = this,
+
+            webView = binding.webView,
+
+            toolbarMenu = binding.toolbar.menu,
+
+            bannerHost = bannerHost,
+
+            isNumberFabMode = isNumberFabMode,
+
+            onSetupNumberFab = ::setupNumberRollcallFab
+
+        )
+
+        liveWebSessionHandle?.onPageFinished(targetUrl.contains("live.usst.edu.cn"))
+
+
 
         // 悬浮横幅关闭按钮
+
         binding.btnRollcallBannerClose.setOnClickListener {
-            stopPptScanningLoop()
+
             binding.cardRollcallBanner.visibility = View.GONE
+
         }
+
+
 
         binding.toolbar.setOnMenuItemClickListener { item ->
+
             when (item.itemId) {
+
                 R.id.action_refresh -> {
+
                     binding.webView.reload()
+
                     true
+
                 }
+
                 R.id.action_toggle_desktop -> {
+
                     isDesktopMode = !isDesktopMode
+
                     applyUserAgent(binding.webView.url ?: targetUrl)
+
                     updateDesktopMenuItemTitle()
+
                     binding.webView.reload()
+
                     val toastText = if (isDesktopMode) "已切换至电脑版视图" else "已切换至手机版视图"
+
                     Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
+
                     true
+
                 }
+
                 R.id.action_open_external -> {
+
                     val currentUrl = binding.webView.url ?: targetUrl
+
                     try {
+
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl)))
+
                     } catch (e: Exception) {
+
                         Toast.makeText(this, "无法调用外部浏览器打开", Toast.LENGTH_SHORT).show()
+
                     }
+
                     true
+
                 }
-                R.id.action_toggle_screen_signin -> {
-                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
-                    isScreenAutoSignInEnabled = !isScreenAutoSignInEnabled
-                    item.title = if (isScreenAutoSignInEnabled) "大屏自动签到 (已开启)" else "大屏自动签到 (已暂停)"
-                    if (isScreenAutoSignInEnabled) {
-                        startLiveRollcallWatcher()
-                        Toast.makeText(this, "已开启大屏签到感知：捕捉到老师发起签到时将自动从大屏扫码", Toast.LENGTH_SHORT).show()
-                    } else {
-                        stopLiveRollcallWatcher()
-                        binding.cardRollcallBanner.visibility = View.GONE
-                        Toast.makeText(this, "已暂停大屏签到感知", Toast.LENGTH_SHORT).show()
-                    }
-                    true
-                }
-                R.id.action_capture_screen_now -> {
-                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
-                    capturePptFrameNow()
-                    true
-                }
-                R.id.action_toggle_chase_frame -> {
-                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
-                    toggleLiveChaseFrame(item)
-                    true
-                }
-                R.id.action_sync_live_now -> {
-                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
-                    triggerManualSyncLiveNow()
-                    true
-                }
-                R.id.action_test_frame_grab -> {
-                    if (!DeveloperModeManager.isDeveloperMode(this)) return@setOnMenuItemClickListener true
-                    Toast.makeText(this, "正在抓取视频帧与延迟数据...", Toast.LENGTH_SHORT).show()
-                    injectFrameGrabTestJs()
-                    true
-                }
-                else -> false
+
+                else -> liveWebSessionHandle?.onMenuItemSelected(item.itemId, item) ?: false
+
             }
+
         }
+
     }
 
-    private fun updateLiveMenuItemsVisibility(isLiveUrl: Boolean) {
-        val isDev = DeveloperModeManager.isDeveloperMode(this)
-        val showAdvanced = isLiveUrl && isDev
 
-        binding.toolbar.menu.findItem(R.id.action_toggle_screen_signin)?.apply {
-            isVisible = showAdvanced
-            title = if (isScreenAutoSignInEnabled) "大屏自动签到 (已开启)" else "大屏自动签到 (已暂停)"
-        }
-        binding.toolbar.menu.findItem(R.id.action_capture_screen_now)?.isVisible = showAdvanced
-        binding.toolbar.menu.findItem(R.id.action_toggle_chase_frame)?.apply {
-            isVisible = showAdvanced
-            title = if (isLiveChaseFrameEnabled) "直播低延迟追帧 (已开启)" else "直播低延迟追帧 (已暂停)"
-        }
-        binding.toolbar.menu.findItem(R.id.action_sync_live_now)?.isVisible = showAdvanced
-        binding.toolbar.menu.findItem(R.id.action_test_frame_grab)?.isVisible = showAdvanced
-    }
 
-    /**
-     * 启动直播低延迟自适应追帧守护引擎
-     * 注入 JS 守护器，智能平滑追帧 (1.25x) 并对超大滞后秒级跳跃对齐，将校外 15-20s 延迟压缩至 1s 左右
-     */
-    private fun startLiveChaseFrameGuard() = liveChaseController.startLiveChaseFrameGuard()
-    private fun toggleLiveChaseFrame(item: android.view.MenuItem) = liveChaseController.toggleLiveChaseFrame(item)
-    private fun triggerManualSyncLiveNow() = liveChaseController.triggerManualSyncLiveNow()
     private fun updateDesktopMenuItemTitle() {
         val menuItem = binding.toolbar.menu.findItem(R.id.action_toggle_desktop) ?: return
         menuItem.title = if (isDesktopMode) "切换为手机版" else "切换为电脑版"
@@ -553,7 +592,6 @@ class JwglWebActivity : AppCompatActivity() {
         cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
         binding.webView.addJavascriptInterface(LiveNavInterface(), "AndroidLiveNav")
-        binding.webView.addJavascriptInterface(liveRollcallController.createJsBridge(), "AndroidLiveQrTest")
 
         binding.webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest?) {
@@ -806,11 +844,11 @@ class JwglWebActivity : AppCompatActivity() {
                     }
                 }
 
+                val isLivePage = url != null && url.contains("live.usst.edu.cn")
+                liveWebSessionHandle?.onPageFinished(isLivePage)
+
                 // If on the Live video platform and course/date was specified, auto-navigate to playback
-                if (url != null && url.contains("live.usst.edu.cn")) {
-                    startLiveRollcallWatcher()
-                    startLiveChaseFrameGuard()
-                    updateLiveMenuItemsVisibility(true)
+                if (isLivePage) {
                     if (!searchQuery.isNullOrBlank() || !targetDate.isNullOrBlank()) {
                         val quotedQuery = JSONObject.quote(searchQuery ?: "")
                         val quotedTargetDate = JSONObject.quote(targetDate ?: "")
@@ -1296,7 +1334,8 @@ class JwglWebActivity : AppCompatActivity() {
 
 
     override fun onDestroy() {
-        stopLiveRollcallWatcher()
+        liveWebSessionHandle?.onDestroy()
+        liveWebSessionHandle = null
         if (customVideoView != null) {
             binding.webView.webChromeClient?.onHideCustomView()
         }

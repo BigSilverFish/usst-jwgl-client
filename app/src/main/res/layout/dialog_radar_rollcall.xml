@@ -159,86 +159,13 @@
 
                 </LinearLayout>
 
-                <!-- 模式2: 智能三点测距反解 -->
-                <RadioButton
-                    android:id="@+id/rbModeTrilateration"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="校园三点测距反解 (智能推算教师位置)"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp" />
-
-                <!-- 三点测距反解状态 -->
+                <!-- 扩展包点位模式与面板容器 -->
                 <LinearLayout
-                    android:id="@+id/layoutTrilaterationStatus"
+                    android:id="@+id/devRadarExtraContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="32dp"
-                    android:layout_marginTop="4dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:id="@+id/tvTrilaterationStatus"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="点击右侧按钮开始测距反解教师位置"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnStartTrilateration"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="36dp"
-                        android:text="开始测距"
-                        android:textSize="11sp" />
-
-                </LinearLayout>
-
-                <!-- 模式3: 教学楼预设 -->
-                <RadioButton
-                    android:id="@+id/rbModeBuilding"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="上理教学楼基准 (备选，固定点位)"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp" />
-
-                <!-- 教学楼选择下拉框 -->
-                <LinearLayout
-                    android:id="@+id/layoutBuildingSelector"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="32dp"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <com.google.android.material.card.MaterialCardView
-                        android:layout_width="match_parent"
-                        android:layout_height="40dp"
-                        app:cardBackgroundColor="@color/surface_variant"
-                        app:cardCornerRadius="8dp"
-                        app:cardElevation="0dp"
-                        app:strokeColor="@color/border"
-                        app:strokeWidth="0.8dp">
-
-                        <Spinner
-                            android:id="@+id/spinnerBuildings"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:paddingHorizontal="10dp" />
-
-                    </com.google.android.material.card.MaterialCardView>
-
-                </LinearLayout>
+                    android:orientation="vertical"
+                    android:visibility="gone" />
 
             </RadioGroup>
 
@@ -312,15 +239,12 @@
 
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- 多账号签到选项 -->
-    <com.google.android.material.checkbox.MaterialCheckBox
-        android:id="@+id/cbRadarSignAll"
+    <!-- 扩展包多账号签到选项槽位 -->
+    <FrameLayout
+        android:id="@+id/devRadarBatchContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
-        android:text="同时为全部已保存账号签到 (独立设备码)"
-        android:textColor="@color/text_secondary"
-        android:textSize="12.5sp"
         android:visibility="gone" />
 
     <!-- 底部操作按钮 -->

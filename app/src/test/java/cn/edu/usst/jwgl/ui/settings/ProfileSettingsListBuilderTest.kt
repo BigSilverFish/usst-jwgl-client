@@ -1,5 +1,6 @@
 package cn.edu.usst.jwgl.ui.settings
 
+import cn.edu.usst.jwgl.devapi.DevAddonStatus
 import cn.edu.usst.jwgl.util.RollcallAlertMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,6 +17,9 @@ class ProfileSettingsListBuilderTest {
         isTabletLandscape: Boolean = false,
         isBottomBarMode: Boolean = false,
         isDeveloperMode: Boolean = false,
+        devAddonStatus: DevAddonStatus = DevAddonStatus.NOT_INSTALLED,
+        devAddonVersionName: String? = null,
+        isDevAddonUserEnabled: Boolean = true,
         isCourseReminderEnabled: Boolean = true,
         isExamReminderEnabled: Boolean = true,
         isDdl24hEnabled: Boolean = true,
@@ -41,6 +45,9 @@ class ProfileSettingsListBuilderTest {
             isTabletLandscape = isTabletLandscape,
             isBottomBarMode = isBottomBarMode,
             isDeveloperMode = isDeveloperMode,
+            devAddonStatus = devAddonStatus,
+            devAddonVersionName = devAddonVersionName,
+            isDevAddonUserEnabled = isDevAddonUserEnabled,
             darkModeLabel = "跟随系统",
             phoneNavModeLabel = if (isBottomBarMode) "底栏模式" else "侧栏模式",
             isDoubleTapDrawerEnabled = true,
@@ -290,5 +297,62 @@ class ProfileSettingsListBuilderTest {
         assertEquals("大号", ProfileSettingsListBuilder.formatFontSizeLabel(72))
         assertEquals("标准", ProfileSettingsListBuilder.formatFontSizeLabel(null))
         assertEquals("标准", ProfileSettingsListBuilder.formatFontSizeLabel(99))
+    }
+
+    @Test
+    fun `devAddonStatus row renders only when installed and reflects toggle or api mismatch`() {
+        val absentRows = ProfileSettingsListBuilder.build(
+            baseState(devAddonStatus = DevAddonStatus.NOT_INSTALLED)
+        )
+        assertFalse(SettingsItemId.DEV_ADDON_STATUS in absentRows.ids())
+
+        val activeRows = ProfileSettingsListBuilder.build(
+            baseState(
+                devAddonStatus = DevAddonStatus.ACTIVE,
+                devAddonVersionName = "1.0.0",
+                isDevAddonUserEnabled = true,
+                isDeveloperMode = true
+            )
+        )
+        val activeSwitch = activeRows.filterIsInstance<SettingsRowModel.SwitchRow>()
+            .single { it.id == SettingsItemId.DEV_ADDON_STATUS }
+        assertTrue(activeSwitch.isChecked)
+        assertEquals("已启用", activeSwitch.statusBadgeText)
+        assertEquals(StatusTone.SUCCESS, activeSwitch.statusBadgeTone)
+
+        val pausedRows = ProfileSettingsListBuilder.build(
+            baseState(
+                devAddonStatus = DevAddonStatus.DISABLED_BY_USER,
+                devAddonVersionName = "1.0.0",
+                isDevAddonUserEnabled = false,
+                isDeveloperMode = false
+            )
+        )
+        val pausedSwitch = pausedRows.filterIsInstance<SettingsRowModel.SwitchRow>()
+            .single { it.id == SettingsItemId.DEV_ADDON_STATUS }
+        assertFalse(pausedSwitch.isChecked)
+        assertEquals("已停用", pausedSwitch.statusBadgeText)
+
+        val mismatchRows = ProfileSettingsListBuilder.build(
+            baseState(
+                devAddonStatus = DevAddonStatus.INCOMPATIBLE_API,
+                devAddonVersionName = "0.9.0"
+            )
+        )
+        val mismatchAction = mismatchRows.filterIsInstance<SettingsRowModel.ActionRow>()
+            .single { it.id == SettingsItemId.DEV_ADDON_STATUS }
+        assertEquals("需更新", mismatchAction.badgeText)
+        assertEquals(StatusTone.WARNING, mismatchAction.badgeTone)
+
+        val loadErrorRows = ProfileSettingsListBuilder.build(
+            baseState(
+                devAddonStatus = DevAddonStatus.LOAD_ERROR,
+                devAddonVersionName = "1.0.0"
+            )
+        )
+        val errorAction = loadErrorRows.filterIsInstance<SettingsRowModel.ActionRow>()
+            .single { it.id == SettingsItemId.DEV_ADDON_STATUS }
+        assertEquals("加载失败", errorAction.badgeText)
+        assertEquals(StatusTone.DANGER, errorAction.badgeTone)
     }
 }

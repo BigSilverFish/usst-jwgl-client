@@ -1,15 +1,8 @@
 ﻿package cn.edu.usst.jwgl.ui
 
-import android.app.ProgressDialog
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Typeface
 import android.view.View
-import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
 import android.util.Log
 import cn.edu.usst.jwgl.BuildConfig
@@ -22,11 +15,9 @@ import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import androidx.lifecycle.lifecycleScope
 import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.AppVersionInfo
-import cn.edu.usst.jwgl.data.model.LiveCourseRecord
-import cn.edu.usst.jwgl.data.network.LiveUsstClient
 import cn.edu.usst.jwgl.data.remote.RemoteConfigManager
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
 import cn.edu.usst.jwgl.ui.common.AuthorDisclaimerBottomSheet
-import cn.edu.usst.jwgl.ui.tronclass.LiveQrRollcallBottomSheetDialog
 import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
@@ -265,294 +256,21 @@ internal class MainSettingsDialogController(
             .safeShow()
     }
 
-    fun showRollcallAutoSignDelayDialog() {
-        val options = arrayOf(
-            "不延迟",
-            "延迟10秒",
-            "延迟30秒",
-            "有1人签到时",
-            "有10人签到时 (默认)",
-            "有一半人签到时",
-            "自定义时间",
-            "自定义签到人数比例"
-        )
-        val tcPrefs = TronClassPreferences.getInstance(activity)
-        val selectedIdx = tcPrefs.getRollcallAutoSignStrategyIndex()
-
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("自动签到时延与触发策略")
-            .setSingleChoiceItems(options, selectedIdx) { dialog, which ->
-                when (which) {
-                    0 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_NO_DELAY)
-                        activity.notifyProfileSettingsChanged()
-                        dialog.dismiss()
-                    }
-                    1 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_10S)
-                        activity.notifyProfileSettingsChanged()
-                        dialog.dismiss()
-                    }
-                    2 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_30S)
-                        activity.notifyProfileSettingsChanged()
-                        dialog.dismiss()
-                    }
-                    3 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_1)
-                        activity.notifyProfileSettingsChanged()
-                        dialog.dismiss()
-                    }
-                    4 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_10)
-                        activity.notifyProfileSettingsChanged()
-                        dialog.dismiss()
-                    }
-                    5 -> {
-                        tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_HALF_CLASS)
-                        activity.notifyProfileSettingsChanged()
-                        dialog.dismiss()
-                    }
-                    6 -> {
-                        dialog.dismiss()
-                        showCustomRollcallAutoSignTimeDialog()
-                    }
-                    7 -> {
-                        dialog.dismiss()
-                        showCustomRollcallAutoSignRatioDialog()
-                    }
-                }
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    fun showCustomRollcallAutoSignTimeDialog() {
-        val tcPrefs = TronClassPreferences.getInstance(activity)
-        val currentSeconds = tcPrefs.getRollcallAutoSignCustomSeconds()
-        val input = android.widget.EditText(activity).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(currentSeconds.toString())
-            setSelection(text.length)
-            hint = "请输入 0 到 300 之间的秒数"
-        }
-
-        val container = android.widget.FrameLayout(activity).apply {
-            val padding = (24 * activity.resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * activity.resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("自定义自动签到时延 (秒)")
-            .setMessage("设定自首次发现签到活动至开始尝试自动提交的等待时间（0 - 300 秒）：")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 0..300) {
-                    Toast.makeText(activity, "请输入 0 到 300 之间的秒数", Toast.LENGTH_SHORT).show()
-                } else {
-                    tcPrefs.setRollcallAutoSignCustomSeconds(entered)
-                    tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_TIME)
-                    activity.notifyProfileSettingsChanged()
-                }
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    fun showCustomRollcallAutoSignRatioDialog() {
-        val tcPrefs = TronClassPreferences.getInstance(activity)
-        val currentRatio = tcPrefs.getRollcallAutoSignCustomRatio()
-        val input = android.widget.EditText(activity).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(currentRatio.toString())
-            setSelection(text.length)
-            hint = "请输入 1 到 100 之间的整数百分比"
-        }
-
-        val container = android.widget.FrameLayout(activity).apply {
-            val padding = (24 * activity.resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * activity.resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("自定义签到人数比例 (%)")
-            .setMessage("设定当班级已出勤人数达到指定比例后跟进提交（1% - 100%）：")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val entered = input.text.toString().trim().toIntOrNull()
-                if (entered == null || entered !in 1..100) {
-                    Toast.makeText(activity, "请输入 1 到 100 之间的百分比", Toast.LENGTH_SHORT).show()
-                } else {
-                    tcPrefs.setRollcallAutoSignCustomRatio(entered)
-                    tcPrefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_RATIO)
-                    activity.notifyProfileSettingsChanged()
-                }
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
+    fun showRollcallAutoSignDelayDialog() {
+        DevAddonManager.getEntry(activity).autoSignExtension.showStrategyConfigDialog(activity) {
+            activity.notifyProfileSettingsChanged()
+        }
+    }
+
     fun showNotificationSettingsDialog() {
         val bottomSheet = cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet()
         bottomSheet.show(activity.supportFragmentManager, "NotificationDiagnostic")
     }
 
-    fun showLiveFrameTestDialog(keyword: String = "") {
-        if (!DeveloperModeManager.isDeveloperMode(activity)) return
-
-        val progress = ProgressDialog(activity).apply {
-            setMessage("正在获取当前在线直播课程...")
-            setCancelable(false)
-            if (!activity.isFinishing && !activity.isDestroyed) {
-                show()
-            }
-        }
-
-        activity.lifecycleScope.launch {
-            val result = LiveUsstClient(activity.applicationContext).fetchOngoingLiveCourses(keyword)
-            if (progress.isShowing) {
-                progress.dismiss()
-            }
-            if (activity.isFinishing || activity.isDestroyed) return@launch
-
-            result.onSuccess { records ->
-                if (records.isEmpty()) {
-                    showEmptyLiveCoursesDialog(keyword)
-                } else {
-                    showLiveCoursesPickerDialog(records)
-                }
-            }.onFailure { err ->
-                MaterialAlertDialogBuilder(activity)
-                    .setTitle("获取直播列表失败")
-                    .setMessage(err.message ?: "请检查网络或统一身份认证登录状态")
-                    .setPositiveButton("重试") { _, _ ->
-                        showLiveFrameTestDialog(keyword)
-                    }
-                    .setNegativeButton("关闭", null)
-                    .safeShow()
-            }
-        }
-    }
-
-    private fun showEmptyLiveCoursesDialog(lastKeyword: String) {
-        val msg = if (lastKeyword.isBlank()) {
-            "今日暂无在线课程直播记录，可尝试输入课程关键字检索。"
-        } else {
-            "未检索到包含「$lastKeyword」的直播课程。"
-        }
-        val builder = MaterialAlertDialogBuilder(activity)
-            .setTitle("暂无匹配直播")
-            .setMessage(msg)
-            .setPositiveButton("输入关键字检索") { _, _ ->
-                showLiveKeywordSearchDialog(lastKeyword)
-            }
-            .setNegativeButton("关闭", null)
-        if (!getLastCrashLog().isNullOrBlank()) {
-            builder.setNeutralButton("上次崩溃日志") { _, _ ->
-                showLastCrashLogDialog()
-            }
-        }
-        builder.safeShow()
-    }
-
-    private fun showLiveKeywordSearchDialog(initialKeyword: String = "") {
-        val input = EditText(activity).apply {
-            hint = "输入课程名称关键字（留空查今日全部）"
-            setText(initialKeyword)
-            setSelection(text.length)
-        }
-        val container = android.widget.FrameLayout(activity).apply {
-            val padding = (24 * activity.resources.displayMetrics.density).toInt()
-            setPadding(padding, (8 * activity.resources.displayMetrics.density).toInt(), padding, 0)
-            addView(input)
-        }
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("检索在线直播课程")
-            .setView(container)
-            .setPositiveButton("查询") { _, _ ->
-                showLiveFrameTestDialog(input.text.toString().trim())
-            }
-            .setNegativeButton("取消", null)
-            .safeShow()
-    }
-
-    private fun showLiveCoursesPickerDialog(records: List<LiveCourseRecord>) {
-        val now = System.currentTimeMillis()
-        val labels = records.map { record ->
-            val name = record.subjName?.takeIf { it.isNotBlank() } ?: "未命名课程"
-            val room = record.clroName?.takeIf { it.isNotBlank() } ?: "未知教室"
-            val statusSuffix = if (record.isCurrentlyLive(now)) " (直播中)" else ""
-            "$name · $room$statusSuffix"
-        }.toTypedArray()
-
-        val builder = MaterialAlertDialogBuilder(activity)
-            .setTitle("选择测试直播课程 (${records.size})")
-            .setItems(labels) { _, which ->
-                if (activity.isFinishing || activity.isDestroyed || activity.supportFragmentManager.isStateSaved) {
-                    return@setItems
-                }
-                val chosen = records[which]
-                LiveQrRollcallBottomSheetDialog.newTestInstance(
-                    liveCourseId = chosen.id,
-                    courseName = chosen.subjName,
-                    classroom = chosen.clroName
-                ).show(activity.supportFragmentManager, "DevLiveQrTest")
-            }
-            .setNeutralButton("关键字筛选") { _, _ ->
-                showLiveKeywordSearchDialog()
-            }
-            .setNegativeButton("取消", null)
-        if (!getLastCrashLog().isNullOrBlank()) {
-            builder.setPositiveButton("上次崩溃日志") { _, _ ->
-                showLastCrashLogDialog()
-            }
-        }
-        builder.safeShow()
-    }
-
-    private fun getLastCrashLog(): String? {
-        return runCatching {
-            activity.getSharedPreferences("usst_crash_logs", Context.MODE_PRIVATE)
-                .getString("last_crash", null)
-        }.getOrNull()
-    }
-
-    private fun showLastCrashLogDialog() {
-        val logText = getLastCrashLog()?.takeIf { it.isNotBlank() } ?: "暂无本地崩溃记录。"
-        val dp = activity.resources.displayMetrics.density
-        val textView = TextView(activity).apply {
-            text = logText
-            setTextIsSelectable(true)
-            textSize = 11.5f
-            typeface = Typeface.MONOSPACE
-            setPadding((20 * dp).toInt(), (12 * dp).toInt(), (20 * dp).toInt(), (12 * dp).toInt())
-        }
-        val scrollView = ScrollView(activity).apply {
-            addView(textView)
-        }
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("上次未捕获崩溃日志")
-            .setView(scrollView)
-            .setPositiveButton("复制") { _, _ ->
-                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                clipboard?.setPrimaryClip(ClipData.newPlainText("last_crash", logText))
-                Toast.makeText(activity, "已复制崩溃日志", Toast.LENGTH_SHORT).show()
-            }
-            .setNeutralButton("清空") { _, _ ->
-                activity.getSharedPreferences("usst_crash_logs", Context.MODE_PRIVATE)
-                    .edit()
-                    .remove("last_crash")
-                    .apply()
-                Toast.makeText(activity, "已清空本地崩溃记录", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("关闭", null)
-            .safeShow()
-    }
-
-
+    fun showLiveFrameTestDialog(keyword: String = "") {
+        DevAddonManager.getEntry(activity).liveScreenExtension.showLiveFrameTestDialog(activity, keyword)
+    }
+
     fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) {
         val existing = activity.supportFragmentManager.findFragmentByTag(AuthorDisclaimerBottomSheet.TAG) as? AuthorDisclaimerBottomSheet
         existing?.dismiss()

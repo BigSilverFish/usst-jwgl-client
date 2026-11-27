@@ -15,8 +15,8 @@ import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.network.ChaoXingRequestGuard
 import cn.edu.usst.jwgl.databinding.DialogTronclassRollcallWizardBinding
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
 import cn.edu.usst.jwgl.ui.common.NotificationDiagnosticBottomSheet
-import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.NotificationDiagnosticHelper
 import cn.edu.usst.jwgl.util.RollcallPermissionGuide
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
@@ -196,7 +196,9 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
                 Toast.makeText(ctx, "自动签到功能需要先开启上课签到后台监听", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            showAutoSignStrategyChooser(ctx, prefs)
+            DevAddonManager.getEntry(ctx).autoSignExtension.showStrategyConfigDialog(requireActivity()) {
+                updateSwitchStates(prefs)
+            }
         }
 
         // 4. 底部辅助操作
@@ -244,8 +246,8 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             else -> "已开启 · 仅锁定当前课程 50~60s 低频探测，发现即弹窗"
         }
 
-        // 自动提交项（受开发者模式管控：未激活时隐藏）
-        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
+        // 自动提交项（受开发者扩展包管控：未激活时隐藏）
+        val isDev = DevAddonManager.getEntry(ctx).autoSignExtension.isAutoSignAvailable()
         binding.layoutAutoSignRow.visibility = if (isDev) View.VISIBLE else View.GONE
         binding.dividerAutoSign.visibility = if (isDev) View.VISIBLE else View.GONE
 
@@ -258,109 +260,6 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             !isAutoSign -> "已关闭自动提交 (仅保留监听与弹窗)"
             else -> "当前策略: $strategyText · 点击配置"
         }
-    }
-
-    private fun showAutoSignStrategyChooser(ctx: Context, prefs: TronClassPreferences) {
-        val options = arrayOf(
-            "不延迟",
-            "延迟10秒",
-            "延迟30秒",
-            "有1人签到时",
-            "有10人签到时 (默认)",
-            "有一半人签到时",
-            "自定义时间",
-            "自定义签到人数比例"
-        )
-        val selectedIdx = prefs.getRollcallAutoSignStrategyIndex()
-
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("选择自动签到时延与策略")
-            .setSingleChoiceItems(options, selectedIdx) { d, item ->
-                when (item) {
-                    0 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_NO_DELAY)
-                        d.dismiss()
-                        updateSwitchStates(prefs)
-                    }
-                    1 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_10S)
-                        d.dismiss()
-                        updateSwitchStates(prefs)
-                    }
-                    2 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_DELAY_30S)
-                        d.dismiss()
-                        updateSwitchStates(prefs)
-                    }
-                    3 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_1)
-                        d.dismiss()
-                        updateSwitchStates(prefs)
-                    }
-                    4 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_COUNT_10)
-                        d.dismiss()
-                        updateSwitchStates(prefs)
-                    }
-                    5 -> {
-                        prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_HALF_CLASS)
-                        d.dismiss()
-                        updateSwitchStates(prefs)
-                    }
-                    6 -> {
-                        d.dismiss()
-                        showCustomDelaySecondsDialog(ctx, prefs)
-                    }
-                    7 -> {
-                        d.dismiss()
-                        showCustomRatioDialog(ctx, prefs)
-                    }
-                }
-            }
-            .setNegativeButton("返回", null)
-            .show()
-    }
-
-    private fun showCustomDelaySecondsDialog(ctx: Context, prefs: TronClassPreferences) {
-        val input = android.widget.EditText(ctx).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            hint = "输入等待秒数 (0~300)"
-            setText(prefs.getRollcallAutoSignCustomSeconds().toString())
-            setSelection(text.length)
-        }
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("自定义延迟等待时间")
-            .setMessage("检测到签到开始后，等待指定的秒数后再自动提交（0~300秒）：")
-            .setView(input)
-            .setPositiveButton("确定") { _, _ ->
-                val seconds = input.text.toString().trim().toIntOrNull() ?: 15
-                prefs.setRollcallAutoSignCustomSeconds(seconds)
-                prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_TIME)
-                updateSwitchStates(prefs)
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun showCustomRatioDialog(ctx: Context, prefs: TronClassPreferences) {
-        val input = android.widget.EditText(ctx).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            hint = "输入签到人数百分比 (1~100)"
-            setText(prefs.getRollcallAutoSignCustomRatio().toString())
-            setSelection(text.length)
-        }
-        MaterialAlertDialogBuilder(ctx)
-            .setTitle("自定义签到人数比例")
-            .setMessage("班级已签到人数达到该比例时自动提交（1%~100%）：")
-            .setView(input)
-            .setPositiveButton("确定") { _, _ ->
-                val ratio = input.text.toString().trim().toIntOrNull() ?: 30
-                prefs.setRollcallAutoSignCustomRatio(ratio)
-                prefs.setRollcallAutoSignStrategy(TronClassPreferences.STRATEGY_CUSTOM_RATIO)
-                updateSwitchStates(prefs)
-            }
-            .setNegativeButton("取消", null)
-            .show()
     }
 
     override fun onDestroyView() {

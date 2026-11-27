@@ -41,5 +41,21 @@
     public static int i(...);
 }
 
+# Keep cross-APK dev-api contract and coroutine ABI boundary
+-keep class cn.edu.usst.jwgl.devapi.** { *; }
+-keep interface cn.edu.usst.jwgl.devapi.** { *; }
+-keep class kotlin.Unit { *; }
+-keep class kotlin.Pair { *; }
+-keep class kotlin.Triple { *; }
+-keep class kotlin.Result { *; }
+-keep class kotlin.Result$Failure { *; }
+-keep class kotlin.Function { *; }
+-keep class kotlin.jvm.functions.** { *; }
+-keep class kotlin.jvm.internal.FunctionBase { *; }
+-keep class kotlin.jvm.internal.Lambda { *; }
+-keep class kotlin.jvm.internal.DefaultConstructorMarker { *; }
+-keep class kotlin.coroutines.** { *; }
+-keep class kotlinx.coroutines.** { *; }
+
 
 

@@ -12,8 +12,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -21,12 +19,13 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import cn.edu.usst.jwgl.R
-import cn.edu.usst.jwgl.data.model.RollcallSubmitResult
 import cn.edu.usst.jwgl.data.network.TronClassClient
 import cn.edu.usst.jwgl.databinding.DialogRadarRollcallBinding
+import cn.edu.usst.jwgl.devaddon.DevAddonManager
+import cn.edu.usst.jwgl.devapi.HostLocation
+import cn.edu.usst.jwgl.devapi.RadarDialogAddonHandle
+import cn.edu.usst.jwgl.devapi.RadarDialogHost
 import cn.edu.usst.jwgl.util.CoordinateSystem
-import cn.edu.usst.jwgl.util.CoordinateUtils
-import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.util.RadarLocationSelection
 import cn.edu.usst.jwgl.util.RollcallLocation
 import kotlinx.coroutines.Job
@@ -53,7 +52,7 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     private var chaoXingCourseId: String? = null
     private var chaoXingClassId: String? = null
     private var locationAddress: String? = null
-    private var teacherRadioButtonId: Int? = null
+    private var radarAddonHandle: RadarDialogAddonHandle? = null
 
     private val isChaoXingMode: Boolean
         get() = !chaoXingCourseId.isNullOrBlank() && !chaoXingClassId.isNullOrBlank()
@@ -78,14 +77,12 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             fetchDeviceLocation()
         } else {
             val b = _binding ?: return@registerForActivityResult
-            val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-            if (isDev) {
-                b.tvGpsStatus.text = "定位权限被拒绝，已自动回退到上理教学楼基准"
-                b.rbModeBuilding.isChecked = true
+            if (radarAddonHandle?.onGpsPermissionDenied() == true) {
+                b.tvGpsStatus.text = "定位权限被拒绝，已自动回退到扩展包默认基准"
                 updateModeVisibility()
             } else {
                 b.tvGpsStatus.text = "定位权限被拒绝，请在系统设置中允许定位权限"
-                Toast.makeText(requireContext(), "未开启开发者模式，雷达签到须允许本机定位权限", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "雷达签到须允许本机定位权限", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -162,134 +159,118 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
             binding.tvRadarAttendanceStats.visibility = View.GONE
         }
 
-        // 1. 初始化教学楼下拉框（适配深色与浅色模式文字与背景）
-        val buildings = CoordinateUtils.USST_BUILDINGS
-        val buildingNames = buildings.map { "${it.name} (${it.campus})" }
-        val adapter = object : ArrayAdapter<String>(requireContext(), android.R.layout.simple_spinner_item, buildingNames) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val v = super.getView(position, convertView, parent)
-                (v as? android.widget.TextView)?.apply {
-                    setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-                    textSize = 13f
+        // 挂载开发者扩展包点位模式与多账号选项（未安装/未启用时自动折叠隐藏）
+        val host = object : RadarDialogHost {
+            override val rgLocationMode get() = binding.rgLocationMode
+            override val extraPanelSlot get() = binding.devRadarExtraContainer
+            override val batchSlot get() = binding.devRadarBatchContainer
+            override val gpsRadioButtonId get() = R.id.rbModeCurrentGps
+            override val rollcallIdProvider: () -> Long = { rollcallId }
+            override val courseName: String? get() = this@RadarRollcallBottomSheetDialog.courseName
+            override val classroom: String? get() = this@RadarRollcallBottomSheetDialog.classroom
+            override val isChaoXingMode: Boolean get() = this@RadarRollcallBottomSheetDialog.isChaoXingMode
+            override val teacherLat: Double? get() = this@RadarRollcallBottomSheetDialog.teacherLat
+            override val teacherLng: Double? get() = this@RadarRollcallBottomSheetDialog.teacherLng
+            override val teacherScope: Double? get() = this@RadarRollcallBottomSheetDialog.teacherScope
+            override val locationAddress: String? get() = this@RadarRollcallBottomSheetDialog.locationAddress
+
+            override fun onSelectVirtualLocation(location: HostLocation, displayTitle: String, accuracyTip: String) {
+                if (_binding == null || !isAdded) return
+                stopDeviceLocationUpdates()
+                selectedLatitude = location.latitude
+                selectedLongitude = location.longitude
+                selectedAccuracy = location.accuracyMeters
+                selectedAddress = location.source.ifBlank {
+                    this@RadarRollcallBottomSheetDialog.locationAddress?.takeIf { it.isNotBlank() } ?: "上海理工大学"
                 }
-                return v
+                locationSelection.select(
+                    RadarLocationSelection.Mode.TEACHER,
+                    RollcallLocation(
+                        latitude = selectedLatitude,
+                        longitude = selectedLongitude,
+                        coordinateSystem = CoordinateSystem.GCJ02,
+                        source = location.source,
+                        accuracyMeters = selectedAccuracy
+                    )
+                )
+                binding.tvCoordinatesDisplay.text = String.format(
+                    Locale.CHINA,
+                    "纬度: %.6f, 经度: %.6f",
+                    selectedLatitude,
+                    selectedLongitude
+                )
+                binding.tvSelectedBuildingCampus.text = displayTitle
+                binding.tvAccuracyTip.text = accuracyTip
+                updateModeVisibility()
             }
 
-            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val v = super.getDropDownView(position, convertView, parent)
-                (v as? android.widget.TextView)?.apply {
-                    setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-                    setBackgroundColor(ContextCompat.getColor(context, R.color.surface))
-                    setPadding(36, 28, 36, 28)
-                    textSize = 13f
-                }
-                return v
+            override fun onSelectGpsMode() {
+                if (_binding == null || !isAdded) return
+                updateModeVisibility()
+                checkLocationPermissionAndFetch()
             }
-        }.apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+
+            override fun onSetSubmitEnabled(enabled: Boolean) {
+                val b = _binding ?: return
+                b.btnSubmitRadar.isEnabled = enabled
+                b.btnSubmitRadar.text = if (enabled) {
+                    if (isChaoXingMode) "立即位置签到" else "立即雷达签到"
+                } else ""
+                b.progressRadarSubmitting.visibility = if (enabled) View.GONE else View.VISIBLE
+                b.btnCancelRadar.isEnabled = enabled
+            }
+
+            override fun onSignSucceeded() {
+                onSignSuccessListener?.invoke()
+            }
+
+            override fun onDismiss() {
+                if (isAdded) dismiss()
+            }
+
+            override fun ensureRollcallId(onReady: (Long) -> Unit) {
+                if (rollcallId > 0L) {
+                    onReady(rollcallId)
+                } else {
+                    promptForRollcallId(onReady)
+                }
+            }
+
+            override fun getCurrentGpsLocation(): HostLocation? {
+                val loc = locationSelection.snapshotForSubmission(System.currentTimeMillis()) ?: return null
+                return HostLocation(
+                    latitude = loc.latitude,
+                    longitude = loc.longitude,
+                    accuracyMeters = loc.accuracyMeters ?: 15.0,
+                    source = loc.source
+                )
+            }
         }
-        binding.spinnerBuildings.adapter = adapter
+        radarAddonHandle = DevAddonManager.getEntry(requireContext()).radarRollcallExtension
+            .mountRadarDialogSlots(requireActivity(), host)
 
-        // 2. 智能匹配：根据传入的教室名称或课程匹配最近的教学楼
-        val matched = CoordinateUtils.findMatchingBuilding(classroom) ?: CoordinateUtils.findMatchingBuilding(courseName)
-        val defaultIndex = if (matched != null) {
-            buildings.indexOf(matched).coerceAtLeast(0)
+        binding.tvLocationModeTitle.text = if (radarAddonHandle != null) {
+            "选择签到定位基准"
         } else {
-            0
-        }
-        binding.spinnerBuildings.setSelection(defaultIndex)
-        applyBuildingLocation(buildings[defaultIndex])
-
-        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-
-        // 3. 教师基准点直连模式（仅开发者模式下且服务端下发教师坐标时提供）
-        val hasTeacherBeacon = isDev && teacherLat != null && teacherLng != null && teacherLat != 0.0 && teacherLng != 0.0
-        if (hasTeacherBeacon) {
-            val rbTeacher = android.widget.RadioButton(requireContext()).apply {
-                id = View.generateViewId()
-                text = "🎯 教师基准点直连 (100% 必过 · 距教师约 0m)"
-                setTextColor(ContextCompat.getColor(context, R.color.grade_blue_text))
-                textSize = 13f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-            binding.rgLocationMode.addView(rbTeacher, 0)
-            teacherRadioButtonId = rbTeacher.id
-        }
-
-        if (!isDev) {
-            // 未开启开发者模式：只能用本机真实定位，彻底隐藏其他虚拟基准与三点反解选项
-            binding.tvLocationModeTitle.text = "签到定位基准：手机本机真实定位"
-            binding.rbModeTrilateration.visibility = View.GONE
-            binding.layoutTrilaterationStatus.visibility = View.GONE
-            binding.rbModeBuilding.visibility = View.GONE
-            binding.layoutBuildingSelector.visibility = View.GONE
+            "签到定位基准：手机本机真实定位"
         }
 
         // 默认签到方式设为本机定位模式 (手机原生 GPS / 基站定位)
         binding.rbModeCurrentGps.isChecked = true
         checkLocationPermissionAndFetch()
-
-        // 4. 多账号签到支持（仅畅课雷达点名启用）
-        if (isChaoXingMode) {
-            binding.cbRadarSignAll.visibility = View.GONE
-        } else {
-            try {
-                val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-                val accounts = cn.edu.usst.jwgl.data.local.AccountVault.getInstance(requireContext()).getAccounts()
-                if (isDev && accounts.size > 1) {
-                    binding.cbRadarSignAll.visibility = View.VISIBLE
-                    binding.cbRadarSignAll.isChecked = true
-                    binding.cbRadarSignAll.text = "同时为全部已保存账号签到 (共 ${accounts.size} 人 · 独立设备码)"
-                } else {
-                    binding.cbRadarSignAll.visibility = View.GONE
-                }
-            } catch (_: Exception) {
-                binding.cbRadarSignAll.visibility = View.GONE
-            }
-        }
-
         updateModeVisibility()
     }
 
     private fun setupListeners() {
-        binding.spinnerBuildings.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val building = CoordinateUtils.USST_BUILDINGS.getOrNull(position) ?: return
-                if (binding.rbModeBuilding.isChecked) {
-                    applyBuildingLocation(building)
-                }
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-
         binding.rgLocationMode.setOnCheckedChangeListener { _, checkedId ->
             updateModeVisibility()
-            if (teacherRadioButtonId != null && checkedId == teacherRadioButtonId) {
-                applyTeacherBeaconLocation()
-            } else if (checkedId == R.id.rbModeBuilding) {
-                val pos = binding.spinnerBuildings.selectedItemPosition
-                val building = CoordinateUtils.USST_BUILDINGS.getOrNull(pos) ?: CoordinateUtils.USST_BUILDINGS[0]
-                applyBuildingLocation(building)
-            } else if (checkedId == R.id.rbModeCurrentGps) {
+            if (checkedId == R.id.rbModeCurrentGps) {
                 checkLocationPermissionAndFetch()
-            } else if (checkedId == R.id.rbModeTrilateration) {
-                stopDeviceLocationUpdates()
-                locationSelection.select(RadarLocationSelection.Mode.TEACHER, null)
-                selectedLatitude = 0.0
-                selectedLongitude = 0.0
-                selectedAddress = ""
-                binding.tvCoordinatesDisplay.text = "等待三点测距反解..."
-                binding.tvSelectedBuildingCampus.text = "基准: 校园三点几何测距反解 (教师真实位置)"
-                binding.tvAccuracyTip.text = "算法拟合精度: ±1~5m"
             }
         }
 
         binding.btnRefreshGps.setOnClickListener {
             checkLocationPermissionAndFetch()
-        }
-
-        binding.btnStartTrilateration.setOnClickListener {
-            startTrilaterationProbe(autoSubmitAfterSolve = false)
         }
 
         binding.btnCancelRadar.setOnClickListener {
@@ -302,128 +283,8 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun updateModeVisibility() {
-        val isTeacherMode = teacherRadioButtonId != null && binding.rgLocationMode.checkedRadioButtonId == teacherRadioButtonId
-        binding.layoutBuildingSelector.visibility = View.GONE
-        binding.layoutGpsStatus.visibility = View.GONE
-        binding.layoutTrilaterationStatus.visibility = View.GONE
-
-        if (isTeacherMode) {
-            // 教师直连模式
-        } else if (binding.rbModeBuilding.isChecked) {
-            binding.layoutBuildingSelector.visibility = View.VISIBLE
-        } else if (binding.rbModeTrilateration.isChecked) {
-            binding.layoutTrilaterationStatus.visibility = View.VISIBLE
-        } else {
-            // 本机定位模式 (rbModeCurrentGps)
-            binding.layoutGpsStatus.visibility = View.VISIBLE
-        }
-    }
-
-    private fun applyTeacherBeaconLocation() {
-        stopDeviceLocationUpdates()
-        val baseLat = teacherLat ?: return
-        val baseLng = teacherLng ?: return
-        // 叠加自然物理微扰动 (±1.5 米, 约 ±0.000015 度)，防止被服务端风控判定为 0 距离假点
-        val jitterLat = (Math.random() - 0.5) * 0.00003
-        val jitterLng = (Math.random() - 0.5) * 0.00003
-        selectedLatitude = baseLat + jitterLat
-        selectedLongitude = baseLng + jitterLng
-        selectedAccuracy = 5.0
-        selectedAddress = locationAddress?.takeIf { it.isNotBlank() } ?: "上海理工大学"
-        locationSelection.select(
-            RadarLocationSelection.Mode.TEACHER,
-            RollcallLocation(
-                latitude = selectedLatitude,
-                longitude = selectedLongitude,
-                coordinateSystem = CoordinateSystem.GCJ02,
-                source = "教师端实时点名基准点",
-                accuracyMeters = selectedAccuracy
-            )
-        )
-
-        binding.tvCoordinatesDisplay.text = String.format(
-            Locale.CHINA,
-            "纬度: %.6f, 经度: %.6f",
-            selectedLatitude,
-            selectedLongitude
-        )
-        val scopeText = if (teacherScope != null) " · 范围 ±${teacherScope?.toInt()}m" else ""
-        binding.tvSelectedBuildingCampus.text = "基准: 教师端实时点名基准点 (直连 100% 必过通道$scopeText)"
-        binding.tvAccuracyTip.text = "直连精度: ±5m (0m 偏差)"
-    }
-
-    private fun trySilentAutoSnapToNearestBuilding() {
-        if (!DeveloperModeManager.isDeveloperMode(requireContext())) {
-            return
-        }
-        val finePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-        val coarsePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (finePerm != PackageManager.PERMISSION_GRANTED && coarsePerm != PackageManager.PERMISSION_GRANTED) {
-            return
-        }
-        val lm = requireContext().getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-        val now = System.currentTimeMillis()
-        var bestLoc: Location? = null
-        for (p in providers) {
-            try {
-                if (lm.isProviderEnabled(p)) {
-                    val loc = lm.getLastKnownLocation(p)
-                    if (loc != null && (now - loc.time) <= 15 * 60 * 1000L) {
-                        if (bestLoc == null || loc.accuracy < bestLoc.accuracy) {
-                            bestLoc = loc
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-        bestLoc?.let { autoSnapToNearestBuilding(it) }
-    }
-
-    private fun autoSnapToNearestBuilding(loc: Location) {
-        if (_binding == null || !isAdded) return
-        if (teacherRadioButtonId != null && binding.rgLocationMode.checkedRadioButtonId == teacherRadioButtonId) {
-            return
-        }
-        val (nearest, dist) = CoordinateUtils.findNearestBuildingFromWgs84(loc.latitude, loc.longitude)
-        if (dist <= 800.0) { // 800米以内属于校区覆盖半径
-            val idx = CoordinateUtils.USST_BUILDINGS.indexOf(nearest)
-            if (idx >= 0) {
-                binding.spinnerBuildings.setSelection(idx)
-                if (binding.rbModeBuilding.isChecked) {
-                    applyBuildingLocation(nearest)
-                    binding.tvSelectedBuildingCampus.text = "已自动为您吸附至最近教学楼: ${nearest.name} (距您仅 ${dist.toInt()}m)"
-                }
-            }
-        }
-    }
-
-    private fun applyBuildingLocation(building: CoordinateUtils.CampusBuilding) {
-        stopDeviceLocationUpdates()
-        selectedLatitude = building.latitude
-        selectedLongitude = building.longitude
-        selectedAccuracy = 15.0
-        selectedAddress = "上海理工大学 ${building.name}"
-        locationSelection.select(
-            RadarLocationSelection.Mode.BUILDING,
-            RollcallLocation(
-                latitude = selectedLatitude,
-                longitude = selectedLongitude,
-                coordinateSystem = CoordinateSystem.GCJ02,
-                source = selectedAddress,
-                accuracyMeters = selectedAccuracy,
-                pointVersion = CoordinateUtils.BUILDING_POINT_VERSION
-            )
-        )
-
-        binding.tvCoordinatesDisplay.text = String.format(
-            Locale.CHINA,
-            "纬度: %.6f, 经度: %.6f",
-            selectedLatitude,
-            selectedLongitude
-        )
-        binding.tvSelectedBuildingCampus.text = "基准: 上海理工大学 ${building.name} (${building.campus})"
-        binding.tvAccuracyTip.text = "基准精度: ±15m"
+        val isVirtual = radarAddonHandle?.isVirtualModeSelected() == true
+        binding.layoutGpsStatus.visibility = if (isVirtual) View.GONE else View.VISIBLE
     }
 
     private fun stopDeviceLocationUpdates() {
@@ -581,12 +442,8 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 activeLocationListener = null
                 if (locationSelection.snapshotForSubmission(System.currentTimeMillis()) == null) {
                     locationSelection.cancelDeviceRequest()
-                    val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-                    _binding?.tvGpsStatus?.text = if (isDev) {
-                        "本机定位超时 (20s)，请点击刷新重试或切换教学楼基准"
-                    } else {
-                        "本机定位超时 (20s) 或精度不足 (>100m)，请移至窗边后点击刷新重试"
-                    }
+                    _binding?.tvGpsStatus?.text = radarAddonHandle?.onGpsTimeoutHint()
+                        ?: "本机定位超时 (20s) 或精度不足 (>100m)，请移至窗边后点击刷新重试"
                 }
             }
         }
@@ -618,144 +475,37 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         b.tvAccuracyTip.text = String.format(Locale.CHINA, "定位精度: ±%.0fm (%s)", selectedAccuracy, providerName)
         b.tvSelectedBuildingCampus.text = "来源: 移动设备传感器实时定位 ($providerName · 已纠偏至GCJ-02)"
 
-        // 同步为教学楼模式提供智能吸附
-        autoSnapToNearestBuilding(rawLoc)
+        // 同步通知扩展包最近一次真实 GPS 位置（如教学楼自动吸附）
+        radarAddonHandle?.onGpsLocationUpdated(rawLoc.latitude, rawLoc.longitude)
     }
 
-    private fun startTrilaterationProbe(autoSubmitAfterSolve: Boolean = false) {
-        if (rollcallId <= 0L) return
-        val client = TronClassClient(requireContext().applicationContext)
-        val b = _binding ?: return
-        b.btnStartTrilateration.isEnabled = false
-        b.btnSubmitRadar.isEnabled = false
-
-        lifecycleScope.launch {
-            b.tvTrilaterationStatus.text = "正在获取校园基准三角锚点..."
-            val anchors = cn.edu.usst.jwgl.util.TrilaterationSolver.getCampusAnchors(classroom, courseName)
-            val observations = mutableListOf<cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation>()
-
-            for ((idx, anchor) in anchors.withIndex()) {
-                if (!isAdded || _binding == null) return@launch
-                b.tvTrilaterationStatus.text = "正在探测点 ${idx + 1}/3: 【${anchor.name}】..."
-                val probe = client.probeRadarCoordinate(
-                    rollcallId = rollcallId,
-                    latitude = anchor.latitude,
-                    longitude = anchor.longitude
-                )
-                when (probe) {
-                    is TronClassClient.RadarProbeResult.InRange -> {
-                        if (!isAdded || _binding == null) return@launch
-                        val isBatch = !isChaoXingMode &&
-                            DeveloperModeManager.isDeveloperMode(requireContext()) &&
-                            b.cbRadarSignAll.visibility == View.VISIBLE &&
-                            b.cbRadarSignAll.isChecked
-                        if (isBatch) {
-                            b.tvTrilaterationStatus.text = "锚点【${anchor.name}】命中范围，正在为其余账号分发签到..."
-                            val results = client.batchAnswerRadarRollcall(
-                                rollcallId = rollcallId,
-                                latitude = anchor.latitude,
-                                longitude = anchor.longitude,
-                                accuracy = 60.0
-                            )
-                            if (!isAdded) return@launch
-                            if (results.any { it.studentId == cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(requireContext()) && it.success }) {
-                                onSignSuccessListener?.invoke()
-                            }
-                            dismiss()
-                            showMultiAccountRollcallSummaryDialog(requireActivity(), results)
-                            return@launch
-                        }
-                        b.tvTrilaterationStatus.text = "锚点【${anchor.name}】在范围内，已直接签到成功！"
-                        Toast.makeText(requireContext(), "🎉 探针命中范围，签到成功！", Toast.LENGTH_SHORT).show()
-                        onSignSuccessListener?.invoke()
-                        dismiss()
-                        return@launch
-                    }
-                    is TronClassClient.RadarProbeResult.Distance -> {
-                        observations.add(
-                            cn.edu.usst.jwgl.util.TrilaterationSolver.AnchorObservation(
-                                anchor.latitude, anchor.longitude, probe.distanceMeters, anchor.name
-                            )
-                        )
-                    }
-                    is TronClassClient.RadarProbeResult.Error -> {
-                        Log.w("RadarDialog", "Anchor ${anchor.name} probe error: ${probe.message}")
-                    }
-                }
-            }
-
-            if (!isAdded || _binding == null) return@launch
-            b.btnStartTrilateration.isEnabled = true
-            b.btnSubmitRadar.isEnabled = true
-
-            if (observations.size < 3) {
-                b.tvTrilaterationStatus.text = "测距获取不足 (${observations.size}/3 组)，请切换为本机定位重试"
-                if (autoSubmitAfterSolve) {
-                    Toast.makeText(requireContext(), "三点测距不足，请使用本机定位签到", Toast.LENGTH_SHORT).show()
-                }
-                return@launch
-            }
-
-            b.tvTrilaterationStatus.text = "已获取 3 组测距数据，正在三边测量反解教师坐标..."
-            val solved = cn.edu.usst.jwgl.util.TrilaterationSolver.solve(observations)
-            if (solved == null) {
-                b.tvTrilaterationStatus.text = "反解几何方程退化，请重试或使用本机定位"
-                if (autoSubmitAfterSolve) {
-                    Toast.makeText(requireContext(), "三点解算失败，请使用本机定位签到", Toast.LENGTH_SHORT).show()
-                }
-                return@launch
-            }
-
-            // 反解成功！仅当仍处于三点反解模式时才应用坐标
-            if (!b.rbModeTrilateration.isChecked) return@launch
-            selectedLatitude = solved.latitude
-            selectedLongitude = solved.longitude
-            selectedAccuracy = 5.0
-            selectedAddress = "三点定位反解教师位置"
-            locationSelection.select(
-                RadarLocationSelection.Mode.TEACHER,
-                RollcallLocation(
-                    latitude = selectedLatitude,
-                    longitude = selectedLongitude,
-                    coordinateSystem = CoordinateSystem.GCJ02,
-                    source = selectedAddress,
-                    accuracyMeters = selectedAccuracy
-                )
-            )
-
-            b.tvCoordinatesDisplay.text = String.format(
-                Locale.CHINA,
-                "纬度: %.6f, 经度: %.6f",
-                selectedLatitude,
-                selectedLongitude
-            )
-            b.tvAccuracyTip.text = String.format(Locale.CHINA, "反解精度: ±%.1fm", solved.residualRmse)
-            b.tvSelectedBuildingCampus.text = String.format(
-                Locale.CHINA,
-                "基准: 校园三点几何测距反解 (教师真实位置，残差: ±%.1fm)",
-                solved.residualRmse
-            )
-            b.tvTrilaterationStatus.text = String.format(
-                Locale.CHINA,
-                "✅ 教师坐标反解成功！(拟合残差: ±%.1fm)",
-                solved.residualRmse
-            )
-
-            if (autoSubmitAfterSolve) {
-                submitRadarRollcall()
-            }
+    private fun promptForRollcallId(onReady: (Long) -> Unit) {
+        val ctx = requireContext()
+        val input = android.widget.EditText(ctx).apply {
+            hint = "请输入雷达点名 ID"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
         }
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("输入点名 ID")
+            .setMessage("当前未检测到进行中的点名活动，请向教师获取数字点名 ID 后提交：")
+            .setView(input)
+            .setPositiveButton("确定提交") { _, _ ->
+                val enteredId = input.text.toString().trim().toLongOrNull() ?: 0L
+                if (enteredId > 0L) {
+                    rollcallId = enteredId
+                    onReady(enteredId)
+                } else {
+                    Toast.makeText(ctx, "请输入有效的点名 ID", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun submitRadarRollcall() {
-        val isDev = DeveloperModeManager.isDeveloperMode(requireContext())
-        if (!isDev && !binding.rbModeCurrentGps.isChecked) {
-            Toast.makeText(requireContext(), "未开启开发者模式，仅允许使用手机本机定位签到", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val snapshot = locationSelection.snapshotForSubmission(System.currentTimeMillis())
-        if (binding.rbModeCurrentGps.isChecked) {
+        val isVirtualMode = radarAddonHandle?.isVirtualModeSelected() == true
+        if (!isVirtualMode) {
+            val snapshot = locationSelection.snapshotForSubmission(System.currentTimeMillis())
             if (snapshot == null) {
                 if (activeLocationListener != null) {
                     Toast.makeText(requireContext(), "正在获取有效本机定位（需2分钟内且精度≤100m），请稍候...", Toast.LENGTH_SHORT).show()
@@ -771,38 +521,14 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         }
 
         if (rollcallId <= 0L) {
-            val ctx = requireContext()
-            val input = android.widget.EditText(ctx).apply {
-                hint = "请输入雷达点名 ID"
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            promptForRollcallId {
+                submitRadarRollcall()
             }
-            MaterialAlertDialogBuilder(ctx)
-                .setTitle("输入点名 ID")
-                .setMessage("当前未检测到进行中的点名活动，请向教师获取数字点名 ID 后提交：")
-                .setView(input)
-                .setPositiveButton("确定提交") { _, _ ->
-                    val enteredId = input.text.toString().trim().toLongOrNull() ?: 0L
-                    if (enteredId > 0L) {
-                        rollcallId = enteredId
-                        submitRadarRollcall()
-                    } else {
-                        Toast.makeText(ctx, "请输入有效的点名 ID", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                .setNegativeButton("取消", null)
-                .show()
             return
         }
 
-        if (binding.rbModeTrilateration.isChecked && selectedAddress != "三点定位反解教师位置") {
-            startTrilaterationProbe(autoSubmitAfterSolve = true)
+        if (radarAddonHandle?.handleCustomSubmit(rollcallId, selectedLatitude, selectedLongitude, selectedAccuracy) == true) {
             return
-        }
-
-        if (!binding.rbModeCurrentGps.isChecked && snapshot != null) {
-            selectedLatitude = snapshot.latitude
-            selectedLongitude = snapshot.longitude
-            selectedAccuracy = snapshot.accuracyMeters ?: selectedAccuracy
         }
 
         binding.btnSubmitRadar.isEnabled = false
@@ -811,10 +537,6 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         binding.btnCancelRadar.isEnabled = false
 
         val client = TronClassClient(requireContext().applicationContext)
-        val isBatch = !isChaoXingMode &&
-                DeveloperModeManager.isDeveloperMode(requireContext()) &&
-                binding.cbRadarSignAll.visibility == View.VISIBLE &&
-                binding.cbRadarSignAll.isChecked
 
         lifecycleScope.launch {
             if (isChaoXingMode) {
@@ -854,29 +576,6 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                 return@launch
             }
 
-            if (isBatch) {
-                val results = client.batchAnswerRadarRollcall(
-                    rollcallId = rollcallId,
-                    latitude = selectedLatitude,
-                    longitude = selectedLongitude,
-                    accuracy = selectedAccuracy
-                )
-
-                if (!isAdded) return@launch
-                val b = _binding ?: return@launch
-                b.btnSubmitRadar.isEnabled = true
-                b.btnSubmitRadar.text = "立即雷达签到"
-                b.progressRadarSubmitting.visibility = View.GONE
-                b.btnCancelRadar.isEnabled = true
-
-                if (results.any { it.studentId == cn.edu.usst.jwgl.data.local.AuthPreferences.currentStudentId(requireContext()) && it.success }) {
-                    onSignSuccessListener?.invoke()
-                }
-                dismiss()
-                showMultiAccountRollcallSummaryDialog(requireActivity(), results)
-                return@launch
-            }
-
             val result = client.answerRadarRollcall(
                 rollcallId = rollcallId,
                 latitude = selectedLatitude,
@@ -909,39 +608,14 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
         }
     }
 
-    private fun showMultiAccountRollcallSummaryDialog(
-        activity: android.app.Activity,
-        results: List<cn.edu.usst.jwgl.data.model.MultiAccountRollcallResult>
-    ) {
-        val successCount = results.count { it.success }
-        val totalCount = results.size
-        val title = if (successCount == totalCount) {
-            "🎉 雷达全员签到成功 ($successCount/$totalCount)"
-        } else {
-            "📋 雷达签到结果 ($successCount/$totalCount 成功)"
-        }
-
-        val sb = StringBuilder()
-        for (r in results) {
-            val icon = if (r.success) "🟢" else "🔴"
-            val status = if (r.statusName.isNotBlank()) " [${r.statusName}]" else ""
-            sb.append("$icon ${r.studentName} (${r.studentId})$status\n")
-            sb.append("   ${r.message.trim()}\n\n")
-        }
-
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(title)
-            .setMessage(sb.toString().trimEnd())
-            .setPositiveButton("完成", null)
-            .show()
-    }
-
     fun setOnSignSuccessListener(listener: () -> Unit) {
         this.onSignSuccessListener = listener
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+        radarAddonHandle?.destroy()
+        radarAddonHandle = null
         stopDeviceLocationUpdates()
         locationSelection.cancelDeviceRequest()
         _binding = null
