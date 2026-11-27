@@ -93,7 +93,72 @@ object SemesterHelper {
                 )
             }
         }
+        // 追加下学期（供课表管理提前查看/选课预览，不设为默认）
+        val nextSem = getNextSemesterInfo(cal)
+        if (result.none { it.xnm == nextSem.xnm && it.xqm == nextSem.xqm }) {
+            result.add(nextSem)
+        }
         return result
+    }
+
+    /**
+     * 获取下学期的 SemesterInfo（isCurrent = false, isNext = true）
+     */
+    fun getNextSemesterInfo(cal: Calendar = getToday()): SemesterInfo {
+        val (curXnm, curXqm) = getCurrentSemester(cal)
+        val (nextXnm, nextXqm) = getNextSemester(curXnm, curXqm)
+        val nextYear = nextXnm.toIntOrNull() ?: 2026
+        val nextSemNum = if (nextXqm == "3") "1" else "2"
+        return SemesterInfo(
+            title = "${nextYear}-${nextYear + 1}学年 第${nextSemNum}学期",
+            xnm = nextXnm,
+            xqm = nextXqm,
+            isCurrent = false,
+            isNext = true
+        )
+    }
+
+    /**
+     * 确保本地数据库中存在下学期课表条目（仅在缺失时创建，且不设为默认，保持本学期默认）
+     */
+    fun ensureNextSemesterTable(
+        db: cn.edu.usst.jwgl.data.wakeup.AppDatabase,
+        cal: Calendar = getToday()
+    ): cn.edu.usst.jwgl.data.wakeup.TableBean? {
+        val nextInfo = getNextSemesterInfo(cal)
+        val nextPair = Pair(nextInfo.xnm, nextInfo.xqm)
+        val existingTables = db.tableDao.getAllTables()
+        val alreadyExists = existingTables.any { table ->
+            table.tableName == nextInfo.title || parseSemesterFromTableName(table.tableName) == nextPair
+        }
+        if (alreadyExists) return null
+
+        val nextYear = nextInfo.xnm.toIntOrNull() ?: 2026
+        val nextSemNum = if (nextInfo.xqm == "3") "1" else "2"
+        val expectedId = "$nextYear-${nextYear + 1}-$nextSemNum"
+        val matchedConfig = cn.edu.usst.jwgl.data.remote.RemoteConfigManager.getSemesters().find { item ->
+            val semId = item.semesterId.trim()
+            semId == expectedId ||
+                item.semesterTitle.contains(nextInfo.title) ||
+                (semId.startsWith("$nextYear-") && semId.endsWith("-$nextSemNum"))
+        }
+
+        val startDate = matchedConfig?.startDate?.takeIf { it.isNotBlank() }
+            ?: if (nextSemNum == "1") "$nextYear-09-07" else "${nextYear + 1}-03-01"
+        val maxWeek = matchedConfig?.maxWeek?.takeIf { it > 0 } ?: 20
+
+        val newTable = cn.edu.usst.jwgl.data.wakeup.TableBean(
+            tableName = nextInfo.title,
+            startDate = startDate,
+            maxWeek = maxWeek,
+            nodes = 13,
+            timeTable = 1,
+            showSat = false,
+            showSun = false,
+            type = 0
+        )
+        val newId = db.tableDao.insertTable(newTable).toInt()
+        return newTable.copy(id = newId)
     }
 
     fun getSemesterList(cal: Calendar = Calendar.getInstance()): List<SemesterInfo> {

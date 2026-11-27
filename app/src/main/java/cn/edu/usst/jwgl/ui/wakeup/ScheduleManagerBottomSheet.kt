@@ -157,6 +157,9 @@ class ScheduleManagerBottomSheet : BottomSheetDialogFragment() {
             }
         }
 
+        // 首次打开课表管理时确保包含下学期条目（不改变当前默认课表）
+        cn.edu.usst.jwgl.util.SemesterHelper.ensureNextSemesterTable(AppDatabase.getDatabase(requireContext()))
+
         reloadList()
     }
 

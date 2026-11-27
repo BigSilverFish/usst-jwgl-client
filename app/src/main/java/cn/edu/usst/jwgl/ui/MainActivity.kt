@@ -53,10 +53,10 @@ import cn.edu.usst.jwgl.data.wakeup.TableBean
 import cn.edu.usst.jwgl.data.wakeup.WakeupScheduleImporter
 import cn.edu.usst.jwgl.databinding.ActivityMainBinding
 import cn.edu.usst.jwgl.databinding.LayoutPageMoreFeaturesBinding
-import cn.edu.usst.jwgl.databinding.LayoutPageProfileBinding
 import cn.edu.usst.jwgl.ui.common.AuthorDisclaimerBottomSheet
 import cn.edu.usst.jwgl.util.DeveloperModeManager
 import cn.edu.usst.jwgl.ui.grades.GradesFragment
+import cn.edu.usst.jwgl.ui.settings.ProfileSettingsFragment
 import cn.edu.usst.jwgl.ui.wakeup.AddCourseActivity
 import cn.edu.usst.jwgl.ui.wakeup.ScheduleManagerBottomSheet
 import cn.edu.usst.jwgl.ui.wakeup.SchedulePagerAdapter
@@ -64,7 +64,6 @@ import cn.edu.usst.jwgl.data.local.TronClassPreferences
 import cn.edu.usst.jwgl.data.model.TronClassCourse
 import cn.edu.usst.jwgl.ui.tronclass.TronClassFragment
 import cn.edu.usst.jwgl.worker.RollcallMonitorScheduler
-import cn.edu.usst.jwgl.worker.TronClassDdlScheduler
 import android.app.ProgressDialog
 import android.widget.EditText
 import kotlinx.coroutines.async
@@ -87,7 +86,6 @@ import android.widget.FrameLayout
 import cn.edu.usst.jwgl.util.CourseReminderManager
 import cn.edu.usst.jwgl.util.ExamHelper
 import cn.edu.usst.jwgl.util.InitialSyncHelper
-import cn.edu.usst.jwgl.util.RollcallPermissionGuide
 import cn.edu.usst.jwgl.util.SemesterHelper
 import cn.edu.usst.jwgl.util.TabletLayoutHelper
 import cn.edu.usst.jwgl.util.ThemeManager
@@ -117,7 +115,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     internal lateinit var binding: ActivityMainBinding
-    internal var profileBinding: LayoutPageProfileBinding? = null
     internal var moreFeaturesBinding: LayoutPageMoreFeaturesBinding? = null
     private var isTopBarBlurInitialized = false
     private var isBottomNavBlurInitialized = false
@@ -231,99 +228,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private enum class ReminderType { COURSE, EXAM, TRONCLASS_24H, TRONCLASS_URGENT, ROLLCALL_MONITOR }
-    private var pendingReminderType: ReminderType? = null
-
     private var activeDisclaimerDialog: androidx.appcompat.app.AlertDialog? = null
-
-    private val requestNotificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            when (pendingReminderType) {
-                ReminderType.COURSE -> {
-                    profileBinding?.switchCourseReminder?.isChecked = true
-                    CourseReminderManager.setReminderEnabled(this, true)
-                    updateReminderSubtitles()
-                }
-                ReminderType.EXAM -> {
-                    profileBinding?.switchExamReminder?.isChecked = true
-                    CourseReminderManager.setExamReminderEnabled(this, true)
-                    updateReminderSubtitles()
-                }
-                ReminderType.TRONCLASS_24H -> {
-                    profileBinding?.switchTronClassDdl24h?.isChecked = true
-                    TronClassPreferences.getInstance(this).setDdlReminder24hEnabled(true)
-                    updateReminderSubtitles()
-                    TronClassDdlScheduler.scheduleFromPreferences(this)
-                }
-                ReminderType.TRONCLASS_URGENT -> {
-                    profileBinding?.switchTronClassDdlUrgent?.isChecked = true
-                    val prefs = TronClassPreferences.getInstance(this)
-                    prefs.setDdlReminderUrgentEnabled(true)
-                    updateReminderSubtitles()
-                    TronClassDdlScheduler.scheduleFromPreferences(this)
-                }
-                ReminderType.ROLLCALL_MONITOR -> {
-                    profileBinding?.switchRollcallMonitor?.isChecked = true
-                    val prefs = TronClassPreferences.getInstance(this)
-                    prefs.setRollcallMonitorEnabled(true)
-                    updateReminderSubtitles()
-                    RollcallMonitorScheduler.onPreferenceChanged(this)
-                    RollcallPermissionGuide.guideIfNeeded(this)
-                }
-                null -> {}
-            }
-        } else {
-            when (pendingReminderType) {
-                ReminderType.COURSE -> {
-                    profileBinding?.switchCourseReminder?.isChecked = false
-                    CourseReminderManager.setReminderEnabled(this, false)
-                    updateReminderSubtitles()
-                }
-                ReminderType.EXAM -> {
-                    profileBinding?.switchExamReminder?.isChecked = false
-                    CourseReminderManager.setExamReminderEnabled(this, false)
-                    updateReminderSubtitles()
-                }
-                ReminderType.TRONCLASS_24H -> {
-                    profileBinding?.switchTronClassDdl24h?.isChecked = false
-                    TronClassPreferences.getInstance(this).setDdlReminder24hEnabled(false)
-                    updateReminderSubtitles()
-                }
-                ReminderType.TRONCLASS_URGENT -> {
-                    profileBinding?.switchTronClassDdlUrgent?.isChecked = false
-                    TronClassPreferences.getInstance(this).setDdlReminderUrgentEnabled(false)
-                    updateReminderSubtitles()
-                }
-                ReminderType.ROLLCALL_MONITOR -> {
-                    // 拒绝通知权限不强制关闭签到后台监听，继续以弹窗引导补齐权限
-                    profileBinding?.switchRollcallMonitor?.isChecked = true
-                    TronClassPreferences.getInstance(this).setRollcallMonitorEnabled(true)
-                    updateReminderSubtitles()
-                    RollcallMonitorScheduler.onPreferenceChanged(this)
-                    RollcallPermissionGuide.guideIfNeeded(this)
-                }
-                null -> {}
-            }
-            if (pendingReminderType == ReminderType.ROLLCALL_MONITOR) {
-                Toast.makeText(this, "已保持签到后台监听，未授予通知权限可能影响提醒", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(this, "需要通知权限才能发送提醒通知", Toast.LENGTH_LONG).show()
-            }
-        }
-        pendingReminderType = null
-    }
-
-    private val devModeListener: (Boolean) -> Unit = {
-        runOnUiThread {
-            updateReminderSubtitles()
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        DeveloperModeManager.addListener(devModeListener)
 
         // Enable edge-to-edge immersive transparent system bars
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -407,19 +315,6 @@ class MainActivity : AppCompatActivity() {
                 mb.llMoreFeaturesHeaderContainer.post {
                     val h = mb.llMoreFeaturesHeaderContainer.height
                     if (h > 0) updateMoreFeaturesHeaderSpacing(h)
-                }
-            }
-
-            profileBinding?.let { pb ->
-                pb.llProfileHeaderContainer.setPadding(
-                    pb.llProfileHeaderContainer.paddingLeft,
-                    statusTopPad,
-                    pb.llProfileHeaderContainer.paddingRight,
-                    0
-                )
-                pb.llProfileHeaderContainer.post {
-                    val h = pb.llProfileHeaderContainer.height
-                    if (h > 0) updateProfileHeaderSpacing(h)
                 }
             }
 
@@ -617,34 +512,21 @@ class MainActivity : AppCompatActivity() {
         return mb
     }
 
-    internal fun ensureProfilePageInflated(): LayoutPageProfileBinding {
-        profileBinding?.let { return it }
-        val inflated = binding.stubProfile.inflate()
-        val pb = LayoutPageProfileBinding.bind(inflated)
-        profileBinding = pb
+    internal fun getProfileSettingsFragment(): ProfileSettingsFragment? =
+        supportFragmentManager.findFragmentByTag("ProfileSettingsFragment") as? ProfileSettingsFragment
 
-        pb.llProfileHeaderContainer.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val h = bottom - top
-            if (h > 0) {
-                pb.llProfileHeaderContainer.post {
-                    if (!isDestroyed) updateProfileHeaderSpacing(h)
-                }
-            }
-        }
-        pb.llProfileHeaderContainer.setPadding(
-            pb.llProfileHeaderContainer.paddingLeft,
-            getStatusTopPad(),
-            pb.llProfileHeaderContainer.paddingRight,
-            0
-        )
-        pb.llProfileHeaderContainer.post {
-            val h = pb.llProfileHeaderContainer.height
-            if (h > 0) updateProfileHeaderSpacing(h)
-        }
-        adaptiveLayoutController.syncProfilePageAdaptiveState(pb)
-        setupProfilePageViewsAndListeners(pb)
-        ensureProfileBlur()
-        return pb
+    internal fun notifyProfileSettingsChanged() {
+        getProfileSettingsFragment()?.refreshSettingsState()
+    }
+
+    internal fun getCurrentStudentProfile(): StudentProfile? = currentProfile
+
+    internal fun onProfileRefreshed(profile: StudentProfile) {
+        displayProfile(profile)
+    }
+
+    internal fun onDayPartDividersChanged() {
+        scheduleAdapter?.refreshAllFragments()
     }
 
     private fun setupMoreFeaturesPageListeners(mb: LayoutPageMoreFeaturesBinding) {
@@ -667,232 +549,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupProfilePageViewsAndListeners(pb: LayoutPageProfileBinding) {
-        val tcPrefs = TronClassPreferences.getInstance(this)
-        // 先初始化各开关状态再挂载监听，防止首次膨胀 Profile 页时误触发权限弹窗或后台调度
-        pb.swipeRefreshProfile.isEnabled = false
-        pb.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
-        pb.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
-        pb.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
-        pb.switchTronClassDdl24h.isChecked = tcPrefs.isDdlReminder24hEnabled()
-        pb.switchTronClassDdlUrgent.isChecked = tcPrefs.isDdlReminderUrgentEnabled()
-        pb.switchRollcallMonitor.isChecked = tcPrefs.isRollcallMonitorEnabled()
-        pb.switchRollcallAutoSign.isChecked = tcPrefs.isRollcallAutoSignEnabled()
-        pb.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
-        pb.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
-        pb.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
-
-        pb.btnRefreshProfile.setOnClickListener { refreshProfile() }
-        pb.rowDarkMode.setOnClickListener { showDarkModeDialog() }
-
-        pb.rowCourseReminder.setOnClickListener { showCourseReminderAdvanceDialog() }
-        pb.rowDrawerProfileHeader.setOnClickListener { pb.switchDrawerProfileHeader.toggle() }
-        pb.switchDrawerProfileHeader.setOnCheckedChangeListener { _, isChecked ->
-            TimetableSettingHelper.setDrawerProfileHeaderEnabled(this, isChecked)
-            updateDrawerProfileHeaderVisibility()
-        }
-
-        pb.switchCourseReminder.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        pendingReminderType = ReminderType.COURSE
-                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        return@setOnCheckedChangeListener
-                    }
-                }
-                CourseReminderManager.setReminderEnabled(this, true)
-                updateReminderSubtitles()
-            } else {
-                CourseReminderManager.setReminderEnabled(this, false)
-                updateReminderSubtitles()
-            }
-        }
-
-        pb.rowExamReminder.setOnClickListener { showExamReminderAdvanceDialog() }
-        pb.switchExamReminder.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        pendingReminderType = ReminderType.EXAM
-                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        return@setOnCheckedChangeListener
-                    }
-                }
-                CourseReminderManager.setExamReminderEnabled(this, true)
-                updateReminderSubtitles()
-            } else {
-                CourseReminderManager.setExamReminderEnabled(this, false)
-                updateReminderSubtitles()
-            }
-        }
-
-        pb.rowTronClassDdl24h.setOnClickListener { pb.switchTronClassDdl24h.toggle() }
-        pb.switchTronClassDdl24h.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        pendingReminderType = ReminderType.TRONCLASS_24H
-                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        return@setOnCheckedChangeListener
-                    }
-                }
-                tcPrefs.setDdlReminder24hEnabled(true)
-                updateReminderSubtitles()
-                TronClassDdlScheduler.scheduleFromPreferences(this)
-            } else {
-                tcPrefs.setDdlReminder24hEnabled(false)
-                updateReminderSubtitles()
-                TronClassDdlScheduler.scheduleFromPreferences(this)
-            }
-        }
-
-        pb.rowTronClassDdlUrgent.setOnClickListener { showTronClassDdlUrgentAdvanceDialog() }
-        pb.switchTronClassDdlUrgent.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        pendingReminderType = ReminderType.TRONCLASS_URGENT
-                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        return@setOnCheckedChangeListener
-                    }
-                }
-                tcPrefs.setDdlReminderUrgentEnabled(true)
-                updateReminderSubtitles()
-                TronClassDdlScheduler.scheduleFromPreferences(this)
-            } else {
-                tcPrefs.setDdlReminderUrgentEnabled(false)
-                updateReminderSubtitles()
-                TronClassDdlScheduler.scheduleFromPreferences(this)
-            }
-        }
-
-        pb.rowRollcallMonitor.setOnClickListener { pb.switchRollcallMonitor.toggle() }
-        pb.switchRollcallMonitor.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                val newlyEnabled = !tcPrefs.isRollcallMonitorEnabled()
-                tcPrefs.setRollcallMonitorEnabled(true)
-                updateReminderSubtitles()
-                RollcallMonitorScheduler.onPreferenceChanged(this)
-                if (newlyEnabled && !tcPrefs.isLoggedIn()) {
-                    Toast.makeText(this, "已开启上课签到监听（提示：请先登录一网畅学）", Toast.LENGTH_LONG).show()
-                }
-                if (newlyEnabled) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        pendingReminderType = ReminderType.ROLLCALL_MONITOR
-                        requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        RollcallPermissionGuide.guideIfNeeded(this)
-                    }
-                }
-            } else {
-                tcPrefs.setRollcallMonitorEnabled(false)
-                updateReminderSubtitles()
-                RollcallMonitorScheduler.onPreferenceChanged(this)
-            }
-        }
-
-        pb.rowRollcallChaoXingMonitor.setOnClickListener {
-            if (!tcPrefs.isRollcallMonitorEnabled()) {
-                Toast.makeText(this, "需先开启上方的上课签到后台监听总开关", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            pb.switchRollcallChaoXingMonitor.toggle()
-        }
-        pb.switchRollcallChaoXingMonitor.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked && !tcPrefs.isRollcallMonitorEnabled()) {
-                if (pb.switchRollcallChaoXingMonitor.isChecked) {
-                    pb.switchRollcallChaoXingMonitor.isChecked = false
-                }
-                Toast.makeText(this, "需先开启上方的上课签到后台监听总开关", Toast.LENGTH_SHORT).show()
-                return@setOnCheckedChangeListener
-            }
-            if (tcPrefs.isRollcallChaoXingMonitorEnabled() == isChecked) return@setOnCheckedChangeListener
-            tcPrefs.setRollcallChaoXingMonitorEnabled(isChecked)
-            updateReminderSubtitles()
-            RollcallMonitorScheduler.onPreferenceChanged(this)
-            if (isChecked && !cn.edu.usst.jwgl.data.local.ChaoXingPreferences(this).isLoggedIn()) {
-                Toast.makeText(this, "已开启学习通监听（提示：请先在一网畅学页登录超星学习通）", Toast.LENGTH_LONG).show()
-            }
-        }
-
-        pb.rowRollcallAutoSign.setOnClickListener {
-            if (!tcPrefs.isRollcallMonitorEnabled()) {
-                Toast.makeText(this, "需先开启上课签到后台监听功能", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            showRollcallAutoSignDelayDialog()
-        }
-        pb.switchRollcallAutoSign.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked && !tcPrefs.isRollcallMonitorEnabled()) {
-                pb.switchRollcallAutoSign.isChecked = false
-                Toast.makeText(this, "需先开启上课签到后台监听功能", Toast.LENGTH_SHORT).show()
-                return@setOnCheckedChangeListener
-            }
-            tcPrefs.setRollcallAutoSignEnabled(isChecked)
-            updateReminderSubtitles()
-        }
-
-        pb.rowLiveQrTest.setOnClickListener {
-            settingsDialogController.showLiveFrameTestDialog()
-        }
-
-        pb.rowRollcallPopup.setOnClickListener {
-            settingsDialogController.showRollcallAlertModeDialog()
-        }
-
-        pb.rowPowerfulReminder.setOnClickListener { pb.switchPowerfulReminder.toggle() }
-        pb.switchPowerfulReminder.setOnCheckedChangeListener { _, isChecked ->
-            CourseReminderManager.setPowerfulReminderEnabled(this, isChecked)
-            updateReminderSubtitles()
-        }
-
-        pb.rowNotificationChannelSettings.setOnClickListener { showNotificationSettingsDialog() }
-
-        pb.rowDayPartDividers.setOnClickListener { pb.switchDayPartDividers.toggle() }
-        pb.switchDayPartDividers.setOnCheckedChangeListener { _, isChecked ->
-            TimetableSettingHelper.setDayPartDividersEnabled(this, isChecked)
-            scheduleAdapter?.refreshAllFragments()
-        }
-
-        pb.rowPhoneNavMode.setOnClickListener { showPhoneNavModeDialog() }
-
-        pb.rowDoubleTapDrawer.setOnClickListener { pb.switchDoubleTapDrawer.toggle() }
-        pb.switchDoubleTapDrawer.setOnCheckedChangeListener { _, isChecked ->
-            TimetableSettingHelper.setDoubleTapOpenDrawerEnabled(this, isChecked)
-        }
-
-        pb.btnProfileExamQuery.setOnClickListener { switchTab(MainTab.EXAM_QUERY) }
-        pb.btnProfileGradeReports.setOnClickListener { switchTab(MainTab.GRADE_REPORTS) }
-        pb.btnProfileJwglWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.DEFAULT_TARGET_URL, "官方教务系统 (jwgl)")
-        }
-        pb.btnProfileXgWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.XG_TARGET_URL, "学工一体化 (new2017)")
-        }
-        pb.btnProfileLiveWeb.setOnClickListener {
-            JwglWebActivity.start(this, JwglWebActivity.LIVE_TARGET_URL, "课程直播与点播平台 (live)")
-        }
-        pb.btnOpenDrawerProfile.setOnClickListener { openNavDrawer() }
-        pb.btnSwitchAccount.setOnClickListener { showAccountSwitchBottomSheet() }
-        pb.btnLogout.setOnClickListener { performLogout() }
-        pb.btnCheckUpdate.setOnClickListener { syncRemoteConfig(isManual = true, force = true) }
-        pb.rowGithubRepo.setOnClickListener {
-            val githubUrl = "https://github.com/BigSilverFish/usst-jwgl-client"
-            try {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl)))
-            } catch (e: Exception) {
-                Toast.makeText(this, "无法打开浏览器，请确认已安装浏览器应用", Toast.LENGTH_SHORT).show()
-            }
-        }
-        pb.rowDisclaimer.setOnClickListener { showAuthorDisclaimerDialog(allowDismiss = true) }
-
-        displayProfile(currentProfile)
-    }
-
-    private fun performLogout() {
+    internal fun performLogout() {
         AuthPreferences(this).performFullLogout()
         Toast.makeText(this, "已退出登录并清除本地缓存", Toast.LENGTH_SHORT).show()
         val intent = Intent(this, LoginActivity::class.java).apply {
@@ -904,7 +561,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var isMoreFeaturesBlurInitialized = false
-    private var isProfileBlurInitialized = false
 
     private fun ensureMoreFeaturesBlur() {
         if (isMoreFeaturesBlurInitialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
@@ -916,19 +572,6 @@ class MainActivity : AppCompatActivity() {
                 .setFrameClearDrawable(decorView.background)
                 .setBlurRadius(20f)
             isMoreFeaturesBlurInitialized = true
-        } catch (_: Exception) {}
-    }
-
-    private fun ensureProfileBlur() {
-        if (isProfileBlurInitialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val blurView = profileBinding?.blurViewProfile ?: return
-        try {
-            val decorView = window.decorView
-            val rootView = decorView.findViewById<ViewGroup>(android.R.id.content) ?: (decorView as? ViewGroup) ?: return
-            blurView.setupWith(rootView, RenderEffectBlur())
-                .setFrameClearDrawable(decorView.background)
-                .setBlurRadius(20f)
-            isProfileBlurInitialized = true
         } catch (_: Exception) {}
     }
 
@@ -1024,11 +667,9 @@ class MainActivity : AppCompatActivity() {
                 if (h > 0) updateMoreFeaturesHeaderSpacing(h)
             }
         }
-        profileBinding?.let { pb ->
-            pb.llProfileHeaderContainer.post {
-                val h = pb.llProfileHeaderContainer.height
-                if (h > 0) updateProfileHeaderSpacing(h)
-            }
+        getProfileSettingsFragment()?.let { pf ->
+            pf.updateTabletLandscapeMode(isTabletLandscape)
+            pf.syncAdaptiveState()
         }
 
         // 刷新课表周页面排版与内边距
@@ -1062,7 +703,7 @@ class MainActivity : AppCompatActivity() {
         if (!isFirstResume) {
             reloadTimetableFromDb()
         }
-        updateReminderSubtitles()
+        notifyProfileSettingsChanged()
         ApkDownloadHelper.pendingInstallApkFile?.let { apk ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
                 ApkDownloadHelper.pendingInstallApkFile = null
@@ -1089,8 +730,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(this)
-        cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(this)
+        val appCtx = applicationContext
+        lifecycleScope.launch(Dispatchers.IO) {
+            cn.edu.usst.jwgl.widget.TodayScheduleWidgetProvider.updateAllWidgets(appCtx)
+            cn.edu.usst.jwgl.widget.NextCourseWidgetProvider.updateAllWidgets(appCtx)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -1195,9 +839,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (intent.getBooleanExtra("extra_scroll_bottom", false)) {
-            ensureProfilePageInflated().scrollProfile.postDelayed({
-                profileBinding?.scrollProfile?.fullScroll(View.FOCUS_DOWN)
-            }, 200)
+            if (currentTab != MainTab.PROFILE) {
+                switchTab(MainTab.PROFILE)
+            }
+            supportFragmentManager.executePendingTransactions()
+            getProfileSettingsFragment()?.scrollToBottom()
         }
 
         val searchCourse = intent.getStringExtra("extra_search_course")
@@ -1225,8 +871,8 @@ class MainActivity : AppCompatActivity() {
         if (intent.hasExtra("extra_day_parts")) {
             val enabled = intent.getBooleanExtra("extra_day_parts", true)
             TimetableSettingHelper.setDayPartDividersEnabled(this, enabled)
-            profileBinding?.switchDayPartDividers?.isChecked = enabled
             scheduleAdapter?.refreshAllFragments()
+            notifyProfileSettingsChanged()
         }
 
         if (intent.hasExtra("extra_nav_mode")) {
@@ -1238,7 +884,7 @@ class MainActivity : AppCompatActivity() {
         if (intent.hasExtra("extra_double_tap_drawer")) {
             val enabled = intent.getBooleanExtra("extra_double_tap_drawer", true)
             TimetableSettingHelper.setDoubleTapOpenDrawerEnabled(this, enabled)
-            profileBinding?.switchDoubleTapDrawer?.isChecked = enabled
+            notifyProfileSettingsChanged()
         }
 
         if (intent.getBooleanExtra("extra_open_drawer", false)) {
@@ -1468,6 +1114,9 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) {
                 }
 
+                // 确保课表管理中包含下学期（非默认，依然保持本学期默认）
+                SemesterHelper.ensureNextSemesterTable(db)
+
                 // Auto determine active semester & week on startup
                 val allTables = db.tableDao.getAllTables()
                 val autoTarget = CourseUtils.findAutoScheduleTarget(allTables)
@@ -1654,7 +1303,7 @@ class MainActivity : AppCompatActivity() {
         val targetView = when (tab) {
             MainTab.TIMETABLE -> binding.layoutTimetable
             MainTab.GRADES -> binding.containerGrades
-            MainTab.PROFILE -> ensureProfilePageInflated().layoutProfile
+            MainTab.PROFILE -> binding.containerProfile
             MainTab.MORE_FEATURES -> ensureMoreFeaturesPageInflated().layoutMoreFeatures
             MainTab.COURSE_SEARCH -> binding.containerCourseSearch
             MainTab.FREE_CLASSROOM -> binding.containerFreeClassroom
@@ -1666,7 +1315,7 @@ class MainActivity : AppCompatActivity() {
         val allContainers = listOfNotNull(
             binding.layoutTimetable,
             binding.containerGrades,
-            profileBinding?.layoutProfile,
+            binding.containerProfile,
             moreFeaturesBinding?.layoutMoreFeatures,
             binding.containerCourseSearch,
             binding.containerFreeClassroom,
@@ -1744,10 +1393,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             MainTab.PROFILE -> {
-                ensureProfileBlur()
-                profileBinding?.llProfileHeaderContainer?.post {
-                    val h = profileBinding?.llProfileHeaderContainer?.height ?: 0
-                    if (h > 0) updateProfileHeaderSpacing(h)
+                val pf = getProfileSettingsFragment()
+                if (pf == null) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.containerProfile, ProfileSettingsFragment.newInstance(), "ProfileSettingsFragment")
+                        .commitAllowingStateLoss()
+                } else {
+                    pf.onTabSelected()
                 }
             }
         }
@@ -1925,7 +1577,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showWeekPickerDialog() = settingsDialogController.showWeekPickerDialog()
-    private fun showFontSizeDialog() = settingsDialogController.showFontSizeDialog()
+    internal fun showFontSizeDialog() = settingsDialogController.showFontSizeDialog()
     internal fun updateWeekHeaderDates(week: Int) {
         val table = currentTable ?: return
         val dateStrings = CourseUtils.getDateStringFromWeek(table.startDate, week, table.sundayFirst)
@@ -2078,97 +1730,22 @@ class MainActivity : AppCompatActivity() {
     private fun displayProfile(profile: StudentProfile?) {
         currentProfile = profile
 
-        // 抽屉栏头部版本与学号信息立即可见（无需膨胀 Profile ViewStub）
+        // 抽屉栏头部版本与学号信息立即可见
         binding.layoutDrawer.tvDrawerVersion.text = "USST JWGL · v${BuildConfig.VERSION_NAME}"
         updateDrawerProfileHeaderVisibility()
 
-        val pb = profileBinding ?: return
-        pb.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
-        val semConfig = RemoteConfigManager.getSemesterConfig()
-        pb.tvSemesterConfigSummary.text = "${semConfig.currentSemester} · 第 1 周 ${semConfig.week1Monday}"
-
-        pb.tvDarkModeStatus.text = ThemeManager.getThemeModeName(ThemeManager.getThemeMode(this))
-        pb.tvPhoneNavModeStatus.text = TimetableSettingHelper.getPhoneNavModeName(TimetableSettingHelper.getPhoneNavMode(this))
-        if (pb.switchCourseReminder.isChecked != CourseReminderManager.isReminderEnabled(this)) {
-            pb.switchCourseReminder.isChecked = CourseReminderManager.isReminderEnabled(this)
-        }
-        if (pb.switchExamReminder.isChecked != CourseReminderManager.isExamReminderEnabled(this)) {
-            pb.switchExamReminder.isChecked = CourseReminderManager.isExamReminderEnabled(this)
-        }
-        val tcPrefs = TronClassPreferences.getInstance(this)
-        if (pb.switchTronClassDdl24h.isChecked != tcPrefs.isDdlReminder24hEnabled()) {
-            pb.switchTronClassDdl24h.isChecked = tcPrefs.isDdlReminder24hEnabled()
-        }
-        if (pb.switchTronClassDdlUrgent.isChecked != tcPrefs.isDdlReminderUrgentEnabled()) {
-            pb.switchTronClassDdlUrgent.isChecked = tcPrefs.isDdlReminderUrgentEnabled()
-        }
-        if (pb.switchRollcallMonitor.isChecked != tcPrefs.isRollcallMonitorEnabled()) {
-            pb.switchRollcallMonitor.isChecked = tcPrefs.isRollcallMonitorEnabled()
-        }
-        if (pb.switchPowerfulReminder.isChecked != CourseReminderManager.isPowerfulReminderEnabled(this)) {
-            pb.switchPowerfulReminder.isChecked = CourseReminderManager.isPowerfulReminderEnabled(this)
-        }
-        if (pb.switchDayPartDividers.isChecked != TimetableSettingHelper.isDayPartDividersEnabled(this)) {
-            pb.switchDayPartDividers.isChecked = TimetableSettingHelper.isDayPartDividersEnabled(this)
-        }
-        if (pb.switchDoubleTapDrawer.isChecked != TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)) {
-            pb.switchDoubleTapDrawer.isChecked = TimetableSettingHelper.isDoubleTapOpenDrawerEnabled(this)
-        }
-        if (pb.switchDrawerProfileHeader.isChecked != TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)) {
-            pb.switchDrawerProfileHeader.isChecked = TimetableSettingHelper.isDrawerProfileHeaderEnabled(this)
-        }
-        updateReminderSubtitles()
-
-        if (profile == null) return
-
-        val studentName = profile.name.ifEmpty { "学生用户" }
-        pb.tvStudentName.text = studentName
-        pb.tvStudentId.text = "学号: ${profile.studentId.ifEmpty { "--" }}"
-        pb.tvStudentRoleBadge.text = "${profile.educationLevel} · ${profile.status}"
-
-        pb.tvCollege.text = profile.college.ifEmpty { "未知学院" }
-        pb.tvMajor.text = profile.major.ifEmpty { "未知专业" }
-        pb.tvClass.text = profile.className.ifEmpty { "--" }
-        pb.tvGrade.text = if (profile.grade.isNotEmpty()) "${profile.grade}级 (${profile.durationYears}年制)" else "--"
-        pb.tvGender.text = profile.gender.ifEmpty { "--" }
+        getProfileSettingsFragment()?.updateProfileData(profile)
     }
 
-    private fun showDarkModeDialog() = settingsDialogController.showDarkModeDialog()
-    private fun showPhoneNavModeDialog() = settingsDialogController.showPhoneNavModeDialog()
-    private fun updateReminderSubtitles() = settingsDialogController.updateReminderSubtitles()
-    private fun showCourseReminderAdvanceDialog() = settingsDialogController.showCourseReminderAdvanceDialog()
-    private fun showExamReminderAdvanceDialog() = settingsDialogController.showExamReminderAdvanceDialog()
-    private fun showTronClassDdlUrgentAdvanceDialog() = settingsDialogController.showTronClassDdlUrgentAdvanceDialog()
-    private fun showRollcallAutoSignDelayDialog() = settingsDialogController.showRollcallAutoSignDelayDialog()
-    private fun showNotificationSettingsDialog() = settingsDialogController.showNotificationSettingsDialog()
-    private fun refreshProfile() {
-        profileBinding?.swipeRefreshProfile?.isRefreshing = true
-        lifecycleScope.launch {
-            try {
-                val auth = AuthPreferences(this@MainActivity)
-                val id = auth.getStudentId()
-                if (id.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "未检测到已登录学号，请重新登录", Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
-
-                val profile = JwglClient.fetchStudentProfile(id, this@MainActivity)
-
-                if (profile.name.isNotEmpty() || profile.college.isNotEmpty() || profile.major.isNotEmpty()) {
-                    cacheManager.saveProfile(profile)
-                    displayProfile(profile)
-                    Toast.makeText(this@MainActivity, "个人信息与档案已更新", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this@MainActivity, "未能获取到有效的学籍档案信息", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "refreshProfile error", e)
-                Toast.makeText(this@MainActivity, e.getFriendlyErrorMessage("个人信息更新失败，请稍后重试"), Toast.LENGTH_SHORT).show()
-            } finally {
-                profileBinding?.swipeRefreshProfile?.isRefreshing = false
-            }
-        }
-    }
+    internal fun showDarkModeDialog() = settingsDialogController.showDarkModeDialog()
+    internal fun showPhoneNavModeDialog() = settingsDialogController.showPhoneNavModeDialog()
+    internal fun showCourseReminderAdvanceDialog() = settingsDialogController.showCourseReminderAdvanceDialog()
+    internal fun showExamReminderAdvanceDialog() = settingsDialogController.showExamReminderAdvanceDialog()
+    internal fun showTronClassDdlUrgentAdvanceDialog() = settingsDialogController.showTronClassDdlUrgentAdvanceDialog()
+    internal fun showRollcallAlertModeDialog() = settingsDialogController.showRollcallAlertModeDialog()
+    internal fun showRollcallAutoSignDelayDialog() = settingsDialogController.showRollcallAutoSignDelayDialog()
+    internal fun showNotificationSettingsDialog() = settingsDialogController.showNotificationSettingsDialog()
+    internal fun showLiveFrameTestDialog() = settingsDialogController.showLiveFrameTestDialog()
 
     private fun showExamQueryBottomSheet() {
         val table = currentTable
@@ -2371,8 +1948,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) = settingsDialogController.showAuthorDisclaimerDialog(allowDismiss)
-    private fun syncRemoteConfig(isManual: Boolean, force: Boolean = false) = settingsDialogController.syncRemoteConfig(isManual, force)
+    internal fun showAuthorDisclaimerDialog(allowDismiss: Boolean = false) = settingsDialogController.showAuthorDisclaimerDialog(allowDismiss)
+    internal fun syncRemoteConfig(isManual: Boolean, force: Boolean = false) = settingsDialogController.syncRemoteConfig(isManual, force)
     private fun showUpdateDialog(versionInfo: AppVersionInfo, isManual: Boolean = false) = settingsDialogController.showUpdateDialog(versionInfo, isManual)
 
     // ==========================================
@@ -2381,17 +1958,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateMoreFeaturesHeaderSpacing(headerHeight: Int) {
         if (headerHeight <= 0) return
         val spacer = moreFeaturesBinding?.viewMoreFeaturesHeaderSpacing ?: return
-        val params = spacer.layoutParams
-        if (params.height != headerHeight) {
-            params.height = headerHeight
-            spacer.layoutParams = params
-            spacer.requestLayout()
-        }
-    }
-
-    private fun updateProfileHeaderSpacing(headerHeight: Int) {
-        if (headerHeight <= 0) return
-        val spacer = profileBinding?.viewProfileHeaderSpacing ?: return
         val params = spacer.layoutParams
         if (params.height != headerHeight) {
             params.height = headerHeight
@@ -2482,7 +2048,7 @@ class MainActivity : AppCompatActivity() {
 
 
 
-    private fun showAccountSwitchBottomSheet() {
+    internal fun showAccountSwitchBottomSheet() {
         val sheet = cn.edu.usst.jwgl.ui.account.AccountSwitchBottomSheet()
         sheet.setOnAccountSwitchListener(object : cn.edu.usst.jwgl.ui.account.AccountSwitchBottomSheet.OnAccountSwitchListener {
             override fun onAccountSwitched(studentId: String) {
@@ -2629,7 +2195,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        DeveloperModeManager.removeListener(devModeListener)
         super.onDestroy()
     }
 }

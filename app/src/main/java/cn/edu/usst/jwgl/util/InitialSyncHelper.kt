@@ -96,6 +96,9 @@ object InitialSyncHelper {
                 }
             }
 
+            // 若教务系统暂未开放下学期查询或请求失败，兜底创建下学期课表条目（非默认，保持本学期默认）
+            SemesterHelper.ensureNextSemesterTable(db)
+
             // 4. 考试日程与提醒预热（针对当前学期）
             val (curXnm, curXqm) = SemesterHelper.getCurrentSemester()
             try {

@@ -80,7 +80,7 @@ class SemesterHelperTest {
         }
         // Student enrolled in 2024 (like 2435055230)
         val list = SemesterHelper.getSemestersToSync(2024, testCal)
-        assertEquals(5, list.size)
+        assertEquals(6, list.size)
         assertEquals("2024", list[0].xnm)
         assertEquals("3", list[0].xqm)
         assertEquals("2024", list[1].xnm)
@@ -92,5 +92,9 @@ class SemesterHelperTest {
         assertEquals("2026", list[4].xnm)
         assertEquals("3", list[4].xqm)
         assertTrue(list[4].isCurrent)
+        assertEquals("2026", list[5].xnm)
+        assertEquals("12", list[5].xqm)
+        assertTrue(list[5].isNext)
+        assertEquals(false, list[5].isCurrent)
     }
 }
