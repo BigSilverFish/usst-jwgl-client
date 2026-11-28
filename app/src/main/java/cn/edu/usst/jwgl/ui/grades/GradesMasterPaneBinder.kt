@@ -26,7 +26,7 @@ internal class GradesMasterPaneBinder(
         val tvBadge: TextView
     )
 
-    private val context: Context? get() = context
+    private val context: Context? get() = fragment.context
     private val masterRowHolders = mutableListOf<MasterRowHolder>()
 
     fun populateGradesSemesterMasterList(report: GradeReport) {
