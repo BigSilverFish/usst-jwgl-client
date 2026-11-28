@@ -50,6 +50,18 @@
       "semester_title": "2024-2025学年 第1学期",
       "start_date": "2024-09-02",
       "max_week": 20
+    },
+    {
+      "semester_id": "2023-2024-2",
+      "semester_title": "2023-2024学年 第2学期",
+      "start_date": "2024-02-26",
+      "max_week": 20
+    },
+    {
+      "semester_id": "2023-2024-1",
+      "semester_title": "2023-2024学年 第1学期",
+      "start_date": "2023-08-28",
+      "max_week": 20
     }
   ],
   "adjustments": [
@@ -83,6 +95,16 @@
       "target_weekday": 3,
       "target_week": 5,
       "remark": "10月10日(周六)上第5周周三的课"
+    },
+    {
+      "id": "2027_new_year",
+      "semester_id": "2026-2027-1",
+      "name": "元旦节",
+      "type": "HOLIDAY_OFF",
+      "dates": [
+        "2027-01-01"
+      ],
+      "remark": "元旦节放假停课"
     }
   ],
   "announcement": {
