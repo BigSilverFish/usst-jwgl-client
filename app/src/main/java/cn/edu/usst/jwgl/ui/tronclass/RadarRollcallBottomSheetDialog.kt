@@ -193,12 +193,16 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
                         accuracyMeters = selectedAccuracy
                     )
                 )
-                binding.tvCoordinatesDisplay.text = String.format(
-                    Locale.CHINA,
-                    "纬度: %.6f, 经度: %.6f",
-                    selectedLatitude,
-                    selectedLongitude
-                )
+                binding.tvCoordinatesDisplay.text = if (selectedLatitude == 0.0 && selectedLongitude == 0.0) {
+                    "等待三点测距反解..."
+                } else {
+                    String.format(
+                        Locale.CHINA,
+                        "纬度: %.6f, 经度: %.6f",
+                        selectedLatitude,
+                        selectedLongitude
+                    )
+                }
                 binding.tvSelectedBuildingCampus.text = displayTitle
                 binding.tvAccuracyTip.text = accuracyTip
                 updateModeVisibility()
@@ -262,10 +266,12 @@ class RadarRollcallBottomSheetDialog : BottomSheetDialogFragment() {
     }
 
     private fun setupListeners() {
-        binding.rgLocationMode.setOnCheckedChangeListener { _, checkedId ->
-            updateModeVisibility()
-            if (checkedId == R.id.rbModeCurrentGps) {
-                checkLocationPermissionAndFetch()
+        if (radarAddonHandle == null) {
+            binding.rgLocationMode.setOnCheckedChangeListener { _, checkedId ->
+                updateModeVisibility()
+                if (checkedId == R.id.rbModeCurrentGps) {
+                    checkLocationPermissionAndFetch()
+                }
             }
         }
 
