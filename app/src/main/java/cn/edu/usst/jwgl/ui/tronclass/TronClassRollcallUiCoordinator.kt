@@ -495,7 +495,9 @@ internal class TronClassRollcallUiCoordinator(
         val ctx = context ?: return
         val parsed = tronClassClient.parseRollcallQr(rawContents)
         if (parsed != null) {
-            val accounts = if (DevAddonManager.isAddonActive(ctx)) {
+            val accounts = if (DevAddonManager.isAddonActive(ctx) &&
+                TronClassPreferences.getInstance(ctx).isRollcallMultiAccountSignEnabled()
+            ) {
                 try {
                     cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts()
                 } catch (_: Exception) {

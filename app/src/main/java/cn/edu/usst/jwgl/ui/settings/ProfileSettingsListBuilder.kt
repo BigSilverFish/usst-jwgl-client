@@ -252,6 +252,31 @@ object ProfileSettingsListBuilder {
                 }
             }
             if (state.isDeveloperMode) {
+                val multiAccountSubtitle = when {
+                    !state.isMultiAccountSignEnabled -> "已关闭 · 仅对当前登录账号执行签到"
+                    state.savedAccountCount > 1 -> "已开启 · 签到时同步为全部 ${state.savedAccountCount} 个已保存账号提交"
+                    else -> "已开启 · 当前仅登录 1 个账号，添加更多账号后生效"
+                }
+                add(
+                    SettingsRowModel.SwitchRow(
+                        id = SettingsItemId.ROLLCALL_MULTI_ACCOUNT_SIGN,
+                        title = "一机多签",
+                        subtitle = multiAccountSubtitle,
+                        isChecked = state.isMultiAccountSignEnabled,
+                        statusBadgeText = if (state.isMultiAccountSignEnabled && state.savedAccountCount > 1) {
+                            "${state.savedAccountCount} 个账号"
+                        } else {
+                            null
+                        },
+                        statusBadgeTone = if (state.isMultiAccountSignEnabled && state.savedAccountCount > 1) {
+                            StatusTone.SUCCESS
+                        } else {
+                            StatusTone.NEUTRAL
+                        },
+                        iconRes = R.drawable.ic_group,
+                        iconTone = IconTone.GREEN
+                    )
+                )
                 add(
                     SettingsRowModel.ActionRow(
                         id = SettingsItemId.LIVE_QR_TEST,

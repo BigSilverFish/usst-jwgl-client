@@ -426,6 +426,10 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
             hasOverlayPermission = NotificationDiagnosticHelper.isOverlayPermissionGranted(ctx),
             isRollcallAutoSignEnabled = tcPrefs.isRollcallAutoSignEnabled(),
             autoSignStrategyLabel = tcPrefs.getRollcallAutoSignStrategyDisplayName(),
+            isMultiAccountSignEnabled = tcPrefs.isRollcallMultiAccountSignEnabled(),
+            savedAccountCount = runCatching {
+                cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts().size
+            }.getOrDefault(1),
             isPowerfulReminderEnabled = CourseReminderManager.isPowerfulReminderEnabled(ctx),
             missingDiagnosticCount = diagnosticSnapshot.missingItems().size,
             appVersionLabel = "v${BuildConfig.VERSION_NAME}",
@@ -685,6 +689,15 @@ class ProfileSettingsFragment : Fragment(), ProfileSettingsAdapter.Listener {
                     return
                 }
                 tcPrefs.setRollcallAutoSignEnabled(isChecked)
+                refreshSettingsState()
+            }
+            SettingsItemId.ROLLCALL_MULTI_ACCOUNT_SIGN -> {
+                tcPrefs.setRollcallMultiAccountSignEnabled(isChecked)
+                Toast.makeText(
+                    ctx,
+                    if (isChecked) "已开启一机多签" else "已关闭一机多签（仅当前账号签到）",
+                    Toast.LENGTH_SHORT
+                ).show()
                 refreshSettingsState()
             }
             SettingsItemId.POWERFUL_REMINDER -> {

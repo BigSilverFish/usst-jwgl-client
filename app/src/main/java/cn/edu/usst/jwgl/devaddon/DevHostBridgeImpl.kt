@@ -85,8 +85,12 @@ internal class DevHostBridgeImpl(context: Context) : DevHostBridge {
     override fun getSavedAccountsOrdered(): List<HostAccountInfo> {
         val vault = AccountVault.getInstance(appContext)
         val currId = getCurrentStudentId()
-        return MultiAccountRollcallResult.orderAccountsPrimaryFirst(vault.getAccounts(), currId)
+        val ordered = MultiAccountRollcallResult.orderAccountsPrimaryFirst(vault.getAccounts(), currId)
             .map { HostAccountInfo(studentId = it.studentId, studentName = it.studentName) }
+        if (!tcPrefs.isRollcallMultiAccountSignEnabled()) {
+            return ordered.filter { it.studentId == currId }.ifEmpty { ordered.take(1) }
+        }
+        return ordered
     }
 
     override suspend fun ensureTronClassSession(

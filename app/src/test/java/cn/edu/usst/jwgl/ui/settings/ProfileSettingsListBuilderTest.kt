@@ -29,6 +29,8 @@ class ProfileSettingsListBuilderTest {
         isChaoXingLoggedIn: Boolean = false,
         isChaoXingCircuitOpen: Boolean = false,
         isRollcallAutoSignEnabled: Boolean = true,
+        isMultiAccountSignEnabled: Boolean = false,
+        savedAccountCount: Int = 1,
         missingDiagnosticCount: Int = 0
     ): ProfileSettingsState {
         return ProfileSettingsState(
@@ -69,6 +71,8 @@ class ProfileSettingsListBuilderTest {
             hasOverlayPermission = true,
             isRollcallAutoSignEnabled = isRollcallAutoSignEnabled,
             autoSignStrategyLabel = "有10人签到时 (默认)",
+            isMultiAccountSignEnabled = isMultiAccountSignEnabled,
+            savedAccountCount = savedAccountCount,
             isPowerfulReminderEnabled = true,
             missingDiagnosticCount = missingDiagnosticCount,
             appVersionLabel = "v1.3.1",
@@ -354,5 +358,40 @@ class ProfileSettingsListBuilderTest {
             .single { it.id == SettingsItemId.DEV_ADDON_STATUS }
         assertEquals("加载失败", errorAction.badgeText)
         assertEquals(StatusTone.DANGER, errorAction.badgeTone)
+    }
+
+    @Test
+    fun `multi account sign switch shows only in dev mode and reflects saved account count`() {
+        val nonDevIds = ProfileSettingsListBuilder.build(
+            baseState(isDeveloperMode = false, isRollcallMonitorEnabled = true, savedAccountCount = 3)
+        ).ids()
+        assertFalse(SettingsItemId.ROLLCALL_MULTI_ACCOUNT_SIGN in nonDevIds)
+
+        val devMonitorOffRows = ProfileSettingsListBuilder.build(
+            baseState(
+                isDeveloperMode = true,
+                isRollcallMonitorEnabled = false,
+                isMultiAccountSignEnabled = true,
+                savedAccountCount = 3
+            )
+        )
+        val multiOnRow = devMonitorOffRows.filterIsInstance<SettingsRowModel.SwitchRow>()
+            .single { it.id == SettingsItemId.ROLLCALL_MULTI_ACCOUNT_SIGN }
+        assertTrue(multiOnRow.isChecked)
+        assertEquals("3 个账号", multiOnRow.statusBadgeText)
+        assertEquals(StatusTone.SUCCESS, multiOnRow.statusBadgeTone)
+
+        val devDisabledRows = ProfileSettingsListBuilder.build(
+            baseState(
+                isDeveloperMode = true,
+                isMultiAccountSignEnabled = false,
+                savedAccountCount = 3
+            )
+        )
+        val multiOffRow = devDisabledRows.filterIsInstance<SettingsRowModel.SwitchRow>()
+            .single { it.id == SettingsItemId.ROLLCALL_MULTI_ACCOUNT_SIGN }
+        assertFalse(multiOffRow.isChecked)
+        assertNull(multiOffRow.statusBadgeText)
+        assertTrue(multiOffRow.subtitle!!.contains("仅对当前登录账号"))
     }
 }

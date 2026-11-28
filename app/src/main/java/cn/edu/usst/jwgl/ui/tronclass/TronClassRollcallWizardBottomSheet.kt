@@ -201,6 +201,18 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             }
         }
 
+        // 一机多签总开关
+        binding.switchMultiAccountSign.setOnCheckedChangeListener { _, isChecked ->
+            if (prefs.isRollcallMultiAccountSignEnabled() != isChecked) {
+                prefs.setRollcallMultiAccountSignEnabled(isChecked)
+                updateSwitchStates(prefs)
+            }
+        }
+
+        binding.layoutMultiAccountSignRow.setOnClickListener {
+            binding.switchMultiAccountSign.isChecked = !binding.switchMultiAccountSign.isChecked
+        }
+
         // 4. 底部辅助操作
         binding.btnDiagnostic.setOnClickListener {
             dismiss()
@@ -250,6 +262,8 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
         val isDev = DevAddonManager.getEntry(ctx).autoSignExtension.isAutoSignAvailable()
         binding.layoutAutoSignRow.visibility = if (isDev) View.VISIBLE else View.GONE
         binding.dividerAutoSign.visibility = if (isDev) View.VISIBLE else View.GONE
+        binding.layoutMultiAccountSignRow.visibility = if (isDev) View.VISIBLE else View.GONE
+        binding.dividerMultiAccountSign.visibility = if (isDev) View.VISIBLE else View.GONE
 
         binding.switchAutoSign.isEnabled = isMonitor
         binding.switchAutoSign.isChecked = isMonitor && isAutoSign
@@ -259,6 +273,19 @@ class TronClassRollcallWizardBottomSheet : BottomSheetDialogFragment() {
             !isMonitor -> "未启用 (需先开启上方后台监听)"
             !isAutoSign -> "已关闭自动提交 (仅保留监听与弹窗)"
             else -> "当前策略: $strategyText · 点击配置"
+        }
+
+        val isMultiAccountSign = prefs.isRollcallMultiAccountSignEnabled()
+        if (binding.switchMultiAccountSign.isChecked != isMultiAccountSign) {
+            binding.switchMultiAccountSign.isChecked = isMultiAccountSign
+        }
+        val savedAccounts = runCatching {
+            cn.edu.usst.jwgl.data.local.AccountVault.getInstance(ctx).getAccounts().size
+        }.getOrDefault(1)
+        binding.tvMultiAccountSignDesc.text = when {
+            !isMultiAccountSign -> "已关闭 · 仅对当前登录账号执行签到"
+            savedAccounts > 1 -> "已开启 · 签到时同步为全部 $savedAccounts 个已保存账号提交"
+            else -> "已开启 · 当前仅登录 1 个账号，添加更多账号后生效"
         }
     }
 

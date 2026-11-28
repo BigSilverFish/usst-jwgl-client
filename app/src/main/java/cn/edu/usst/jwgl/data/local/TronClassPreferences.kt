@@ -48,6 +48,7 @@ class TronClassPreferences(private val context: Context) {
         private const val KEY_DDL_URGENT_HOURS = "tc_ddl_urgent_hours"
         private const val KEY_ROLLCALL_MONITOR_ENABLED = "tc_rollcall_monitor_enabled"
         private const val KEY_ROLLCALL_AUTO_SIGN_ENABLED = "tc_rollcall_auto_sign_enabled"
+        private const val KEY_ROLLCALL_MULTI_ACCOUNT_SIGN_ENABLED = "tc_rollcall_multi_account_sign_enabled"
         private const val KEY_ROLLCALL_AUTO_SIGN_DELAY_SECONDS = "tc_rollcall_auto_sign_delay_seconds"
         private const val KEY_ROLLCALL_WAIT_FOR_OTHERS = "tc_rollcall_wait_for_others"
         private const val KEY_ROLLCALL_AUTO_SIGN_STRATEGY = "tc_rollcall_auto_sign_strategy"
@@ -494,6 +495,15 @@ class TronClassPreferences(private val context: Context) {
 
     fun setRollcallAutoSignEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ROLLCALL_AUTO_SIGN_ENABLED, enabled).apply()
+    }
+
+    /**
+     * 一机多签总开关（控制是否同步为全部已保存账号提交签到）
+     */
+    fun isRollcallMultiAccountSignEnabled(): Boolean = prefs.getBoolean(KEY_ROLLCALL_MULTI_ACCOUNT_SIGN_ENABLED, false)
+
+    fun setRollcallMultiAccountSignEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ROLLCALL_MULTI_ACCOUNT_SIGN_ENABLED, enabled).apply()
     }
 
     /**
